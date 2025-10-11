@@ -52,6 +52,14 @@ public sealed class PermissionsView
     public bool? AdministratorsReadAllowed { get; set; }
     /// <summary>Windows: True when explicit deny ACE(s) are present.</summary>
     public bool? HasDenyEntries { get; set; }
+    /// <summary>Windows: Total allow ACEs.</summary>
+    public int? TotalAllowCount { get; set; }
+    /// <summary>Windows: Total deny ACEs.</summary>
+    public int? TotalDenyCount { get; set; }
+    /// <summary>Windows: Explicit (non-inherited) allow ACEs.</summary>
+    public int? ExplicitAllowCount { get; set; }
+    /// <summary>Windows: Explicit (non-inherited) deny ACEs.</summary>
+    public int? ExplicitDenyCount { get; set; }
 
     public static PermissionsView From(string path, FileSecurity? s) => new PermissionsView {
         Path = path,
@@ -73,6 +81,10 @@ public sealed class PermissionsView
         BuiltinUsersReadAllowed = s?.BuiltinUsersReadAllowed,
         AdministratorsWriteAllowed = s?.AdministratorsWriteAllowed,
         AdministratorsReadAllowed = s?.AdministratorsReadAllowed,
-        HasDenyEntries = s?.HasDenyEntries
+        HasDenyEntries = s?.HasDenyEntries,
+        TotalAllowCount = s?.TotalAllowCount,
+        TotalDenyCount = s?.TotalDenyCount,
+        ExplicitAllowCount = s?.ExplicitAllowCount,
+        ExplicitDenyCount = s?.ExplicitDenyCount
     };
 }

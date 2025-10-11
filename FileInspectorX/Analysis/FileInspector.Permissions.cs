@@ -81,19 +81,43 @@ public static partial class FileInspector
                 bool everyoneWrite = false, authUsersWrite = false, everyoneRead = false;
                 bool usersWrite = false, usersRead = false, adminsWrite = false, adminsRead = false;
                 bool hasDeny = false;
+                int allow = 0, deny = 0, expAllow = 0, expDeny = 0;
                 var sidUsers = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null);
                 var sidAdmins = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+                var entries = new List<FileAce>(16);
                 foreach (System.Security.AccessControl.FileSystemAccessRule r in rules) {
                     var sid = (System.Security.Principal.SecurityIdentifier)r.IdentityReference;
                     var rights = r.FileSystemRights;
                     bool isAllow = r.AccessControlType == System.Security.AccessControl.AccessControlType.Allow;
-                    if (!isAllow) { hasDeny = true; continue; }
+                    bool isInherited = r.IsInherited;
+                    if (isAllow) { allow++; if (!isInherited) expAllow++; } else { deny++; if (!isInherited) expDeny++; hasDeny = true; }
+
                     bool grantsWrite = (rights & (System.Security.AccessControl.FileSystemRights.Write | System.Security.AccessControl.FileSystemRights.Modify | System.Security.AccessControl.FileSystemRights.FullControl | System.Security.AccessControl.FileSystemRights.WriteData)) != 0;
                     bool grantsRead = (rights & (System.Security.AccessControl.FileSystemRights.Read | System.Security.AccessControl.FileSystemRights.ReadAndExecute | System.Security.AccessControl.FileSystemRights.ListDirectory | System.Security.AccessControl.FileSystemRights.ReadAttributes)) != 0;
-                    if (sid.IsWellKnown(System.Security.Principal.WellKnownSidType.WorldSid)) { if (grantsWrite) everyoneWrite = true; if (grantsRead) everyoneRead = true; }
-                    if (sid.IsWellKnown(System.Security.Principal.WellKnownSidType.AuthenticatedUserSid)) { if (grantsWrite) authUsersWrite = true; }
-                    if (sid == sidUsers) { if (grantsWrite) usersWrite = true; if (grantsRead) usersRead = true; }
-                    if (sid == sidAdmins) { if (grantsWrite) adminsWrite = true; if (grantsRead) adminsRead = true; }
+                    bool grantsExec = (rights & (System.Security.AccessControl.FileSystemRights.ExecuteFile | System.Security.AccessControl.FileSystemRights.ReadAndExecute)) != 0;
+                    bool grantsFull = (rights & System.Security.AccessControl.FileSystemRights.FullControl) != 0;
+
+                    if (sid.IsWellKnown(System.Security.Principal.WellKnownSidType.WorldSid)) { if (grantsWrite && isAllow) everyoneWrite = true; if (grantsRead && isAllow) everyoneRead = true; }
+                    if (sid.IsWellKnown(System.Security.Principal.WellKnownSidType.AuthenticatedUserSid)) { if (grantsWrite && isAllow) authUsersWrite = true; }
+                    if (sid == sidUsers) { if (grantsWrite && isAllow) usersWrite = true; if (grantsRead && isAllow) usersRead = true; }
+                    if (sid == sidAdmins) { if (grantsWrite && isAllow) adminsWrite = true; if (grantsRead && isAllow) adminsRead = true; }
+
+                    // Build simplified ACE entry
+                    var parts = new System.Collections.Generic.List<string>(4);
+                    if (grantsRead) parts.Add("Read");
+                    if (grantsWrite) parts.Add("Write");
+                    if (grantsExec) parts.Add("Execute");
+                    if (!grantsFull && (rights & System.Security.AccessControl.FileSystemRights.Modify) != 0) parts.Add("Modify");
+                    string rightsLabel = grantsFull ? "FullControl" : string.Join(",", parts);
+                    string principalName = sid.Translate(typeof(System.Security.Principal.NTAccount)) is System.Security.Principal.NTAccount nt ? nt.Value : sid.Value;
+                    entries.Add(new FileAce {
+                        AccessControlType = isAllow ? "Allow" : "Deny",
+                        Principal = principalName,
+                        PrincipalSid = sid.Value,
+                        Rights = rightsLabel,
+                        RawRights = rights.ToString(),
+                        IsInherited = isInherited
+                    });
                 }
                 info.EveryoneWriteAllowed = everyoneWrite;
                 info.AuthenticatedUsersWriteAllowed = authUsersWrite;
@@ -103,6 +127,11 @@ public static partial class FileInspector
                 info.AdministratorsWriteAllowed = adminsWrite;
                 info.AdministratorsReadAllowed = adminsRead;
                 info.HasDenyEntries = hasDeny;
+                info.TotalAllowCount = allow;
+                info.TotalDenyCount = deny;
+                info.ExplicitAllowCount = expAllow;
+                info.ExplicitDenyCount = expDeny;
+                info.AclEntries = entries;
             } catch { }
         } catch { }
 #endif

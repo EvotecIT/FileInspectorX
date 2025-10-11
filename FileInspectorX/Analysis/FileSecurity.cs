@@ -53,4 +53,16 @@ public sealed class FileSecurity
     public bool? AdministratorsReadAllowed { get; set; }
     /// <summary>Windows: True when any explicit deny ACE is present.</summary>
     public bool? HasDenyEntries { get; set; }
+
+    /// <summary>Windows: Total allow ACEs.</summary>
+    public int? TotalAllowCount { get; set; }
+    /// <summary>Windows: Total deny ACEs.</summary>
+    public int? TotalDenyCount { get; set; }
+    /// <summary>Windows: Explicit (non-inherited) allow ACEs.</summary>
+    public int? ExplicitAllowCount { get; set; }
+    /// <summary>Windows: Explicit (non-inherited) deny ACEs.</summary>
+    public int? ExplicitDenyCount { get; set; }
+
+    /// <summary>Windows: Flattened ACE entries for display and inspection.</summary>
+    public IReadOnlyList<FileAce>? AclEntries { get; set; }
 }
