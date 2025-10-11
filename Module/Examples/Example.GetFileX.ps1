@@ -1,9 +1,9 @@
-# Clear the FastestWins fastest-endpoint cache
-Clear-DnsMultiResolverCache
+# Example usages of FileInspectorX PowerShell wrapper
 
-# Clear for specific providers
-Clear-DnsMultiResolverCache -ResolverDnsProvider Cloudflare,Google
+# Analyze a single file
+Get-FileInsight -Path "$PSScriptRoot/../../README.MD" -ErrorAction SilentlyContinue
 
-# Clear for specific endpoints
-Clear-DnsMultiResolverCache -ResolverEndpoint '1.1.1.1:53','https://dns.google/dns-query'
+# Detect only (skip analysis) for all EXE files in current folder
+Get-ChildItem -Filter *.exe -File -Recurse -ErrorAction SilentlyContinue |
+    ForEach-Object { Get-FileInsight -Path $_.FullName -DetectOnly }
 

@@ -7,12 +7,11 @@
             Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">
             net8.0
         </TargetFrameworks>
-        <Title>DnsClientX PowerShell Module</Title>
-        <Description>PowerShell module for DnsClientX DNS library. Provides cmdlets for DNS queries,
-            service discovery, zone transfers, and DNS updates.</Description>
-        <AssemblyName>DnsClientX.PowerShell</AssemblyName>
-        <AssemblyTitle>DnsClientX PowerShell Module</AssemblyTitle>
-        <VersionPrefix>1.0.4</VersionPrefix>
+        <Title>FileInspectorX PowerShell Module</Title>
+        <Description>PowerShell module for the FileInspectorX library. Exposes thin cmdlets over content detection and file analysis APIs.</Description>
+        <AssemblyName>FileInspectorX.PowerShell</AssemblyName>
+        <AssemblyTitle>FileInspectorX PowerShell Module</AssemblyTitle>
+        <VersionPrefix>0.1.0</VersionPrefix>
         <AssemblyVersion>1.0.0</AssemblyVersion>
         <FileVersion>1.0.0</FileVersion>
         <GeneratePackageOnBuild>False</GeneratePackageOnBuild>

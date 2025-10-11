@@ -6,7 +6,7 @@ namespace FileInspectorX;
 /// Internal logger that allows writing diagnostic information to various sinks.
 /// </summary>
 /// <remarks>
-/// The logger is used internally by <see cref="FileInspectorX"/> and can be subscribed to for troubleshooting output.
+/// The logger is used internally by <see cref="FileInspector"/> and can be subscribed to for troubleshooting output.
 /// </remarks>
 public class InternalLogger {
     private readonly object _lock = new object();
@@ -209,90 +209,5 @@ public class InternalLogger {
                 Console.WriteLine("[information] " + message, args);
             }
         }
-    }
-}
-
-/// <summary>
-/// Represents the arguments for a log event.
-/// </summary>
-/// <seealso cref="System.EventArgs" />
-public class LogEventArgs : EventArgs {
-    /// <summary>
-    /// Progress percentage
-    /// </summary>
-    public int? ProgressPercentage { get; set; }
-
-    /// <summary>
-    /// Progress total steps
-    /// </summary>
-    public int? ProgressTotalSteps { get; set; }
-
-    /// <summary>
-    /// Progress current steps
-    /// </summary>
-    public int? ProgressCurrentSteps { get; set; }
-
-    /// <summary>
-    /// Progress current operation
-    /// </summary>
-    public string ProgressCurrentOperation { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Progress activity
-    /// </summary>
-    public string ProgressActivity { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Message to be written including arguments substitution
-    /// </summary>
-    public string FullMessage { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Message to be written
-    /// </summary>
-    public string Message { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the arguments.
-    /// </summary>
-    /// <value>
-    /// The arguments.
-    /// </value>
-    public object[] Args { get; set; } = Array.Empty<object>();
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="LogEventArgs"/> class.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <param name="args">The arguments.</param>
-    public LogEventArgs(string message, object[] args) {
-        Message = message;
-        Args = args;
-        FullMessage = string.Format(message, args);
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="LogEventArgs"/> class.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    public LogEventArgs(string message) {
-        Message = message;
-        FullMessage = message;
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="LogEventArgs"/> class.
-    /// </summary>
-    /// <param name="activity">The activity.</param>
-    /// <param name="currentOperation">The current operation.</param>
-    /// <param name="currentSteps">The current steps.</param>
-    /// <param name="totalSteps">The total steps.</param>
-    /// <param name="percentage">The progress percentage.</param>
-    public LogEventArgs(string activity, string currentOperation, int? currentSteps, int? totalSteps, int? percentage) {
-        ProgressActivity = activity;
-        ProgressCurrentOperation = currentOperation;
-        ProgressCurrentSteps = currentSteps;
-        ProgressTotalSteps = totalSteps;
-        ProgressPercentage = percentage;
     }
 }

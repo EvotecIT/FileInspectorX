@@ -1,11 +1,11 @@
 namespace FileInspectorX;
 
 /// <summary>
-/// Settings for the DnsClientX library.
-/// Provides interface for setting logging levels and number of threads to use.
+/// Global settings for the FileInspectorX library.
+/// Controls verbosity of the built-in <see cref="InternalLogger"/> used by analysis helpers.
 /// </summary>
 /// <remarks>
-/// Adjust these settings before issuing queries to control the verbosity of diagnostic information.
+/// Adjust these flags to direct diagnostic information while running detection/analysis. No thread settings are required.
 /// </remarks>
 public class Settings {
     /// <summary>

@@ -4,9 +4,6 @@ namespace FileInspectorX;
 /// Result of content type detection using built-in FileInspector.
 /// </summary>
 public sealed class ContentTypeDetectionResult {
-    /// <summary>
-    /// Detected canonical extension (without leading dot), e.g., "png".
-    /// </summary>
     /// <summary>Detected canonical extension (without leading dot), e.g., "png".</summary>
     public string Extension { get; set; } = string.Empty;
 

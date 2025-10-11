@@ -75,7 +75,7 @@ Build-Module -ModuleName 'FileInspectorX' {
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
         DotSourceLibraries                = $true
-        NETSearchClass                    = 'FileInspectorX.PowerShell.CmdletResolveFileQuery'
+        NETSearchClass                    = 'FileInspectorX.PowerShell.CmdletGetFileInsight'
         NETBinaryModuleDocumentation      = $true
         RefreshPSD1Only                   = $true
     }

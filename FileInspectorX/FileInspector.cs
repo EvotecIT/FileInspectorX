@@ -54,9 +54,6 @@ public static partial class FileInspector {
         } catch { return string.Empty; }
     }
     /// <summary>
-    /// Detects content type from file magic signatures. Returns null when unknown.
-    /// </summary>
-    /// <summary>
     /// Detects content type from a file path using magic bytes and heuristics. Returns null when unknown.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path) {
@@ -133,7 +130,7 @@ public static partial class FileInspector {
         }
 
         if (Signatures.TryMatchText(src, out var text)) {
-            if (text.Extension == "json") {
+            if (text is not null && text.Extension == "json") {
                 var refined = TryRefineGltfJson(stream);
                 if (refined != null) return Enrich(refined, src, stream, options);
             }

@@ -9,11 +9,11 @@ $AssemblyFolders = Get-ChildItem -Path $PSScriptRoot\bin\Debug\net472 -File -Err
 
 # to speed up development adding direct path to binaries, instead of the the Lib folder
 $Development = $true
-$DevelopmentPath = "$PSScriptRoot\..\DnsClientX.PowerShell\bin\Debug"
+$DevelopmentPath = "$PSScriptRoot\..\FileInspectorX.PowerShell\bin\Debug"
 $DevelopmentFolderCore = "net8.0"
 $DevelopmentFolderDefault = "net472"
 $BinaryModules = @(
-    "DnsClientX.PowerShell.dll"
+    "FileInspectorX.PowerShell.dll"
 )
 # Lets find which libraries we need to load
 $Default = $false

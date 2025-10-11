@@ -28,6 +28,27 @@ public static class MimeMaps {
         ["docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ["xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ["pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ["epub"] = "application/epub+zip",
+        ["jar"] = "application/java-archive",
+        ["apk"] = "application/vnd.android.package-archive",
+        ["ipa"] = "application/zip",
+        ["vsix"] = "application/zip",
+        ["xap"] = "application/x-silverlight-app",
+        ["kmz"] = "application/vnd.google-earth.kmz",
+        ["odt"] = "application/vnd.oasis.opendocument.text",
+        ["ods"] = "application/vnd.oasis.opendocument.spreadsheet",
+        ["odp"] = "application/vnd.oasis.opendocument.presentation",
+        ["odg"] = "application/vnd.oasis.opendocument.graphics",
+        ["parquet"] = "application/vnd.apache.parquet",
+        ["pcap"] = "application/vnd.tcpdump.pcap",
+        ["pcapng"] = "application/x-pcapng",
+        ["flac"] = "audio/flac",
+        ["wasm"] = "application/wasm",
+        ["bz2"] = "application/x-bzip2",
+        ["xz"] = "application/x-xz",
+        ["zst"] = "application/zstd",
+        ["ico"] = "image/x-icon",
+
         ["mp4"] = "video/mp4",
         ["m4a"] = "audio/mp4",
         ["3gp"] = "video/3gpp",
@@ -49,7 +70,7 @@ public static class MimeMaps {
     public static bool TryGetByExtension(string? extension, out string? mime) {
         mime = null;
         if (string.IsNullOrWhiteSpace(extension)) return false;
-        var key = extension.Trim().TrimStart('.');
+        var key = extension!.Trim().TrimStart('.');
         return Default.TryGetValue(key, out mime);
     }
 }
@@ -58,7 +79,6 @@ public static class MimeMaps {
 /// Convenience set of commonly risky executable/script extensions; not a policy, used only for hints.
 /// </summary>
 public static class DangerousExtensions {
-    // Not a policy: a convenience list of commonly risky executable/script types.
     public static readonly ISet<string> Default = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "exe", "dll", "sys", "msi", "msp", "cpl", "scr", "pif", "com",
@@ -68,6 +88,8 @@ public static class DangerousExtensions {
 
     public static bool IsDangerous(string? extension) {
         if (string.IsNullOrWhiteSpace(extension)) return false;
-        return Default.Contains(extension.Trim().TrimStart('.'));
+        var key = extension!.Trim().TrimStart('.');
+        return Default.Contains(key);
     }
 }
+
