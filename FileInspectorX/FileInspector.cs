@@ -15,6 +15,13 @@ public static partial class FileInspector {
         public bool ComputeSha256 { get; set; } = false;
         /// <summary>When &gt; 0, captures the first N bytes of the header as uppercase hex into <see cref="ContentTypeDetectionResult.MagicHeaderHex"/>.</summary>
         public int MagicHeaderBytes { get; set; } = 0; // 0 = skip
+        /// <summary>
+        /// When true, indicates callers intend a detection-only pass. Helper APIs may honor this by running
+        /// only detection and returning a minimal <see cref="FileInspectorX.FileAnalysis"/> (when used with
+        /// <see cref="FileInspectorX.FileInspector.Inspect(string, FileInspectorX.FileInspector.DetectionOptions?)"/>).
+        /// This does not affect <see cref="FileInspectorX.FileInspector.Detect(string)"/> which is always detection-only.
+        /// </summary>
+        public bool DetectOnly { get; set; } = false;
     }
 
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
@@ -55,11 +62,13 @@ public static partial class FileInspector {
     }
     /// <summary>
     /// Detects content type from a file path using magic bytes and heuristics. Returns null when unknown.
+    /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path) {
         try {
             if (Signatures.TryMatchUdf(path, out var udf)) return udf;
             if (Signatures.TryMatchIso(path, out var iso)) return iso;
+            if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
             using var fs = File.OpenRead(path);
             // Try MSG (.msg) path-based detection (OLE with msg markers)
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
@@ -74,6 +83,7 @@ public static partial class FileInspector {
         try {
             if (Signatures.TryMatchUdf(path, out var udf)) return udf;
             if (Signatures.TryMatchIso(path, out var iso)) return iso;
+            if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
             using var fs = File.OpenRead(path);
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
             return Detect(fs, options);
@@ -82,10 +92,12 @@ public static partial class FileInspector {
 
     /// <summary>
     /// Detects content type from a readable stream; the stream is rewound where possible.
+    /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(Stream stream, DetectionOptions? options = null) {
         options ??= new DetectionOptions();
-        var header = new byte[4096];
+        var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
+        var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
@@ -117,6 +129,10 @@ public static partial class FileInspector {
                         GuessedExtension = guess
                     };
                     return Enrich(basicZip, src, stream, options);
+                }
+                if (sig.Extension == "ole2" && stream is not null) {
+                    var refinedOle = TryRefineOle2Subtype(stream);
+                    if (refinedOle != null) return Enrich(refinedOle, src, stream, options);
                 }
                 var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                 var basic = new ContentTypeDetectionResult {
@@ -153,6 +169,46 @@ public static partial class FileInspector {
                 return new ContentTypeDetectionResult { Extension = "gltf", MimeType = "model/gltf+json", Confidence = "Medium", Reason = "gltf:json" };
             }
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+        } catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// Unified entry point for consumers who want a single method.
+    /// When <paramref name="options"/> has <c>DetectOnly</c> true, returns a minimal <see cref="FileInspectorX.FileAnalysis"/>
+    /// wrapping detection (equivalent to calling <see cref="FileInspectorX.FileInspector.Detect(string, FileInspectorX.FileInspector.DetectionOptions?)"/>).
+    /// Otherwise performs full analysis (equivalent to <see cref="FileInspectorX.FileInspector.Analyze(string, FileInspectorX.FileInspector.DetectionOptions?)"/>).
+    /// <example>
+    /// var detOnly = FileInspector.Inspect(path, new FileInspector.DetectionOptions { DetectOnly = true });
+    /// var full    = FileInspector.Inspect(path, new FileInspector.DetectionOptions { ComputeSha256 = true });
+    /// </example>
+    /// </summary>
+    public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
+    {
+        options ??= new DetectionOptions();
+        if (options.DetectOnly)
+        {
+            var det = Detect(path, options);
+            return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+        }
+        return Analyze(path, options);
+    }
+
+    private static ContentTypeDetectionResult? TryRefineOle2Subtype(Stream stream) {
+        try {
+            long pos = stream.CanSeek ? stream.Position : 0;
+            if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
+            int cap = Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
+            var buf = new byte[cap];
+            int n = stream.Read(buf, 0, buf.Length);
+            if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+            var ascii = System.Text.Encoding.ASCII.GetString(buf, 0, n);
+            if (ascii.IndexOf("WordDocument", StringComparison.OrdinalIgnoreCase) >= 0)
+                return new ContentTypeDetectionResult { Extension = "doc", MimeType = "application/msword", Confidence = "Medium", Reason = "ole2:word" };
+            if (ascii.IndexOf("Workbook", StringComparison.OrdinalIgnoreCase) >= 0)
+                return new ContentTypeDetectionResult { Extension = "xls", MimeType = "application/vnd.ms-excel", Confidence = "Medium", Reason = "ole2:xls" };
+            if (ascii.IndexOf("PowerPoint Document", StringComparison.OrdinalIgnoreCase) >= 0)
+                return new ContentTypeDetectionResult { Extension = "ppt", MimeType = "application/vnd.ms-powerpoint", Confidence = "Medium", Reason = "ole2:ppt" };
         } catch { }
         return null;
     }
@@ -263,7 +319,7 @@ public static partial class FileInspector {
             if (result is null) {
                 result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
             } else {
-                result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension };
+                result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension };
             }
         }
         if (options.ComputeSha256 && stream != null) {
@@ -275,7 +331,7 @@ public static partial class FileInspector {
                 if (result is null) {
                     result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", Sha256Hex = hex };
                 } else {
-                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension };
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension };
                 }
             } catch { /* ignore */ } finally { if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin); }
         }

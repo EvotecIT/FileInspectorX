@@ -9,6 +9,7 @@
     <Description>FileInspector: dependency-free content type detection (magic bytes + heuristics)</Description>
     <AssemblyName>FileInspector</AssemblyName>
     <VersionPrefix>0.1.0</VersionPrefix>
+    <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +28,12 @@
   <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
     <PackageReference Include="System.Memory" Version="4.5.5" />
     <PackageReference Include="System.IO.Compression" Version="4.3.0" />
+  </ItemGroup>
+
+  <!-- Authenticode requires SignedCms + ASN.1; reference for all TFMs we target -->
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.1" />
+    <PackageReference Include="System.Formats.Asn1" Version="8.0.1" />
   </ItemGroup>
 
 </Project>

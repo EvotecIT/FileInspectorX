@@ -42,7 +42,8 @@ internal static partial class Signatures {
                     ReadOnlySpan<byte> pat = "CD001"u8;
                     var buf = new byte[8192];
                     int read; long total = 0;
-                    while ((read = s.Read(buf, 0, buf.Length)) > 0 && total < 1_000_000) {
+                    int cap = FileInspectorX.Settings.DetectionReadBudgetBytes;
+                    while ((read = s.Read(buf, 0, buf.Length)) > 0 && total < cap) {
                         var span = new ReadOnlySpan<byte>(buf, 0, read);
                         for (int i = 0; i + pat.Length <= span.Length; i++) if (span.Slice(i, pat.Length).SequenceEqual(pat)) return true;
                         total += read;
@@ -86,5 +87,21 @@ internal static partial class Signatures {
         } catch { }
         return false;
     }
-}
 
+    internal static bool TryMatchDmg(string path, out ContentTypeDetectionResult? result) {
+        // Apple UDIF (DMG) has 512-byte trailer at EOF starting with 'koly'
+        result = null;
+        try {
+            using var fs = File.OpenRead(path);
+            if (fs.Length < 512) return false;
+            fs.Seek(-512, SeekOrigin.End);
+            var buf = new byte[4];
+            int n = fs.Read(buf, 0, 4);
+            if (n == 4 && buf[0] == (byte)'k' && buf[1] == (byte)'o' && buf[2] == (byte)'l' && buf[3] == (byte)'y') {
+                result = new ContentTypeDetectionResult { Extension = "dmg", MimeType = "application/x-apple-diskimage", Confidence = "Medium", Reason = "udif:koly" };
+                return true;
+            }
+        } catch { }
+        return false;
+    }
+}

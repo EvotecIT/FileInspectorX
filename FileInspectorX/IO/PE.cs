@@ -27,6 +27,8 @@ internal static class PeReader {
             ushort magic = br.ReadUInt16();
             bool isPlus = magic == 0x20b; info.IsPEPlus = isPlus;
             int ddOffset = isPlus ? 0x70 : 0x60;
+            // Checksum field is at OptionalHeader + 0x40 for both PE32 and PE32+
+            info.ChecksumFileOffset = optStart + 0x40;
             fs.Seek(optStart + ddOffset, SeekOrigin.Begin);
             uint[] ddVa = new uint[16];
             uint[] ddSz = new uint[16];
@@ -36,13 +38,14 @@ internal static class PeReader {
             fs.Seek(optStart + sizeOptionalHeader, SeekOrigin.Begin);
             var secs = new List<Section>(numberOfSections);
             for (int i = 0; i < numberOfSections; i++) {
-                fs.Seek(8, SeekOrigin.Current);
+                var nameBytes = br.ReadBytes(8);
+                string secName = System.Text.Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
                 uint virtualSize = br.ReadUInt32();
                 uint virtualAddress = br.ReadUInt32();
                 uint sizeOfRawData = br.ReadUInt32();
                 uint pointerToRawData = br.ReadUInt32();
                 fs.Seek(16, SeekOrigin.Current);
-                secs.Add(new Section { VirtualAddress = virtualAddress, VirtualSize = virtualSize, SizeOfRawData = sizeOfRawData, PointerToRawData = pointerToRawData });
+                secs.Add(new Section { Name = secName, VirtualAddress = virtualAddress, VirtualSize = virtualSize, SizeOfRawData = sizeOfRawData, PointerToRawData = pointerToRawData });
             }
             info.Sections = secs.ToArray();
             return true;
@@ -125,4 +128,3 @@ internal static class PeReader {
         }
     }
 }
-

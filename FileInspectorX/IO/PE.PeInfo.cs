@@ -7,6 +7,7 @@ internal sealed class PeInfo {
     public bool IsPE;
     public bool IsPEPlus;
     public long OptionalHeaderStart;
+    public long ChecksumFileOffset;
     public ushort NumberOfSections;
     public Section[] Sections = Array.Empty<Section>();
     public uint ResourceRva;
@@ -15,4 +16,3 @@ internal sealed class PeInfo {
     public uint SecurityOffset;
     public uint SecuritySize;
 }
-

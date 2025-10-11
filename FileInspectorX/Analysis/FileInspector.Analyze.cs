@@ -24,13 +24,14 @@ public static partial class FileInspector {
 
             // OOXML macros and ZIP container hints
             if (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip") {
-                TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts);
+                TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
+                if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
                 if (det.Extension is "docx" && hasMacros) res.GuessedExtension ??= "docm";
                 if (det.Extension is "xlsx" && hasMacros) res.GuessedExtension ??= "xlsm";
                 if (det.Extension is "pptx" && hasMacros) res.GuessedExtension ??= "pptm";
@@ -38,11 +39,12 @@ public static partial class FileInspector {
 
             // TAR scan hints
             if (det.Extension == "tar") {
-                TryInspectTar(path, out int? count, out var topExt, out bool hasExec, out bool hasScripts);
+                TryInspectTar(path, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
+                if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
             }
 
             // Shebang/script detection for textlike files
@@ -52,6 +54,52 @@ public static partial class FileInspector {
                     res.Flags |= ContentFlags.IsScript;
                     res.ScriptLanguage = MapShebang(first);
                 }
+                // JS minified heuristic if file extension is .js
+                var declaredExt = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
+                if (declaredExt == "js") {
+                    if (LooksMinifiedJs(path, Settings.DetectionReadBudgetBytes,
+                        Settings.JsMinifiedMinLength,
+                        Settings.JsMinifiedAvgLineThreshold,
+                        Settings.JsMinifiedDensityThreshold)) {
+                        res.Flags |= ContentFlags.JsLooksMinified;
+                    }
+                }
+                // Potentially dangerous scripts by type
+                if (declaredExt is "ps1" or "sh" or "bat" or "cmd") {
+                    res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+                }
+                // Set TextSubtype for common text families
+                res.TextSubtype = declaredExt switch {
+                    "md" => "markdown",
+                    "yml" or "yaml" => "yaml",
+                    "json" => "json",
+                    "xml" => "xml",
+                    "csv" => "csv",
+                    "tsv" => "tsv",
+                    "log" => "log",
+                    "ps1" or "psm1" or "psd1" => "powershell",
+                    "vbs" => "vbscript",
+                    "sh" or "bash" or "zsh" => "shell",
+                    "bat" or "cmd" => "batch",
+                    _ => res.TextSubtype
+                };
+
+                // Lightweight script security assessment
+                var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
+                if (sf.Count > 0) res.SecurityFindings = sf;
+            }
+
+            // Permissions/ownership snapshot (best-effort; cross-platform)
+            res.Security = BuildFileSecurity(path);
+
+            // PE Authenticode (best-effort, cross-platform) for PE files
+            if (det.Extension is "exe" or "dll" or "sys" or "cpl") {
+                TryPopulateAuthenticode(path, res);
+            }
+
+            // CSV/TSV row estimate (lightweight)
+            if (det.Extension is "csv" or "tsv" || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
+                res.EstimatedLineCount = EstimateLines(path, Settings.DetectionReadBudgetBytes);
             }
 
             // PDF heuristics
@@ -60,6 +108,20 @@ public static partial class FileInspector {
                 if (ContainsIgnoreCase(txt, "/JavaScript") || ContainsIgnoreCase(txt, "/JS")) res.Flags |= ContentFlags.PdfHasJavaScript;
                 if (ContainsIgnoreCase(txt, "/OpenAction")) res.Flags |= ContentFlags.PdfHasOpenAction;
                 if (ContainsIgnoreCase(txt, "/AA")) res.Flags |= ContentFlags.PdfHasAA;
+                // Embedded files via /EmbeddedFiles name tree, /Filespec dictionary and /EF streams
+                if (ContainsIgnoreCase(txt, "/EmbeddedFiles") || (ContainsIgnoreCase(txt, "/Filespec") && ContainsIgnoreCase(txt, "/EF"))) res.Flags |= ContentFlags.PdfHasEmbeddedFiles;
+                if (ContainsIgnoreCase(txt, "/Launch")) res.Flags |= ContentFlags.PdfHasLaunch;
+                if (ContainsIgnoreCase(txt, "/Names")) res.Flags |= ContentFlags.PdfHasNamesTree;
+                // Heuristic: many embedded files (count /Filespec occurrences, threshold > 3)
+                int filespecCount = 0;
+                int idx = 0;
+                while (true) {
+                    int at = txt.IndexOf("/Filespec", idx, StringComparison.OrdinalIgnoreCase);
+                    if (at < 0) break;
+                    filespecCount++;
+                    idx = at + 8;
+                    if (filespecCount > 3) { res.Flags |= ContentFlags.PdfHasManyEmbeddedFiles; break; }
+                }
             }
 
             // PE triage
@@ -71,19 +133,26 @@ public static partial class FileInspector {
 
                 var ver = PeReader.TryExtractVersionStrings(path);
                 if (ver != null && ver.Count > 0) res.VersionInfo = ver;
+                if (PeReader.TryReadPe(path, out var peInfo)) {
+                    if (peInfo.Sections.Any(s => string.Equals(s.Name, "UPX0", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, "UPX1", StringComparison.OrdinalIgnoreCase))) {
+                        res.Flags |= ContentFlags.PeLooksPackedUpx;
+                    }
+                }
             }
 
         } catch { }
         return res;
     }
 
-    private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false;
+    private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int count = 0;
+            hasNestedArchives = false;
+            int sampled = 0; int maxSamples = 16; int headSample = 64;
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
@@ -93,16 +162,37 @@ public static partial class FileInspector {
                 if (!string.IsNullOrEmpty(ext)) exts[ext] = exts.TryGetValue(ext, out var c) ? c + 1 : 1;
                 if (IsExecutableName(name)) hasExecutables = true;
                 if (IsScriptName(name)) hasScripts = true;
+
+                // Light inner-archive sampler: detect nested archives by magic (bounded by samples and size)
+                if (!hasNestedArchives && sampled < maxSamples && e.Length >= 4) {
+                    try {
+                        using var es = e.Open();
+                        var head = new byte[Math.Min(headSample, (int)Math.Min(e.Length, headSample))];
+                        int n = es.Read(head, 0, head.Length);
+                        if (n > 0) {
+                            var span = new ReadOnlySpan<byte>(head, 0, n);
+                            var det = Detect(span, null);
+                            if (det != null) {
+                                var de = det.Extension?.ToLowerInvariant();
+                                if (de is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf") {
+                                    hasNestedArchives = true;
+                                }
+                            }
+                        }
+                    } catch { /* ignore per-entry errors */ }
+                    sampled++;
+                }
             }
             entryCount = count;
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
             var guess = TryGuessZipSubtype(fs, out var _);
             containerSubtype = guess;
+            if (hasNestedArchives && containerSubtype == null) containerSubtype = "nested-archive";
         } catch { }
     }
 
-    private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts) {
-        entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false;
+    private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives) {
+        entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false;
         try {
             using var fs = File.OpenRead(path);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -123,6 +213,26 @@ public static partial class FileInspector {
                     if (IsExecutableName(name)) hasExecutables = true;
                     if (IsScriptName(name)) hasScripts = true;
                     count++;
+                    // Sample small entry head to detect nested archives
+                    if (!hasNestedArchives && size > 0 && size <= 128) {
+                        int sample = (int)Math.Min(64, size);
+                        var head = new byte[sample];
+                        int nhead = fs.Read(head, 0, head.Length);
+                        long pad = ((size + 511) / 512) * 512;
+                        long toSkipRem = pad - nhead;
+                        if (nhead > 0) {
+                            var span = new ReadOnlySpan<byte>(head, 0, nhead);
+                            var det = Detect(span, null);
+                            if (det != null) {
+                                var de = det.Extension?.ToLowerInvariant();
+                                if (de is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf") {
+                                    hasNestedArchives = true;
+                                }
+                            }
+                        }
+                        if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+                        continue;
+                    }
                 }
                 long toSkip = ((size + 511) / 512) * 512;
                 if (toSkip > 0) fs.Seek(toSkip, SeekOrigin.Current);
@@ -195,6 +305,35 @@ public static partial class FileInspector {
             var n = fs.Read(buf, 0, buf.Length);
             return System.Text.Encoding.UTF8.GetString(buf, 0, n);
         } catch { return string.Empty; }
+    }
+
+    private static bool LooksMinifiedJs(string path, int cap, int minLen, int avgLineThreshold, double densityThreshold) {
+        try {
+            var text = ReadHeadText(path, Math.Min(cap, 512 * 1024));
+            if (string.IsNullOrEmpty(text) || text.Length < minLen) return false;
+            int lines = 1; for (int i = 0; i < text.Length; i++) if (text[i] == '\n') lines++;
+            int nonWs = 0; for (int i = 0; i < text.Length; i++) { char c = text[i]; if (!char.IsWhiteSpace(c)) nonWs++; }
+            double avgLineLen = (double)text.Length / Math.Max(1, lines);
+            double density = (double)nonWs / text.Length; // closer to 1 => denser
+            // Heuristic thresholds: long lines, few line breaks, high density
+            return (avgLineLen > avgLineThreshold && lines < text.Length / 300 && density > densityThreshold);
+        } catch { return false; }
+    }
+
+    private static int? EstimateLines(string path, int cap) {
+        try {
+            using var fs = File.OpenRead(path);
+            long len = Math.Min(fs.Length, cap);
+            var buf = new byte[(int)len];
+            int n = fs.Read(buf, 0, buf.Length);
+            if (n <= 0) return 0;
+            int lines = 0; for (int i = 0; i < n; i++) if (buf[i] == (byte)'\n') lines++;
+            if (fs.Length > n && n > 0) {
+                double ratio = (double)fs.Length / n;
+                lines = (int)Math.Round(lines * ratio);
+            }
+            return lines;
+        } catch { return null; }
     }
 
     private static bool ContainsIgnoreCase(string s, string needle) {

@@ -24,8 +24,11 @@ namespace FileInspectorX.PowerShell {
     /// <seealso cref="FileInspectorX.PowerShell.AsyncPSCmdlet" />
     /// </summary>
     [Cmdlet(VerbsCommon.Get, "FileInsight", DefaultParameterSetName = "Path", SupportsShouldProcess = false)]
-    [OutputType(typeof(FileAnalysis))]
-    [OutputType(typeof(ContentTypeDetectionResult))]
+    [OutputType(typeof(AnalysisView))]
+    [OutputType(typeof(DetectionView))]
+    [OutputType(typeof(PermissionsView))]
+    [OutputType(typeof(SignatureView))]
+    [OutputType(typeof(SummaryView))]
     public sealed class CmdletGetFileInsight : AsyncPSCmdlet {
         /// <summary>
         /// One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.
@@ -34,7 +37,11 @@ namespace FileInspectorX.PowerShell {
         [Alias("FullName")]
         public string[] Path { get; set; } = Array.Empty<string>();
 
-        /// <summary>Return only detection result (skip analysis).</summary>
+        /// <summary>Output shape to emit. Defaults to Summary.</summary>
+        [Parameter()]
+        public InsightView View { get; set; } = InsightView.Summary;
+
+        /// <summary>Return only detection result (skip analysis). Back-compat shim for -View Detection.</summary>
         [Parameter()]
         public SwitchParameter DetectOnly { get; set; }
 
@@ -82,12 +89,30 @@ namespace FileInspectorX.PowerShell {
                             continue;
                         }
 
-                        if (DetectOnly) {
-                            var det = FileInspector.Detect(p, options);
-                            WriteObject(det);
-                        } else {
-                            var analysis = FileInspector.Analyze(p, options);
-                            WriteObject(analysis);
+                        var view = this.View;
+                        if (DetectOnly) view = InsightView.Detection;
+                        switch (view) {
+                            case InsightView.Detection: {
+                                options.DetectOnly = true;
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToDetectionView(p));
+                                break; }
+                            case InsightView.Permissions: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToPermissionsView(p));
+                                break; }
+                            case InsightView.Signature: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToSignatureView(p));
+                                break; }
+                            case InsightView.Summary: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToSummaryView(p));
+                                break; }
+                            default: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToAnalysisView(p));
+                                break; }
                         }
                     }
                 } catch (PipelineStoppedException) { throw; }

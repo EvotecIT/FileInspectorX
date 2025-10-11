@@ -50,6 +50,7 @@ public static partial class FileInspector {
     /// <param name="filter">Optional predicate to include files.</param>
     /// <param name="options">Detection enrichment options.</param>
     /// <param name="maxDegreeOfParallelism">Limit for parallel workers; defaults to logical processors.</param>
+    /// <param name="ct">Cancellation token.</param>
     public static async IAsyncEnumerable<FileAnalysis> AnalyzeDirectoryAsync(
         string path,
         SearchOption searchOption = SearchOption.TopDirectoryOnly,

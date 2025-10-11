@@ -1,9 +1,9 @@
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
     $Manifest = [ordered] @{
-        ModuleVersion        = '1.0.0'
+        ModuleVersion        = '0.1.0'
         CompatiblePSEditions = @('Desktop', 'Core')
-        GUID                 = '346f84e7-dc31-4920-b5d4-8c66e51bb388d'
+        GUID                 = 'bb5de776-1f68-4af0-8d68-5c0fa2ab3cf9'
         Author               = 'Przemyslaw Klys'
         CompanyName          = 'Evotec'
         Copyright            = "(c) 2011 - $((Get-Date).Year) Przemyslaw Klys @ Evotec. All rights reserved."

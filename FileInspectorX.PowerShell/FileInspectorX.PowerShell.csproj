@@ -8,7 +8,8 @@
             net8.0
         </TargetFrameworks>
         <Title>FileInspectorX PowerShell Module</Title>
-        <Description>PowerShell module for the FileInspectorX library. Exposes thin cmdlets over content detection and file analysis APIs.</Description>
+        <Description>PowerShell module for the FileInspectorX library. Exposes thin cmdlets over
+            content detection and file analysis APIs.</Description>
         <AssemblyName>FileInspectorX.PowerShell</AssemblyName>
         <AssemblyTitle>FileInspectorX PowerShell Module</AssemblyTitle>
         <VersionPrefix>0.1.0</VersionPrefix>
@@ -20,6 +21,10 @@
         <Copyright>(c) 2011 - 2025 Przemyslaw Klys @ Evotec. All rights reserved.</Copyright>
         <LangVersion>Latest</LangVersion>
         <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     </PropertyGroup>
 
     <PropertyGroup>

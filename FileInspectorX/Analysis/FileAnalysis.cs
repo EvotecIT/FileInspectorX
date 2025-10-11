@@ -4,7 +4,7 @@ namespace FileInspectorX;
 /// High-level analysis describing file type, risk flags, metadata and container hints.
 /// Produced by <see cref="FileInspector.Analyze(string, FileInspector.DetectionOptions?)"/>.
 /// </summary>
-public sealed class FileAnalysis {
+public class FileAnalysis {
     public ContentTypeDetectionResult? Detection { get; set; }
     public ContentKind Kind { get; set; } = ContentKind.Unknown;
     public ContentFlags Flags { get; set; } = ContentFlags.None;
@@ -25,5 +25,25 @@ public sealed class FileAnalysis {
     public IReadOnlyDictionary<string, string>? VersionInfo { get; set; }
 
     public SignatureSummary? Signature { get; set; }
-}
 
+    // Text-specific hints
+    public int? EstimatedLineCount { get; set; }
+    public string? TextSubtype { get; set; }
+
+    /// <summary>
+    /// Security-relevant findings detected by lightweight script/content heuristics.
+    /// Elements are short codes like "ps:iex", "ps:encoded", "py:exec-b64", "sig:mkatz".
+    /// No raw malware names or signatures are emitted to avoid AV heuristics.
+    /// </summary>
+    public IReadOnlyList<string>? SecurityFindings { get; set; }
+
+    /// <summary>
+    /// Normalized file permission/ownership snapshot (best-effort cross-platform).
+    /// </summary>
+    public FileSecurity? Security { get; set; }
+
+    /// <summary>
+    /// Windows PE Authenticode signature summary (when present). Cross-platform, best-effort parsing.
+    /// </summary>
+    public AuthenticodeInfo? Authenticode { get; set; }
+}

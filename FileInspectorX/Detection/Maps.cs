@@ -28,6 +28,24 @@ public static class MimeMaps {
         ["docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ["xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ["pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ["ps1"] = "text/x-powershell",
+        ["vbs"] = "text/vbscript",
+        ["psm1"] = "text/x-powershell",
+        ["psd1"] = "text/x-powershell",
+        ["py"] = "text/x-python",
+        ["rb"] = "text/x-ruby",
+        ["lua"] = "text/x-lua",
+        ["md"] = "text/markdown",
+        ["cfg"] = "text/plain",
+        ["conf"] = "text/plain",
+        ["sh"] = "text/x-shellscript",
+        ["bash"] = "text/x-shellscript",
+        ["zsh"] = "text/x-shellscript",
+        ["bat"] = "text/x-batch",
+        ["cmd"] = "text/x-batch",
+        ["doc"] = "application/msword",
+        ["xls"] = "application/vnd.ms-excel",
+        ["ppt"] = "application/vnd.ms-powerpoint",
         ["epub"] = "application/epub+zip",
         ["jar"] = "application/java-archive",
         ["apk"] = "application/vnd.android.package-archive",
@@ -92,4 +110,3 @@ public static class DangerousExtensions {
         return Default.Contains(key);
     }
 }
-

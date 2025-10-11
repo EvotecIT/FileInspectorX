@@ -3,7 +3,7 @@ namespace FileInspectorX;
 /// <summary>
 /// Result of content type detection using built-in FileInspector.
 /// </summary>
-public sealed class ContentTypeDetectionResult {
+public class ContentTypeDetectionResult {
     /// <summary>Detected canonical extension (without leading dot), e.g., "png".</summary>
     public string Extension { get; set; } = string.Empty;
 
@@ -15,6 +15,13 @@ public sealed class ContentTypeDetectionResult {
 
     /// <summary>Short reason, e.g., magic:png, riff:webp.</summary>
     public string Reason { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional detail about which exact heuristic/signature triggered the detection.
+    /// Example values: "json:object-key-colon", "yaml:front-matter", "log:levels-3".
+    /// Null or empty when not applicable.
+    /// </summary>
+    public string? ReasonDetails { get; set; }
 
     /// <summary>Optional SHA-256 of the full file (lowercase hex). Only set when requested via options.</summary>
     public string? Sha256Hex { get; set; }
