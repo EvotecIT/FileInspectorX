@@ -61,10 +61,16 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PdfEncrypted) != 0) Add("Pdf.Encrypted", 10);
         if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) Add("Pdf.ManyUpdates", 5);
         if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) Add("Office.ExternalLinks", 5);
+        if ((a.Flags & ContentFlags.OfficeRemoteTemplate) != 0) Add("Office.RemoteTemplate", 25);
+        if ((a.Flags & ContentFlags.OfficePossibleDde) != 0) Add("Office.PossibleDde", 15);
 
         // Executables
-        if ((a.Flags & ContentFlags.PeLooksPackedUpx) != 0) { score += 20; codes.Add("PE.PackerSuspect"); }
+        if ((a.Flags & ContentFlags.PeLooksPackedUpx) != 0) Add("PE.PackerSuspect", 20);
         if ((a.Flags & ContentFlags.PeHasAuthenticode) != 0 && (a.Signature?.IsSigned == true)) { /* neutral */ }
+        if ((a.Flags & ContentFlags.PeNoAslr) != 0) Add("PE.NoASLR", 15);
+        if ((a.Flags & ContentFlags.PeNoNx) != 0) Add("PE.NoNX", 20);
+        if ((a.Flags & ContentFlags.PeNoCfg) != 0) Add("PE.NoCFG", 15);
+        if ((a.Flags & ContentFlags.PeNoHighEntropyVa) != 0 && (a.PeMachine != null && a.PeMachine.IndexOf("64", StringComparison.OrdinalIgnoreCase) >= 0)) Add("PE.NoHighEntropyVA", 5);
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;

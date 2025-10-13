@@ -100,6 +100,19 @@ Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
 - AssessmentView: compact risk score (0–100), decision (Allow/Warn/Block/Defer), and finding codes
   - Codes include: Package.VendorPresent/VendorUnknown/VendorAllowed, Sig.VendorAllowed/Sig.VendorUnknown, Archive.* and Pdf.* flags, etc.
 
+## Usage Model: Raw + Views + Exclude Toggles
+
+- Default Raw
+  - The cmdlet returns the full `FileAnalysis` object by default (`-View Raw`). This is a single, rich object with Detection, Flags, Security, Authenticode/Installer, References, Assessment, Secrets summary, and more.
+
+- Views for display
+  - Use `-View Summary|Detection|Analysis|Permissions|Signature|References|Assessment|Installer` to get compact, tabular shapes.
+  - Every view carries `.Raw` so you can drill back into the full object without re‑invoking.
+
+- Trim work/shape with excludes
+  - `-ExcludePermissions`, `-ExcludeSignature`, `-ExcludeInstaller`, `-ExcludeReferences`, `-ExcludeContainer`, `-ExcludeAssessment`.
+  - In C#, use `new FileInspector.DetectionOptions { IncludePermissions = false, ... }`.
+
 ## API Choices: Detect vs Inspect vs Analyze
 
 Pick the API based on how much work you want the library to do and how much metadata you need:
@@ -205,6 +218,54 @@ Get-FileInsight -Path .\file.bin -View Assessment | Format-Table -Auto
 
 This stays generic by design. A higher‑level component (e.g., TierBridge) can layer policy (allow/warn/block) using these references and the existing Flags/SecurityFindings.
 
+## Flags → Assessment Codes (Quick Map)
+
+- Archive safety
+  - ArchiveHasPathTraversal → Archive.PathTraversal (+40)
+  - ArchiveHasAbsolutePaths → Archive.AbsolutePath (+15)
+  - ArchiveHasSymlinks → Archive.Symlink (+20)
+  - ContainerContainsExecutables → Archive.ContainsExecutables (+25)
+  - ContainerContainsScripts → Archive.ContainsScripts (+20)
+  - ContainerContainsArchives → Archive.ContainsArchives (+15)
+
+- Office / OOXML
+  - HasOoxmlMacros → Office.Macros (+30)
+  - OfficeRemoteTemplate → Office.RemoteTemplate (+25)
+  - OfficePossibleDde → Office.PossibleDde (+15)
+  - OfficeExternalLinks → Office.ExternalLinks (+5) [count exposed as OfficeExternalLinksCount]
+
+- PDF
+  - PdfHasJavaScript → Pdf.JavaScript (+20)
+  - PdfHasOpenAction → Pdf.OpenAction (+15)
+  - PdfHasLaunch → Pdf.Launch (+20)
+  - PdfHasNamesTree → Pdf.NamesTree (+10)
+  - PdfHasXfa → Pdf.Xfa (+10)
+  - PdfEncrypted → Pdf.Encrypted (+10)
+  - PdfManyIncrementalUpdates → Pdf.ManyUpdates (+5)
+
+- PE hardening
+  - PeLooksPackedUpx → PE.PackerSuspect (+20)
+  - PeNoAslr → PE.NoASLR (+15)
+  - PeNoNx → PE.NoNX (+20)
+  - PeNoCfg → PE.NoCFG (+15)
+  - PeNoHighEntropyVa (x64) → PE.NoHighEntropyVA (+5)
+
+- Signatures
+  - Self‑signed → Sig.SelfSigned (+20)
+  - Chain invalid → Sig.ChainInvalid (+25)
+  - Bad envelope → Sig.BadEnvelope (+15)
+  - Vendor allowed (allowed list) → Sig.VendorAllowed (−10)
+
+- Vendor / Package
+  - Vendor present → Package.VendorPresent (0)
+  - Vendor allowed (allowed list) → Package.VendorAllowed (−15)
+  - Vendor unknown → Package.VendorUnknown (0)
+  - MSI CustomActions (EXE/Script/DLL) → Msi.CustomActionExe (+20) / Msi.CustomActionScript (+20) / Msi.CustomActionDll (+10)
+
+- Scripts & secrets (neutral categories)
+  - Script.Encoded (+25), Script.IEX (+20), Script.WebDownload (+15), Script.Reflection (+10)
+  - Secret.PrivateKey (+40), Secret.JWT (+25), Secret.KeyPattern (+15)
+
 ## Settings
 
 - HeaderReadBytes (default 4096)
@@ -215,6 +276,22 @@ This stays generic by design. A higher‑level component (e.g., TierBridge) can 
 - JS minified heuristics: JsMinifiedMinLength, JsMinifiedAvgLineThreshold, JsMinifiedDensityThreshold
 - Assessment thresholds: AssessmentWarnThreshold, AssessmentBlockThreshold
 - Vendor allow‑list: AllowedVendors (string[]), VendorMatchMode (Contains|Exact)
+ - Secrets: SecretsScanEnabled (default true)
+
+## Secrets Summary (privacy‑safe)
+
+The full object (Raw/FileAnalysis) exposes <code>Secrets</code> with category counts only — no values are stored:
+
+```powershell
+$fa = Get-FileInsight -Path .\script.ps1
+$fa.Secrets | Format-List
+```
+
+```csharp
+var fa = FileInspector.Analyze(path);
+var s = fa.Secrets;
+Console.WriteLine($"privKeys={s?.PrivateKeyCount} jwt={s?.JwtLikeCount} keyPat={s?.KeyPatternCount}");
+```
 
 ## Signatures (Authenticode)
 
