@@ -3,7 +3,6 @@ namespace FileInspectorX;
 /// <summary>
 /// Flattened Authenticode signature view for display.
 /// </summary>
-/// <summary>Flattened Authenticode signature view for display.</summary>
 public sealed class SignatureView
 {
     /// <summary>File path.</summary>
@@ -23,10 +22,15 @@ public sealed class SignatureView
     public string? SignerSubject { get; set; }
     /// <summary>Signer issuer name.</summary>
     public string? SignerIssuer { get; set; }
+    /// <summary>Common Name (CN) component of the signer subject.</summary>
     public string? SignerSubjectCN { get; set; }
+    /// <summary>Organization (O) component of the signer subject.</summary>
     public string? SignerSubjectO { get; set; }
+    /// <summary>Common Name (CN) component of the issuer.</summary>
     public string? IssuerCN { get; set; }
+    /// <summary>Organization (O) component of the issuer.</summary>
     public string? IssuerO { get; set; }
+    /// <summary>True when the signer certificate is self‑signed.</summary>
     public bool? IsSelfSigned { get; set; }
     /// <summary>Signer certificate thumbprint.</summary>
     public string? SignerThumbprint { get; set; }
@@ -41,6 +45,9 @@ public sealed class SignatureView
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
+    /// <summary>
+    /// Creates a <see cref="SignatureView"/> from <see cref="AuthenticodeInfo"/>.
+    /// </summary>
     public static SignatureView From(string path, AuthenticodeInfo? a) => new SignatureView {
         Path = path,
         Present = a?.Present ?? false,
