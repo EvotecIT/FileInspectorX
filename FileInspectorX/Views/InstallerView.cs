@@ -5,20 +5,34 @@ namespace FileInspectorX;
 /// </summary>
 public sealed class InstallerView
 {
+    /// <summary>File path.</summary>
     public string Path { get; set; } = string.Empty;
+    /// <summary>Installer kind.</summary>
     public InstallerKind Kind { get; set; }
+    /// <summary>Package/product display name.</summary>
     public string? Name { get; set; }
+    /// <summary>Publisher name.</summary>
     public string? Publisher { get; set; }
+    /// <summary>Publisher display name (MSIX/APPX).</summary>
     public string? PublisherDisplayName { get; set; }
+    /// <summary>Identity/name (MSIX/APPX family name; VSIX Id).</summary>
     public string? IdentityName { get; set; }
+    /// <summary>Version string.</summary>
     public string? Version { get; set; }
+    /// <summary>MSI product code (GUID).</summary>
     public string? ProductCode { get; set; }
+    /// <summary>MSI manufacturer.</summary>
     public string? Manufacturer { get; set; }
+    /// <summary>Author metadata, when present.</summary>
     public string? Author { get; set; }
+    /// <summary>Comments/description, when present.</summary>
     public string? Comments { get; set; }
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
+    /// <summary>
+    /// Creates an <see cref="InstallerView"/> from <see cref="InstallerInfo"/>.
+    /// </summary>
     internal static InstallerView From(string path, InstallerInfo? i)
     {
         if (i == null) return new InstallerView { Path = path, Kind = InstallerKind.Unknown };
