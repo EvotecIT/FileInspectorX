@@ -26,6 +26,11 @@ internal static class PeReader {
             long optStart = fs.Position; info.OptionalHeaderStart = optStart;
             ushort magic = br.ReadUInt16();
             bool isPlus = magic == 0x20b; info.IsPEPlus = isPlus;
+            // Read up to DllCharacteristics
+            // After CheckSum (at +0x40), Subsystem (2), then DllCharacteristics (2)
+            fs.Seek(optStart + 0x44, SeekOrigin.Begin);
+            info.Subsystem = br.ReadUInt16();
+            info.DllCharacteristics = br.ReadUInt16();
             int ddOffset = isPlus ? 0x70 : 0x60;
             // Checksum field is at OptionalHeader + 0x40 for both PE32 and PE32+
             info.ChecksumFileOffset = optStart + 0x40;

@@ -7,8 +7,8 @@ using FileInspectorX;
 
 namespace FileInspectorX.PowerShell {
     /// <summary>
-    /// <para type="synopsis">Analyzes files and returns content type and lightweight insights.</para>
-    /// <para type="description">Thin PowerShell wrapper over FileInspectorX. Detects file type by magic bytes and heuristics and, by default, performs high-level analysis (e.g., OOXML macros, PE triage, container hints). Use -DetectOnly to return only the detection result.</para>
+    /// <para type="synopsis">Analyzes files and returns a full FileAnalysis object by default, with optional compact views.</para>
+    /// <para type="description">By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer). Each view exposes Raw with the full FileAnalysis for drill-down.</para>
     /// <example>
     ///  <para>Analyze a single file</para>
     ///  <code>Get-FileInsight -Path C:\\files\\sample.docx</code>
@@ -40,7 +40,7 @@ namespace FileInspectorX.PowerShell {
         [Alias("FullName")]
         public string[] Path { get; set; } = Array.Empty<string>();
 
-        /// <summary>Output shape to emit. Defaults to Raw (full object).</summary>
+        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Installer.</summary>
         [Parameter()]
         public InsightView View { get; set; } = InsightView.Raw;
 
@@ -57,12 +57,17 @@ namespace FileInspectorX.PowerShell {
         [ValidateRange(0, 1048576)]
         public int MagicHeaderBytes { get; set; } = 0;
 
-        // Section toggles (exclude switches) to control which parts are populated
+        /// <summary>Exclude permissions/ownership snapshot from the analysis.</summary>
         [Parameter()] public SwitchParameter ExcludePermissions { get; set; }
+        /// <summary>Exclude signature/Authenticode and package signature analysis.</summary>
         [Parameter()] public SwitchParameter ExcludeSignature { get; set; }
+        /// <summary>Exclude references extraction (Task XML, scripts.ini/xml).</summary>
         [Parameter()] public SwitchParameter ExcludeReferences { get; set; }
+        /// <summary>Exclude installer/package metadata (MSIX/APPX/VSIX/MSI).</summary>
         [Parameter()] public SwitchParameter ExcludeInstaller { get; set; }
+        /// <summary>Exclude container triage (ZIP/TAR sampling, subtype and inner hints).</summary>
         [Parameter()] public SwitchParameter ExcludeContainer { get; set; }
+        /// <summary>Exclude assessment (score/decision/codes).</summary>
         [Parameter()] public SwitchParameter ExcludeAssessment { get; set; }
 
 

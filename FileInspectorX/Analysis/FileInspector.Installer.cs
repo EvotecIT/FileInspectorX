@@ -26,6 +26,8 @@ public static partial class FileInspector
 
             var idNode = !string.IsNullOrEmpty(ns) ? doc.SelectSingleNode("/a:Package/a:Identity", nsm) : doc.SelectSingleNode("/Package/Identity");
             var propsNode = !string.IsNullOrEmpty(ns) ? doc.SelectSingleNode("/a:Package/a:Properties", nsm) : doc.SelectSingleNode("/Package/Properties");
+            var capsNode = !string.IsNullOrEmpty(ns) ? doc.SelectSingleNode("/a:Package/a:Capabilities", nsm) : doc.SelectSingleNode("/Package/Capabilities");
+            var extsNode = !string.IsNullOrEmpty(ns) ? doc.SelectSingleNode("/a:Package/a:Extensions", nsm) : doc.SelectSingleNode("/Package/Extensions");
             if (idNode == null && propsNode == null) return;
 
             var info = res.Installer ?? new InstallerInfo();
@@ -39,6 +41,43 @@ public static partial class FileInspector
                 var disp = pDisp?.InnerText?.Trim();
                 if (!string.IsNullOrEmpty(disp)) info.PublisherDisplayName = disp;
             }
+            // Capabilities
+            try {
+                if (capsNode != null)
+                {
+                    var caps = new List<string>(8);
+                    foreach (XmlNode c in capsNode.ChildNodes)
+                    {
+                        if (c.NodeType != XmlNodeType.Element) continue;
+                        // localname or qname; include restricted capability name if present
+                        string name = c.LocalName;
+                        var nAttr = c.Attributes?["Name"]?.Value;
+                        if (!string.IsNullOrEmpty(nAttr)) name = name + ":" + nAttr;
+                        caps.Add(name);
+                    }
+                    if (caps.Count > 0) info.Capabilities = caps;
+                }
+            } catch { }
+
+            // Extensions (categories and protocol names)
+            try {
+                if (extsNode != null)
+                {
+                    var exts = new List<string>(8);
+                    foreach (XmlNode e in extsNode.ChildNodes)
+                    {
+                        if (e.NodeType != XmlNodeType.Element) continue;
+                        var cat = e.Attributes?["Category"]?.Value ?? e.LocalName;
+                        string token = cat;
+                        // Protocol name if present
+                        var proto = e.SelectSingleNode(".//*[local-name()='Protocol' and @Name]@Name");
+                        if (proto != null) token = token + ":" + proto.Value;
+                        exts.Add(token);
+                    }
+                    if (exts.Count > 0) info.Extensions = exts;
+                }
+            } catch { }
+
             res.Installer = info;
         } catch { }
 #endif
@@ -99,6 +138,8 @@ public static partial class FileInspector
 
                 // SummaryInformation (Author, Comments) – best effort
                 TryPopulateMsiSummary(hDb, res);
+                // CustomActions summary (Windows-only)
+                TryPopulateMsiCustomActions(hDb, res);
             } finally { if (hDb != IntPtr.Zero) MsiCloseHandle(hDb); }
         } catch { }
 
@@ -168,6 +209,47 @@ public static partial class FileInspector
         var sb = new System.Text.StringBuilder((int)cch + 1);
         if (MsiSummaryInfoGetProperty(hSum, pid, out type, out iVal, sb, ref cch) != 0) return null;
         return sb.ToString();
+    }
+
+    private static void TryPopulateMsiCustomActions(IntPtr hDb, FileAnalysis res)
+    {
+        IntPtr hView = IntPtr.Zero, hRec = IntPtr.Zero;
+        try {
+            if (MsiDatabaseOpenView(hDb, "SELECT `Type`,`Source`,`Target` FROM `CustomAction`", out hView) != 0) return;
+            if (MsiViewExecute(hView, IntPtr.Zero) != 0) return;
+            int exe=0, dll=0, script=0, other=0; var samples = new List<string>(6);
+            while (MsiViewFetch(hView, out hRec) == 0 && hRec != IntPtr.Zero)
+            {
+                string? sType = GetStringField(hRec, 1);
+                int type = 0; _ = int.TryParse(sType, out type);
+                string src = GetStringField(hRec, 2) ?? string.Empty;
+                string tgt = GetStringField(hRec, 3) ?? string.Empty;
+                int kind = type & 0x0007;
+                switch (kind)
+                {
+                    case 1: dll++; break;
+                    case 2: exe++; break;
+                    case 5: case 6: script++; break;
+                    default: other++; break;
+                }
+                if (samples.Count < 5) samples.Add($"{kind}:{src}/{tgt}");
+            }
+            if (exe+dll+script+other > 0)
+            {
+                var info = res.Installer ?? new InstallerInfo();
+                info.Kind = InstallerKind.Msi;
+                info.MsiCustomActions = new MsiCustomActionSummary { CountExe = exe, CountDll = dll, CountScript = script, CountOther = other, Samples = samples };
+                res.Installer = info;
+            }
+        } catch { }
+        finally { if (hRec != IntPtr.Zero) MsiCloseHandle(hRec); if (hView != IntPtr.Zero) MsiCloseHandle(hView); }
+
+        static string? GetStringField(IntPtr rec, int idx)
+        {
+            int cch = 0; MsiRecordGetString(rec, idx, null!, ref cch);
+            var sb = new System.Text.StringBuilder(cch + 1);
+            if (MsiRecordGetString(rec, idx, sb, ref cch) != 0) return null; return sb.ToString();
+        }
     }
 #endif
 }

@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-    <PropertyGroup>
+  <PropertyGroup>
         <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">
             netstandard2.0;net472;net8.0
         </TargetFrameworks>
@@ -21,7 +21,12 @@
         <Copyright>(c) 2011 - 2025 Przemyslaw Klys @ Evotec. All rights reserved.</Copyright>
         <LangVersion>Latest</LangVersion>
         <Nullable>enable</Nullable>
-    </PropertyGroup>
+  </PropertyGroup>
+
+  <!-- Enforce XML docs quality in Release -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <WarningsAsErrors>CS1591</WarningsAsErrors>
+  </PropertyGroup>
 
     <PropertyGroup>
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>

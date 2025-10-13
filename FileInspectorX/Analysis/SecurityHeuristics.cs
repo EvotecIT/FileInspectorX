@@ -67,6 +67,17 @@ internal static class SecurityHeuristics
             // If the script declared extension itself is risky, add a generic hint
             if (declaredExt is "ps1" or "psm1" or "psd1" or "sh" or "bash" or "zsh" or "bat" or "cmd" or "js" or "rb" or "py" or "lua")
                 findings.Add("script:dangerous-kind");
+
+            // Lightweight secrets (privacy-safe): only categories, never values
+            if (Settings.SecretsScanEnabled)
+            {
+                if (ContainsAny(lower, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"}))
+                    findings.Add("secret:privkey");
+
+                if (LooksLikeJwt(text)) findings.Add("secret:jwt");
+
+                if (LooksLikeKeyPattern(text)) findings.Add("secret:keypattern");
+            }
         } catch { }
         return findings;
     }
@@ -99,5 +110,52 @@ internal static class SecurityHeuristics
             } catch { outArr[i] = string.Empty; }
         }
         return outArr;
+    }
+
+    private static bool LooksLikeJwt(string text)
+    {
+        try {
+            int dots = 0; int tokenLen = 0; int maxCheck = Math.Min(text.Length, 4096);
+            for (int i = 0; i < maxCheck; i++)
+            {
+                char c = text[i];
+                if (c == '.') { dots++; if (dots >= 2 && tokenLen > 20) return true; tokenLen = 0; continue; }
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') tokenLen++;
+                else if (char.IsWhiteSpace(c)) { if (dots >= 2 && tokenLen > 10) return true; dots = 0; tokenLen = 0; }
+            }
+        } catch { }
+        return false;
+    }
+
+    private static bool LooksLikeKeyPattern(string text)
+    {
+        try {
+            var t = text; int max = Math.Min(t.Length, 4096);
+            for (int i = 0; i < max - 6; i++)
+            {
+                if ((t[i] == 'k' || t[i] == 'K') && t.AsSpan(i, Math.Min(4, max - i)).ToString().Equals("key=", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (HasLongTokenAfter(t, i + 4)) return true;
+                }
+                if ((t[i] == 's' || t[i] == 'S') && i + 7 < max && t.AsSpan(i, Math.Min(7, max - i)).ToString().Equals("secret=", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (HasLongTokenAfter(t, i + 7)) return true;
+                }
+            }
+        } catch { }
+        return false;
+    }
+
+    private static bool HasLongTokenAfter(string t, int start)
+    {
+        int i = start; while (i < t.Length && (t[i] == ' ' || t[i] == '"' || t[i] == '\'')) i++;
+        int len = 0; int max = Math.Min(t.Length, start + 256);
+        for (; i < max; i++)
+        {
+            char c = t[i];
+            if (char.IsLetterOrDigit(c) || c == '+' || c == '/' || c == '=' || c == '-' || c == '_') len++;
+            else break;
+        }
+        return len >= 20;
     }
 }

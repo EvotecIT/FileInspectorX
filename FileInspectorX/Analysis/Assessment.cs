@@ -48,6 +48,9 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PdfHasOpenAction) != 0) { score += 15; codes.Add("Pdf.OpenAction"); }
         if ((a.Flags & ContentFlags.PdfHasLaunch) != 0) { score += 20; codes.Add("Pdf.Launch"); }
         if ((a.Flags & ContentFlags.PdfHasNamesTree) != 0) { score += 10; codes.Add("Pdf.NamesTree"); }
+        if ((a.Flags & ContentFlags.PdfHasXfa) != 0) { score += 10; codes.Add("Pdf.Xfa"); }
+        if ((a.Flags & ContentFlags.PdfEncrypted) != 0) { score += 10; codes.Add("Pdf.Encrypted"); }
+        if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) { score += 5; codes.Add("Pdf.ManyUpdates"); }
 
         // Executables
         if ((a.Flags & ContentFlags.PeLooksPackedUpx) != 0) { score += 20; codes.Add("PE.PackerSuspect"); }
@@ -77,6 +80,9 @@ public static partial class FileInspector
                 case "lua:exec": score += 10; codes.Add("Script.LuaExec"); break;
                 case "sig:mkatz": score += 30; codes.Add("Sig.MimikatzEncodedHint"); break;
                 case "sig:sekurlsa": score += 30; codes.Add("Sig.SekurlsaEncodedHint"); break;
+                case "secret:privkey": score += 40; codes.Add("Secret.PrivateKey"); break;
+                case "secret:jwt": score += 25; codes.Add("Secret.JWT"); break;
+                case "secret:keypattern": score += 15; codes.Add("Secret.KeyPattern"); break;
             }
         }
 
@@ -107,6 +113,35 @@ public static partial class FileInspector
             if (string.IsNullOrWhiteSpace(sigCn) && string.IsNullOrWhiteSpace(sigOrg)) codes.Add("Sig.VendorUnknown");
         }
 
+        // MSI CustomActions (Windows-only data)
+        var ca = a.Installer?.MsiCustomActions;
+        if (ca != null)
+        {
+            if (ca.CountExe > 0) { codes.Add("Msi.CustomActionExe"); score += 20; }
+            if (ca.CountScript > 0) { codes.Add("Msi.CustomActionScript"); score += 20; }
+            if (ca.CountDll > 0) { codes.Add("Msi.CustomActionDll"); score += 10; }
+        }
+
+        // Appx/MSIX capabilities and extensions
+        var caps = a.Installer?.Capabilities;
+        if (caps != null)
+        {
+            foreach (var c in caps)
+            {
+                if (c.IndexOf("runFullTrust", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Capability.RunFullTrust"); score += 20; }
+                if (c.IndexOf("broadFileSystemAccess", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Capability.BroadFileSystemAccess"); score += 15; }
+            }
+        }
+        var exts = a.Installer?.Extensions;
+        if (exts != null)
+        {
+            foreach (var e in exts)
+            {
+                if (e.IndexOf("windows.protocol", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Extension.Protocol"); score += 5; }
+                if (e.IndexOf("filetypeassociation", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Extension.FTA"); score += 5; }
+            }
+        }
+
         // Guardrails and clamp
         if (score < 0) score = 0; if (score > 100) score = 100;
         var decision = score >= Settings.AssessmentBlockThreshold ? AssessmentDecision.Block : (score >= Settings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
@@ -114,8 +149,9 @@ public static partial class FileInspector
         return new AssessmentResult { Score = score, Decision = decision, Codes = codes };
     }
 
-    private static bool IsAllowedVendor(string name)
+    private static bool IsAllowedVendor(string? name)
     {
+        if (string.IsNullOrWhiteSpace(name)) return false;
         try {
             var list = Settings.AllowedVendors ?? Array.Empty<string>();
             foreach (var v in list)
@@ -127,7 +163,8 @@ public static partial class FileInspector
                 }
                 else
                 {
-                    if (name.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                    var nn = name!;
+                    if (nn.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0) return true;
                 }
             }
         } catch { }

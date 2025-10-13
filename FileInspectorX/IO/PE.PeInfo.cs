@@ -15,4 +15,6 @@ internal sealed class PeInfo {
     /// <summary>Security directory uses file offset, not RVA.</summary>
     public uint SecurityOffset;
     public uint SecuritySize;
+    public ushort DllCharacteristics;
+    public ushort Subsystem;
 }

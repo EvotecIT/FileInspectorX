@@ -69,8 +69,11 @@ var detOnly = FileInspector.Detect(path, options);
 ## PowerShell Examples
 
 ```powershell
-# Summary is default (compact)
-Get-FileInsight -Path .\file.bin | Format-Table -Auto
+# Raw is default (full object)
+Get-FileInsight -Path .\file.bin | Format-List
+
+# Opt-in compact views
+Get-FileInsight -Path .\file.bin -View Summary | Format-Table -Auto
 
 # Other views: Summary | Detection | Permissions | Signature | Analysis
 Get-FileInsight -Path .\file.bin -View Detection | Format-Table -Auto
@@ -78,7 +81,10 @@ Get-FileInsight -Path .\file.bin -View Permissions | Format-Table Path,Owner,Gro
 Get-FileInsight -Path .\app.exe -View Signature | Format-List
 Get-FileInsight -Path .\package.msix -View Installer | Format-Table -Auto
 
-# Back-compat
+# Exclude sections to trim work/shape
+Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences | Format-List
+
+# Back-compat: detection only
 Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
 ```
 

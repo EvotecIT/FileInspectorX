@@ -26,7 +26,7 @@ public static partial class FileInspector {
             // OOXML macros and ZIP container hints
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
-                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers);
+                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -44,6 +44,8 @@ public static partial class FileInspector {
                 // Package signature extraction for APPX/MSIX
                 if (subType is "appx" or "msix") { TryPopulateAppxSignature(path, res); TryPopulateAppxManifest(path, res); }
                 if (subType is "vsix") { TryPopulateVsixManifest(path, res); }
+                if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
+                if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
             }
 
             // TAR scan hints
@@ -54,6 +56,26 @@ public static partial class FileInspector {
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                 if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
+                // Lightweight TAR safety preflight for traversal/absolute/symlink
+                try {
+                    using var fs2 = File.OpenRead(path);
+                    bool tHasTrav = false, tHasAbs = false, tHasSym = false;
+                    while (true) {
+                        var hdr = new byte[512]; int r = fs2.Read(hdr, 0, 512); if (r < 512) break;
+                        bool zero = true; for (int i = 0; i < 512; i++) if (hdr[i] != 0) { zero = false; break; }
+                        if (zero) break;
+                        string name = ReadCString(new ReadOnlySpan<byte>(hdr, 0, 100));
+                        byte typeflag = hdr[156];
+                        if (name.StartsWith("../") || name.StartsWith("..\\")) tHasTrav = true;
+                        if (name.StartsWith("/") || (name.Length >= 3 && char.IsLetter(name[0]) && name[1] == ':' && (name[2] == '/' || name[2] == '\\'))) tHasAbs = true;
+                        if (typeflag == (byte)'2') tHasSym = true; // symlink
+                        long size = ParseOctal(new ReadOnlySpan<byte>(hdr, 124, 12));
+                        long skip = ((size + 511) / 512) * 512; if (skip > 0) fs2.Seek(skip, SeekOrigin.Current);
+                    }
+                    if (tHasTrav) res.Flags |= ContentFlags.ArchiveHasPathTraversal;
+                    if (tHasAbs) res.Flags |= ContentFlags.ArchiveHasAbsolutePaths;
+                    if (tHasSym) res.Flags |= ContentFlags.ArchiveHasSymlinks;
+                } catch { }
             }
 
             // Shebang/script detection for textlike files
@@ -145,6 +167,12 @@ public static partial class FileInspector {
                     idx = at + 8;
                     if (filespecCount > 3) { res.Flags |= ContentFlags.PdfHasManyEmbeddedFiles; break; }
                 }
+                // XFA and Encrypt markers
+                if (ContainsIgnoreCase(txt, "/XFA")) res.Flags |= ContentFlags.PdfHasXfa;
+                if (ContainsIgnoreCase(txt, "/Encrypt")) res.Flags |= ContentFlags.PdfEncrypted;
+                // Incremental updates: multiple startxref
+                int sxf = 0; int pos = 0; while (true) { int at = txt.IndexOf("startxref", pos, StringComparison.OrdinalIgnoreCase); if (at < 0) break; sxf++; pos = at + 8; if (sxf > 2) break; }
+                if (sxf > 2) res.Flags |= ContentFlags.PdfManyIncrementalUpdates;
             }
 
             // Extract generic references (optional)
@@ -167,6 +195,16 @@ public static partial class FileInspector {
                     if (peInfo.Sections.Any(s => string.Equals(s.Name, "UPX0", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, "UPX1", StringComparison.OrdinalIgnoreCase))) {
                         res.Flags |= ContentFlags.PeLooksPackedUpx;
                     }
+                    // Hardening flags from DllCharacteristics
+                    var dc = peInfo.DllCharacteristics;
+                    bool hasAslr = (dc & 0x0040) != 0; // IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+                    bool hasNx = (dc & 0x0100) != 0;   // IMAGE_DLLCHARACTERISTICS_NX_COMPAT
+                    bool hasCfg = (dc & 0x4000) != 0;  // IMAGE_DLLCHARACTERISTICS_GUARD_CF (may require Win10 toolchain)
+                    bool hasHighEntropy = (dc & 0x0020) != 0; // IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+                    if (!hasAslr) res.Flags |= ContentFlags.PeNoAslr;
+                    if (!hasNx) res.Flags |= ContentFlags.PeNoNx;
+                    if (!hasCfg) res.Flags |= ContentFlags.PeNoCfg;
+                    if (peInfo.IsPEPlus && !hasHighEntropy) res.Flags |= ContentFlags.PeNoHighEntropyVa;
                 }
             }
 
@@ -179,8 +217,8 @@ public static partial class FileInspector {
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
-        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false;
+        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -188,6 +226,7 @@ public static partial class FileInspector {
             int count = 0;
             hasNestedArchives = false;
             int sampled = 0; int maxSamples = 16; int headSample = 64;
+            bool ooxmlRemoteTemplate = false; bool ooxmlDde = false;
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
@@ -198,6 +237,24 @@ public static partial class FileInspector {
                 if (IsExecutableName(name)) hasExecutables = true;
                 if (IsScriptName(name)) hasScripts = true;
                 if (!hasInstallers && IsInstallerName(name)) hasInstallers = true;
+
+                // OOXML remote template / DDE cues (Word primary targets)
+                try {
+                    if (!ooxmlRemoteTemplate && (name.EndsWith("word/_rels/document.xml.rels", StringComparison.OrdinalIgnoreCase) || name.EndsWith("_rels/.rels", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        using var s = e.Open(); using var sr = new StreamReader(s);
+                        var rels = sr.ReadToEnd();
+                        if (rels.IndexOf("attachedTemplate", StringComparison.OrdinalIgnoreCase) >= 0 && (rels.IndexOf("TargetMode=\"External\"", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("http://", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("https://", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("\\\\", StringComparison.OrdinalIgnoreCase) >= 0))
+                            ooxmlRemoteTemplate = true;
+                    }
+                    if (!ooxmlDde && (name.Equals("word/document.xml", StringComparison.OrdinalIgnoreCase) || name.EndsWith("/document.xml", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        using var s2 = e.Open(); using var sr2 = new StreamReader(s2);
+                        var docxml = sr2.ReadToEnd();
+                        if (docxml.IndexOf("DDEAUTO", StringComparison.OrdinalIgnoreCase) >= 0 || docxml.IndexOf(" DDE ", StringComparison.OrdinalIgnoreCase) >= 0)
+                            ooxmlDde = true;
+                    }
+                } catch { }
 
                 // Safety preflight: traversal/absolute
                 if (!hasTraversal && (name.Contains("../") || name.Contains("..\\") || name.StartsWith("/"))) hasTraversal = true;
@@ -238,6 +295,8 @@ public static partial class FileInspector {
             var guess = TryGuessZipSubtype(fs, out var _);
             containerSubtype = guess;
             if (hasNestedArchives && containerSubtype == null) containerSubtype = "nested-archive";
+            hasRemoteTemplate = ooxmlRemoteTemplate;
+            hasDde = ooxmlDde;
         } catch { }
     }
 

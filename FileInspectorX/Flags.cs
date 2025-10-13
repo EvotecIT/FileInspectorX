@@ -61,4 +61,22 @@ public enum ContentFlags {
     ArchiveHasAbsolutePaths = 1 << 22,
     /// <summary>Archive contains installer packages (e.g., .msi, .msix/.appx, msu) or setup stubs.</summary>
     ContainerContainsInstallers = 1 << 23,
+    /// <summary>PE optional header lacks ASLR (no DYNAMIC_BASE).</summary>
+    PeNoAslr = 1 << 24,
+    /// <summary>PE optional header lacks NX/DEP (no NX_COMPAT).</summary>
+    PeNoNx = 1 << 25,
+    /// <summary>PE optional header lacks Control Flow Guard (no GUARD_CF).</summary>
+    PeNoCfg = 1 << 26,
+    /// <summary>PE optional header lacks HighEntropyVA (x64 ASLR hardening).</summary>
+    PeNoHighEntropyVa = 1 << 27,
+    /// <summary>PDF contains XFA forms (/XFA).</summary>
+    PdfHasXfa = 1 << 28,
+    /// <summary>PDF is encrypted (/Encrypt dictionary present).</summary>
+    PdfEncrypted = 1 << 29,
+    /// <summary>PDF appears to have many incremental updates (multiple startxref markers).</summary>
+    PdfManyIncrementalUpdates = 1 << 30,
+    /// <summary>OOXML document references a remote template (attachedTemplate external).</summary>
+    OfficeRemoteTemplate = 1 << 31,
+    /// <summary>OOXML document contains possible DDE/DDEAUTO field instructions.</summary>
+    OfficePossibleDde = unchecked((int)0x80000000)
 }
