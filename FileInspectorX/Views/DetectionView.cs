@@ -3,7 +3,6 @@ namespace FileInspectorX;
 /// <summary>
 /// Flattened, display-friendly detection view to avoid wide, mostly-null tables.
 /// </summary>
-/// <summary>Flattened, display-friendly detection view to avoid wide, mostly-null tables.</summary>
 public sealed class DetectionView
 {
     /// <summary>File path.</summary>
@@ -29,6 +28,9 @@ public sealed class DetectionView
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
+    /// <summary>
+    /// Creates a <see cref="DetectionView"/> from a <see cref="ContentTypeDetectionResult"/>.
+    /// </summary>
     public static DetectionView From(string path, ContentTypeDetectionResult r) => new DetectionView {
         Path = path,
         Extension = r.Extension,
