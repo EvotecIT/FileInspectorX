@@ -4,7 +4,6 @@ namespace FileInspectorX;
 /// Cross-platform file security/permission snapshot with a normalized shape.
 /// Values may be null when not available on the current platform/TFM.
 /// </summary>
-/// <summary>Cross-platform file security/permission snapshot with a normalized shape.</summary>
 public sealed class FileSecurity
 {
     // Generic
