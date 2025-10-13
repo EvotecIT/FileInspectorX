@@ -5,6 +5,9 @@ namespace FileInspectorX;
 /// Keep policy-light: these are conveniences, not enforcement.
 /// </summary>
 public static class MimeMaps {
+    /// <summary>
+    /// Default map from file extension (without dot) to MIME type. Case‑insensitive keys.
+    /// </summary>
     public static readonly IReadOnlyDictionary<string, string> Default = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
         ["png"] = "image/png",
         ["jpg"] = "image/jpeg",
@@ -82,6 +85,12 @@ public static class MimeMaps {
         ["ini"] = "text/plain"
     };
 
+    /// <summary>
+    /// Looks up a MIME type by file extension.
+    /// </summary>
+    /// <param name="extension">Extension with or without leading dot (e.g., ".pdf" or "pdf").</param>
+    /// <param name="mime">The resolved MIME type when found.</param>
+    /// <returns>True when the extension is mapped; otherwise false.</returns>
     public static bool TryGetByExtension(string? extension, out string? mime) {
         mime = null;
         if (string.IsNullOrWhiteSpace(extension)) return false;
@@ -94,6 +103,9 @@ public static class MimeMaps {
 /// Convenience set of commonly risky executable/script extensions; not a policy, used only for hints.
 /// </summary>
 public static class DangerousExtensions {
+    /// <summary>
+    /// A convenience set of commonly risky executable/script extensions. Case‑insensitive.
+    /// </summary>
     public static readonly ISet<string> Default = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "exe", "dll", "sys", "msi", "msp", "cpl", "scr", "pif", "com",
@@ -101,6 +113,9 @@ public static class DangerousExtensions {
         "reg", "hta", "lnk"
     };
 
+    /// <summary>
+    /// Returns true when the provided extension belongs to the <see cref="Default"/> risky set.
+    /// </summary>
     public static bool IsDangerous(string? extension) {
         if (string.IsNullOrWhiteSpace(extension)) return false;
         var key = extension!.Trim().TrimStart('.');
