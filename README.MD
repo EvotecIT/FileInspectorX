@@ -266,6 +266,77 @@ This stays generic by design. A higher‑level component (e.g., TierBridge) can 
   - Script.Encoded (+25), Script.IEX (+20), Script.WebDownload (+15), Script.Reflection (+10)
   - Secret.PrivateKey (+40), Secret.JWT (+25), Secret.KeyPattern (+15)
 
+## Assessment Pipeline (Flowchart)
+
+```mermaid
+flowchart TD
+    A["Input path(s)"] --> B{"Detect (magic + heuristics)"}
+    B -->|known| C["ContentTypeDetectionResult"]
+    B -->|unknown| C
+
+    C --> D{"Analyze (Include* flags)"}
+    D --> D1["Container triage (ZIP/TAR subtype, safety, nested)"]
+    D --> D2["Text/Script heuristics + Secrets"]
+    D --> D3["Permissions / Ownership"]
+    D --> D4["Signatures + Installer metadata"]
+    D --> D5["PDF / OOXML flags"]
+    D --> D6["Name / Path analysis"]
+    D --> E["FileAnalysis"]
+
+    E --> F{"IncludeAssessment?"}
+    F -->|Yes| G["Assess() Score + Codes + Factors"]
+    F -->|No| H["Return FileAnalysis"]
+
+    G --> I["Decision: Allow / Warn / Block"]
+    I --> J[["Views (optional)"]]
+    H --> J
+
+    subgraph Toggles
+      T1["IncludeContainer"]
+      T2["IncludePermissions"]
+      T3["IncludeAuthenticode"]
+      T4["IncludeInstaller"]
+      T5["IncludeReferences"]
+      T6["IncludeAssessment"]
+    end
+
+    T1 -.-> D1
+    T2 -.-> D3
+    T3 -.-> D4
+    T4 -.-> D4
+    T5 -.-> D2
+    T6 -.-> G
+```
+
+## Scoring Breakdown (Example)
+
+```mermaid
+pie showData
+    title Example Score Composition
+    "Archive.PathTraversal (+40)" : 40
+    "Office.RemoteTemplate (+25)" : 25
+    "Secret.PrivateKey (+40)" : 40
+    "Sig.VendorAllowed (−10)" : 10
+```
+
+Notes
+- Factors in Assessment.Factors report the exact weights (negative values reduce Score).
+- Actual weights are configurable in code and may evolve; see README map above for typical values.
+
+## Sample Scenario Scores (Illustrative)
+
+```mermaid
+chart
+  title: Sample Scenario Scores
+  type: bar
+  x-axis: [Plain PDF, PDF+JS, DOCX+Macros, DOCX+RemoteTpl, ZIP w/Exec, MSI+CustomAction]
+  series:
+    - title: Score
+      data: [0, 20, 30, 55, 25, 50]
+```
+
+These values are illustrative only — actual scores depend on which signals are present and the configured weights.
+
 ## Settings
 
 - HeaderReadBytes (default 4096)
