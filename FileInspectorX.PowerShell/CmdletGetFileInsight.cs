@@ -18,12 +18,21 @@ namespace FileInspectorX.PowerShell {
     ///  <code>Get-FileInsight -Path .\\payload.bin -DetectOnly</code>
     /// </example>
     /// <example>
+    ///  <para>Detect only for all EXE files under current directory</para>
+    ///  <code>Get-ChildItem -Filter *.exe -File -Recurse | Get-FileInsight -View Detection</code>
+    /// </example>
+    /// <example>
+    ///  <para>Summarize a directory, skipping signature and installer enrichment</para>
+    ///  <code>Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -ExcludeInstaller</code>
+    /// </example>
+    /// <example>
     ///  <para>Include SHA-256 and first 16 bytes header (hex)</para>
     ///  <code>Get-FileInsight -Path .\\app.exe -ComputeSha256 -MagicHeaderBytes 16</code>
     /// </example>
     /// <seealso cref="FileInspectorX.PowerShell.AsyncPSCmdlet" />
     /// </summary>
     [Cmdlet(VerbsCommon.Get, "FileInsight", DefaultParameterSetName = "Path", SupportsShouldProcess = false)]
+    [OutputType(typeof(FileInspectorX.FileAnalysis))]
     [OutputType(typeof(AnalysisView))]
     [OutputType(typeof(DetectionView))]
     [OutputType(typeof(PermissionsView))]
