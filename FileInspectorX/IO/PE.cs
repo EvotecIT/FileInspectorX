@@ -2,7 +2,14 @@ using System.Text;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Minimal PE reader that extracts header facts without depending on OS APIs.
+/// Internal helper for PE triage (version strings, security directory, hardening flags).
+/// </summary>
 internal static class PeReader {
+    /// <summary>
+    /// Attempts to parse a PE image from <paramref name="path"/> and populate <see cref="PeInfo"/>.
+    /// </summary>
     public static bool TryReadPe(string path, out PeInfo info) {
         info = new PeInfo();
         try {
@@ -57,6 +64,7 @@ internal static class PeReader {
         } catch { return false; }
     }
 
+    /// <summary>Translates a relative virtual address (RVA) to a file offset using section headers.</summary>
     public static bool RvaToFileOffset(PeInfo info, uint rva, out long fileOffset) {
         fileOffset = 0;
         foreach (var s in info.Sections) {
@@ -68,6 +76,10 @@ internal static class PeReader {
         return false;
     }
 
+    /// <summary>
+    /// Extracts selected string version fields from the VS_VERSIONINFO resource when present.
+    /// Returns a dictionary of common keys (CompanyName, FileVersion, ProductVersion, etc.) or null.
+    /// </summary>
     public static Dictionary<string, string>? TryExtractVersionStrings(string path) {
         if (!TryReadPe(path, out var pe)) return null;
         if (pe.ResourceRva == 0 || pe.ResourceSize == 0) return null;
