@@ -4,15 +4,25 @@ namespace FileInspectorX;
 /// Broad content category used to quickly route files based on type.
 /// </summary>
 public enum ContentKind {
+    /// <summary>Unrecognized or indeterminate.</summary>
     Unknown,
+    /// <summary>Plain text or structured text (JSON, YAML, logs, Markdown, scripts, etc.).</summary>
     Text,
+    /// <summary>Raster or vector image formats.</summary>
     Image,
+    /// <summary>Archive or disk container formats (ZIP/TAR/DMG/ISO/7z/RAR).</summary>
     Archive,
+    /// <summary>Native or managed executables/libraries (PE/ELF/Mach-O).</summary>
     Executable,
+    /// <summary>Document formats (PDF, OOXML, RTF, EML, etc.).</summary>
     Document,
+    /// <summary>Audio files.</summary>
     Audio,
+    /// <summary>Video files.</summary>
     Video,
+    /// <summary>3D model formats.</summary>
     Model,
+    /// <summary>Database file formats.</summary>
     Database,
 }
 
@@ -20,6 +30,11 @@ public enum ContentKind {
 /// Helpers for mapping a detection result onto a <see cref="ContentKind"/>.
 /// </summary>
 public static class KindClassifier {
+    /// <summary>
+    /// Maps a detection result onto a broad <see cref="ContentKind"/>.
+    /// </summary>
+    /// <param name="r">Detection result to classify.</param>
+    /// <returns>One of the <see cref="ContentKind"/> values.</returns>
     public static ContentKind Classify(ContentTypeDetectionResult? r) {
         if (r is null) return ContentKind.Unknown;
         var mime = r.MimeType?.ToLowerInvariant() ?? string.Empty;

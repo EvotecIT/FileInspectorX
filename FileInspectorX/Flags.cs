@@ -5,6 +5,7 @@ namespace FileInspectorX;
 /// </summary>
 [System.Flags]
 public enum ContentFlags : long {
+    /// <summary>No additional signals detected.</summary>
     None = 0,
     // OOXML
     /// <summary>Office Open XML document contains a vbaProject.bin stream.</summary>
