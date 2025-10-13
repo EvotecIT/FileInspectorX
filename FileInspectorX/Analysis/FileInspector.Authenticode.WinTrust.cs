@@ -5,6 +5,10 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
+    /// <summary>
+    /// On Windows, invokes WinVerifyTrust to evaluate Authenticode policy (catalog-aware).
+    /// Populates <see cref="AuthenticodeInfo.IsTrustedWindowsPolicy"/> and <see cref="AuthenticodeInfo.WinTrustStatusCode"/>.
+    /// </summary>
     private static void TryVerifyAuthenticodeWinTrust(string path, FileAnalysis res)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
@@ -82,4 +86,3 @@ public static partial class FileInspector
         // Remaining fields omitted (not needed for our use case)
     }
 }
-
