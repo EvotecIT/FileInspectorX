@@ -3,6 +3,9 @@ using System.Runtime.InteropServices;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Windows-only policy verification via WinVerifyTrust to complement cross‑platform Authenticode parsing.
+/// </summary>
 public static partial class FileInspector
 {
     /// <summary>

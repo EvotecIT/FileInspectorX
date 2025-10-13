@@ -2,6 +2,9 @@ using System.Xml;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Extracts generic references (paths, URLs, commands, env vars, CLSIDs) from common config formats.
+/// </summary>
 public static partial class FileInspector
 {
     private static IReadOnlyList<Reference>? BuildReferences(string path, ContentTypeDetectionResult? det)

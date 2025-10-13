@@ -2,6 +2,9 @@ using System.Runtime.CompilerServices;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Directory enumeration and async scanning helpers over the <see cref="FileInspector"/> facade.
+/// </summary>
 public static partial class FileInspector {
     /// <summary>
     /// Lazily analyzes all files under a directory (non-recursive by default).

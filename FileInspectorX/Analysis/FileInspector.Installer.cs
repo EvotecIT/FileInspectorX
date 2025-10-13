@@ -4,6 +4,9 @@ using System.Xml;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Installer/package metadata extractors (MSIX/APPX/VSIX manifests and MSI database on Windows).
+/// </summary>
 public static partial class FileInspector
 {
     private static void TryPopulateAppxManifest(string path, FileAnalysis res)

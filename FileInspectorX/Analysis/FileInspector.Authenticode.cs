@@ -2,6 +2,9 @@ using System.Runtime.InteropServices;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Authenticode parsing and best‑effort verification helpers (envelope, chain, optional file digest recomputation).
+/// </summary>
 public static partial class FileInspector
 {
     private static void TryPopulateAuthenticode(string path, FileAnalysis res)

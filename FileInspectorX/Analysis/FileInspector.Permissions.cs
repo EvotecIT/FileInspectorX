@@ -2,6 +2,9 @@ using System.Runtime.InteropServices;
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Cross-platform permission and ownership snapshot helpers (Unix modes; Windows ACL summaries).
+/// </summary>
 public static partial class FileInspector
 {
     private static FileSecurity BuildFileSecurity(string path)

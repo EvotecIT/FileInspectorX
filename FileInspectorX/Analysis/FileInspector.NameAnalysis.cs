@@ -1,5 +1,8 @@
 namespace FileInspectorX;
 
+/// <summary>
+/// Filename/path heuristics to flag suspicious traits (double extension, BiDi override, mismatch, etc.).
+/// </summary>
 public static partial class FileInspector
 {
     private static NameIssues AnalyzeName(string path, ContentTypeDetectionResult? det)
@@ -42,4 +45,3 @@ public static partial class FileInspector
         return issues;
     }
 }
-
