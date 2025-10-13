@@ -145,10 +145,14 @@ var summary = full.ToSummaryView(path);
 - AOT‑friendly: safe for NativeAOT
  - Name/path checks: BiDi controls, double extension, extension mismatch, suspicious whitespace
  - Archive safety: traversal/absolute paths/symlinks flags from ZIP sampling
- - Installer/container focus:
-   - ZIP subtype detection (apk/jar/ipa/vsix/xap/appx/msix)
-   - ZIP inventory flags for executables, scripts, installers (msi/msix/appx/msixbundle)
-   - Appx/MSIX signature extraction (AppxSignature.p7x) → SignatureView shows vendor/cert
+- Installer/container focus:
+  - ZIP subtype detection (apk/jar/ipa/vsix/xap/appx/msix)
+  - ZIP inventory flags for executables, scripts, installers (msi/msix/appx/msixbundle)
+  - Appx/MSIX signature extraction (AppxSignature.p7x) → SignatureView shows vendor/cert
+ - Office & PDF flags:
+   - OOXML (Word): Remote template (OfficeRemoteTemplate), possible DDE (OfficePossibleDde)
+   - OOXML (Excel): External links (OfficeExternalLinks) and count (OfficeExternalLinksCount)
+   - PDF: XFA (PdfHasXfa), Encrypted (PdfEncrypted), ManyIncrementalUpdates (PdfManyIncrementalUpdates)
 
 ## References & Recipes
 
@@ -185,6 +189,12 @@ C# (Assessment)
 var full = FileInspector.Analyze(path);
 var assess = FileInspector.Assess(full);
 Console.WriteLine($"Score={assess.Score} Decision={assess.Decision} Codes={string.Join(" ", assess.Codes)}");
+
+// Factors show score contributions per code (explainability)
+foreach (var kv in assess.Factors)
+{
+    Console.WriteLine($"{kv.Key} => {kv.Value}");
+}
 ```
 
 PowerShell (Assessment)

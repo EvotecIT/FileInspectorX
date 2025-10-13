@@ -26,7 +26,7 @@ public static partial class FileInspector {
             // OOXML macros and ZIP container hints
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
-                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks);
+                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -46,7 +46,10 @@ public static partial class FileInspector {
                 if (subType is "vsix") { TryPopulateVsixManifest(path, res); }
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
-                if (hasExtLinks) res.Flags |= ContentFlags.OfficeExternalLinks;
+                if (hasExtLinks) {
+                    res.Flags |= ContentFlags.OfficeExternalLinks;
+                    res.OfficeExternalLinksCount = extLinksCount;
+                }
             }
 
             // TAR scan hints
@@ -223,8 +226,8 @@ public static partial class FileInspector {
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
-        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false;
+        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -232,7 +235,7 @@ public static partial class FileInspector {
             int count = 0;
             hasNestedArchives = false;
             int sampled = 0; int maxSamples = 16; int headSample = 64;
-            bool ooxmlRemoteTemplate = false; bool ooxmlDde = false; bool ooxmlExtLinks = false;
+            bool ooxmlRemoteTemplate = false; bool ooxmlDde = false; bool ooxmlExtLinks = false; int extLinksCount = 0;
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
@@ -260,9 +263,17 @@ public static partial class FileInspector {
                         if (docxml.IndexOf("DDEAUTO", StringComparison.OrdinalIgnoreCase) >= 0 || docxml.IndexOf(" DDE ", StringComparison.OrdinalIgnoreCase) >= 0)
                             ooxmlDde = true;
                     }
-                    if (!ooxmlExtLinks && (name.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase) || name.Equals("xl/_rels/workbook.xml.rels", StringComparison.OrdinalIgnoreCase)))
+                    if (name.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
                     {
-                        ooxmlExtLinks = true;
+                        ooxmlExtLinks = true; extLinksCount++;
+                    }
+                    if (name.Equals("xl/_rels/workbook.xml.rels", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using var s3 = e.Open(); using var sr3 = new StreamReader(s3);
+                        var rels = sr3.ReadToEnd();
+                        // Count targets that point to externalLinks folder
+                        int pos = 0; int local = 0; while (true) { int at = rels.IndexOf("externalLinks/", pos, StringComparison.OrdinalIgnoreCase); if (at < 0) break; local++; pos = at + 8; }
+                        if (local > 0) { ooxmlExtLinks = true; extLinksCount += local; }
                     }
                 } catch { }
 
@@ -308,6 +319,7 @@ public static partial class FileInspector {
             hasRemoteTemplate = ooxmlRemoteTemplate;
             hasDde = ooxmlDde;
             hasExternalLinks = ooxmlExtLinks;
+            externalLinksCount = extLinksCount;
         } catch { }
     }
 

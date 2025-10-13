@@ -71,4 +71,9 @@ public class FileAnalysis {
     /// Counts of generic secret indicators discovered in text/script content, when enabled.
     /// </summary>
     public SecretsSummary? Secrets { get; set; }
+
+    /// <summary>
+    /// Number of external link definitions detected in OOXML Excel documents (xl/externalLinks/* or workbook rels). Null when not applicable.
+    /// </summary>
+    public int? OfficeExternalLinksCount { get; set; }
 }

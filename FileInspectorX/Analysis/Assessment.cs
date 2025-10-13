@@ -22,6 +22,10 @@ public sealed class AssessmentResult
     public AssessmentDecision Decision { get; set; } = AssessmentDecision.Allow;
     /// <summary>Short, stable codes describing the drivers behind the decision (e.g., "Archive.PathTraversal").</summary>
     public IReadOnlyList<string> Codes { get; set; } = Array.Empty<string>();
+    /// <summary>
+    /// Breakdown of score contributions by code. Keys mirror entries in <see cref="Codes"/> and values are the weights added to the total score.
+    /// </summary>
+    public IReadOnlyDictionary<string,int> Factors { get; set; } = new Dictionary<string,int>();
 }
 
 public static partial class FileInspector
@@ -32,26 +36,31 @@ public static partial class FileInspector
     /// </summary>
     public static AssessmentResult Assess(FileAnalysis a)
     {
-        int score = 0; var codes = new List<string>(16);
+        int score = 0; var codes = new List<string>(32); var factors = new Dictionary<string,int>(32);
+
+        void Add(string code, int weight)
+        {
+            score += weight; codes.Add(code); factors[code] = weight;
+        }
 
         // Containers and archives
-        if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) { score += 40; codes.Add("Archive.PathTraversal"); }
-        if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) { score += 20; codes.Add("Archive.Symlink"); }
-        if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) { score += 15; codes.Add("Archive.AbsolutePath"); }
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0) { score += 25; codes.Add("Archive.ContainsExecutables"); }
-        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) { score += 20; codes.Add("Archive.ContainsScripts"); }
-        if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) { score += 15; codes.Add("Archive.ContainsArchives"); }
+        if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
+        if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
+        if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) Add("Archive.ContainsScripts", 20);
+        if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
 
         // Documents with active content
-        if ((a.Flags & ContentFlags.HasOoxmlMacros) != 0) { score += 30; codes.Add("Office.Macros"); }
-        if ((a.Flags & ContentFlags.PdfHasJavaScript) != 0) { score += 20; codes.Add("Pdf.JavaScript"); }
-        if ((a.Flags & ContentFlags.PdfHasOpenAction) != 0) { score += 15; codes.Add("Pdf.OpenAction"); }
-        if ((a.Flags & ContentFlags.PdfHasLaunch) != 0) { score += 20; codes.Add("Pdf.Launch"); }
-        if ((a.Flags & ContentFlags.PdfHasNamesTree) != 0) { score += 10; codes.Add("Pdf.NamesTree"); }
-        if ((a.Flags & ContentFlags.PdfHasXfa) != 0) { score += 10; codes.Add("Pdf.Xfa"); }
-        if ((a.Flags & ContentFlags.PdfEncrypted) != 0) { score += 10; codes.Add("Pdf.Encrypted"); }
-        if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) { score += 5; codes.Add("Pdf.ManyUpdates"); }
-        if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) { score += 5; codes.Add("Office.ExternalLinks"); }
+        if ((a.Flags & ContentFlags.HasOoxmlMacros) != 0) Add("Office.Macros", 30);
+        if ((a.Flags & ContentFlags.PdfHasJavaScript) != 0) Add("Pdf.JavaScript", 20);
+        if ((a.Flags & ContentFlags.PdfHasOpenAction) != 0) Add("Pdf.OpenAction", 15);
+        if ((a.Flags & ContentFlags.PdfHasLaunch) != 0) Add("Pdf.Launch", 20);
+        if ((a.Flags & ContentFlags.PdfHasNamesTree) != 0) Add("Pdf.NamesTree", 10);
+        if ((a.Flags & ContentFlags.PdfHasXfa) != 0) Add("Pdf.Xfa", 10);
+        if ((a.Flags & ContentFlags.PdfEncrypted) != 0) Add("Pdf.Encrypted", 10);
+        if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) Add("Pdf.ManyUpdates", 5);
+        if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) Add("Office.ExternalLinks", 5);
 
         // Executables
         if ((a.Flags & ContentFlags.PeLooksPackedUpx) != 0) { score += 20; codes.Add("PE.PackerSuspect"); }
@@ -61,9 +70,9 @@ public static partial class FileInspector
         var sig = a.Authenticode;
         if (sig != null)
         {
-            if (sig.IsSelfSigned == true) { score += 20; codes.Add("Sig.SelfSigned"); }
-            if (sig.ChainValid == false) { score += 25; codes.Add("Sig.ChainInvalid"); }
-            if (sig.EnvelopeSignatureValid == false) { score += 15; codes.Add("Sig.BadEnvelope"); }
+            if (sig.IsSelfSigned == true) Add("Sig.SelfSigned", 20);
+            if (sig.ChainValid == false) Add("Sig.ChainInvalid", 25);
+            if (sig.EnvelopeSignatureValid == false) Add("Sig.BadEnvelope", 15);
         }
 
         // Scripts/text cues (neutral codes from SecurityFindings)
@@ -71,19 +80,19 @@ public static partial class FileInspector
         {
             switch (f)
             {
-                case "ps:encoded": score += 25; codes.Add("Script.Encoded"); break;
-                case "ps:iex": score += 20; codes.Add("Script.IEX"); break;
-                case "ps:web-dl": score += 15; codes.Add("Script.WebDownload"); break;
-                case "ps:reflection": score += 10; codes.Add("Script.Reflection"); break;
-                case "py:exec-b64": score += 20; codes.Add("Script.PyExecB64"); break;
-                case "py:exec": score += 10; codes.Add("Script.PyExec"); break;
-                case "rb:eval": score += 10; codes.Add("Script.RbEval"); break;
-                case "lua:exec": score += 10; codes.Add("Script.LuaExec"); break;
-                case "sig:mkatz": score += 30; codes.Add("Sig.MimikatzEncodedHint"); break;
-                case "sig:sekurlsa": score += 30; codes.Add("Sig.SekurlsaEncodedHint"); break;
-                case "secret:privkey": score += 40; codes.Add("Secret.PrivateKey"); break;
-                case "secret:jwt": score += 25; codes.Add("Secret.JWT"); break;
-                case "secret:keypattern": score += 15; codes.Add("Secret.KeyPattern"); break;
+                case "ps:encoded": Add("Script.Encoded", 25); break;
+                case "ps:iex": Add("Script.IEX", 20); break;
+                case "ps:web-dl": Add("Script.WebDownload", 15); break;
+                case "ps:reflection": Add("Script.Reflection", 10); break;
+                case "py:exec-b64": Add("Script.PyExecB64", 20); break;
+                case "py:exec": Add("Script.PyExec", 10); break;
+                case "rb:eval": Add("Script.RbEval", 10); break;
+                case "lua:exec": Add("Script.LuaExec", 10); break;
+                case "sig:mkatz": Add("Sig.MimikatzEncodedHint", 30); break;
+                case "sig:sekurlsa": Add("Sig.SekurlsaEncodedHint", 30); break;
+                case "secret:privkey": Add("Secret.PrivateKey", 40); break;
+                case "secret:jwt": Add("Secret.JWT", 25); break;
+                case "secret:keypattern": Add("Secret.KeyPattern", 15); break;
             }
         }
 
@@ -97,7 +106,7 @@ public static partial class FileInspector
         if (!string.IsNullOrWhiteSpace(pkgVendor))
         {
             codes.Add("Package.VendorPresent");
-            if (IsAllowedVendor(pkgVendor)) { codes.Add("Package.VendorAllowed"); score = Math.Max(0, score - 15); }
+            if (IsAllowedVendor(pkgVendor)) { codes.Add("Package.VendorAllowed"); factors["Package.VendorAllowed"] = -15; score = Math.Max(0, score - 15); }
         }
         else if (a.Installer != null)
         {
@@ -106,8 +115,8 @@ public static partial class FileInspector
         }
         // Signature vendor allow
         var sigCn = a.Authenticode?.SignerSubjectCN; var sigOrg = a.Authenticode?.SignerSubjectO;
-        if (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) { codes.Add("Sig.VendorAllowed"); score = Math.Max(0, score - 10); }
-        else if (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)) { codes.Add("Sig.VendorAllowed"); score = Math.Max(0, score - 10); }
+        if (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) { codes.Add("Sig.VendorAllowed"); factors["Sig.VendorAllowed"] = -10; score = Math.Max(0, score - 10); }
+        else if (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)) { codes.Add("Sig.VendorAllowed"); factors["Sig.VendorAllowed"] = -10; score = Math.Max(0, score - 10); }
         else if (a.Authenticode?.Present == true)
         {
             // Signed object but no recognizable vendor name components
@@ -147,7 +156,7 @@ public static partial class FileInspector
         if (score < 0) score = 0; if (score > 100) score = 100;
         var decision = score >= Settings.AssessmentBlockThreshold ? AssessmentDecision.Block : (score >= Settings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
 
-        return new AssessmentResult { Score = score, Decision = decision, Codes = codes };
+        return new AssessmentResult { Score = score, Decision = decision, Codes = codes, Factors = factors };
     }
 
     private static bool IsAllowedVendor(string? name)
