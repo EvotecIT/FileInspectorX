@@ -6,10 +6,17 @@ namespace FileInspectorX;
 /// Central registry of magic signatures and helpers; split across partial classes for categories (executables, archives, text/markup, media, riff/images).
 /// </summary>
 internal static partial class Signatures {
+    /// <summary>
+    /// Compact magic signature descriptor used by the detector. Internal-only: kept minimal for speed.
+    /// </summary>
     internal sealed class Signature {
+        /// <summary>Normalized extension to emit when the prefix matches.</summary>
         public readonly string Extension;
+        /// <summary>MIME type to emit when the prefix matches.</summary>
         public readonly string MimeType;
+        /// <summary>Magic prefix bytes to match.</summary>
         public readonly byte[] Prefix;
+        /// <summary>Offset at which to attempt a match (0 for BOF).</summary>
         public readonly int Offset;
         public Signature(string extension, string mimeType, byte[] prefix, int offset = 0) {
             Extension = extension; MimeType = mimeType; Prefix = prefix; Offset = offset;
@@ -46,6 +53,9 @@ internal static partial class Signatures {
         new Signature("flac","audio/flac",            System.Text.Encoding.ASCII.GetBytes("fLaC")),
     };
 
+    /// <summary>
+    /// Enumerates all known signatures (core + standard sets) used by the detector.
+    /// </summary>
     internal static IEnumerable<Signature> All() {
         // Merge core list with consolidated imported signatures
         Signature[] standard;
@@ -53,6 +63,9 @@ internal static partial class Signatures {
         return Core.Concat(standard);
     }
 
+    /// <summary>
+    /// Returns true when <paramref name="src"/> contains the signature <paramref name="sig"/> at its declared offset.
+    /// </summary>
     internal static bool Match(ReadOnlySpan<byte> src, Signature sig) {
         var off = sig.Offset;
         if (off < 0 || off + sig.Prefix.Length > src.Length) return false;
