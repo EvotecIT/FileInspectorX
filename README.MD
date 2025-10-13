@@ -325,14 +325,28 @@ Notes
 
 ## Sample Scenario Scores (Illustrative)
 
+GitHub's Mermaid version may not support the new `chart` directive yet, so here's a pie fallback and a simple table.
+
 ```mermaid
-chart
-  title: Sample Scenario Scores
-  type: bar
-  x-axis: [Plain PDF, PDF+JS, DOCX+Macros, DOCX+RemoteTpl, ZIP w/Exec, MSI+CustomAction]
-  series:
-    - title: Score
-      data: [0, 20, 30, 55, 25, 50]
+pie showData
+    title Scenario Scores (Illustrative)
+    "Plain PDF (0)" : 0
+    "PDF + JS (20)" : 20
+    "DOCX + Macros (30)" : 30
+    "DOCX + RemoteTpl (55)" : 55
+    "ZIP with Executable (25)" : 25
+    "MSI + CustomAction (50)" : 50
+```
+
+```
+Scenario                  Score
+------------------------  -----
+Plain PDF                 0
+PDF + JS                  20
+DOCX + Macros             30
+DOCX + Remote Template    55
+ZIP with Executable       25
+MSI with Custom Action    50
 ```
 
 These values are illustrative only — actual scores depend on which signals are present and the configured weights.
