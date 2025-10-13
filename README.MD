@@ -88,6 +88,20 @@ Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences | Format
 Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
 ```
 
+### PowerShell quick help
+
+```powershell
+# Discover parameters and examples
+Get-Help Get-FileInsight -Detailed
+Get-Help Get-FileInsight -Examples
+
+# Detect-only for all EXE files under the current directory
+Get-ChildItem -Filter *.exe -File -Recurse | Get-FileInsight -View Detection | Format-Table -Auto
+
+# Summarize a directory, skipping signature and installer enrichment
+Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -ExcludeInstaller | Format-Table -Auto
+```
+
 ## Views
 
 - SummaryView: Path, Kind, Extension, MimeType, Confidence, Reason, Flags
