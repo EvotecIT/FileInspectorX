@@ -4,9 +4,6 @@ namespace FileInspectorX;
 /// Built-in, dependency-free helper maps used by FileInspector and consumers.
 /// Keep policy-light: these are conveniences, not enforcement.
 /// </summary>
-/// <summary>
-/// Built-in, dependency-free mapping of common file extensions to canonical MIME types.
-/// </summary>
 public static class MimeMaps {
     public static readonly IReadOnlyDictionary<string, string> Default = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
         ["png"] = "image/png",

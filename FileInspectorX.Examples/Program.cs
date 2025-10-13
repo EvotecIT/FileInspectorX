@@ -28,7 +28,15 @@ internal static partial class Program
         Method2(path);
         Console.WriteLine();
         Method3(path);
-
+        Console.WriteLine();
+        Method4_RawAndToggles(path);
+        Console.WriteLine();
+        Method5_AssessmentAndPolicy(path);
+        Console.WriteLine();
+        Method6_DirectoryScan(path);
+        Console.WriteLine();
+        Method7_Cookbook(path);
+        
         return 0;
     }
 
