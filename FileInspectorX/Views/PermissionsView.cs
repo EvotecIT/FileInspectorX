@@ -3,7 +3,6 @@ namespace FileInspectorX;
 /// <summary>
 /// Flattened permissions/ownership view for display.
 /// </summary>
-/// <summary>Flattened permissions/ownership view for display.</summary>
 public sealed class PermissionsView
 {
     /// <summary>File path.</summary>
@@ -63,6 +62,9 @@ public sealed class PermissionsView
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
+    /// <summary>
+    /// Creates a <see cref="PermissionsView"/> from a <see cref="FileSecurity"/> snapshot.
+    /// </summary>
     public static PermissionsView From(string path, FileSecurity? s) => new PermissionsView {
         Path = path,
         IsSymlink = s?.IsSymlink,
