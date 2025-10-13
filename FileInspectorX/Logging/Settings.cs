@@ -103,4 +103,35 @@ public class Settings {
     /// When true, attempt revocation checks during WinVerifyTrust (may require network, slower).
     /// </summary>
     public static bool VerifyAuthenticodeRevocation { get; set; } = false;
+
+    /// <summary>
+    /// Assessment score threshold for Warn decision. Default 40.
+    /// </summary>
+    public static int AssessmentWarnThreshold { get; set; } = 40;
+
+    /// <summary>
+    /// Assessment score threshold for Block decision. Default 70.
+    /// </summary>
+    public static int AssessmentBlockThreshold { get; set; } = 70;
+
+    /// <summary>
+    /// Optional list of allowed vendor names (publisher/org) used for a positive hint in assessment.
+    /// Matches against InstallerInfo.Publisher/PublisherDisplayName/Manufacturer and Authenticode SignerSubjectCN/O.
+    /// </summary>
+    public static string[] AllowedVendors { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Vendor match mode for AllowedVendors list. 'Contains' (default) matches if vendor string contains an allowed token (case-insensitive).
+    /// 'Exact' requires a full case-insensitive equality.
+    /// </summary>
+    public static VendorMatchMode VendorMatchMode { get; set; } = VendorMatchMode.Contains;
+}
+
+/// <summary>
+/// Controls how vendor names in AllowedVendors are matched.
+/// </summary>
+public enum VendorMatchMode
+{
+    Contains = 0,
+    Exact = 1
 }

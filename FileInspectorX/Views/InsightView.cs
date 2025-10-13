@@ -5,9 +5,13 @@ namespace FileInspectorX;
 /// </summary>
 public enum InsightView
 {
-    Analysis = 0,
-    Detection = 1,
-    Permissions = 2,
-    Signature = 3,
-    Summary = 4
+    Raw = 0,
+    Analysis = 1,
+    Detection = 2,
+    Permissions = 3,
+    Signature = 4,
+    Summary = 5,
+    References = 6,
+    Assessment = 7,
+    Installer = 8
 }

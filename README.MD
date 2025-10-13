@@ -76,6 +76,7 @@ Get-FileInsight -Path .\file.bin | Format-Table -Auto
 Get-FileInsight -Path .\file.bin -View Detection | Format-Table -Auto
 Get-FileInsight -Path .\file.bin -View Permissions | Format-Table Path,Owner,Group,ModeSymbolic,EveryoneWriteAllowed -Auto
 Get-FileInsight -Path .\app.exe -View Signature | Format-List
+Get-FileInsight -Path .\package.msix -View Installer | Format-Table -Auto
 
 # Back-compat
 Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
@@ -87,7 +88,11 @@ Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
 - DetectionView: Path, Extension, MimeType, Confidence, Reason, ReasonDetails, BytesInspected, Sha256Hex, MagicHeaderHex
 - AnalysisView: container/text/script/PE/Auth summaries
 - PermissionsView (Windows & Unix): Owner/Group (+ IDs), ModeOctal/ModeSymbolic, IsExecutable, Everyone/Users/Admins read/write, HasDenyEntries
-- SignatureView (PE): Present, EnvelopeSignatureValid, ChainValid, Timestamp, signer info, FileHashMatches
+- SignatureView: Present, EnvelopeSignatureValid, ChainValid, Timestamp, signer info, FileHashMatches, SubjectCN/Org, IssuerCN/Org, IsSelfSigned
+- InstallerView: Name/Publisher/Version/Manufacturer/ProductCode for MSI; Identity/Publisher/Display for MSIX/APPX; Publisher for VSIX
+- ReferencesView: (generic) FilePath/Url/Command values found in configs (Task XML, scripts.ini), with Exists and Issues flags
+- AssessmentView: compact risk score (0–100), decision (Allow/Warn/Block/Defer), and finding codes
+  - Codes include: Package.VendorPresent/VendorUnknown/VendorAllowed, Sig.VendorAllowed/Sig.VendorUnknown, Archive.* and Pdf.* flags, etc.
 
 ## API Choices: Detect vs Inspect vs Analyze
 
@@ -132,6 +137,57 @@ var summary = full.ToSummaryView(path);
 - Permissions snapshot: cross‑platform owner/group + Unix modes; Windows ACL summaries (Everyone/Users/Admins read/write, deny ACEs)
 - Signatures: Authenticode summary everywhere; optional WinVerifyTrust policy (Windows)
 - AOT‑friendly: safe for NativeAOT
+ - Name/path checks: BiDi controls, double extension, extension mismatch, suspicious whitespace
+ - Archive safety: traversal/absolute paths/symlinks flags from ZIP sampling
+ - Installer/container focus:
+   - ZIP subtype detection (apk/jar/ipa/vsix/xap/appx/msix)
+   - ZIP inventory flags for executables, scripts, installers (msi/msix/appx/msixbundle)
+   - Appx/MSIX signature extraction (AppxSignature.p7x) → SignatureView shows vendor/cert
+
+## References & Recipes
+
+The library can extract generic references from common configuration files so consumers can validate what will execute or be accessed. This is domain‑agnostic and useful for many scenarios (build pipelines, endpoint hygiene, or pre‑upload checks).
+
+- Extracted kinds: FilePath, Url, Command, EnvVar, RegistryPath, Clsid.
+- Current extractors:
+  - Windows Task Scheduler Task XML: captures `<Exec><Command>`, `<Arguments>`, `<WorkingDirectory>` and `<ClassId>` (COM handler). Flags unquoted paths, UNC usage, relative paths.
+  - GPO scripts INI (scripts.ini / psscripts.ini): captures `nCmd` and `nParameters` values, extracts paths and URLs.
+
+PowerShell
+
+```powershell
+# List references from a Task XML
+Get-FileInsight -Path .\Task.xml -View References | Format-Table -Auto
+
+# List references in a GPO scripts.ini
+Get-FileInsight -Path .\scripts.ini -View References | Format-Table -Auto
+```
+
+C#
+
+```csharp
+var a = FileInspector.Analyze(path);
+foreach (var r in a.References ?? Array.Empty<Reference>())
+{
+    Console.WriteLine($"{r.Kind} {r.Value} exists={r.Exists} issues={r.Issues}");
+}
+```
+
+C# (Assessment)
+
+```csharp
+var full = FileInspector.Analyze(path);
+var assess = FileInspector.Assess(full);
+Console.WriteLine($"Score={assess.Score} Decision={assess.Decision} Codes={string.Join(" ", assess.Codes)}");
+```
+
+PowerShell (Assessment)
+
+```powershell
+Get-FileInsight -Path .\file.bin -View Assessment | Format-Table -Auto
+```
+
+This stays generic by design. A higher‑level component (e.g., TierBridge) can layer policy (allow/warn/block) using these references and the existing Flags/SecurityFindings.
 
 ## Settings
 
@@ -141,6 +197,8 @@ var summary = full.ToSummaryView(path);
 - VerifyAuthenticodeWithWinTrust (default true on Windows)
 - VerifyAuthenticodeRevocation (default false)
 - JS minified heuristics: JsMinifiedMinLength, JsMinifiedAvgLineThreshold, JsMinifiedDensityThreshold
+- Assessment thresholds: AssessmentWarnThreshold, AssessmentBlockThreshold
+- Vendor allow‑list: AllowedVendors (string[]), VendorMatchMode (Contains|Exact)
 
 ## Signatures (Authenticode)
 

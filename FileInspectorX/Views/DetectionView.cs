@@ -26,6 +26,8 @@ public sealed class DetectionView
     public string? Sha256Hex { get; set; }
     /// <summary>Optional magic header bytes as hex (when requested).</summary>
     public string? MagicHeaderHex { get; set; }
+    /// <summary>The full analysis object for deep inspection.</summary>
+    public FileAnalysis? Raw { get; set; }
 
     public static DetectionView From(string path, ContentTypeDetectionResult r) => new DetectionView {
         Path = path,
@@ -37,6 +39,7 @@ public sealed class DetectionView
         BytesInspected = r.BytesInspected,
         GuessedExtension = r.GuessedExtension,
         Sha256Hex = r.Sha256Hex,
-        MagicHeaderHex = r.MagicHeaderHex
+        MagicHeaderHex = r.MagicHeaderHex,
+        Raw = null
     };
 }

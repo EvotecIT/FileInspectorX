@@ -22,6 +22,19 @@ public static partial class FileInspector {
         /// This does not affect <see cref="FileInspectorX.FileInspector.Detect(string)"/> which is always detection-only.
         /// </summary>
         public bool DetectOnly { get; set; } = false;
+
+        /// <summary>Include container analysis (ZIP/TAR summaries, inner-archive hints). Default true.</summary>
+        public bool IncludeContainer { get; set; } = true;
+        /// <summary>Include permissions/ownership snapshot. Default true.</summary>
+        public bool IncludePermissions { get; set; } = true;
+        /// <summary>Include Authenticode/package signature analysis where applicable. Default true.</summary>
+        public bool IncludeAuthenticode { get; set; } = true;
+        /// <summary>Include references extraction from config files (Task XML, scripts.ini/xml). Default true.</summary>
+        public bool IncludeReferences { get; set; } = true;
+        /// <summary>Include installer/package metadata (MSIX/APPX/VSIX/MSI). Default true.</summary>
+        public bool IncludeInstaller { get; set; } = true;
+        /// <summary>Compute Assessment (score/decision) and attach to the result. Default true.</summary>
+        public bool IncludeAssessment { get; set; } = true;
     }
 
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
@@ -282,10 +295,13 @@ public static partial class FileInspector {
             bool hasAndroidMan = za.GetEntry("AndroidManifest.xml") != null;
             bool hasPayload = za.Entries.Any(e => e.FullName.StartsWith("Payload/", StringComparison.Ordinal));
             bool hasInfoPlist = za.Entries.Any(e => (e.FullName.IndexOf(".app/Info.plist", System.StringComparison.Ordinal) >= 0));
+            bool hasAppxManifest = za.GetEntry("AppxManifest.xml") != null;
+            bool hasAppxSignature = za.GetEntry("AppxSignature.p7x") != null;
 
             if (hasAndroidMan || hasDex) { mime = "application/vnd.android.package-archive"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "apk"; }
             if (hasManifest) { mime = "application/java-archive"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "jar"; }
             if (hasPayload && hasInfoPlist) { mime = null; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "ipa"; }
+            if (hasAppxManifest) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return hasAppxSignature ? "msix" : "appx"; }
 
             var mimetypeEntry = za.GetEntry("mimetype");
             if (mimetypeEntry != null) {

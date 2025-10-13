@@ -60,6 +60,8 @@ public sealed class PermissionsView
     public int? ExplicitAllowCount { get; set; }
     /// <summary>Windows: Explicit (non-inherited) deny ACEs.</summary>
     public int? ExplicitDenyCount { get; set; }
+    /// <summary>The full analysis object for deep inspection.</summary>
+    public FileAnalysis? Raw { get; set; }
 
     public static PermissionsView From(string path, FileSecurity? s) => new PermissionsView {
         Path = path,
@@ -85,6 +87,7 @@ public sealed class PermissionsView
         TotalAllowCount = s?.TotalAllowCount,
         TotalDenyCount = s?.TotalDenyCount,
         ExplicitAllowCount = s?.ExplicitAllowCount,
-        ExplicitDenyCount = s?.ExplicitDenyCount
+        ExplicitDenyCount = s?.ExplicitDenyCount,
+        Raw = null
     };
 }

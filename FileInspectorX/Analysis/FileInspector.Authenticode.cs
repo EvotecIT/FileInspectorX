@@ -39,6 +39,7 @@ public static partial class FileInspector
                 if (cert != null) {
                     ai.SignerSubject = cert.Subject;
                     ai.SignerIssuer = cert.Issuer;
+                    FillCertFields(cert, ai);
                     ai.NotBefore = cert.NotBefore; ai.NotAfter = cert.NotAfter;
                     ai.SignerThumbprint = cert.Thumbprint;
                     ai.SignerSerialHex = cert.SerialNumber;
@@ -52,6 +53,7 @@ public static partial class FileInspector
                         bool ok = chain.Build(cert);
                         ai.ChainValid = ok;
                         if (ok) res.Flags |= ContentFlags.PeAuthenticodeChainValid;
+                        try { ai.IsSelfSigned = string.Equals(cert.Subject, cert.Issuer, StringComparison.OrdinalIgnoreCase); } catch { }
                     } catch { }
                 }
 
@@ -93,6 +95,29 @@ public static partial class FileInspector
             res.Authenticode = ai;
             // Windows policy verification (full policy + catalog support)
             if (Settings.VerifyAuthenticodeWithWinTrust) TryVerifyAuthenticodeWinTrust(path, res);
+        } catch { }
+    }
+
+    private static void FillCertFields(System.Security.Cryptography.X509Certificates.X509Certificate2 cert, AuthenticodeInfo ai)
+    {
+        try {
+            static string? GetRdn(System.Security.Cryptography.X509Certificates.X500DistinguishedName dn, string key)
+            {
+                var s = dn?.Name ?? string.Empty;
+                if (string.IsNullOrEmpty(s)) return null;
+                foreach (var part in s.Split(','))
+                {
+                    var kv = part.Trim();
+                    int eq = kv.IndexOf('='); if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq).Trim(); var v = kv.Substring(eq + 1).Trim();
+                    if (k.Equals(key, StringComparison.OrdinalIgnoreCase)) return v;
+                }
+                return null;
+            }
+            ai.SignerSubjectCN = GetRdn(cert.SubjectName, "CN");
+            ai.SignerSubjectO  = GetRdn(cert.SubjectName, "O");
+            ai.IssuerCN = GetRdn(cert.IssuerName, "CN");
+            ai.IssuerO  = GetRdn(cert.IssuerName, "O");
         } catch { }
     }
 

@@ -29,6 +29,9 @@ namespace FileInspectorX.PowerShell {
     [OutputType(typeof(PermissionsView))]
     [OutputType(typeof(SignatureView))]
     [OutputType(typeof(SummaryView))]
+    [OutputType(typeof(AssessmentView))]
+    [OutputType(typeof(InstallerView))]
+    [OutputType(typeof(ReferencesView))]
     public sealed class CmdletGetFileInsight : AsyncPSCmdlet {
         /// <summary>
         /// One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.
@@ -37,9 +40,9 @@ namespace FileInspectorX.PowerShell {
         [Alias("FullName")]
         public string[] Path { get; set; } = Array.Empty<string>();
 
-        /// <summary>Output shape to emit. Defaults to Summary.</summary>
+        /// <summary>Output shape to emit. Defaults to Raw (full object).</summary>
         [Parameter()]
-        public InsightView View { get; set; } = InsightView.Summary;
+        public InsightView View { get; set; } = InsightView.Raw;
 
         /// <summary>Return only detection result (skip analysis). Back-compat shim for -View Detection.</summary>
         [Parameter()]
@@ -53,6 +56,14 @@ namespace FileInspectorX.PowerShell {
         [Parameter()]
         [ValidateRange(0, 1048576)]
         public int MagicHeaderBytes { get; set; } = 0;
+
+        // Section toggles (exclude switches) to control which parts are populated
+        [Parameter()] public SwitchParameter ExcludePermissions { get; set; }
+        [Parameter()] public SwitchParameter ExcludeSignature { get; set; }
+        [Parameter()] public SwitchParameter ExcludeReferences { get; set; }
+        [Parameter()] public SwitchParameter ExcludeInstaller { get; set; }
+        [Parameter()] public SwitchParameter ExcludeContainer { get; set; }
+        [Parameter()] public SwitchParameter ExcludeAssessment { get; set; }
 
 
         private InternalLogger? _logger;
@@ -70,7 +81,13 @@ namespace FileInspectorX.PowerShell {
         protected override async Task ProcessRecordAsync() {
             var options = new FileInspector.DetectionOptions {
                 ComputeSha256 = ComputeSha256,
-                MagicHeaderBytes = MagicHeaderBytes
+                MagicHeaderBytes = MagicHeaderBytes,
+                IncludePermissions = !ExcludePermissions,
+                IncludeAuthenticode = !ExcludeSignature,
+                IncludeReferences = !ExcludeReferences,
+                IncludeInstaller = !ExcludeInstaller,
+                IncludeContainer = !ExcludeContainer,
+                IncludeAssessment = !ExcludeAssessment
             };
 
             // Resolve each incoming path through PS provider
@@ -92,6 +109,10 @@ namespace FileInspectorX.PowerShell {
                         var view = this.View;
                         if (DetectOnly) view = InsightView.Detection;
                         switch (view) {
+                            case InsightView.Raw: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a);
+                                break; }
                             case InsightView.Detection: {
                                 options.DetectOnly = true;
                                 var a = FileInspector.Inspect(p, options);
@@ -108,6 +129,18 @@ namespace FileInspectorX.PowerShell {
                             case InsightView.Summary: {
                                 var a = FileInspector.Inspect(p, options);
                                 WriteObject(a.ToSummaryView(p));
+                                break; }
+                            case InsightView.Assessment: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToAssessmentView(p));
+                                break; }
+                            case InsightView.Installer: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToInstallerView(p));
+                                break; }
+                            case InsightView.References: {
+                                var a = FileInspector.Inspect(p, options);
+                                foreach (var v in a.ToReferencesView(p)) WriteObject(v);
                                 break; }
                             default: {
                                 var a = FileInspector.Inspect(p, options);

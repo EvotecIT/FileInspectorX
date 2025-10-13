@@ -50,6 +50,8 @@ public sealed class AnalysisView
     public bool? AuthChainValid { get; set; }
     /// <summary>True when a timestamp countersignature is present.</summary>
     public bool? AuthTimestamp { get; set; }
+    /// <summary>The full analysis object for deep inspection.</summary>
+    public FileAnalysis? Raw { get; set; }
 
     public static AnalysisView From(string path, FileAnalysis a) => new AnalysisView {
         Path = path,
@@ -69,6 +71,7 @@ public sealed class AnalysisView
         PeSubsystem = a.PeSubsystem,
         Authenticode = a.Authenticode?.Present,
         AuthChainValid = a.Authenticode?.ChainValid,
-        AuthTimestamp = a.Authenticode?.TimestampPresent
+        AuthTimestamp = a.Authenticode?.TimestampPresent,
+        Raw = a
     };
 }

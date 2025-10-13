@@ -17,6 +17,11 @@ public sealed class AuthenticodeInfo
 
     public string? SignerSubject { get; set; }
     public string? SignerIssuer { get; set; }
+    public string? SignerSubjectCN { get; set; }
+    public string? SignerSubjectO { get; set; }
+    public string? IssuerCN { get; set; }
+    public string? IssuerO { get; set; }
+    public bool? IsSelfSigned { get; set; }
     public string? SignerThumbprint { get; set; }
     public string? SignerSerialHex { get; set; }
     public string? SignatureAlgorithm { get; set; }

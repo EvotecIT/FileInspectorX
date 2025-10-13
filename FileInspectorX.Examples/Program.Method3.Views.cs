@@ -25,6 +25,18 @@ internal static partial class Program
             var sig = fa.ToSignatureView(path);
             Console.WriteLine($"Sign: present={sig.Present}, chainValid={sig.ChainValid}, fileHashOk={(fa.Authenticode?.FileHashMatches == true)}");
         }
+
+        if (fa.References != null && fa.References.Count > 0)
+        {
+            Console.WriteLine($"Refs: {fa.References.Count} items");
+            foreach (var rv in fa.ToReferencesView(path))
+            {
+                Console.WriteLine($"  - {rv.Kind}: {rv.Value} exists={rv.Exists} issues={rv.Issues} src={rv.Source}");
+            }
+        }
+
+        var assess = fa.ToAssessmentView(path);
+        Console.WriteLine($"Assess: score={assess.Score} decision={assess.Decision} codes={assess.Codes}");
     }
 }
 

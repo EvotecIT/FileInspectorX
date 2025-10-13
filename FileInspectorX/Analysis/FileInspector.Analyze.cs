@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 
 namespace FileInspectorX;
 
@@ -23,8 +24,9 @@ public static partial class FileInspector {
             if (det is null) return res;
 
             // OOXML macros and ZIP container hints
-            if (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip") {
-                TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives);
+            if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
+                TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
+                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -32,13 +34,20 @@ public static partial class FileInspector {
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                 if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
+                if (hasInstallers) res.Flags |= ContentFlags.ContainerContainsInstallers;
+                if (hasTraversal) res.Flags |= ContentFlags.ArchiveHasPathTraversal;
+                if (hasSymlink) res.Flags |= ContentFlags.ArchiveHasSymlinks;
+                if (hasAbs) res.Flags |= ContentFlags.ArchiveHasAbsolutePaths;
                 if (det.Extension is "docx" && hasMacros) res.GuessedExtension ??= "docm";
                 if (det.Extension is "xlsx" && hasMacros) res.GuessedExtension ??= "xlsm";
                 if (det.Extension is "pptx" && hasMacros) res.GuessedExtension ??= "pptm";
+                // Package signature extraction for APPX/MSIX
+                if (subType is "appx" or "msix") { TryPopulateAppxSignature(path, res); TryPopulateAppxManifest(path, res); }
+                if (subType is "vsix") { TryPopulateVsixManifest(path, res); }
             }
 
             // TAR scan hints
-            if (det.Extension == "tar") {
+            if ((options?.IncludeContainer != false) && det.Extension == "tar") {
                 TryInspectTar(path, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
@@ -90,12 +99,26 @@ public static partial class FileInspector {
             }
 
             // Permissions/ownership snapshot (best-effort; cross-platform)
-            res.Security = BuildFileSecurity(path);
+            if (options?.IncludePermissions != false) res.Security = BuildFileSecurity(path);
 
             // PE Authenticode (best-effort, cross-platform) for PE files
-            if (det.Extension is "exe" or "dll" or "sys" or "cpl") {
+            if ((options?.IncludeAuthenticode != false) && (det.Extension is "exe" or "dll" or "sys" or "cpl")) {
                 TryPopulateAuthenticode(path, res);
             }
+            // MSI package properties (Windows only)
+            if ((options?.IncludeInstaller != false) && (det.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                TryPopulateMsiProperties(path, res);
+            }
+            // On Windows, attempt WinVerifyTrust for MSI and general files (policy validation)
+#if NET8_0_OR_GREATER || NET472
+            var declaredExt2 = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
+            if ((options?.IncludeAuthenticode != false) && RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && (declaredExt2 == "msi" || declaredExt2 == "msix" || declaredExt2 == "appx"))
+            {
+                if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
+                TryVerifyAuthenticodeWinTrust(path, res);
+            }
+#endif
 
             // CSV/TSV row estimate (lightweight)
             if (det.Extension is "csv" or "tsv" || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
@@ -124,6 +147,13 @@ public static partial class FileInspector {
                 }
             }
 
+            // Extract generic references (optional)
+            if (options?.IncludeReferences != false)
+                res.References = BuildReferences(path, det);
+
+            // File name/path checks (always cheap)
+            res.NameIssues = AnalyzeName(path, det);
+
             // PE triage
             if (IsPe(path, out var peMachine, out var peSubsystem, out bool hasClr, out bool hasSec)) {
                 if (hasSec) res.Flags |= ContentFlags.PeHasAuthenticodeDirectory;
@@ -140,12 +170,17 @@ public static partial class FileInspector {
                 }
             }
 
+            // Assessment (optional)
+            if (options?.IncludeAssessment != false)
+                res.Assessment = Assess(res);
+
         } catch { }
         return res;
     }
 
-    private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false;
+    private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
+        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -162,6 +197,21 @@ public static partial class FileInspector {
                 if (!string.IsNullOrEmpty(ext)) exts[ext] = exts.TryGetValue(ext, out var c) ? c + 1 : 1;
                 if (IsExecutableName(name)) hasExecutables = true;
                 if (IsScriptName(name)) hasScripts = true;
+                if (!hasInstallers && IsInstallerName(name)) hasInstallers = true;
+
+                // Safety preflight: traversal/absolute
+                if (!hasTraversal && (name.Contains("../") || name.Contains("..\\") || name.StartsWith("/"))) hasTraversal = true;
+                if (!hasAbs && (name.StartsWith("/") || (name.Length >= 3 && char.IsLetter(name[0]) && name[1] == ':' && (name[2] == '/' || name[2] == '\\')))) hasAbs = true;
+
+                // Symlink check (POSIX mode in external attributes high 16 bits: 0120000)
+                try {
+#if NET8_0_OR_GREATER || NET472
+                    int attrs = e.ExternalAttributes;
+                    int unixMode = (attrs >> 16) & 0xFFFF;
+                    const int IFMT = 0xF000, IFLNK = 0xA000;
+                    if ((unixMode & IFMT) == IFLNK) hasSymlinks = true;
+#endif
+                } catch { }
 
                 // Light inner-archive sampler: detect nested archives by magic (bounded by samples and size)
                 if (!hasNestedArchives && sampled < maxSamples && e.Length >= 4) {
@@ -250,12 +300,18 @@ public static partial class FileInspector {
 
     private static bool IsExecutableName(string name) {
         var lower = name.ToLowerInvariant();
-        return lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".scr") || lower.EndsWith(".com") || lower.EndsWith(".msi");
+        return lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".scr") || lower.EndsWith(".com") || lower.EndsWith(".msi") || lower.EndsWith(".msix") || lower.EndsWith(".appx") || lower.EndsWith(".msixbundle");
     }
 
     private static bool IsScriptName(string name) {
         var lower = name.ToLowerInvariant();
         return lower.EndsWith(".ps1") || lower.EndsWith(".bat") || lower.EndsWith(".cmd") || lower.EndsWith(".sh") || lower.EndsWith(".vbs") || lower.EndsWith(".js") || lower.EndsWith(".py") || lower.EndsWith(".rb");
+    }
+
+    private static bool IsInstallerName(string name)
+    {
+        var l = name.ToLowerInvariant();
+        return l.EndsWith(".msi") || l.EndsWith(".msix") || l.EndsWith(".appx") || l.EndsWith(".msixbundle") || l.EndsWith(".msu") || l.EndsWith("setup.exe") || l.EndsWith("install.exe");
     }
 
     private static string ReadCString(ReadOnlySpan<byte> s) {
@@ -272,6 +328,38 @@ public static partial class FileInspector {
             v = (v << 3) + (b - '0');
         }
         return v;
+    }
+
+    private static void TryPopulateAppxSignature(string path, FileAnalysis res)
+    {
+#if NET8_0_OR_GREATER || NET472
+        try {
+            using var fs = File.OpenRead(path);
+            using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
+            var sigEntry = za.GetEntry("AppxSignature.p7x") ?? za.GetEntry("AppxSignature.p7s");
+            if (sigEntry == null) return;
+            using var s = sigEntry.Open();
+            using var ms = new MemoryStream();
+            s.CopyTo(ms);
+            var data = ms.ToArray();
+            var cms = new System.Security.Cryptography.Pkcs.SignedCms();
+            cms.Decode(data);
+            var ai = res.Authenticode ?? new AuthenticodeInfo();
+            ai.Present = true;
+            ai.VerificationNote = "Package signature (AppxSignature)";
+            var signer = cms.SignerInfos.Count > 0 ? cms.SignerInfos[0] : null;
+            var cert = signer?.Certificate;
+            if (cert != null)
+            {
+                ai.SignerSubject = cert.Subject; ai.SignerIssuer = cert.Issuer; ai.SignatureAlgorithm = cert.SignatureAlgorithm?.FriendlyName;
+                ai.NotBefore = cert.NotBefore; ai.NotAfter = cert.NotAfter; ai.DigestAlgorithm = signer?.DigestAlgorithm?.FriendlyName;
+                ai.SignerThumbprint = cert.Thumbprint; ai.SignerSerialHex = cert.SerialNumber; FillCertFields(cert, ai);
+                try { var ch = new System.Security.Cryptography.X509Certificates.X509Chain(); ch.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck; ai.ChainValid = ch.Build(cert); } catch { }
+                try { cms.CheckSignature(true); ai.EnvelopeSignatureValid = true; } catch { ai.EnvelopeSignatureValid = false; }
+            }
+            res.Authenticode = ai;
+        } catch { }
+#endif
     }
 
     private static string ReadFirstLine(string path, int max) {

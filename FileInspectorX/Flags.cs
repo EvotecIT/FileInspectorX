@@ -52,4 +52,13 @@ public enum ContentFlags {
     PeAuthenticodeChainValid = 1 << 18,
     /// <summary>Authenticode signature includes a timestamp countersignature.</summary>
     PeAuthenticodeHasTimestamp = 1 << 19,
+
+    /// <summary>Archive contains entries with path traversal patterns (e.g., ..\ or ../).</summary>
+    ArchiveHasPathTraversal = 1 << 20,
+    /// <summary>Archive contains entries that are symbolic links.</summary>
+    ArchiveHasSymlinks = 1 << 21,
+    /// <summary>Archive contains entries with absolute paths.</summary>
+    ArchiveHasAbsolutePaths = 1 << 22,
+    /// <summary>Archive contains installer packages (e.g., .msi, .msix/.appx, msu) or setup stubs.</summary>
+    ContainerContainsInstallers = 1 << 23,
 }

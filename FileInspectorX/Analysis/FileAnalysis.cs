@@ -46,4 +46,25 @@ public class FileAnalysis {
     /// Windows PE Authenticode signature summary (when present). Cross-platform, best-effort parsing.
     /// </summary>
     public AuthenticodeInfo? Authenticode { get; set; }
+
+    /// <summary>
+    /// Structured references extracted from the file's content (e.g., command targets from Task Scheduler XML,
+    /// GPO scripts lists, URLs). Kept generic to support diverse configuration formats.
+    /// </summary>
+    public IReadOnlyList<Reference>? References { get; set; }
+
+    /// <summary>
+    /// Suspicious traits of the file name/path (generic; library-agnostic; see <see cref="NameIssues"/>).
+    /// </summary>
+    public NameIssues NameIssues { get; set; } = NameIssues.None;
+
+    /// <summary>
+    /// When the file is or contains a recognizable installer/package, basic metadata is exposed here.
+    /// </summary>
+    public InstallerInfo? Installer { get; set; }
+
+    /// <summary>
+    /// Optional computed assessment (score/decision/codes) when requested.
+    /// </summary>
+    public AssessmentResult? Assessment { get; set; }
 }

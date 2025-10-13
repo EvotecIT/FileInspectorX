@@ -23,6 +23,11 @@ public sealed class SignatureView
     public string? SignerSubject { get; set; }
     /// <summary>Signer issuer name.</summary>
     public string? SignerIssuer { get; set; }
+    public string? SignerSubjectCN { get; set; }
+    public string? SignerSubjectO { get; set; }
+    public string? IssuerCN { get; set; }
+    public string? IssuerO { get; set; }
+    public bool? IsSelfSigned { get; set; }
     /// <summary>Signer certificate thumbprint.</summary>
     public string? SignerThumbprint { get; set; }
     /// <summary>Signer certificate signature algorithm.</summary>
@@ -33,6 +38,8 @@ public sealed class SignatureView
     public DateTimeOffset? NotBefore { get; set; }
     /// <summary>Signer cert validity end.</summary>
     public DateTimeOffset? NotAfter { get; set; }
+    /// <summary>The full analysis object for deep inspection.</summary>
+    public FileAnalysis? Raw { get; set; }
 
     public static SignatureView From(string path, AuthenticodeInfo? a) => new SignatureView {
         Path = path,
@@ -43,10 +50,16 @@ public sealed class SignatureView
         TimestampTime = a?.TimestampTime,
         SignerSubject = a?.SignerSubject,
         SignerIssuer = a?.SignerIssuer,
+        SignerSubjectCN = a?.SignerSubjectCN,
+        SignerSubjectO = a?.SignerSubjectO,
+        IssuerCN = a?.IssuerCN,
+        IssuerO = a?.IssuerO,
+        IsSelfSigned = a?.IsSelfSigned,
         SignerThumbprint = a?.SignerThumbprint,
         SignatureAlgorithm = a?.SignatureAlgorithm,
         DigestAlgorithm = a?.DigestAlgorithm,
         NotBefore = a?.NotBefore,
-        NotAfter = a?.NotAfter
+        NotAfter = a?.NotAfter,
+        Raw = null
     };
 }
