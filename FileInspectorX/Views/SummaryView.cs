@@ -24,6 +24,9 @@ public sealed class SummaryView
     /// <summary>The full analysis object for deep inspection (useful in PowerShell).</summary>
     public FileAnalysis? Raw { get; set; }
 
+    /// <summary>
+    /// Creates a compact <see cref="SummaryView"/> from a <see cref="FileAnalysis"/>.
+    /// </summary>
     public static SummaryView From(string path, FileAnalysis a)
     {
         var d = a.Detection;
