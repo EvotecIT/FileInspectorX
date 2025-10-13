@@ -1,5 +1,8 @@
 namespace FileInspectorX;
 
+/// <summary>
+/// Additional consolidated signatures maintained as a separate set to keep core tables small.
+/// </summary>
 internal static partial class Signatures {
     // Standard signatures consolidated from reference sources
     internal static readonly Signature[] Standard = new[] {
