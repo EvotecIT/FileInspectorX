@@ -15,6 +15,9 @@ public static class ViewExtensions
     public static SignatureView ToSignatureView(this FileAnalysis a, string path) { var v = SignatureView.From(path, a.Authenticode); v.Raw = a; return v; }
     /// <summary>Projects a detection result into a <see cref="DetectionView"/>.</summary>
     public static DetectionView ToDetectionView(this ContentTypeDetectionResult d, string path) => DetectionView.From(path, d);
+    /// <summary>
+    /// Projects a <see cref="FileAnalysis"/> (using its <see cref="FileAnalysis.Detection"/>) into a <see cref="DetectionView"/>.
+    /// </summary>
     public static DetectionView ToDetectionView(this FileAnalysis a, string path)
     {
         var d = a.Detection ?? new ContentTypeDetectionResult();
