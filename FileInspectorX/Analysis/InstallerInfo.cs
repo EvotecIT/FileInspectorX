@@ -3,6 +3,9 @@ namespace FileInspectorX;
 /// <summary>
 /// Minimal, generic metadata for installers/packages detected in files or containers.
 /// </summary>
+/// <summary>
+/// Minimal installer/package metadata extracted from MSIX/APPX/VSIX manifests and MSI databases (Windows-only).
+/// </summary>
 public sealed class InstallerInfo
 {
     public InstallerKind Kind { get; set; } = InstallerKind.Unknown;

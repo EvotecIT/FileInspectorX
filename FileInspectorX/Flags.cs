@@ -4,7 +4,7 @@ namespace FileInspectorX;
 /// Bitmask of analysis signals derived from headers, containers and heuristics.
 /// </summary>
 [System.Flags]
-public enum ContentFlags {
+public enum ContentFlags : long {
     None = 0,
     // OOXML
     /// <summary>Office Open XML document contains a vbaProject.bin stream.</summary>
@@ -76,7 +76,9 @@ public enum ContentFlags {
     /// <summary>PDF appears to have many incremental updates (multiple startxref markers).</summary>
     PdfManyIncrementalUpdates = 1 << 30,
     /// <summary>OOXML document references a remote template (attachedTemplate external).</summary>
-    OfficeRemoteTemplate = 1 << 31,
+    OfficeRemoteTemplate = 1L << 31,
     /// <summary>OOXML document contains possible DDE/DDEAUTO field instructions.</summary>
-    OfficePossibleDde = unchecked((int)0x80000000)
+    OfficePossibleDde = 1L << 32,
+    /// <summary>OOXML document (Excel) references external links (xl/externalLinks or related relationships).</summary>
+    OfficeExternalLinks = 1L << 33
 }

@@ -2,6 +2,9 @@
 
 namespace FileInspectorX;
 
+/// <summary>
+/// Central registry of magic signatures and helpers; split across partial classes for categories (executables, archives, text/markup, media, riff/images).
+/// </summary>
 internal static partial class Signatures {
     internal sealed class Signature {
         public readonly string Extension;

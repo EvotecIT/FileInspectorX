@@ -51,6 +51,7 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PdfHasXfa) != 0) { score += 10; codes.Add("Pdf.Xfa"); }
         if ((a.Flags & ContentFlags.PdfEncrypted) != 0) { score += 10; codes.Add("Pdf.Encrypted"); }
         if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) { score += 5; codes.Add("Pdf.ManyUpdates"); }
+        if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) { score += 5; codes.Add("Office.ExternalLinks"); }
 
         // Executables
         if ((a.Flags & ContentFlags.PeLooksPackedUpx) != 0) { score += 20; codes.Add("PE.PackerSuspect"); }

@@ -1,5 +1,8 @@
 namespace FileInspectorX;
 
+/// <summary>
+/// Lightweight, dependency-free content heuristics used to emit neutral security signals and detect simple secret categories.
+/// </summary>
 internal static class SecurityHeuristics
 {
     // ACTIVE (default): Base64-encoded indicators decoded at runtime to avoid static signatures
@@ -80,6 +83,21 @@ internal static class SecurityHeuristics
             }
         } catch { }
         return findings;
+    }
+
+    internal static SecretsSummary CountSecrets(string path, int budgetBytes)
+    {
+        var s = new SecretsSummary();
+        try {
+            if (!Settings.SecretsScanEnabled) return s;
+            string text = ReadTextHead(path, budgetBytes);
+            if (string.IsNullOrEmpty(text)) return s;
+            var lower = text.ToLowerInvariant();
+            if (ContainsAny(lower, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"})) s.PrivateKeyCount++;
+            if (LooksLikeJwt(text)) s.JwtLikeCount++;
+            if (LooksLikeKeyPattern(text)) s.KeyPatternCount++;
+        } catch { }
+        return s;
     }
 
     private static bool ContainsAny(string hay, IEnumerable<string> needles) {

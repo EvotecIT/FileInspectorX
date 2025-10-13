@@ -67,4 +67,8 @@ public class FileAnalysis {
     /// Optional computed assessment (score/decision/codes) when requested.
     /// </summary>
     public AssessmentResult? Assessment { get; set; }
+    /// <summary>
+    /// Counts of generic secret indicators discovered in text/script content, when enabled.
+    /// </summary>
+    public SecretsSummary? Secrets { get; set; }
 }

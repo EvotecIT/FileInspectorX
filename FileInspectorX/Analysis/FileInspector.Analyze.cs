@@ -26,7 +26,7 @@ public static partial class FileInspector {
             // OOXML macros and ZIP container hints
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
-                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde);
+                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -46,6 +46,7 @@ public static partial class FileInspector {
                 if (subType is "vsix") { TryPopulateVsixManifest(path, res); }
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
+                if (hasExtLinks) res.Flags |= ContentFlags.OfficeExternalLinks;
             }
 
             // TAR scan hints
@@ -118,6 +119,11 @@ public static partial class FileInspector {
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (sf.Count > 0) res.SecurityFindings = sf;
+                if (Settings.SecretsScanEnabled)
+                {
+                    var ss = SecurityHeuristics.CountSecrets(path, Settings.DetectionReadBudgetBytes);
+                    if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0) res.Secrets = ss;
+                }
             }
 
             // Permissions/ownership snapshot (best-effort; cross-platform)
@@ -217,8 +223,8 @@ public static partial class FileInspector {
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
-        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false;
+        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -226,7 +232,7 @@ public static partial class FileInspector {
             int count = 0;
             hasNestedArchives = false;
             int sampled = 0; int maxSamples = 16; int headSample = 64;
-            bool ooxmlRemoteTemplate = false; bool ooxmlDde = false;
+            bool ooxmlRemoteTemplate = false; bool ooxmlDde = false; bool ooxmlExtLinks = false;
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
@@ -253,6 +259,10 @@ public static partial class FileInspector {
                         var docxml = sr2.ReadToEnd();
                         if (docxml.IndexOf("DDEAUTO", StringComparison.OrdinalIgnoreCase) >= 0 || docxml.IndexOf(" DDE ", StringComparison.OrdinalIgnoreCase) >= 0)
                             ooxmlDde = true;
+                    }
+                    if (!ooxmlExtLinks && (name.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase) || name.Equals("xl/_rels/workbook.xml.rels", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        ooxmlExtLinks = true;
                     }
                 } catch { }
 
@@ -297,6 +307,7 @@ public static partial class FileInspector {
             if (hasNestedArchives && containerSubtype == null) containerSubtype = "nested-archive";
             hasRemoteTemplate = ooxmlRemoteTemplate;
             hasDde = ooxmlDde;
+            hasExternalLinks = ooxmlExtLinks;
         } catch { }
     }
 
