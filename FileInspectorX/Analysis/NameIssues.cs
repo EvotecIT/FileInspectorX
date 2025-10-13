@@ -6,6 +6,7 @@ namespace FileInspectorX;
 [System.Flags]
 public enum NameIssues
 {
+    /// <summary>No issues recognized.</summary>
     None = 0,
     /// <summary>File has a double extension like ".pdf.exe".</summary>
     DoubleExtension = 1 << 0,
@@ -18,4 +19,3 @@ public enum NameIssues
     /// <summary>Declared extension does not match detected extension.</summary>
     ExtensionMismatch = 1 << 4,
 }
-

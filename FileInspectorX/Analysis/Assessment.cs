@@ -5,9 +5,21 @@ namespace FileInspectorX;
 /// </summary>
 public enum AssessmentDecision
 {
+    /// <summary>
+    /// The file appears acceptable based on current signals and thresholds.
+    /// </summary>
     Allow = 0,
+    /// <summary>
+    /// The file contains noteworthy signals; proceed with caution or additional review.
+    /// </summary>
     Warn = 1,
+    /// <summary>
+    /// The file exhibits high‑risk traits; recommended to block by default.
+    /// </summary>
     Block = 2,
+    /// <summary>
+    /// Decision is deferred to a higher‑level policy or human review.
+    /// </summary>
     Defer = 3
 }
 

@@ -5,29 +5,43 @@ namespace FileInspectorX;
 /// Produced by <see cref="FileInspector.Analyze(string, FileInspector.DetectionOptions?)"/>.
 /// </summary>
 public class FileAnalysis {
+    /// <summary>Result of magic/heuristic content type detection.</summary>
     public ContentTypeDetectionResult? Detection { get; set; }
+    /// <summary>Broad content category derived from <see cref="Detection"/>.</summary>
     public ContentKind Kind { get; set; } = ContentKind.Unknown;
+    /// <summary>Bitmask of analysis signals collected for this file.</summary>
     public ContentFlags Flags { get; set; } = ContentFlags.None;
 
     // Optional hints
+    /// <summary>Best-guess extension when detection is ambiguous (e.g., container subtype).</summary>
     public string? GuessedExtension { get; set; }
+    /// <summary>Subtype hint for containers (e.g., jar/apk/epub inside ZIP).</summary>
     public string? ContainerSubtype { get; set; }
+    /// <summary>Script language inferred from shebang or structure (e.g., powershell, bash).</summary>
     public string? ScriptLanguage { get; set; }
 
     // PE triage hints
+    /// <summary>CPU architecture string for PE files (e.g., x86, x64, ARM).</summary>
     public string? PeMachine { get; set; }
+    /// <summary>Subsystem string for PE files (e.g., Windows GUI, CUI).</summary>
     public string? PeSubsystem { get; set; }
 
     // Container summary (ZIP/TAR)
+    /// <summary>Number of entries sampled inside the container.</summary>
     public int? ContainerEntryCount { get; set; }
+    /// <summary>Top N extensions encountered inside the container (ordered by frequency).</summary>
     public IReadOnlyList<string>? ContainerTopExtensions { get; set; }
 
+    /// <summary>Version or metadata key/value pairs, when available (e.g., PE/FVI, package manifests).</summary>
     public IReadOnlyDictionary<string, string>? VersionInfo { get; set; }
 
+    /// <summary>Quick summary of signing data availability and certificate table size (lightweight).</summary>
     public SignatureSummary? Signature { get; set; }
 
     // Text-specific hints
+    /// <summary>Estimated number of lines for delimited text (CSV/TSV) based on sample.</summary>
     public int? EstimatedLineCount { get; set; }
+    /// <summary>Text subtype such as json, yaml, markdown, log.</summary>
     public string? TextSubtype { get; set; }
 
     /// <summary>
