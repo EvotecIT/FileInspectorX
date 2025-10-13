@@ -3,7 +3,6 @@ namespace FileInspectorX;
 /// <summary>
 /// Flattened analysis summary tailored for tabular display.
 /// </summary>
-/// <summary>Flattened analysis summary tailored for tabular display.</summary>
 public sealed class AnalysisView
 {
     /// <summary>File path.</summary>
@@ -53,6 +52,9 @@ public sealed class AnalysisView
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
+    /// <summary>
+    /// Creates an <see cref="AnalysisView"/> from a <see cref="FileAnalysis"/>.
+    /// </summary>
     public static AnalysisView From(string path, FileAnalysis a) => new AnalysisView {
         Path = path,
         Extension = a.Detection?.Extension ?? string.Empty,
