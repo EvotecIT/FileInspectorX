@@ -37,6 +37,15 @@ public static partial class FileInspector {
         public bool IncludeAssessment { get; set; } = true;
     }
 
+    /// <summary>
+    /// Compares a declared/expected file extension with the detected extension.
+    /// </summary>
+    /// <param name="declaredExtension">The file extension provided by the caller or file name (with or without dot).</param>
+    /// <param name="detected">The detection result produced by <see cref="Detect(string)"/> or contained in <see cref="FileAnalysis.Detection"/>.</param>
+    /// <returns>
+    /// A tuple where <c>Mismatch</c> indicates whether the extensions differ and <c>Reason</c>
+    /// describes the comparison (e.g., "match" or "decl:txt vs det:pdf").
+    /// </returns>
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
         var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.');
         if (detected is null || string.IsNullOrEmpty(decl)) return (false, "no-detection-or-declared");
