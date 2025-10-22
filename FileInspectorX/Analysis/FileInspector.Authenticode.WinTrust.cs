@@ -16,6 +16,7 @@ public static partial class FileInspector
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
         if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
+        IntPtr pFile = IntPtr.Zero;
         try {
             var guidAction = WINTRUST_ACTION_GENERIC_VERIFY_V2;
             var fileInfo = new WINTRUST_FILE_INFO(path);
@@ -25,8 +26,10 @@ public static partial class FileInspector
             data.fdwRevocationChecks = Settings.VerifyAuthenticodeRevocation ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
             data.dwUnionChoice = WTD_CHOICE_FILE;
             data.dwStateAction = WTD_STATEACTION_IGNORE;
-            data.pFile = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WINTRUST_FILE_INFO)));
-            Marshal.StructureToPtr(fileInfo, data.pFile, false);
+            // Allocate unmanaged WINTRUST_FILE_INFO and ensure cleanup afterward
+            pFile = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WINTRUST_FILE_INFO)));
+            Marshal.StructureToPtr(fileInfo, pFile, fDeleteOld: false);
+            data.pFile = pFile;
             data.dwProvFlags = WTD_SAFER_FLAG | WTD_REVOCATION_CHECK_NONE | WTD_HASH_ONLY_FLAG | WTD_CACHE_ONLY_URL_RETRIEVAL;
             if (Settings.VerifyAuthenticodeRevocation) data.dwProvFlags &= ~WTD_REVOCATION_CHECK_NONE;
 
@@ -34,6 +37,12 @@ public static partial class FileInspector
             res.Authenticode.WinTrustStatusCode = status;
             res.Authenticode.IsTrustedWindowsPolicy = status == 0;
         } catch { }
+        finally {
+            if (pFile != IntPtr.Zero) {
+                try { Marshal.DestroyStructure(pFile, typeof(WINTRUST_FILE_INFO)); } catch { }
+                try { Marshal.FreeHGlobal(pFile); } catch { }
+            }
+        }
     }
 
     // P/Invoke

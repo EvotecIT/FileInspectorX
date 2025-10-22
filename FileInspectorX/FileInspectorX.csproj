@@ -21,6 +21,11 @@
         <WarningsAsErrors>CS1591</WarningsAsErrors>
     </PropertyGroup>
 
+    <!-- Avoid building net472 on non-Windows agents where reference assemblies are unavailable -->
+    <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+        <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    </PropertyGroup>
+
     <ItemGroup>
         <Using Include="System" />
         <Using Include="System.IO" />
