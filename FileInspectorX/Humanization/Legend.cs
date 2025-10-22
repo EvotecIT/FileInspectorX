@@ -40,6 +40,13 @@ public static class Legend
         ["py:exec-b64"] = new("py:exec-b64", "Python base64 exec",         "Python exec with base64-decoded strings.",             "Script", 60),
         ["lua:exec"]    = new("lua:exec",    "Lua exec",                   "Lua code execution helpers.",                           "Script", 40),
         ["rb:eval"]     = new("rb:eval",     "Ruby eval",                  "Ruby eval/dynamic execution.",                          "Script", 40),
+        // Container encryption notes
+        ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
+        ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
+        // Containers (best-effort notes)
+        ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
+        ["7z:files="]              = new("7z:files=",              "7z files (count)",      "7z archive file count (best‑effort when headers unencoded).",   "Archive", 10),
+        ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
         // Pattern-based notes (rendered via HumanizeFindings):
         // tool:<name> and toolhash:<name> are handled dynamically.
     };
@@ -99,6 +106,27 @@ public static class Legend
             else if (s_heuristicsLegend.TryGetValue(f, out var entry))
             {
                 friendly.Add(style == HumanizeStyle.Long ? entry.Long : entry.Short);
+            }
+            else if (f.StartsWith("rar4:enc=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("rar4:enc=".Length);
+                var shortTxt = $"RAR4 encrypted files: {val}";
+                var longTxt  = $"RAR v4 archive contains password-protected entries: {val}.";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (f.StartsWith("7z:files=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("7z:files=".Length);
+                var shortTxt = $"7z files: {val}";
+                var longTxt  = $"7z archive file count: {val} (best‑effort).";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (f.StartsWith("rar4:enc=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("rar4:enc=".Length);
+                var shortTxt = $"RAR4 encrypted files: {val}";
+                var longTxt  = $"RAR v4 archive contains password-protected entries: {val}.";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
             }
             else
             {

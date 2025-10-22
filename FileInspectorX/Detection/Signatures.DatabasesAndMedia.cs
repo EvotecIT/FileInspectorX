@@ -39,6 +39,10 @@ internal static partial class Signatures {
             result = new ContentTypeDetectionResult { Extension = "heic", MimeType = "image/heic", Confidence = "High", Reason = "ftyp:heif" };
             return true;
         }
+        if (HasBrand(brand, comp, "isom"u8) || HasBrand(brand, comp, "iso2"u8) || HasBrand(brand, comp, "mp41"u8) || HasBrand(brand, comp, "mp42"u8) || HasBrand(brand, comp, "MSNV"u8)) {
+            result = new ContentTypeDetectionResult { Extension = "mp4", MimeType = "video/mp4", Confidence = "High", Reason = "ftyp:mp4" };
+            return true;
+        }
         if (HasBrand(brand, comp, "M4A "u8) || HasBrand(brand, comp, "M4B "u8)) {
             result = new ContentTypeDetectionResult { Extension = "m4a", MimeType = "audio/mp4", Confidence = "High", Reason = "ftyp:m4a" };
             return true;

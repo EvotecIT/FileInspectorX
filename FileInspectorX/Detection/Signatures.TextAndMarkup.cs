@@ -165,6 +165,8 @@ internal static partial class Signatures {
         if (headLower.Contains("#!/bin/sh") || headLower.Contains("#!/usr/bin/env sh") || headLower.Contains("#!/usr/bin/env bash") || headLower.Contains("#!/bin/bash") || headLower.Contains("#!/usr/bin/env zsh") || headLower.Contains("#!/bin/zsh")) {
             result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Medium", Reason = "text:sh-shebang", ReasonDetails = "sh:shebang" }; return true;
         }
+        // Node.js shebang
+        if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shebang", ReasonDetails = "js:shebang" }; return true; }
         // Weak shell cues when no shebang
         if ((headLower.Contains("set -e") || headLower.Contains("set -u")) && (headLower.Contains(" fi\n") || headLower.Contains(" esac\n") || headLower.Contains(" && "))) {
             result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Low", Reason = "text:sh-heur", ReasonDetails = "sh:set+fi|esac|&&" }; return true;

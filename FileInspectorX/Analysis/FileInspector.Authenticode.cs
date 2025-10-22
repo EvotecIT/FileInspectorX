@@ -48,6 +48,23 @@ public static partial class FileInspector
                     ai.SignerSerialHex = cert.SerialNumber;
                     ai.SignatureAlgorithm = cert.SignatureAlgorithm?.FriendlyName;
 
+                    // EKUs (friendly names when available)
+                    try {
+                        foreach (var ext in cert.Extensions)
+                        {
+                            if (ext is System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension eku)
+                            {
+                                var list = new List<string>();
+                                foreach (var oid in eku.EnhancedKeyUsages)
+                                {
+                                    list.Add(string.IsNullOrWhiteSpace(oid.FriendlyName) ? oid.Value : oid.FriendlyName!);
+                                }
+                                if (list.Count > 0) ai.EnhancedKeyUsages = list;
+                                break;
+                            }
+                        }
+                    } catch { }
+
                     // Chain build (best-effort, no revocation)
                     try {
                         var chain = new System.Security.Cryptography.X509Certificates.X509Chain();
@@ -79,6 +96,7 @@ public static partial class FileInspector
                         res.Flags |= ContentFlags.PeAuthenticodeHasTimestamp;
                         ai.TimestampPresent = true;
                         ai.TimestampAuthority = tsa.Certificate?.Subject;
+                        try { ai.TimestampAuthorityCN = tsa.Certificate != null ? tsa.Certificate.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false) : null; } catch { }
                         // Find signing time attribute
                         foreach (var ua in tsa.SignedAttributes) {
                             if (ua.Oid?.Value == "1.2.840.113549.1.9.5" && ua.Values.Count > 0) {

@@ -50,6 +50,10 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Certificate Table: {r.CertificateTableSize} bytes");
             if (!string.IsNullOrEmpty(r.CertificateBlobSha256))
                 sb.AppendLine($"- PKCS#7 SHA-256: `{r.CertificateBlobSha256}`");
+            if (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0)
+                sb.AppendLine($"- EKUs: {string.Join(", ", r.EnhancedKeyUsages)}");
+            if (!string.IsNullOrEmpty(r.TimestampAuthorityCN))
+                sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthorityCN}");
             sb.AppendLine();
         }
 
@@ -83,4 +87,3 @@ public static class MarkdownRenderer
         return sb.ToString();
     }
 }
-

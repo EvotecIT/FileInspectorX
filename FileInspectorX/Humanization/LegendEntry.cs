@@ -35,3 +35,30 @@ public enum HumanizeStyle {
     /// <summary>Descriptive labels for legends/tooltips (full sentences).</summary>
     Long
 }
+
+/// <summary>
+/// Script language legend helpers.
+/// </summary>
+public static class ScriptLanguageLegend
+{
+    private static readonly Dictionary<string, LegendEntry> s = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["powershell"] = new("powershell", "PowerShell", "PowerShell script (ps1/psm1/psd1).", "Script", 40),
+        ["shell"]      = new("shell",      "Shell",      "POSIX shell script (sh/bash/zsh).", "Script", 30),
+        ["batch"]      = new("batch",      "Batch",      "Windows batch script (.bat/.cmd).", "Script", 25),
+        ["python"]     = new("python",     "Python",     "Python script.", "Script", 35),
+        ["ruby"]       = new("ruby",       "Ruby",       "Ruby script.", "Script", 30),
+        ["lua"]        = new("lua",        "Lua",        "Lua script.", "Script", 25),
+        ["javascript"] = new("javascript", "JavaScript", "JavaScript (Node/WSH).", "Script", 30)
+    };
+
+    /// <summary>Returns a typed legend for known script languages.</summary>
+    public static IReadOnlyList<LegendEntry> GetLegend() => s.Values.ToList();
+    /// <summary>Humanizes a language key to short or long text.</summary>
+    public static string Humanize(string? key, HumanizeStyle style = HumanizeStyle.Short)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return string.Empty;
+        if (s.TryGetValue(key, out var e)) return style == HumanizeStyle.Long ? e.Long : e.Short;
+        return key!;
+    }
+}

@@ -133,6 +133,12 @@ public static partial class FileInspector {
                     list.Add("7z:headers-encrypted");
                     res.SecurityFindings = list;
                 }
+                else if (TryCount7zFilesQuick(path, Settings.DetectionReadBudgetBytes, out int files))
+                {
+                    var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                    list.Add($"7z:files={files}");
+                    res.SecurityFindings = list;
+                }
             }
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 
@@ -277,6 +283,45 @@ public static partial class FileInspector {
 
         } catch { }
         return res;
+    }
+
+    // Counts RAR4 encrypted files by walking file headers quickly under a simple budget.
+    // Returns true when parsing succeeded, with 'enc' and 'total' counts.
+    private static bool TryCountRar4EncryptedFiles(string path, int maxFiles, out int enc, out int total)
+    {
+        enc = 0; total = 0;
+        try {
+            using var fs = File.OpenRead(path);
+            var sig = new byte[]{ (byte)'R',(byte)'a',(byte)'r', (byte)'!', 0x1A, 0x07, 0x00 };
+            var head = new byte[sig.Length];
+            if (fs.Read(head, 0, head.Length) != head.Length) return false;
+            for (int i=0;i<sig.Length;i++) if (head[i]!=sig[i]) return false;
+            // RAR4 blocks: [HEAD_CRC(2)][HEAD_TYPE(1)][HEAD_FLAGS(2)][HEAD_SIZE(2)] ...
+            var br = new BinaryReader(fs);
+            int filesSeen = 0;
+            while (fs.Position + 7 <= fs.Length && filesSeen < maxFiles)
+            {
+                ushort headCrc = br.ReadUInt16();
+                byte headType = br.ReadByte();
+                ushort headFlags = br.ReadUInt16();
+                ushort headSize = br.ReadUInt16();
+                if (headSize < 7) break; // guard
+                long next = fs.Position + headSize - 7; // subtract header bytes already read
+                // File header
+                if (headType == 0x74) // HEAD_TYPE_FILE
+                {
+                    filesSeen++; total = filesSeen;
+                    // In RAR v2/3/4, FILE_HEADER flags bit 0x04 means password/encrypted
+                    if ((headFlags & 0x04) != 0) enc++;
+                    // Skip extra fields (pack & unpack sizes already inside header; we just jump to next)
+                }
+                // Move to next block
+                if (next < fs.Position) break;
+                fs.Seek(next, SeekOrigin.Begin);
+            }
+            if (total == 0) total = filesSeen;
+            return true;
+        } catch { return false; }
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
@@ -633,6 +678,46 @@ public static partial class FileInspector {
             // Search for property id 0x17 (kEncodedHeader) in the next header region
             for (int i = 0; i < n; i++) if (buf[i] == 0x17) return true;
         } catch { }
+        return false;
+    }
+
+    // Best-effort: count files in 7z when Next Header is not encoded/compressed and headers are not encrypted.
+    private static bool TryCount7zFilesQuick(string path, int byteBudget, out int fileCount)
+    {
+        fileCount = 0;
+        try {
+            using var fs = File.OpenRead(path);
+            if (fs.Length < 32) return false;
+            var head = new byte[32];
+            if (fs.Read(head, 0, head.Length) != head.Length) return false;
+            if (!(head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC && head[3] == 0xAF && head[4] == 0x27 && head[5] == 0x1C)) return false;
+            long nextOff = System.BitConverter.ToInt64(head, 12);
+            long nextSz  = System.BitConverter.ToInt64(head, 20);
+            if (nextOff < 0 || nextSz <= 0 || nextOff + nextSz > fs.Length) return false;
+            fs.Seek(nextOff + 32, SeekOrigin.Begin);
+            int toRead = (int)System.Math.Min(nextSz, byteBudget);
+            var buf = new byte[toRead]; int n = fs.Read(buf, 0, toRead); if (n <= 0) return false;
+            var span = new ReadOnlySpan<byte>(buf, 0, n);
+            // If encoded header is present, bail out
+            for (int i = 0; i < n; i++) if (buf[i] == 0x17) return false; // kEncodedHeader
+            // Expect kHeader (0x01)
+            int idx = 0; if (idx >= span.Length || span[idx++] != 0x01) return false;
+            // Naive scan for kFilesInfo (0x0C) and then read next varuint as number of files
+            int pos = idx; while (pos < span.Length) { if (span[pos++] == 0x0C) { idx = pos; break; } }
+            if (idx >= span.Length) return false;
+            if (!TryRead7zVarUInt(span, ref idx, out ulong files)) return false;
+            if (files == 0 || files > 10_000_000) return false;
+            fileCount = (int)files; return true;
+        } catch { return false; }
+    }
+
+    private static bool TryRead7zVarUInt(ReadOnlySpan<byte> s, ref int idx, out ulong value)
+    {
+        value = 0; int shift = 0; int guard = 0;
+        while (idx < s.Length && guard++ < 10)
+        {
+            byte b = s[idx++]; value |= (ulong)(b & 0x7Fu) << shift; shift += 7; if ((b & 0x80) == 0) return true;
+        }
         return false;
     }
 

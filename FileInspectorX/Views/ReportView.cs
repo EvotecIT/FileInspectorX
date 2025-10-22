@@ -39,6 +39,16 @@ public sealed class ReportView
     public string? ProductVersion { get; set; }
     /// <summary>Original filename from version info.</summary>
     public string? OriginalFilename { get; set; }
+    /// <summary>Inferred script language when applicable.</summary>
+    public string? ScriptLanguage { get; set; }
+    /// <summary>Human-friendly script language label.</summary>
+    public string? ScriptLanguageHuman { get; set; }
+    /// <summary>High-level content kind for the file.</summary>
+    public ContentKind Kind { get; set; } = ContentKind.Unknown;
+    /// <summary>Guidance for hosts on which sections to display.</summary>
+    public PresentationAdvice Advice { get; set; } = new PresentationAdvice();
+    /// <summary>Compact non-empty fields grouped by logical section.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>>? CompactFields { get; set; }
 
     /// <summary>Compact comma-separated flag codes suitable for humanization by hosts.</summary>
     public string? FlagsCsv { get; set; }
@@ -51,6 +61,10 @@ public sealed class ReportView
     public int? CertificateTableSize { get; set; }
     /// <summary>SHA-256 of the raw certificate blob (PE) when present.</summary>
     public string? CertificateBlobSha256 { get; set; }
+    /// <summary>Enhanced key usages (EKUs) from signer certificate.</summary>
+    public IReadOnlyList<string>? EnhancedKeyUsages { get; set; }
+    /// <summary>Timestamp authority common name.</summary>
+    public string? TimestampAuthorityCN { get; set; }
 
     /// <summary>Risk score 0-100.</summary>
     public int? AssessmentScore { get; set; }
@@ -97,6 +111,8 @@ public sealed class ReportView
         {
             r.IsTrustedWindowsPolicy = a.Authenticode.IsTrustedWindowsPolicy;
             r.WinTrustStatusCode = a.Authenticode.WinTrustStatusCode;
+            r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
+            r.TimestampAuthorityCN = a.Authenticode.TimestampAuthorityCN;
         }
         if (a.VersionInfo != null)
         {
@@ -108,6 +124,12 @@ public sealed class ReportView
             a.VersionInfo.TryGetValue("ProductVersion", out var pver);
             a.VersionInfo.TryGetValue("OriginalFilename", out var origFile);
             r.CompanyName = company; r.ProductName = product; r.FileDescription = fileDesc; r.FileVersion = fver; r.ProductVersion = pver; r.OriginalFilename = origFile;
+        }
+        // Script language
+        if (!string.IsNullOrEmpty(a.ScriptLanguage))
+        {
+            r.ScriptLanguage = a.ScriptLanguage;
+            r.ScriptLanguageHuman = ScriptLanguageLegend.Humanize(a.ScriptLanguage, HumanizeStyle.Short);
         }
         // Flags → compact CSV codes for presentation layers to humanize
         var codes = new List<string>(12);
@@ -162,6 +184,39 @@ public sealed class ReportView
             r.InnerFindingsHumanShort = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Short);
             r.InnerFindingsHumanLong  = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Long);
         }
+        // Kind/advice/compact fields
+        r.Kind = a.Kind;
+        var groups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        void AddField(string group, string key, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (!groups.TryGetValue(group, out var list)) { list = new List<string>(); groups[group] = list; }
+            list.Add(key);
+        }
+        AddField("Properties", "CompanyName", r.CompanyName);
+        AddField("Properties", "ProductName", r.ProductName);
+        AddField("Properties", "FileDescription", r.FileDescription);
+        AddField("Properties", "FileVersion", r.FileVersion);
+        AddField("Properties", "ProductVersion", r.ProductVersion);
+        AddField("Properties", "OriginalFilename", r.OriginalFilename);
+        AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
+        AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
+        AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(',', r.EnhancedKeyUsages) : null);
+        AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
+        AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
+        if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
+        if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 }) AddField("Heuristics", "Findings", "1");
+        r.CompactFields = groups.ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value);
+        r.Advice = new PresentationAdvice
+        {
+            ShowTypeAnalysis = !string.IsNullOrEmpty(r.DetectedTypeName) || !string.IsNullOrEmpty(r.DetectedTypeExtension),
+            ShowProperties = r.CompactFields.TryGetValue("Properties", out var pf) && pf.Count > 0,
+            ShowSignature = (!string.IsNullOrEmpty(r.CertificateBlobSha256)) || r.WinTrustStatusCode.HasValue || (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0),
+            ShowScript = !string.IsNullOrEmpty(r.ScriptLanguageHuman),
+            ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
+            ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) || (r.InnerFindings != null && r.InnerFindings.Count > 0),
+            ShowArchiveDetails = r.EncryptedEntryCount.HasValue
+        };
 
         return r;
     }
@@ -190,6 +245,8 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(FlagsCsv)) d["AnalysisFlags"] = FlagsCsv;
         if (!string.IsNullOrEmpty(FlagsHumanShort)) d["AnalysisFlagsHuman"] = FlagsHumanShort;
         if (!string.IsNullOrEmpty(FlagsHumanLong))  d["AnalysisFlagsHumanLong"] = FlagsHumanLong;
+        if (!string.IsNullOrEmpty(ScriptLanguage)) d["ScriptLanguage"] = ScriptLanguage;
+        if (!string.IsNullOrEmpty(ScriptLanguageHuman)) d["ScriptLanguageHuman"] = ScriptLanguageHuman;
         if (CertificateTableSize.HasValue) d["CertificateTableSize"] = CertificateTableSize.Value;
         if (!string.IsNullOrEmpty(CertificateBlobSha256)) d["CertificateBlobSha256"] = CertificateBlobSha256;
         if (AssessmentScore.HasValue) d["AssessmentScore"] = AssessmentScore.Value;
@@ -198,6 +255,8 @@ public sealed class ReportView
         if (AssessmentFactors != null && AssessmentFactors.Count > 0) d["AssessmentFactors"] = AssessmentFactors;
         if (!string.IsNullOrEmpty(AssessmentCodesHuman)) d["AssessmentCodesHuman"] = AssessmentCodesHuman;
         if (!string.IsNullOrEmpty(AssessmentCodesHumanLong)) d["AssessmentCodesHumanLong"] = AssessmentCodesHumanLong;
+        if (EnhancedKeyUsages != null && EnhancedKeyUsages.Count > 0) d["EnhancedKeyUsages"] = EnhancedKeyUsages;
+        if (!string.IsNullOrEmpty(TimestampAuthorityCN)) d["TimestampAuthorityCN"] = TimestampAuthorityCN;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanShort)) d["SecurityFindingsHuman"] = SecurityFindingsHumanShort;
@@ -205,6 +264,37 @@ public sealed class ReportView
         if (InnerFindings != null && InnerFindings.Count > 0) d["InnerFindings"] = InnerFindings;
         if (!string.IsNullOrEmpty(InnerFindingsHumanShort)) d["InnerFindingsHuman"] = InnerFindingsHumanShort;
         if (!string.IsNullOrEmpty(InnerFindingsHumanLong))  d["InnerFindingsHumanLong"] = InnerFindingsHumanLong;
+        d["Kind"] = Kind.ToString();
+        if (Advice != null)
+        {
+            d["Advice"] = new Dictionary<string, object?>
+            {
+                ["ShowTypeAnalysis"] = Advice.ShowTypeAnalysis,
+                ["ShowProperties"] = Advice.ShowProperties,
+                ["ShowSignature"] = Advice.ShowSignature,
+                ["ShowScript"] = Advice.ShowScript,
+                ["ShowAssessment"] = Advice.ShowAssessment,
+                ["ShowHeuristics"] = Advice.ShowHeuristics,
+                ["ShowArchiveDetails"] = Advice.ShowArchiveDetails
+            };
+        }
+        if (CompactFields != null && CompactFields.Count > 0) d["Compact"] = CompactFields;
         return d;
     }
+}
+
+/// <summary>
+/// Guidance for hosts on which sections to include in UI/emails.
+/// </summary>
+public sealed class PresentationAdvice
+{
+    public bool ShowTypeAnalysis { get; set; }
+    public bool ShowProperties { get; set; }
+    public bool ShowSignature { get; set; }
+    public bool ShowScript { get; set; }
+    public bool ShowAssessment { get; set; }
+    public bool ShowHeuristics { get; set; }
+    public bool ShowArchiveDetails { get; set; }
+    /// <summary>Host-controlled: show scan results (VT/Defender) when enabled.</summary>
+    public bool ShowScan { get; set; }
 }
