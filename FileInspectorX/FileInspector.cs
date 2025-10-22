@@ -129,6 +129,8 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRiff(src, out var riff)) return Enrich(riff, src, stream, options);
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
+        if (Signatures.TryMatch7z(src, out var _7z)) return Enrich(_7z, src, stream, options);
+        if (Signatures.TryMatchRar(src, out var rar)) return Enrich(rar, src, stream, options);
         if (Signatures.TryMatchElf(src, out var elf)) return Enrich(elf, src, stream, options);
         if (Signatures.TryMatchMachO(src, out var macho)) return Enrich(macho, src, stream, options);
         if (Signatures.TryMatchCab(src, out var cab)) return Enrich(cab, src, stream, options);

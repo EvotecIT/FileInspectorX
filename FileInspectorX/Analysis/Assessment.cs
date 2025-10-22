@@ -62,6 +62,7 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0) Add("Archive.ContainsExecutables", 25);
         if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) Add("Archive.ContainsScripts", 20);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
+        if ((a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0) Add("Archive.DisguisedExecutables", 25);
 
         // Documents with active content
         if ((a.Flags & ContentFlags.HasOoxmlMacros) != 0) Add("Office.Macros", 30);
@@ -71,6 +72,8 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PdfHasNamesTree) != 0) Add("Pdf.NamesTree", 10);
         if ((a.Flags & ContentFlags.PdfHasXfa) != 0) Add("Pdf.Xfa", 10);
         if ((a.Flags & ContentFlags.PdfEncrypted) != 0) Add("Pdf.Encrypted", 10);
+        if ((a.Flags & ContentFlags.ArchiveHasEncryptedEntries) != 0) Add("Archive.EncryptedEntries", 10);
+        if ((a.Flags & ContentFlags.OoxmlEncrypted) != 0) Add("Office.Encrypted", 15);
         if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) Add("Pdf.ManyUpdates", 5);
         if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) Add("Office.ExternalLinks", 5);
         if ((a.Flags & ContentFlags.OfficeRemoteTemplate) != 0) Add("Office.RemoteTemplate", 25);
@@ -98,6 +101,7 @@ public static partial class FileInspector
         {
             switch (f)
             {
+                case var t when t != null && t.StartsWith("tool:"): Add("Tool.Indicator", 10); break;
                 case "ps:encoded": Add("Script.Encoded", 25); break;
                 case "ps:iex": Add("Script.IEX", 20); break;
                 case "ps:web-dl": Add("Script.WebDownload", 15); break;

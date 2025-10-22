@@ -26,7 +26,8 @@ public static partial class FileInspector {
             // OOXML macros and ZIP container hints
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
-                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount);
+                    out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
+                    out bool hasEncryptedEntries, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -38,6 +39,8 @@ public static partial class FileInspector {
                 if (hasTraversal) res.Flags |= ContentFlags.ArchiveHasPathTraversal;
                 if (hasSymlink) res.Flags |= ContentFlags.ArchiveHasSymlinks;
                 if (hasAbs) res.Flags |= ContentFlags.ArchiveHasAbsolutePaths;
+                if (hasEncryptedEntries) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                if (isOoxmlEncrypted) res.Flags |= ContentFlags.OoxmlEncrypted;
                 if (det.Extension is "docx" && hasMacros) res.GuessedExtension ??= "docm";
                 if (det.Extension is "xlsx" && hasMacros) res.GuessedExtension ??= "xlsm";
                 if (det.Extension is "pptx" && hasMacros) res.GuessedExtension ??= "pptm";
@@ -49,6 +52,13 @@ public static partial class FileInspector {
                 if (hasExtLinks) {
                     res.Flags |= ContentFlags.OfficeExternalLinks;
                     res.OfficeExternalLinksCount = extLinksCount;
+                }
+                if (hasDisguisedExec) res.Flags |= ContentFlags.ContainerHasDisguisedExecutables;
+                if (findings != null && findings.Count > 0)
+                {
+                    var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                    list.AddRange(findings);
+                    res.SecurityFindings = list;
                 }
             }
 
@@ -81,6 +91,13 @@ public static partial class FileInspector {
                     if (tHasSym) res.Flags |= ContentFlags.ArchiveHasSymlinks;
                 } catch { }
             }
+
+            // RAR/7z quick flags
+            if ((options?.IncludeContainer != false) && (det.Extension == "rar"))
+            {
+                if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+            }
+            // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 
             // Shebang/script detection for textlike files
             if (InspectHelpers.IsText(det)) {
@@ -226,8 +243,9 @@ public static partial class FileInspector {
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
-        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0;
+        out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
+        out bool hasEncryptedEntries, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -236,10 +254,17 @@ public static partial class FileInspector {
             hasNestedArchives = false;
             int sampled = 0; int maxSamples = 16; int headSample = 64;
             bool ooxmlRemoteTemplate = false; bool ooxmlDde = false; bool ooxmlExtLinks = false; int extLinksCount = 0;
+            bool sawEncryptionInfo = false; bool sawEncryptedPackage = false;
+            int deepScanned = 0; int deepMax = Settings.DeepContainerMaxEntries;
+            int deepBytes = Settings.DeepContainerMaxEntryBytes;
+            bool deep = Settings.DeepContainerScanEnabled;
+            var localFindings = new List<string>(8);
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
                 var name = e.FullName;
+                if (name.Equals("EncryptionInfo", StringComparison.OrdinalIgnoreCase)) sawEncryptionInfo = true;
+                if (name.Equals("EncryptedPackage", StringComparison.OrdinalIgnoreCase)) sawEncryptedPackage = true;
                 if (name.EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase)) hasMacros = true;
                 var ext = GetExtension(name);
                 if (!string.IsNullOrEmpty(ext)) exts[ext] = exts.TryGetValue(ext, out var c) ? c + 1 : 1;
@@ -310,6 +335,64 @@ public static partial class FileInspector {
                     } catch { /* ignore per-entry errors */ }
                     sampled++;
                 }
+
+                // Deep scan of entries for disguised executables and known tool names (bounded by budgets)
+                if (deep && deepScanned < deepMax)
+                {
+                    try {
+                        // Known tool names by filename
+                        var lowerName = name.ToLowerInvariant();
+                        foreach (var ind in Settings.KnownToolNameIndicators)
+                        {
+                            if (!string.IsNullOrWhiteSpace(ind) && lowerName.Contains(ind))
+                            {
+                                localFindings.Add($"tool:{ind}"); break;
+                            }
+                        }
+                        // Content-based disguise check
+                        using var es2 = e.Open();
+                        int cap = (int)Math.Min(Math.Min(e.Length, deepBytes), deepBytes);
+                        var buf = new byte[Math.Max(64, cap)];
+                        int nn = es2.Read(buf, 0, buf.Length);
+                        if (nn > 0)
+                        {
+                            var det2 = Detect(new ReadOnlySpan<byte>(buf, 0, nn), null);
+                            var declExt = GetExtension(name);
+                            var looksExe = det2?.Extension is "exe" or "dll" || (nn >= 2 && buf[0] == (byte)'M' && buf[1] == (byte)'Z');
+                            if (looksExe)
+                            {
+                                // if declared ext does not indicate executable
+                                if (!(declExt is "exe" or "dll")) hasDisguisedExecutables = true;
+                                hasExecutables = true;
+                            }
+                            // Installer hint by name or magic (best-effort)
+                            if (!hasInstallers && (declExt is "msi" || lowerName.EndsWith(".msi"))) hasInstallers = true;
+
+                            // Optional hash match for known tools (only when entry small enough)
+                            if (Settings.KnownToolHashes.Count > 0 && nn > 0 && e.Length <= deepBytes)
+                            {
+                                try {
+                                    using var sha = System.Security.Cryptography.SHA256.Create();
+                                    // Compute on first buffer; if entry is larger but within deepBytes, read fully
+                                    var ms = new System.IO.MemoryStream();
+                                    ms.Write(buf, 0, nn);
+                                    if (nn < cap)
+                                    {
+                                        int left = cap - nn; var tmp = new byte[8192]; int r2;
+                                        while (left > 0 && (r2 = es2.Read(tmp, 0, Math.Min(tmp.Length, left))) > 0) { ms.Write(tmp, 0, r2); left -= r2; }
+                                    }
+                                    var hash = sha.ComputeHash(ms.ToArray());
+                                    var hex = ToLowerHex(hash);
+                                    foreach (var kv in Settings.KnownToolHashes)
+                                    {
+                                        if (string.Equals(kv.Value, hex, StringComparison.OrdinalIgnoreCase)) { localFindings.Add($"toolhash:{kv.Key}"); break; }
+                                    }
+                                } catch { }
+                            }
+                        }
+                    } catch { }
+                    deepScanned++;
+                }
             }
             entryCount = count;
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
@@ -320,7 +403,79 @@ public static partial class FileInspector {
             hasDde = ooxmlDde;
             hasExternalLinks = ooxmlExtLinks;
             externalLinksCount = extLinksCount;
+            // Check encryption flags by scanning central directory
+            if (!hasEncryptedEntries) hasEncryptedEntries = ZipCentralDirectoryHasEncryptedEntries(fs);
+            // OOXML encrypted packages present these two entries at root
+            isOoxmlEncrypted = sawEncryptionInfo && sawEncryptedPackage;
+            findingsOut = localFindings.Count > 0 ? localFindings : null;
         } catch { }
+    }
+
+    private static bool ZipCentralDirectoryHasEncryptedEntries(Stream fs)
+    {
+        try {
+            if (!fs.CanSeek || fs.Length < 22) return false;
+            long maxScan = Math.Min(fs.Length, 1 << 16); // EOCD must be within last 64KB
+            var buf = new byte[maxScan];
+            fs.Seek(fs.Length - maxScan, SeekOrigin.Begin);
+            int n = fs.Read(buf, 0, buf.Length);
+            if (n <= 0) return false;
+            int eocdSig = 0x06054b50;
+            int cdSig = 0x02014b50;
+            for (int i = n - 22; i >= 0; i--)
+            {
+                if (ReadLe32(buf, i) == eocdSig)
+                {
+                    int entries = ReadLe16(buf, i + 10);
+                    int cdOffset = ReadLe32(buf, i + 16);
+                    // Seek to central directory and scan flags per entry
+                    long abs = cdOffset;
+                    if (abs < 0 || abs >= fs.Length) break;
+                    long remain = fs.Length - abs;
+                    fs.Seek(abs, SeekOrigin.Begin);
+                    var cdbuf = new byte[Math.Min(remain, 1 << 20)];
+                    int m = fs.Read(cdbuf, 0, cdbuf.Length);
+                    int p = 0; int scanned = 0;
+                    while (p + 46 <= m && scanned < entries)
+                    {
+                        if (ReadLe32(cdbuf, p) != cdSig) break;
+                        int flags = ReadLe16(cdbuf, p + 8);
+                        if ((flags & 0x1) != 0) return true; // encrypted
+                        int fnLen = ReadLe16(cdbuf, p + 28);
+                        int exLen = ReadLe16(cdbuf, p + 30);
+                        int cmLen = ReadLe16(cdbuf, p + 32);
+                        p += 46 + fnLen + exLen + cmLen;
+                        scanned++;
+                    }
+                    break;
+                }
+            }
+        } catch { }
+        return false;
+    }
+
+    private static int ReadLe16(byte[] a, int o) => a[o] | (a[o+1] << 8);
+    private static int ReadLe32(byte[] a, int o) => a[o] | (a[o+1] << 8) | (a[o+2] << 16) | (a[o+3] << 24);
+
+    private static bool TryInspectRarQuick(string path)
+    {
+        // Best-effort: detect RAR4 header-encryption flag in main header (not extraction)
+        try {
+            using var fs = File.OpenRead(path);
+            var sig = new byte[8];
+            int r = fs.Read(sig, 0, sig.Length);
+            if (r < 7) return false;
+            bool rar4 = sig[0] == 0x52 && sig[1] == 0x61 && sig[2] == 0x72 && sig[3] == 0x21 && sig[4] == 0x1A && sig[5] == 0x07 && sig[6] == 0x00;
+            if (!rar4) return false; // RAR5 skipped for now
+            // Read next header: CRC(2), Type(1), Flags(2), Size(2)
+            var hdr = new byte[7];
+            if (fs.Read(hdr, 0, 7) != 7) return false;
+            byte type = hdr[2];
+            int flags = hdr[3] | (hdr[4] << 8);
+            // Type 0x73 (MAIN_HEADER), bit 0x0080 = encrypted headers
+            if (type == 0x73 && (flags & 0x0080) != 0) return true;
+        } catch { }
+        return false;
     }
 
     private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives) {

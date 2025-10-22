@@ -60,6 +60,19 @@ internal static class SecurityHeuristics
             // Lua exec/loadstring
             if (ContainsAny(lower, new [] { "loadstring(", "os.execute(" })) findings.Add("lua:exec");
 
+            // Batch/Generic: certutil decode
+            if (ContainsAny(lower, new [] { "certutil -decode", "certutil.exe -decode" })) findings.Add("bat:certutil");
+
+            // Windows scripting/JS: ActiveX and dangerous COM usage
+            if (ContainsAny(lower, new [] { "wscript.shell", "activexobject", "adodb.stream" })) findings.Add("js:activex");
+
+            // mshta usage
+            if (ContainsAny(lower, new [] { "mshta ", "mshta.exe" })) findings.Add("js:mshta");
+
+            // fromCharCode bursts (heuristic)
+            int fcc = 0; int pos = 0; while (true) { int at = lower.IndexOf("fromcharcode(", pos, StringComparison.Ordinal); if (at < 0) break; fcc++; pos = at + 12; if (fcc > 20) break; }
+            if (fcc > 20) findings.Add("js:fromcharcode");
+
             // Encoded high-signal names (decoded from B64 at runtime); neutral codes only
             for (int i = 0; i < SensitiveIndicators.Length && i < SensitiveCodes.Length; i++) {
                 var token = SensitiveIndicators[i];

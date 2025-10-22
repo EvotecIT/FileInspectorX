@@ -129,6 +129,32 @@ public class Settings {
     /// 'Exact' requires a full case-insensitive equality.
     /// </summary>
     public static VendorMatchMode VendorMatchMode { get; set; } = VendorMatchMode.Contains;
+
+    /// <summary>
+    /// When true, zip/tar container analysis performs a deeper scan of inner entries (bounded by budgets) to detect disguised types and suspicious names.
+    /// Defaults to false to keep analysis fast.
+    /// </summary>
+    public static bool DeepContainerScanEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Maximum number of entries to scan deeply inside a container when <see cref="DeepContainerScanEnabled"/> is true. Default 64.
+    /// </summary>
+    public static int DeepContainerMaxEntries { get; set; } = 64;
+
+    /// <summary>
+    /// Maximum number of bytes to read from each inner entry during deep scan. Default 262144 (256 KB).
+    /// </summary>
+    public static int DeepContainerMaxEntryBytes { get; set; } = 262_144;
+
+    /// <summary>
+    /// Name indicators for well-known admin/security tools. Checked against inner entry names (case-insensitive) to emit neutral findings like "tool:pingcastle".
+    /// </summary>
+    public static string[] KnownToolNameIndicators { get; set; } = new[] { "pingcastle", "bloodhound" };
+
+    /// <summary>
+    /// Optional list of known tool SHA-256 hashes (lowercase hex). When deep container scanning computes an inner hash that matches, a finding 'toolhash:&lt;name&gt;' is emitted.
+    /// </summary>
+    public static IReadOnlyDictionary<string,string> KnownToolHashes { get; set; } = new Dictionary<string,string>();
 }
 
 /// <summary>

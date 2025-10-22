@@ -4,6 +4,30 @@ namespace FileInspectorX;
 /// Archive and disk image signatures (CAB/TAR/ISO/UDF).
 /// </summary>
 internal static partial class Signatures {
+    internal static bool TryMatch7z(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+        result = null;
+        // 7z signature: 37 7A BC AF 27 1C
+        if (src.Length >= 6 && src[0] == 0x37 && src[1] == 0x7A && src[2] == 0xBC && src[3] == 0xAF && src[4] == 0x27 && src[5] == 0x1C) {
+            result = new ContentTypeDetectionResult { Extension = "7z", MimeType = "application/x-7z-compressed", Confidence = "High", Reason = "7z" };
+            return true;
+        }
+        return false;
+    }
+
+    internal static bool TryMatchRar(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+        result = null;
+        // RAR 4.x: 52 61 72 21 1A 07 00
+        if (src.Length >= 7 && src[0] == 0x52 && src[1] == 0x61 && src[2] == 0x72 && src[3] == 0x21 && src[4] == 0x1A && src[5] == 0x07 && src[6] == 0x00) {
+            result = new ContentTypeDetectionResult { Extension = "rar", MimeType = "application/vnd.rar", Confidence = "High", Reason = "rar4" };
+            return true;
+        }
+        // RAR 5.x: 52 61 72 21 1A 07 01 00
+        if (src.Length >= 8 && src[0] == 0x52 && src[1] == 0x61 && src[2] == 0x72 && src[3] == 0x21 && src[4] == 0x1A && src[5] == 0x07 && src[6] == 0x01 && src[7] == 0x00) {
+            result = new ContentTypeDetectionResult { Extension = "rar", MimeType = "application/vnd.rar", Confidence = "High", Reason = "rar5" };
+            return true;
+        }
+        return false;
+    }
     internal static bool TryMatchCab(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 4) return false;
