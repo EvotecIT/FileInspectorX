@@ -60,6 +60,7 @@ public static partial class FileInspector {
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.AddRange(findings);
                     res.SecurityFindings = list;
+                    res.InnerFindings = findings.Take(Settings.DeepContainerMaxEntries).ToArray();
                 }
             }
 
@@ -414,6 +415,7 @@ public static partial class FileInspector {
             // OOXML encrypted packages present these two entries at root
             isOoxmlEncrypted = sawEncryptionInfo && sawEncryptedPackage;
             findingsOut = localFindings.Count > 0 ? localFindings : null;
+            // Attach inner findings via the caller's FileAnalysis when available (handled by Analyze caller)
         } catch { }
     }
 

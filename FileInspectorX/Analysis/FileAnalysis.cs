@@ -95,4 +95,8 @@ public class FileAnalysis {
     /// Number of encrypted entries detected inside a ZIP container (central directory flags or AES extra field). Null when not applicable.
     /// </summary>
     public int? EncryptedEntryCount { get; set; }
+    /// <summary>
+    /// Per-entry indicators collected during deep container scan (bounded).
+    /// </summary>
+    public IReadOnlyList<string>? InnerFindings { get; set; }
 }

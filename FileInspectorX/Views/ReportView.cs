@@ -60,6 +60,8 @@ public sealed class ReportView
     public int? EncryptedEntryCount { get; set; }
     /// <summary>Neutral security findings emitted by heuristics (e.g., ps:encoded, js:activex).</summary>
     public IReadOnlyList<string>? SecurityFindings { get; set; }
+    /// <summary>Per-entry findings collected during deep scan (bounded).</summary>
+    public IReadOnlyList<string>? InnerFindings { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -123,6 +125,7 @@ public sealed class ReportView
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
         r.SecurityFindings = a.SecurityFindings;
+        r.InnerFindings = a.InnerFindings;
 
         return r;
     }
@@ -157,6 +160,7 @@ public sealed class ReportView
         if (AssessmentFactors != null && AssessmentFactors.Count > 0) d["AssessmentFactors"] = AssessmentFactors;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
+        if (InnerFindings != null && InnerFindings.Count > 0) d["InnerFindings"] = InnerFindings;
         return d;
     }
 }
