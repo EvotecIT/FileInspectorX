@@ -23,6 +23,14 @@ var det = FileInspector.Detect(path, new FileInspector.DetectionOptions { MagicH
 
 // Views (optional, for display)
 var summary = fa.ToSummaryView(path);
+
+// Present findings without reassembling logic: ReportView
+var report = FileInspectorX.ReportView.From(fa);
+var map = report.ToDictionary();
+// Example keys: DetectedTypeExtension, DetectedTypeName, DetectionConfidence, DetectionReason,
+// CompanyName, ProductName, FileDescription, FileVersion, ProductVersion, OriginalFilename,
+// AnalysisFlags (CSV of compact codes), AssessmentScore, AssessmentDecision, AssessmentCodes,
+// CertificateBlobSha256, EncryptedEntryCount (ZIP only)
 ```
 
 ## Include/Exclude Sections
@@ -35,6 +43,13 @@ var lean = FileInspector.Analyze(path, new FileInspector.DetectionOptions {
     IncludeAuthenticode = true,
     IncludeAssessment = true
 });
+
+// Deep container scanning (opt-in)
+Settings.DeepContainerScanEnabled = true;
+Settings.DeepContainerMaxEntries = 64;
+Settings.DeepContainerMaxEntryBytes = 262_144; // 256 KB
+Settings.KnownToolNameIndicators = new[] { "pingcastle", "bloodhound" };
+Settings.KnownToolHashes = new Dictionary<string,string> { /* name => lowercase sha256 */ };
 ```
 
 ## Assessment & Policy
@@ -48,4 +63,3 @@ foreach (var kv in assess.Factors) Console.WriteLine($"{kv.Key} => {kv.Value}");
 ```
 
 See repository for more examples and PowerShell module.
-

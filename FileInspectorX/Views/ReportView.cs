@@ -58,6 +58,8 @@ public sealed class ReportView
     public IReadOnlyDictionary<string,int>? AssessmentFactors { get; set; }
     /// <summary>Number of encrypted entries in ZIP (if applicable).</summary>
     public int? EncryptedEntryCount { get; set; }
+    /// <summary>Neutral security findings emitted by heuristics (e.g., ps:encoded, js:activex).</summary>
+    public IReadOnlyList<string>? SecurityFindings { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -120,6 +122,7 @@ public sealed class ReportView
             r.AssessmentFactors = assess.Factors;
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
+        r.SecurityFindings = a.SecurityFindings;
 
         return r;
     }
@@ -153,6 +156,7 @@ public sealed class ReportView
         if (AssessmentCodes != null && AssessmentCodes.Count > 0) d["AssessmentCodes"] = AssessmentCodes;
         if (AssessmentFactors != null && AssessmentFactors.Count > 0) d["AssessmentFactors"] = AssessmentFactors;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
+        if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
         return d;
     }
 }

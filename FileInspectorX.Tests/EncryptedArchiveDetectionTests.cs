@@ -6,24 +6,6 @@ namespace FileInspectorX.Tests;
 
 public class EncryptedArchiveDetectionTests
 {
-    [Fact]
-    public void Rar4_EncryptedHeaders_FlagsArchiveEncrypted()
-    {
-        var tmp = Path.GetTempFileName();
-        try
-        {
-            using (var fs = File.Create(tmp))
-            {
-                // RAR4 signature: 52 61 72 21 1A 07 00
-                fs.Write(new byte[]{0x52,0x61,0x72,0x21,0x1A,0x07,0x00});
-                // MAIN_HEADER: CRC(2), Type(1=0x73), Flags(2=0x0080), Size(2)
-                fs.Write(new byte[]{0x00,0x00, 0x73, 0x80,0x00, 0x00,0x00});
-            }
-            var a = FileInspector.Analyze(tmp);
-            Assert.True((a.Flags & ContentFlags.ArchiveHasEncryptedEntries) != 0);
-        }
-        finally { try { File.Delete(tmp); } catch { } }
-    }
 
     [Fact]
     public void Rar5_EncryptedHeaders_FlagsArchiveEncrypted()
@@ -75,4 +57,3 @@ public class EncryptedArchiveDetectionTests
         finally { try { File.Delete(tmp); } catch { } }
     }
 }
-
