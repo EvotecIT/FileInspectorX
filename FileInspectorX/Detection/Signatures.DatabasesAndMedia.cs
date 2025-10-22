@@ -4,6 +4,15 @@ namespace FileInspectorX;
 /// Database/media container signatures (SQLite, MP4/HEIF ftyp box family).
 /// </summary>
 internal static partial class Signatures {
+    internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+        result = null;
+        // Windows Event Log (EVTX) header starts with "ElfFile\0"
+        if (src.Length >= 8 && src[0] == (byte)'E' && src[1] == (byte)'l' && src[2] == (byte)'f' && src[3] == (byte)'F' && src[4] == (byte)'i' && src[5] == (byte)'l' && src[6] == (byte)'e') {
+            result = new ContentTypeDetectionResult { Extension = "evtx", MimeType = "application/vnd.ms-windows.evtx", Confidence = "High", Reason = "evtx:ElfFile" };
+            return true;
+        }
+        return false;
+    }
     internal static bool TryMatchSqlite(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         var sig = System.Text.Encoding.ASCII.GetBytes("SQLite format 3\x00");
@@ -42,4 +51,3 @@ internal static partial class Signatures {
         return true;
     }
 }
-

@@ -29,8 +29,27 @@ var report = FileInspectorX.ReportView.From(fa);
 var map = report.ToDictionary();
 // Example keys: DetectedTypeExtension, DetectedTypeName, DetectionConfidence, DetectionReason,
 // CompanyName, ProductName, FileDescription, FileVersion, ProductVersion, OriginalFilename,
-// AnalysisFlags (CSV of compact codes), AssessmentScore, AssessmentDecision, AssessmentCodes,
+// AnalysisFlags (CSV of compact codes), AnalysisFlagsHuman (short), AnalysisFlagsHumanLong,
+// InnerFindings, InnerFindingsHuman, InnerFindingsHumanLong,
+// AssessmentScore, AssessmentDecision, AssessmentCodes,
 // CertificateBlobSha256, EncryptedEntryCount (ZIP only)
+
+// Human-friendly fallback example (if you only have AnalysisFlags CSV):
+string flagsShort = map.TryGetValue("AnalysisFlagsHuman", out var sh) ? sh?.ToString() ?? string.Empty
+                             : FileInspectorX.Legend.HumanizeFlagsCsv(map.GetValueOrDefault("AnalysisFlags")?.ToString());
+
+// Or consume typed legends directly and render your own legend box
+foreach (var entry in FileInspectorX.Legend.GetAnalysisFlagLegend())
+{
+    Console.WriteLine($"{entry.Short} = {entry.Long}");
+}
+
+// Assessment codes → human text
+var drivers = map.GetValueOrDefault("AssessmentCodesHuman")?.ToString() ??
+              FileInspectorX.AssessmentLegend.HumanizeCodes(fa.Assessment?.Codes);
+
+// Render a Markdown report (dependency-free)
+var md = FileInspectorX.MarkdownRenderer.From(fa);
 ```
 
 ## Include/Exclude Sections

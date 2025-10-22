@@ -429,6 +429,9 @@ public static partial class FileInspector {
 
             if (za.GetEntry("AppManifest.xaml") != null) { mime = "application/x-silverlight-app"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "xap"; }
 
+            // NuGet package (nupkg): presence of a .nuspec file
+            if (za.Entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "nupkg"; }
+
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
         } catch { }
         return null;

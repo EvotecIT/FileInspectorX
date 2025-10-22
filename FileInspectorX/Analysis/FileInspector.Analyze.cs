@@ -94,14 +94,45 @@ public static partial class FileInspector {
                 } catch { }
             }
 
-            // RAR/7z quick flags
+            // RAR/7z quick flags + (best-effort) encrypted entries accounting under budget
             if ((options?.IncludeContainer != false) && (det.Extension == "rar"))
             {
-                if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                // Distinguish RAR4 vs RAR5 by signature
+                try {
+                    using var fsr = File.OpenRead(path);
+                    var head = new byte[8]; int nr = fsr.Read(head, 0, head.Length);
+                    bool isRar5 = nr >= 8 && head[0]==0x52 && head[1]==0x61 && head[2]==0x72 && head[3]==0x21 && head[4]==0x1A && head[5]==0x07 && head[6]==0x01 && head[7]==0x00;
+                    bool isRar4 = !isRar5;
+                    if (isRar4)
+                    {
+                        if (TryCountRar4EncryptedFiles(path, Settings.DeepContainerMaxEntries, out int encCount, out int totalCount))
+                        {
+                            if (encCount > 0) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                            res.EncryptedEntryCount = encCount;
+                            var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                            list.Add($"rar4:enc={encCount}/{totalCount}");
+                            res.SecurityFindings = list;
+                            res.InnerFindings = (res.InnerFindings ?? Array.Empty<string>()).Concat(new[]{ $"rar4:enc={encCount}/{totalCount}" }).ToArray();
+                        }
+                    }
+                    else
+                    {
+                        if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                        list.Add("rar5:headers-encrypted");
+                        res.SecurityFindings = list;
+                    }
+                } catch { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
             }
             if ((options?.IncludeContainer != false) && (det.Extension == "7z"))
             {
-                if (TryDetect7zEncryptedHeaders(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                if (TryDetect7zEncryptedHeaders(path))
+                {
+                    res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                    var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                    list.Add("7z:headers-encrypted");
+                    res.SecurityFindings = list;
+                }
             }
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 

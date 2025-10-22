@@ -51,6 +51,7 @@ internal static partial class Signatures {
         new Signature("pcap","application/vnd.tcpdump.pcap", new byte[]{0xA1,0xB2,0xC3,0xD4}),
         new Signature("parquet","application/vnd.apache.parquet", System.Text.Encoding.ASCII.GetBytes("PAR1")),
         new Signature("flac","audio/flac",            System.Text.Encoding.ASCII.GetBytes("fLaC")),
+        new Signature("evtx","application/vnd.ms-windows.evtx", System.Text.Encoding.ASCII.GetBytes("ElfFile\x00")),
     };
 
     /// <summary>

@@ -42,6 +42,10 @@ public sealed class ReportView
 
     /// <summary>Compact comma-separated flag codes suitable for humanization by hosts.</summary>
     public string? FlagsCsv { get; set; }
+    /// <summary>Human-friendly flags (short form), produced by FileInspectorX.</summary>
+    public string? FlagsHumanShort { get; set; }
+    /// <summary>Human-friendly flags (long form), produced by FileInspectorX.</summary>
+    public string? FlagsHumanLong { get; set; }
 
     /// <summary>Size of the certificate table (PE) when present.</summary>
     public int? CertificateTableSize { get; set; }
@@ -54,14 +58,26 @@ public sealed class ReportView
     public string? AssessmentDecision { get; set; }
     /// <summary>Finding codes that drove the score.</summary>
     public IReadOnlyList<string>? AssessmentCodes { get; set; }
+    /// <summary>Human-friendly summary of assessment codes (short form).</summary>
+    public string? AssessmentCodesHuman { get; set; }
+    /// <summary>Human-friendly summary of assessment codes (long form).</summary>
+    public string? AssessmentCodesHumanLong { get; set; }
     /// <summary>Score contributions by code.</summary>
     public IReadOnlyDictionary<string,int>? AssessmentFactors { get; set; }
     /// <summary>Number of encrypted entries in ZIP (if applicable).</summary>
     public int? EncryptedEntryCount { get; set; }
     /// <summary>Neutral security findings emitted by heuristics (e.g., ps:encoded, js:activex).</summary>
     public IReadOnlyList<string>? SecurityFindings { get; set; }
+    /// <summary>Humanized security findings (short form).</summary>
+    public string? SecurityFindingsHumanShort { get; set; }
+    /// <summary>Humanized security findings (long form).</summary>
+    public string? SecurityFindingsHumanLong { get; set; }
     /// <summary>Per-entry findings collected during deep scan (bounded).</summary>
     public IReadOnlyList<string>? InnerFindings { get; set; }
+    /// <summary>Humanized inner findings (short form).</summary>
+    public string? InnerFindingsHumanShort { get; set; }
+    /// <summary>Humanized inner findings (long form).</summary>
+    public string? InnerFindingsHumanLong { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -107,7 +123,12 @@ public sealed class ReportView
         if ((f & ContentFlags.OoxmlEncrypted) != 0) codes.Add("OoxmlEnc");
         if ((f & ContentFlags.ContainerHasDisguisedExecutables) != 0) codes.Add("DisgExec");
         if ((f & ContentFlags.PeHasAuthenticodeDirectory) != 0) codes.Add("SigPresent");
-        if (codes.Count > 0) r.FlagsCsv = string.Join(",", codes);
+        if (codes.Count > 0)
+        {
+            r.FlagsCsv = string.Join(",", codes);
+            r.FlagsHumanShort = Legend.HumanizeFlagsCsv(r.FlagsCsv, HumanizeStyle.Short);
+            r.FlagsHumanLong  = Legend.HumanizeFlagsCsv(r.FlagsCsv, HumanizeStyle.Long);
+        }
 
         if (a.Signature != null)
         {
@@ -122,10 +143,25 @@ public sealed class ReportView
             r.AssessmentDecision = assess.Decision.ToString();
             r.AssessmentCodes = assess.Codes;
             r.AssessmentFactors = assess.Factors;
+            if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0)
+            {
+                r.AssessmentCodesHuman = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Short);
+                r.AssessmentCodesHumanLong = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Long);
+            }
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
         r.SecurityFindings = a.SecurityFindings;
         r.InnerFindings = a.InnerFindings;
+        if (r.SecurityFindings != null && r.SecurityFindings.Count > 0)
+        {
+            r.SecurityFindingsHumanShort = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Short);
+            r.SecurityFindingsHumanLong  = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Long);
+        }
+        if (r.InnerFindings != null && r.InnerFindings.Count > 0)
+        {
+            r.InnerFindingsHumanShort = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Short);
+            r.InnerFindingsHumanLong  = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Long);
+        }
 
         return r;
     }
@@ -152,15 +188,23 @@ public sealed class ReportView
         if (ProductVersion != null) d["ProductVersion"] = ProductVersion;
         if (OriginalFilename != null) d["OriginalFilename"] = OriginalFilename;
         if (!string.IsNullOrEmpty(FlagsCsv)) d["AnalysisFlags"] = FlagsCsv;
+        if (!string.IsNullOrEmpty(FlagsHumanShort)) d["AnalysisFlagsHuman"] = FlagsHumanShort;
+        if (!string.IsNullOrEmpty(FlagsHumanLong))  d["AnalysisFlagsHumanLong"] = FlagsHumanLong;
         if (CertificateTableSize.HasValue) d["CertificateTableSize"] = CertificateTableSize.Value;
         if (!string.IsNullOrEmpty(CertificateBlobSha256)) d["CertificateBlobSha256"] = CertificateBlobSha256;
         if (AssessmentScore.HasValue) d["AssessmentScore"] = AssessmentScore.Value;
         if (!string.IsNullOrEmpty(AssessmentDecision)) d["AssessmentDecision"] = AssessmentDecision;
         if (AssessmentCodes != null && AssessmentCodes.Count > 0) d["AssessmentCodes"] = AssessmentCodes;
         if (AssessmentFactors != null && AssessmentFactors.Count > 0) d["AssessmentFactors"] = AssessmentFactors;
+        if (!string.IsNullOrEmpty(AssessmentCodesHuman)) d["AssessmentCodesHuman"] = AssessmentCodesHuman;
+        if (!string.IsNullOrEmpty(AssessmentCodesHumanLong)) d["AssessmentCodesHumanLong"] = AssessmentCodesHumanLong;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
+        if (!string.IsNullOrEmpty(SecurityFindingsHumanShort)) d["SecurityFindingsHuman"] = SecurityFindingsHumanShort;
+        if (!string.IsNullOrEmpty(SecurityFindingsHumanLong))  d["SecurityFindingsHumanLong"] = SecurityFindingsHumanLong;
         if (InnerFindings != null && InnerFindings.Count > 0) d["InnerFindings"] = InnerFindings;
+        if (!string.IsNullOrEmpty(InnerFindingsHumanShort)) d["InnerFindingsHuman"] = InnerFindingsHumanShort;
+        if (!string.IsNullOrEmpty(InnerFindingsHumanLong))  d["InnerFindingsHumanLong"] = InnerFindingsHumanLong;
         return d;
     }
 }
