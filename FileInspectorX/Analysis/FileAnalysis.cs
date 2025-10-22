@@ -90,4 +90,9 @@ public class FileAnalysis {
     /// Number of external link definitions detected in OOXML Excel documents (xl/externalLinks/* or workbook rels). Null when not applicable.
     /// </summary>
     public int? OfficeExternalLinksCount { get; set; }
+
+    /// <summary>
+    /// Number of encrypted entries detected inside a ZIP container (central directory flags or AES extra field). Null when not applicable.
+    /// </summary>
+    public int? EncryptedEntryCount { get; set; }
 }

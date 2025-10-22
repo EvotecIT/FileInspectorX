@@ -27,7 +27,7 @@ public static partial class FileInspector {
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
-                    out bool hasEncryptedEntries, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings);
+                    out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -54,6 +54,7 @@ public static partial class FileInspector {
                     res.OfficeExternalLinksCount = extLinksCount;
                 }
                 if (hasDisguisedExec) res.Flags |= ContentFlags.ContainerHasDisguisedExecutables;
+                if (encryptedCount > 0) res.EncryptedEntryCount = encryptedCount;
                 if (findings != null && findings.Count > 0)
                 {
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
@@ -96,6 +97,10 @@ public static partial class FileInspector {
             if ((options?.IncludeContainer != false) && (det.Extension == "rar"))
             {
                 if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+            }
+            if ((options?.IncludeContainer != false) && (det.Extension == "7z"))
+            {
+                if (TryDetect7zEncryptedHeaders(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
             }
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 
@@ -244,8 +249,8 @@ public static partial class FileInspector {
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
-        out bool hasEncryptedEntries, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut) {
-        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null;
+        out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut) {
+        hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; encryptedEntryCount = 0; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -403,8 +408,9 @@ public static partial class FileInspector {
             hasDde = ooxmlDde;
             hasExternalLinks = ooxmlExtLinks;
             externalLinksCount = extLinksCount;
-            // Check encryption flags by scanning central directory
-            if (!hasEncryptedEntries) hasEncryptedEntries = ZipCentralDirectoryHasEncryptedEntries(fs);
+            // Check encryption flags and count by scanning central directory
+            int encCount = ZipEncryptedEntryCount(fs);
+            if (encCount > 0) { hasEncryptedEntries = true; encryptedEntryCount = encCount; }
             // OOXML encrypted packages present these two entries at root
             isOoxmlEncrypted = sawEncryptionInfo && sawEncryptedPackage;
             findingsOut = localFindings.Count > 0 ? localFindings : null;
@@ -444,6 +450,20 @@ public static partial class FileInspector {
                         int fnLen = ReadLe16(cdbuf, p + 28);
                         int exLen = ReadLe16(cdbuf, p + 30);
                         int cmLen = ReadLe16(cdbuf, p + 32);
+                        // Extra field scan for AES (0x9901)
+                        if (exLen > 4 && p + 46 + fnLen + exLen <= m)
+                        {
+                            int exOff = p + 46 + fnLen; int exEnd = exOff + exLen;
+                            int q = exOff;
+                            while (q + 4 <= exEnd)
+                            {
+                                int headerId = ReadLe16(cdbuf, q);
+                                int dataSize = ReadLe16(cdbuf, q + 2);
+                                q += 4;
+                                if (headerId == 0x9901) return true; // AES extra field
+                                q += dataSize;
+                            }
+                        }
                         p += 46 + fnLen + exLen + cmLen;
                         scanned++;
                     }
@@ -452,6 +472,63 @@ public static partial class FileInspector {
             }
         } catch { }
         return false;
+    }
+
+    private static int ZipEncryptedEntryCount(Stream fs)
+    {
+        int count = 0;
+        try {
+            if (!fs.CanSeek || fs.Length < 22) return 0;
+            long maxScan = Math.Min(fs.Length, 1 << 16);
+            var buf = new byte[maxScan];
+            fs.Seek(fs.Length - maxScan, SeekOrigin.Begin);
+            int n = fs.Read(buf, 0, buf.Length);
+            if (n <= 0) return 0;
+            int eocdSig = 0x06054b50;
+            int cdSig = 0x02014b50;
+            for (int i = n - 22; i >= 0; i--)
+            {
+                if (ReadLe32(buf, i) == eocdSig)
+                {
+                    int entries = ReadLe16(buf, i + 10);
+                    int cdOffset = ReadLe32(buf, i + 16);
+                    long abs = cdOffset;
+                    if (abs < 0 || abs >= fs.Length) break;
+                    long remain = fs.Length - abs;
+                    fs.Seek(abs, SeekOrigin.Begin);
+                    var cdbuf = new byte[Math.Min(remain, 1 << 20)];
+                    int m = fs.Read(cdbuf, 0, cdbuf.Length);
+                    int p = 0; int scanned = 0;
+                    while (p + 46 <= m && scanned < entries)
+                    {
+                        if (ReadLe32(cdbuf, p) != cdSig) break;
+                        int flags = ReadLe16(cdbuf, p + 8);
+                        bool encrypted = (flags & 0x1) != 0;
+                        int fnLen = ReadLe16(cdbuf, p + 28);
+                        int exLen = ReadLe16(cdbuf, p + 30);
+                        int cmLen = ReadLe16(cdbuf, p + 32);
+                        if (!encrypted && exLen > 4 && p + 46 + fnLen + exLen <= m)
+                        {
+                            int exOff = p + 46 + fnLen; int exEnd = exOff + exLen;
+                            int q = exOff;
+                            while (q + 4 <= exEnd)
+                            {
+                                int headerId = ReadLe16(cdbuf, q);
+                                int dataSize = ReadLe16(cdbuf, q + 2);
+                                q += 4;
+                                if (headerId == 0x9901) { encrypted = true; break; }
+                                q += dataSize;
+                            }
+                        }
+                        if (encrypted) count++;
+                        p += 46 + fnLen + exLen + cmLen;
+                        scanned++;
+                    }
+                    break;
+                }
+            }
+        } catch { }
+        return count;
     }
 
     private static int ReadLe16(byte[] a, int o) => a[o] | (a[o+1] << 8);
@@ -466,14 +543,62 @@ public static partial class FileInspector {
             int r = fs.Read(sig, 0, sig.Length);
             if (r < 7) return false;
             bool rar4 = sig[0] == 0x52 && sig[1] == 0x61 && sig[2] == 0x72 && sig[3] == 0x21 && sig[4] == 0x1A && sig[5] == 0x07 && sig[6] == 0x00;
-            if (!rar4) return false; // RAR5 skipped for now
+            if (rar4)
+            {
+                // Read next header: CRC(2), Type(1), Flags(2), Size(2)
+                var hdr = new byte[7];
+                if (fs.Read(hdr, 0, 7) != 7) return false;
+                byte type = hdr[2];
+                int flags = hdr[3] | (hdr[4] << 8);
+                // Type 0x73 (MAIN_HEADER), bit 0x0080 = encrypted headers
+                if (type == 0x73 && (flags & 0x0080) != 0) return true;
+                return false;
+            }
+            // RAR5 quick probe: after signature, RAR5 uses a block with CRC32 (4), header size (varint), type (1), flags (2)
+            bool rar5 = sig[0] == 0x52 && sig[1] == 0x61 && sig[2] == 0x72 && sig[3] == 0x21 && sig[4] == 0x1A && sig[5] == 0x07 && sig[6] == 0x01 && sig[7] == 0x00;
+            if (!rar5) return false;
+            var buf = new byte[16];
+            if (fs.Read(buf, 0, 7) < 7) return false; // Read CRC32 (4) + at least 3 bytes of header
+            // Very rough varint skip: header size is little-endian base-128; read until high bit cleared
+            int idx = 4; long hdrSize = 0; int shift = 0; int guard = 0;
+            while (idx < buf.Length && guard++ < 8)
+            {
+                byte b = buf[idx++]; hdrSize |= (long)(b & 0x7F) << shift; shift += 7; if ((b & 0x80) == 0) break;
+                if (idx >= buf.Length) { var ext = new byte[8]; int rr = fs.Read(ext, 0, ext.Length); if (rr <= 0) break; buf = buf.Concat(ext).ToArray(); }
+            }
+            if (idx + 3 > buf.Length) { var more = new byte[8]; fs.Read(more, 0, more.Length); buf = buf.Concat(more).ToArray(); }
+            byte bType = buf[idx++];
+            if (idx + 2 > buf.Length) return false;
+            int bFlags = buf[idx++] | (buf[idx++] << 8);
+            // RAR5: bit 0x04 in flags of MAIN block indicates that headers are encrypted
+            const byte RAR5_MAIN = 0x01;
+            if (bType == RAR5_MAIN && (bFlags & 0x0004) != 0) return true;
             // Read next header: CRC(2), Type(1), Flags(2), Size(2)
-            var hdr = new byte[7];
-            if (fs.Read(hdr, 0, 7) != 7) return false;
-            byte type = hdr[2];
-            int flags = hdr[3] | (hdr[4] << 8);
-            // Type 0x73 (MAIN_HEADER), bit 0x0080 = encrypted headers
-            if (type == 0x73 && (flags & 0x0080) != 0) return true;
+        } catch { }
+        return false;
+    }
+
+    private static bool TryDetect7zEncryptedHeaders(string path)
+    {
+        // Heuristic: parse Start Header to locate Next Header region, then check for kEncodedHeader (0x17)
+        try {
+            using var fs = File.OpenRead(path);
+            if (fs.Length < 32) return false;
+            var head = new byte[32];
+            if (fs.Read(head, 0, head.Length) != head.Length) return false;
+            // Verify 7z signature
+            if (!(head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC && head[3] == 0xAF && head[4] == 0x27 && head[5] == 0x1C)) return false;
+            // Next Header offset and size (LE 64-bit)
+            long nextOff = System.BitConverter.ToInt64(head, 12);
+            long nextSz  = System.BitConverter.ToInt64(head, 20);
+            if (nextOff < 0 || nextSz <= 0 || nextOff + nextSz > fs.Length) return false;
+            fs.Seek(nextOff + 32, SeekOrigin.Begin); // Next Header is offset from after the 32-byte Start Header
+            int toRead = (int)System.Math.Min(nextSz, Settings.DetectionReadBudgetBytes);
+            var buf = new byte[toRead];
+            int n = fs.Read(buf, 0, toRead);
+            if (n <= 0) return false;
+            // Search for property id 0x17 (kEncodedHeader) in the next header region
+            for (int i = 0; i < n; i++) if (buf[i] == 0x17) return true;
         } catch { }
         return false;
     }
