@@ -182,6 +182,14 @@ public static partial class FileInspector {
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (sf.Count > 0) res.SecurityFindings = sf;
+                // Generic text/log/schema cues
+                var tf = SecurityHeuristics.AssessTextGeneric(path, declaredExt, Settings.DetectionReadBudgetBytes);
+                if (tf.Count > 0)
+                {
+                    var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                    foreach (var x in tf) if (!list.Contains(x, StringComparer.OrdinalIgnoreCase)) list.Add(x);
+                    res.SecurityFindings = list;
+                }
                 if (Settings.SecretsScanEnabled)
                 {
                     var ss = SecurityHeuristics.CountSecrets(path, Settings.DetectionReadBudgetBytes);

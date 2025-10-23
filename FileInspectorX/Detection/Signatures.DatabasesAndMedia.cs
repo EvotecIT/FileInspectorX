@@ -4,6 +4,29 @@ namespace FileInspectorX;
 /// Database/media container signatures (SQLite, MP4/HEIF ftyp box family).
 /// </summary>
 internal static partial class Signatures {
+    internal static bool TryMatchRegistryHive(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        // Windows registry hive files begin with ASCII 'regf'
+        if (src.Length >= 4 && src[0] == (byte)'r' && src[1] == (byte)'e' && src[2] == (byte)'g' && src[3] == (byte)'f')
+        {
+            result = new ContentTypeDetectionResult { Extension = "hive", MimeType = "application/x-windows-registry-hive", Confidence = "High", Reason = "regf" };
+            return true;
+        }
+        return false;
+    }
+
+    internal static bool TryMatchEse(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        // Extensible Storage Engine (JET Blue) database files (edb/dit) typically start with 0xEF 0xCD 0xAB 0x89
+        if (src.Length >= 4 && src[0] == 0xEF && src[1] == 0xCD && src[2] == 0xAB && src[3] == 0x89)
+        {
+            result = new ContentTypeDetectionResult { Extension = "edb", MimeType = "application/x-ese-database", Confidence = "High", Reason = "ese:header" };
+            return true;
+        }
+        return false;
+    }
     internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         // Windows Event Log (EVTX) header starts with "ElfFile\0"

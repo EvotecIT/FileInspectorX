@@ -23,6 +23,7 @@ public static class Legend
         ["SigPresent"]= new("SigPresent","Authenticode Present",     "PE has an Authenticode signature blob (WIN_CERTIFICATE).",      "PE", 10),
         ["ZipEnc"]   = new("ZipEnc",   "Archive Encrypted Entries",   "Archive contains password-protected items.",                    "Archive", 75),
         ["OoxmlEnc"] = new("OoxmlEnc", "OOXML Encrypted",             "Office document is encrypted (requires password).",            "OOXML", 80),
+        ["PdfEnc"]   = new("PdfEnc",   "PDF Encrypted",               "PDF is encrypted (requires password).",                         "PDF", 80),
         ["DisgExec"] = new("DisgExec", "Disguised Executables",       "Container holds executables disguised by extension.",          "Archive", 70),
     };
 
@@ -47,6 +48,18 @@ public static class Legend
         ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
         ["7z:files="]              = new("7z:files=",              "7z files (count)",      "7z archive file count (best‑effort when headers unencoded).",   "Archive", 10),
         ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
+        // Logs and enterprise artifacts
+        ["log:iis-w3c"] = new("log:iis-w3c", "IIS W3C log", "Text matches IIS W3C log format (#Fields/#Version headers).", "Logs", 15),
+        ["event-xml"]   = new("event-xml",   "Windows Event XML", "XML export of Windows events detected.", "Logs", 20),
+        ["sysmon"]      = new("sysmon",      "Sysmon XML", "Sysmon event XML detected.", "Logs", 25),
+        ["ldif"]        = new("ldif",        "LDIF text", "LDAP Data Interchange Format detected (ldif-version/dn:).", "AD", 25),
+        ["aad:signin"]  = new("aad:signin",  "AAD Sign-in log", "Azure AD sign-in log JSON detected (userPrincipalName/appId).", "Cloud", 25),
+        ["aad:audit"]   = new("aad:audit",   "AAD Audit log", "Azure AD audit log JSON detected.", "Cloud", 25),
+        ["mde:alert"]   = new("mde:alert",   "Defender alert/log", "Microsoft Defender alert/log JSON detected (AlertId/ThreatName).", "Security", 35),
+        // Secrets (categories only)
+        ["secret:privkey"]   = new("secret:privkey",   "Private key material", "File appears to contain private key PEM material.", "Secrets", 90),
+        ["secret:jwt"]       = new("secret:jwt",       "JWT-like token", "File contains tokens resembling JSON Web Tokens.", "Secrets", 60),
+        ["secret:keypattern"] = new("secret:keypattern", "Key/secret pattern", "File contains long high-entropy key= or secret= values.", "Secrets", 50),
         // Pattern-based notes (rendered via HumanizeFindings):
         // tool:<name> and toolhash:<name> are handled dynamically.
     };

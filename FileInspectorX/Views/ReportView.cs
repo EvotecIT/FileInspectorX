@@ -93,6 +93,28 @@ public sealed class ReportView
     /// <summary>Humanized inner findings (long form).</summary>
     public string? InnerFindingsHumanLong { get; set; }
 
+    // Archive + MOTW/ADS summaries
+    /// <summary>Number of entries sampled inside an archive (ZIP/TAR), when available.</summary>
+    public int? ArchiveEntryCount { get; set; }
+    /// <summary>Top-N extensions encountered inside an archive (ordered by frequency).</summary>
+    public IReadOnlyList<string>? ArchiveTopExtensions { get; set; }
+    /// <summary>Windows MOTW ZoneId when present on the file.</summary>
+    public int? MotwZoneId { get; set; }
+    /// <summary>Windows MOTW ReferrerUrl when present.</summary>
+    public string? MotwReferrerUrl { get; set; }
+    /// <summary>Windows MOTW HostUrl when present.</summary>
+    public string? MotwHostUrl { get; set; }
+    /// <summary>Windows: number of alternate data streams on the file.</summary>
+    public int? AlternateStreamCount { get; set; }
+
+    // Secrets (category counts)
+    /// <summary>Number of private key indicators found.</summary>
+    public int? SecretsPrivateKeyCount { get; set; }
+    /// <summary>Number of JWT-like tokens found.</summary>
+    public int? SecretsJwtLikeCount { get; set; }
+    /// <summary>Number of long key=/secret= value patterns found.</summary>
+    public int? SecretsKeyPatternCount { get; set; }
+
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
     /// </summary>
@@ -140,6 +162,7 @@ public sealed class ReportView
         if ((f & ContentFlags.PdfHasJavaScript) != 0) codes.Add("PdfJS");
         if ((f & ContentFlags.PdfHasOpenAction) != 0) codes.Add("PdfOpen");
         if ((f & ContentFlags.PdfHasAA) != 0) codes.Add("PdfAA");
+        if ((f & ContentFlags.PdfEncrypted) != 0) codes.Add("PdfEnc");
         if ((f & ContentFlags.PeIsDotNet) != 0) codes.Add("DotNet");
         if ((f & ContentFlags.ArchiveHasEncryptedEntries) != 0) codes.Add("ZipEnc");
         if ((f & ContentFlags.OoxmlEncrypted) != 0) codes.Add("OoxmlEnc");
@@ -174,6 +197,23 @@ public sealed class ReportView
         r.EncryptedEntryCount = a.EncryptedEntryCount;
         r.SecurityFindings = a.SecurityFindings;
         r.InnerFindings = a.InnerFindings;
+        // Archive + MOTW/ADS
+        r.ArchiveEntryCount = a.ContainerEntryCount;
+        r.ArchiveTopExtensions = a.ContainerTopExtensions;
+        if (a.Security != null)
+        {
+            r.MotwZoneId = a.Security.MotwZoneId;
+            r.MotwReferrerUrl = a.Security.MotwReferrerUrl;
+            r.MotwHostUrl = a.Security.MotwHostUrl;
+            r.AlternateStreamCount = a.Security.AlternateStreamCount;
+        }
+        // Secrets summary
+        if (a.Secrets != null)
+        {
+            r.SecretsPrivateKeyCount = a.Secrets.PrivateKeyCount;
+            r.SecretsJwtLikeCount = a.Secrets.JwtLikeCount;
+            r.SecretsKeyPatternCount = a.Secrets.KeyPatternCount;
+        }
         if (r.SecurityFindings != null && r.SecurityFindings.Count > 0)
         {
             r.SecurityFindingsHumanShort = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Short);
@@ -201,10 +241,12 @@ public sealed class ReportView
         AddField("Properties", "OriginalFilename", r.OriginalFilename);
         AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
-        AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(',', r.EnhancedKeyUsages) : null);
+        AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
         AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
+        if (a.ContainerEntryCount.HasValue) AddField("Archive", "EntryCount", a.ContainerEntryCount.Value.ToString());
+        if (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) AddField("Archive", "TopExtensions", string.Join(", ", a.ContainerTopExtensions));
         if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 }) AddField("Heuristics", "Findings", "1");
         r.CompactFields = groups.ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value);
         r.Advice = new PresentationAdvice
@@ -258,6 +300,9 @@ public sealed class ReportView
         if (EnhancedKeyUsages != null && EnhancedKeyUsages.Count > 0) d["EnhancedKeyUsages"] = EnhancedKeyUsages;
         if (!string.IsNullOrEmpty(TimestampAuthorityCN)) d["TimestampAuthorityCN"] = TimestampAuthorityCN;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
+        // Archive inventory
+        if (ArchiveEntryCount.HasValue) d["ArchiveEntryCount"] = ArchiveEntryCount.Value;
+        if (ArchiveTopExtensions != null && ArchiveTopExtensions.Count > 0) d["ArchiveTopExtensions"] = ArchiveTopExtensions;
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanShort)) d["SecurityFindingsHuman"] = SecurityFindingsHumanShort;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanLong))  d["SecurityFindingsHumanLong"] = SecurityFindingsHumanLong;
@@ -265,6 +310,15 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InnerFindingsHumanShort)) d["InnerFindingsHuman"] = InnerFindingsHumanShort;
         if (!string.IsNullOrEmpty(InnerFindingsHumanLong))  d["InnerFindingsHumanLong"] = InnerFindingsHumanLong;
         d["Kind"] = Kind.ToString();
+        // Security/MOTW export (if available)
+        if (MotwZoneId.HasValue) d["MotwZoneId"] = MotwZoneId.Value;
+        if (!string.IsNullOrEmpty(MotwReferrerUrl)) d["MotwReferrerUrl"] = MotwReferrerUrl;
+        if (!string.IsNullOrEmpty(MotwHostUrl)) d["MotwHostUrl"] = MotwHostUrl;
+        if (AlternateStreamCount.HasValue) d["AlternateStreamCount"] = AlternateStreamCount.Value;
+        // Secrets
+        if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
+        if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;
+        if (SecretsKeyPatternCount.HasValue) d["SecretsKeyPatternCount"] = SecretsKeyPatternCount.Value;
         if (Advice != null)
         {
             d["Advice"] = new Dictionary<string, object?>
@@ -275,7 +329,8 @@ public sealed class ReportView
                 ["ShowScript"] = Advice.ShowScript,
                 ["ShowAssessment"] = Advice.ShowAssessment,
                 ["ShowHeuristics"] = Advice.ShowHeuristics,
-                ["ShowArchiveDetails"] = Advice.ShowArchiveDetails
+                ["ShowArchiveDetails"] = Advice.ShowArchiveDetails,
+                ["ShowScan"] = Advice.ShowScan
             };
         }
         if (CompactFields != null && CompactFields.Count > 0) d["Compact"] = CompactFields;
@@ -288,12 +343,19 @@ public sealed class ReportView
 /// </summary>
 public sealed class PresentationAdvice
 {
+    /// <summary>Include type analysis section (detected MIME/type, detection, flags).</summary>
     public bool ShowTypeAnalysis { get; set; }
+    /// <summary>Include file properties section (Company, Product, Versions, OriginalFilename).</summary>
     public bool ShowProperties { get; set; }
+    /// <summary>Include signature section (publisher, thumbprint, EKUs, TSA CN).</summary>
     public bool ShowSignature { get; set; }
+    /// <summary>Include script section when a script language is detected.</summary>
     public bool ShowScript { get; set; }
+    /// <summary>Include risk assessment section (score, decision, findings).</summary>
     public bool ShowAssessment { get; set; }
+    /// <summary>Include heuristics section (security findings, inner findings).</summary>
     public bool ShowHeuristics { get; set; }
+    /// <summary>Include archive details when available (e.g., encrypted entry count).</summary>
     public bool ShowArchiveDetails { get; set; }
     /// <summary>Host-controlled: show scan results (VT/Defender) when enabled.</summary>
     public bool ShowScan { get; set; }

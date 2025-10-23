@@ -125,9 +125,12 @@ public static partial class FileInspector {
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
 
-        // TAR, RIFF, SQLite quick checks first
+        // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Enrich(tar, src, stream, options);
         if (Signatures.TryMatchRiff(src, out var riff)) return Enrich(riff, src, stream, options);
+        if (Signatures.TryMatchEvtx(src, out var evtx)) return Enrich(evtx, src, stream, options);
+        if (Signatures.TryMatchEse(src, out var ese)) return Enrich(ese, src, stream, options);
+        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Enrich(hive, src, stream, options);
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
         if (Signatures.TryMatch7z(src, out var _7z)) return Enrich(_7z, src, stream, options);
@@ -338,6 +341,9 @@ public static partial class FileInspector {
     public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null) {
         options ??= new DetectionOptions();
         if (Signatures.TryMatchRiff(data, out var riff)) return Enrich(riff, data, null, options);
+        if (Signatures.TryMatchEvtx(data, out var evtx2)) return Enrich(evtx2, data, null, options);
+        if (Signatures.TryMatchEse(data, out var ese2)) return Enrich(ese2, data, null, options);
+        if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Enrich(hive2, data, null, options);
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Enrich(ftyp, data, null, options);
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Enrich(sqlite, data, null, options);
         if (Signatures.TryMatchElf(data, out var elf)) return Enrich(elf, data, null, options);

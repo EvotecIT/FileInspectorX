@@ -98,6 +98,51 @@ internal static class SecurityHeuristics
         return findings;
     }
 
+    internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)
+    {
+        var findings = new List<string>(8);
+        try {
+            string text = ReadTextHead(path, budgetBytes);
+            if (string.IsNullOrEmpty(text)) return findings;
+            var lower = text.ToLowerInvariant();
+
+            // IIS W3C logs
+            if (lower.Contains("#fields:") && (lower.Contains("#software: microsoft internet information services") || lower.Contains("#version:")))
+                findings.Add("log:iis-w3c");
+
+            // Windows Event XML
+            if (lower.Contains("<event ") && lower.Contains("http://schemas.microsoft.com/win/2004/08/events/event"))
+                findings.Add("event-xml");
+            // Sysmon
+            if (lower.Contains("microsoft-windows-sysmon"))
+                findings.Add("sysmon");
+
+            // LDIF
+            if (lower.Contains("ldif-version:") && lower.Contains("\ndn:"))
+                findings.Add("ldif");
+
+            // AAD sign-in logs (JSON)
+            if (LooksLikeJsonWithKeys(lower, new [] {"userprincipalname", "appid" }) && (lower.Contains("resulttype") || lower.Contains("status")))
+                findings.Add("aad:signin");
+            // AAD audit logs (JSON)
+            if (LooksLikeJsonWithKeys(lower, new [] {"operationname", "category" }) || lower.Contains("activitydisplayname"))
+                findings.Add("aad:audit");
+            // MDE/Defender logs (JSON)
+            if (LooksLikeJsonWithKeys(lower, new [] {"deviceid", "computername" }) && (lower.Contains("alertid") || lower.Contains("threatname")))
+                findings.Add("mde:alert");
+
+            // Secrets categories (privacy-safe; same as script path)
+            if (Settings.SecretsScanEnabled)
+            {
+                if (lower.Contains("-----begin rsa private key-----") || lower.Contains("-----begin private key-----") || lower.Contains("-----begin dsa private key-----") || lower.Contains("-----begin openssh private key-----"))
+                    findings.Add("secret:privkey");
+                if (LooksLikeJwt(text)) findings.Add("secret:jwt");
+                if (LooksLikeKeyPattern(text)) findings.Add("secret:keypattern");
+            }
+        } catch { }
+        return findings;
+    }
+
     internal static SecretsSummary CountSecrets(string path, int budgetBytes)
     {
         var s = new SecretsSummary();
@@ -188,5 +233,12 @@ internal static class SecurityHeuristics
             else break;
         }
         return len >= 20;
+    }
+
+    private static bool LooksLikeJsonWithKeys(string lower, IEnumerable<string> keys)
+    {
+        // Cheap test: looks JSON-ish and contains all keys
+        if (!(lower.Contains("{") && lower.Contains("}"))) return false;
+        foreach (var k in keys) if (!lower.Contains(k)) return false; return true;
     }
 }

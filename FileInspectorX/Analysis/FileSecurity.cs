@@ -64,4 +64,14 @@ public sealed class FileSecurity
 
     /// <summary>Windows: Flattened ACE entries for display and inspection.</summary>
     public IReadOnlyList<FileAce>? AclEntries { get; set; }
+
+    // Windows Mark-of-the-Web (MOTW) and ADS summary
+    /// <summary>Windows: Number of alternate data streams on the file (best-effort enumeration).</summary>
+    public int? AlternateStreamCount { get; set; }
+    /// <summary>Windows: MOTW ZoneId value from Zone.Identifier (e.g., 3=Internet). Null when absent.</summary>
+    public int? MotwZoneId { get; set; }
+    /// <summary>Windows: MOTW ReferrerUrl value, when present.</summary>
+    public string? MotwReferrerUrl { get; set; }
+    /// <summary>Windows: MOTW HostUrl value, when present.</summary>
+    public string? MotwHostUrl { get; set; }
 }
