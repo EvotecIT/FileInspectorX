@@ -110,6 +110,37 @@ internal static class SecurityHeuristics
             if (lower.Contains("#fields:") && (lower.Contains("#software: microsoft internet information services") || lower.Contains("#version:")))
                 findings.Add("log:iis-w3c");
 
+            // Windows DNS server log (text)
+            if (lower.Contains("dns server log") || lower.Contains("dns server log file"))
+                findings.Add("log:dns");
+            // Windows Firewall log (pfirewall.log)
+            if ((lower.Contains("microsoft windows firewall") || lower.Contains("windows firewall")) && lower.Contains("fields:"))
+                findings.Add("log:firewall");
+            // DHCP audit log
+            if (lower.Contains("#software: microsoft dhcp server") && lower.Contains("#fields:"))
+                findings.Add("log:dhcp");
+            // Exchange message tracking
+            if (lower.Contains("message tracking log file") || lower.Contains("#software: microsoft exchange"))
+                findings.Add("exchange:msgtrack");
+            // Windows Defender textual logs
+            if (lower.Contains("windows defender") || lower.Contains("microsoft defender") || lower.Contains("mpcmdrun"))
+                findings.Add("defender:txt");
+            // SQL Server ERRORLOG
+            if ((lower.Contains("sql server") || lower.Contains("errorlog")) && lower.Contains("spid"))
+                findings.Add("sql:errorlog");
+            // NPS / RADIUS logs
+            if ((lower.Contains("#software: microsoft internet authentication service") || lower.Contains("#software: microsoft network policy server")) && lower.Contains("#fields:"))
+                findings.Add("nps:radius");
+            // SQL Server Agent logs
+            if (lower.Contains("sqlserveragent") || lower.Contains("sql server agent"))
+                findings.Add("sql:agent");
+            // Netlogon log
+            if (lower.Contains("netlogon") || lower.Contains("netrlogon") || lower.Contains("secure channel"))
+                findings.Add("log:netlogon");
+            // Event Viewer text export
+            if ((lower.Contains("log name:") && lower.Contains("event id:")) || (lower.Contains("source:") && lower.Contains("task category:") && lower.Contains("level:")))
+                findings.Add("event:txt");
+
             // Windows Event XML
             if (lower.Contains("<event ") && lower.Contains("http://schemas.microsoft.com/win/2004/08/events/event"))
                 findings.Add("event-xml");

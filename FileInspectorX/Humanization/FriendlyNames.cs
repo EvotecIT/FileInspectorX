@@ -45,7 +45,11 @@ public static class FriendlyNames
             case "txt":  return "Text file";
             case "md":   return "Markdown document";
             case "json": return "JSON file";
+            case "yml":
+            case "yaml": return "YAML document";
             case "xml":  return "XML file";
+            case "eml":  return "Email message (.eml)";
+            case "log":  return "Text log";
             case "csv":  return "CSV (comma-separated values)";
             case "tsv":  return "TSV (tab-separated values)";
             case "zip":  return "ZIP archive";
@@ -61,6 +65,24 @@ public static class FriendlyNames
             case "ipa":  return "iOS application archive (IPA)";
             case "evtx": return "Windows Event Log (EVTX)";
             case "sqlite": return "SQLite database";
+        }
+
+        // Special-case text logs: use heuristic findings to return a friendlier label
+        if (string.Equals(ext, "log", System.StringComparison.OrdinalIgnoreCase))
+        {
+            var f = a.SecurityFindings ?? Array.Empty<string>();
+            if (f.Contains("log:iis-w3c", StringComparer.OrdinalIgnoreCase)) return "IIS W3C log";
+            if (f.Contains("log:dns", StringComparer.OrdinalIgnoreCase)) return "Windows DNS Server log";
+            if (f.Contains("log:firewall", StringComparer.OrdinalIgnoreCase)) return "Windows Firewall log";
+            if (f.Contains("log:netlogon", StringComparer.OrdinalIgnoreCase)) return "Windows Netlogon log";
+            if (f.Contains("log:dhcp", StringComparer.OrdinalIgnoreCase)) return "Windows DHCP Server log";
+            if (f.Contains("exchange:msgtrack", StringComparer.OrdinalIgnoreCase)) return "Exchange message tracking log";
+            if (f.Contains("defender:txt", StringComparer.OrdinalIgnoreCase)) return "Windows Defender log";
+            if (f.Contains("sql:errorlog", StringComparer.OrdinalIgnoreCase)) return "SQL Server ERRORLOG";
+            if (f.Contains("nps:radius", StringComparer.OrdinalIgnoreCase)) return "NPS/RADIUS log";
+            if (f.Contains("sql:agent", StringComparer.OrdinalIgnoreCase)) return "SQL Server Agent log";
+            if (f.Contains("event-xml", StringComparer.OrdinalIgnoreCase)) return "Windows Event XML";
+            if (f.Contains("event:txt", StringComparer.OrdinalIgnoreCase)) return "Windows Event text log";
         }
 
         // MIME fallbacks

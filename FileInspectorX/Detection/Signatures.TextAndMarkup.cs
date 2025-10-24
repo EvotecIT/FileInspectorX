@@ -188,12 +188,44 @@ internal static partial class Signatures {
         int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
         if (StartsWithLevelToken(line3)) levelCount++;
         if (StartsWithLevelToken(line4)) levelCount++;
-        if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true; }
+        if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) {
+            // Boost confidence when we have both timestamps and levels across lines
+            var conf = levelCount >= 2 && (LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = conf, Reason = "text:log-levels", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true;
+        }
 
         // PowerShell heuristic
         var hb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(hb));
         var headStr = System.Text.Encoding.UTF8.GetString(hb);
         string headLower = headStr.ToLowerInvariant();
+
+        // Windows well-known text logs: DNS, Firewall, Netlogon, Event Viewer text export
+        if (headLower.Contains("dns server log") || headLower.Contains("dns server log file")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" }; return true; }
+        if ((headLower.Contains("microsoft windows firewall") || headLower.Contains("windows firewall")) && headLower.Contains("fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
+        // Netlogon logs often include repeated "netlogon" and secure channel messages
+        {
+            int netCount = 0; int idx = 0; while ((idx = headLower.IndexOf("netlogon", idx, System.StringComparison.Ordinal)) >= 0) { netCount++; idx += 8; if (netCount > 3) break; }
+            if (netCount >= 2 || headLower.Contains("secure channel") || headLower.Contains("netrlogon")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
+        }
+        if ((headLower.Contains("log name:") && headLower.Contains("event id:")) || (headLower.Contains("source:") && headLower.Contains("task category:") && headLower.Contains("level:"))) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
+
+        // Microsoft DHCP Server audit logs (similar to IIS/Firewall headers)
+        if (headLower.Contains("#software: microsoft dhcp server") && headLower.Contains("#fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
+
+        // Microsoft Exchange Message Tracking logs
+        if (headLower.Contains("message tracking log file") || headLower.Contains("#software: microsoft exchange")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
+
+        // Windows Defender textual logs (MpCmdRun outputs or Event Viewer text exports mentioning Defender)
+        if (headLower.Contains("windows defender") || headLower.Contains("microsoft defender") || headLower.Contains("mpcmdrun")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
+
+        // SQL Server ERRORLOG text
+        if ((headLower.Contains("sql server is starting") || headLower.Contains("sql server") || headLower.Contains("errorlog")) && headLower.Contains("spid")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
+
+        // NPS / RADIUS (IAS/NPS) text logs
+        if ((headLower.Contains("#software: microsoft internet authentication service") || headLower.Contains("#software: microsoft network policy server")) && headLower.Contains("#fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
+
+        // SQL Server Agent logs (SQLAgent.out / text snippets)
+        if (headLower.Contains("sqlserveragent") || headLower.Contains("sql server agent")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
 
         // PEM/PGP ASCII-armored blocks (detect before script heuristics)
         {
