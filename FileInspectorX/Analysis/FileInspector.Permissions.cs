@@ -35,6 +35,9 @@ public static partial class FileInspector
         return info;
     }
 
+    #if NET5_0_OR_GREATER
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    #endif
     private static void PopulateUnixMode(string path, FileSecurity info)
     {
 #if NET8_0_OR_GREATER
@@ -48,10 +51,16 @@ public static partial class FileInspector
 #endif
     }
 
+    #if NET5_0_OR_GREATER
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    #endif
     private static void PopulateWindowsAcl(string path, FileSecurity info)
     {
 #if NET8_0_OR_GREATER || NET472
         try {
+            #if NET8_0_OR_GREATER
+            if (!OperatingSystem.IsWindows()) return;
+            #endif
             var fi = new FileInfo(path);
             var fs = fi.GetAccessControl();
             // Owner
@@ -147,11 +156,15 @@ public static partial class FileInspector
     }
 
 #if NET8_0_OR_GREATER || NET472
+    #if NET5_0_OR_GREATER
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    #endif
     private static void TryPopulateMotw(string path, FileSecurity info)
     {
-        try {
-            var zonePath = path + ":Zone.Identifier";
-            using var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try {
+                if (!OperatingSystem.IsWindows()) return;
+                var zonePath = path + ":Zone.Identifier";
+                using var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var sr = new StreamReader(fs, System.Text.Encoding.UTF8, true, 1024);
             string all = sr.ReadToEnd();
             foreach (var line in all.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
@@ -183,9 +196,13 @@ public static partial class FileInspector
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool FindClose(IntPtr hFindFile);
 
+    #if NET5_0_OR_GREATER
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    #endif
     private static void TryCountAlternateStreams(string path, FileSecurity info)
     {
         try {
+            if (!OperatingSystem.IsWindows()) return;
             WIN32_FIND_STREAM_DATA data;
             IntPtr h = FindFirstStreamW(path, 0, out data, 0);
             if (h == IntPtr.Zero || h.ToInt64() == -1) return;
@@ -203,8 +220,12 @@ public static partial class FileInspector
 #endif
 
 #if NET8_0_OR_GREATER
+    #if NET5_0_OR_GREATER
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    #endif
     private static string ToOctal(UnixFileMode mode)
     {
+        if (OperatingSystem.IsWindows()) return string.Empty;
         int bits = 0;
         if ((mode & UnixFileMode.UserRead) != 0) bits |= 0b100_000_000;
         if ((mode & UnixFileMode.UserWrite) != 0) bits |= 0b010_000_000;
@@ -220,8 +241,12 @@ public static partial class FileInspector
         return $"0{u}{g}{o}";
     }
 
+    #if NET5_0_OR_GREATER
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    #endif
     private static string ToSymbolic(UnixFileMode mode)
     {
+        if (OperatingSystem.IsWindows()) return string.Empty;
         char[] c = new char[9];
         c[0] = (mode & UnixFileMode.UserRead) != 0 ? 'r' : '-';
         c[1] = (mode & UnixFileMode.UserWrite) != 0 ? 'w' : '-';
