@@ -58,7 +58,8 @@ public static class ScriptLanguageLegend
     public static string Humanize(string? key, HumanizeStyle style = HumanizeStyle.Short)
     {
         if (string.IsNullOrWhiteSpace(key)) return string.Empty;
-        if (s.TryGetValue(key, out var e)) return style == HumanizeStyle.Long ? e.Long : e.Short;
-        return key!;
+        var k = key!;
+        if (s.TryGetValue(k, out var e) && e is not null) return style == HumanizeStyle.Long ? e.Long : e.Short;
+        return k;
     }
 }

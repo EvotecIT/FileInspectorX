@@ -4,6 +4,9 @@ namespace FileInspectorX;
 /// Database/media container signatures (SQLite, MP4/HEIF ftyp box family).
 /// </summary>
 internal static partial class Signatures {
+    /// <summary>
+    /// Recognizes Windows registry hive files.
+    /// </summary>
     internal static bool TryMatchRegistryHive(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
@@ -16,6 +19,9 @@ internal static partial class Signatures {
         return false;
     }
 
+    /// <summary>
+    /// Recognizes Microsoft Extensible Storage Engine (ESE/JET Blue) databases (e.g., .edb, .dit).
+    /// </summary>
     internal static bool TryMatchEse(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
@@ -27,6 +33,12 @@ internal static partial class Signatures {
         }
         return false;
     }
+    /// <summary>
+    /// Recognizes Windows Event Log (EVTX) files by header.
+    /// </summary>
+    /// <param name="src"></param>
+    /// <param name="result"></param>
+    /// <returns></returns>
     internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         // Windows Event Log (EVTX) header starts with "ElfFile\0"
@@ -36,6 +48,9 @@ internal static partial class Signatures {
         }
         return false;
     }
+    /// <summary>
+    /// Recognizes SQLite database files by header.
+    /// </summary>
     internal static bool TryMatchSqlite(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         var sig = System.Text.Encoding.ASCII.GetBytes("SQLite format 3\x00");
@@ -46,6 +61,33 @@ internal static partial class Signatures {
         return false;
     }
 
+    /// <summary>
+    /// Recognizes KeePass KDBX 3/4 databases via 16-byte magic sequence.
+    /// </summary>
+    internal static bool TryMatchKeePassKdbx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        // KDBX signature consists of two 32-bit words followed by a format/version pair.
+        // KDBX 3.x: 0x9AA2D903, 0xB54BFB67; KDBX 4.x: 0x9AA2D903, 0xB54BFB67 (same first two words),
+        // next two 32-bit values differ but are not required for coarse detection.
+        if (src.Length >= 8)
+        {
+            uint w0 = (uint)(src[0] | (src[1] << 8) | (src[2] << 16) | (src[3] << 24));
+            uint w1 = (uint)(src[4] | (src[5] << 8) | (src[6] << 16) | (src[7] << 24));
+            if (w0 == 0x9AA2D903 && w1 == 0xB54BFB67)
+            {
+                result = new ContentTypeDetectionResult { Extension = "kdbx", MimeType = "application/x-keepass-kdbx", Confidence = "High", Reason = "kdbx:magic" };
+                return true;
+            }
+        }
+        return false;
+    }
+    /// <summary>
+    /// Recognizes MP4/HEIF family files by 'ftyp' box and brand identifiers.
+    /// </summary>
+    /// <param name="src"></param>
+    /// <param name="result"></param>
+    /// <returns></returns>
     internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 12) return false;

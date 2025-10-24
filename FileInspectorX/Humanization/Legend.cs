@@ -56,6 +56,21 @@ public static class Legend
         ["aad:signin"]  = new("aad:signin",  "AAD Sign-in log", "Azure AD sign-in log JSON detected (userPrincipalName/appId).", "Cloud", 25),
         ["aad:audit"]   = new("aad:audit",   "AAD Audit log", "Azure AD audit log JSON detected.", "Cloud", 25),
         ["mde:alert"]   = new("mde:alert",   "Defender alert/log", "Microsoft Defender alert/log JSON detected (AlertId/ThreatName).", "Security", 35),
+        ["ps:transcript"] = new("ps:transcript", "PowerShell transcript", "PowerShell transcript log file.", "Logs", 10),
+        // Domain Controllers / Registry artifacts
+        ["ad:ntds-dit"] = new("ad:ntds-dit", "AD DS database", "ESE database named NTDS.DIT (Active Directory).", "AD", 70),
+        ["reg:sam"]      = new("reg:sam",      "SAM hive", "Windows SAM registry hive (local accounts).", "Registry", 60),
+        ["reg:system"]   = new("reg:system",   "SYSTEM hive", "Windows SYSTEM registry hive (boot keys).", "Registry", 60),
+        ["reg:security"] = new("reg:security", "SECURITY hive", "Windows SECURITY registry hive.", "Registry", 50),
+        // Browsers
+        ["browser:login-data"] = new("browser:login-data", "Chromium Login Data", "Chromium-based browser password store (SQLite).", "Browsers", 65),
+        ["browser:web-data"]   = new("browser:web-data",   "Chromium Web Data",   "Chromium-based browser web data (autofill/addresses).", "Browsers", 25),
+        ["browser:history"]    = new("browser:history",    "Browser History",     "Browser history database (SQLite).", "Browsers", 20),
+        ["browser:key-store"]  = new("browser:key-store",  "Firefox key store",   "Firefox key store (key4.db).", "Browsers", 35),
+        ["browser:logins-json"] = new("browser:logins-json","Firefox logins.json","Firefox saved logins JSON.", "Browsers", 55),
+        // GPO/SYSVOL
+        ["gpo:backup"]   = new("gpo:backup",   "GPO backup", "Archive contains Group Policy backup artifacts (gpt.ini/Registry.pol).", "AD", 30),
+        ["sysvol:policy"] = new("sysvol:policy", "SYSVOL policy/scripts", "Archive contains SYSVOL policy/scripts folder paths.", "AD", 25),
         // Secrets (categories only)
         ["secret:privkey"]   = new("secret:privkey",   "Private key material", "File appears to contain private key PEM material.", "Secrets", 90),
         ["secret:jwt"]       = new("secret:jwt",       "JWT-like token", "File contains tokens resembling JSON Web Tokens.", "Secrets", 60),
@@ -78,7 +93,9 @@ public static class Legend
     public static string HumanizeFlagsCsv(string? flagsCsv, HumanizeStyle style = HumanizeStyle.Short, string separator = ", ")
     {
         if (string.IsNullOrWhiteSpace(flagsCsv)) return string.Empty;
-        var parts = flagsCsv
+        var val = flagsCsv ?? string.Empty;
+        if (val.Length == 0) return string.Empty;
+        var parts = val
             .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim());
         var labels = new List<string>();
@@ -116,9 +133,10 @@ public static class Legend
                 var longTxt  = $"Known tool detected by name: {val}";
                 friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
             }
-            else if (s_heuristicsLegend.TryGetValue(f, out var entry))
+            else if (s_heuristicsLegend.TryGetValue(f, out var entry) && entry is not null)
             {
-                friendly.Add(style == HumanizeStyle.Long ? entry.Long : entry.Short);
+                var e = entry;
+                friendly.Add(style == HumanizeStyle.Long ? e.Long : e.Short);
             }
             else if (f.StartsWith("rar4:enc=", StringComparison.OrdinalIgnoreCase))
             {

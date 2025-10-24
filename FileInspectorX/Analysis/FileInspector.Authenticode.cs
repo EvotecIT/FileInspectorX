@@ -57,7 +57,8 @@ public static partial class FileInspector
                                 var list = new List<string>();
                                 foreach (var oid in eku.EnhancedKeyUsages)
                                 {
-                                    list.Add(string.IsNullOrWhiteSpace(oid.FriendlyName) ? oid.Value : oid.FriendlyName!);
+                                    var label = !string.IsNullOrWhiteSpace(oid.FriendlyName) ? oid.FriendlyName : oid.Value;
+                                    if (!string.IsNullOrWhiteSpace(label)) list.Add(label!);
                                 }
                                 if (list.Count > 0) ai.EnhancedKeyUsages = list;
                                 break;
