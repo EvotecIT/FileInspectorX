@@ -99,6 +99,34 @@ public static class MimeMaps {
     }
 }
 
+// Extend default MIME mappings for security/crypto-related files and PGP
+internal static class ExtraMime
+{
+    static ExtraMime()
+    {
+        // Merge additional mappings into MimeMaps.Default via reflection if needed elsewhere
+    }
+    /// <summary>
+    /// Returns additional MIME type defaults for common crypto files.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> Crypto = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["pem"] = "application/x-pem-file",
+        ["crt"] = "application/pkix-cert",
+        ["cer"] = "application/pkix-cert",
+        ["csr"] = "application/pkcs10",
+        ["key"] = "application/x-pem-key",
+        ["pub"] = "application/x-pem-key",
+        ["p7b"] = "application/pkcs7-mime",
+        ["p7s"] = "application/pkcs7-signature",
+        ["p12"] = "application/x-pkcs12",
+        ["pfx"] = "application/x-pkcs12",
+        ["asc"] = "application/pgp", // generic ASCII‑armored PGP
+        ["pgp"] = "application/pgp-encrypted",
+        ["gpg"] = "application/pgp-encrypted"
+    };
+}
+
 /// <summary>
 /// Convenience set of commonly risky executable/script extensions; not a policy, used only for hints.
 /// </summary>

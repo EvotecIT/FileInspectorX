@@ -48,6 +48,9 @@ public static class Legend
         ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
         ["7z:files="]              = new("7z:files=",              "7z files (count)",      "7z archive file count (best‑effort when headers unencoded).",   "Archive", 10),
         ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
+        // Citrix
+        ["citrix:ica"]             = new("citrix:ica",           "Citrix ICA file",        "Citrix ICA connection file (INI-like).",                           "Config", 5),
+        ["citrix:receiver-config"] = new("citrix:receiver-config","Citrix Receiver config", "Citrix Receiver/Workspace configuration (XML).",                    "Config", 5),
         // Logs and enterprise artifacts
         ["log:iis-w3c"] = new("log:iis-w3c", "IIS W3C log", "Text matches IIS W3C log format (#Fields/#Version headers).", "Logs", 15),
         ["event-xml"]   = new("event-xml",   "Windows Event XML", "XML export of Windows events detected.", "Logs", 20),

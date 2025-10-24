@@ -99,4 +99,29 @@ public class FileAnalysis {
     /// Per-entry indicators collected during deep container scan (bounded).
     /// </summary>
     public IReadOnlyList<string>? InnerFindings { get; set; }
+
+    // Inner archive signer summary (from sampled executables inside ZIP/TAR when deep scan is enabled)
+    /// <summary>
+    /// Preview of notable inner entries found inside an archive (e.g., top executables). Bounded and sampling-based.
+    /// </summary>
+    public IReadOnlyList<InnerEntryPreview>? ArchivePreviewEntries { get; set; }
+
+    /// <summary>Total inner executables sampled during deep scan.</summary>
+    public int? InnerExecutablesSampled { get; set; }
+    /// <summary>Number of sampled inner executables that were Authenticode signed.</summary>
+    public int? InnerSignedExecutables { get; set; }
+    /// <summary>Number of sampled inner executables with a valid chain or trusted WinVerifyTrust policy.</summary>
+    public int? InnerValidSignedExecutables { get; set; }
+    /// <summary>Counts by publisher (SignerSubjectCN when available) among signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherCounts { get; set; }
+}
+
+/// <summary>
+/// Lightweight description of an inner archive entry for preview purposes.
+/// </summary>
+public sealed class InnerEntryPreview {
+    /// <summary>Entry name or path within the container.</summary>
+    public string Name { get; set; } = string.Empty;
+    /// <summary>Detected type extension when sampled (e.g., exe, dll), if available.</summary>
+    public string? DetectedExtension { get; set; }
 }

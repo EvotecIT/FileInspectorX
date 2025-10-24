@@ -131,6 +131,16 @@ internal static class SecurityHeuristics
             if (LooksLikeJsonWithKeys(lower, new [] {"deviceid", "computername" }) && (lower.Contains("alertid") || lower.Contains("threatname")))
                 findings.Add("mde:alert");
 
+            // Citrix ICA or Receiver configuration cues (neutral)
+            if (declaredExt == "ica" || lower.Contains("[wfclient]") || lower.Contains("[applicationservers]"))
+                findings.Add("citrix:ica");
+            if (declaredExt == "cr" || lower.Contains("receiver") || lower.Contains("workspace"))
+            {
+                // Only add when XML-ish and likely configuration
+                if (lower.Contains("<") && (lower.Contains("store") || lower.Contains("configuration")))
+                    findings.Add("citrix:receiver-config");
+            }
+
             // Secrets categories (privacy-safe; same as script path)
             if (Settings.SecretsScanEnabled)
             {

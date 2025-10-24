@@ -13,6 +13,8 @@ public sealed class ReportView
     public string? DetectedTypeExtension { get; set; }
     /// <summary>Detected MIME type.</summary>
     public string? DetectedTypeName { get; set; }
+    /// <summary>User-friendly type label (e.g., "Word document", "ZIP archive").</summary>
+    public string? DetectedTypeFriendly { get; set; }
     /// <summary>Detection confidence (High/Medium/Low).</summary>
     public string? DetectionConfidence { get; set; }
     /// <summary>Short textual reason describing the detection.</summary>
@@ -92,6 +94,17 @@ public sealed class ReportView
     public string? InnerFindingsHumanShort { get; set; }
     /// <summary>Humanized inner findings (long form).</summary>
     public string? InnerFindingsHumanLong { get; set; }
+    /// <summary>Total inner executables sampled during deep scan.</summary>
+    public int? InnerExecutablesSampled { get; set; }
+    /// <summary>Number of sampled inner executables that are signed.</summary>
+    public int? InnerSignedExecutables { get; set; }
+    /// <summary>Number of sampled inner executables with valid chain/policy.</summary>
+    public int? InnerValidSignedExecutables { get; set; }
+    /// <summary>Top publishers with counts as a human string.</summary>
+    public string? InnerPublishersHuman { get; set; }
+    /// <summary>Human lines for archive preview entries ("name (ext)").</summary>
+    public IReadOnlyList<string>? ArchivePreview { get; set; }
+    
 
     // Archive + MOTW/ADS summaries
     /// <summary>Number of entries sampled inside an archive (ZIP/TAR), when available.</summary>
@@ -197,6 +210,21 @@ public sealed class ReportView
         r.EncryptedEntryCount = a.EncryptedEntryCount;
         r.SecurityFindings = a.SecurityFindings;
         r.InnerFindings = a.InnerFindings;
+        r.InnerExecutablesSampled = a.InnerExecutablesSampled;
+        r.InnerSignedExecutables = a.InnerSignedExecutables;
+        r.InnerValidSignedExecutables = a.InnerValidSignedExecutables;
+        if (a.InnerPublisherCounts != null && a.InnerPublisherCounts.Count > 0)
+        {
+            var top = a.InnerPublisherCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => $"{kv.Key}({kv.Value})");
+            r.InnerPublishersHuman = string.Join(", ", top);
+        }
+        if (a.ArchivePreviewEntries != null && a.ArchivePreviewEntries.Count > 0)
+        {
+            r.ArchivePreview = a.ArchivePreviewEntries
+                .Select(ep => string.IsNullOrWhiteSpace(ep.DetectedExtension) ? ep.Name : $"{ep.Name} ({ep.DetectedExtension})")
+                .Take(10)
+                .ToArray();
+        }
         // Archive + MOTW/ADS
         r.ArchiveEntryCount = a.ContainerEntryCount;
         r.ArchiveTopExtensions = a.ContainerTopExtensions;
@@ -224,6 +252,9 @@ public sealed class ReportView
             r.InnerFindingsHumanShort = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Short);
             r.InnerFindingsHumanLong  = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Long);
         }
+        // Friendly type label
+        try { r.DetectedTypeFriendly = FriendlyNames.GetTypeLabel(a.Detection, a); } catch { }
+
         // Kind/advice/compact fields
         r.Kind = a.Kind;
         var groups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -251,13 +282,13 @@ public sealed class ReportView
         r.CompactFields = groups.ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value);
         r.Advice = new PresentationAdvice
         {
-            ShowTypeAnalysis = !string.IsNullOrEmpty(r.DetectedTypeName) || !string.IsNullOrEmpty(r.DetectedTypeExtension),
+            ShowTypeAnalysis = !string.IsNullOrEmpty(r.DetectedTypeName) || !string.IsNullOrEmpty(r.DetectedTypeExtension) || !string.IsNullOrEmpty(r.DetectedTypeFriendly),
             ShowProperties = r.CompactFields.TryGetValue("Properties", out var pf) && pf.Count > 0,
             ShowSignature = (!string.IsNullOrEmpty(r.CertificateBlobSha256)) || r.WinTrustStatusCode.HasValue || (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0),
             ShowScript = !string.IsNullOrEmpty(r.ScriptLanguageHuman),
             ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
             ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) || (r.InnerFindings != null && r.InnerFindings.Count > 0),
-            ShowArchiveDetails = r.EncryptedEntryCount.HasValue
+            ShowArchiveDetails = r.EncryptedEntryCount.HasValue || a.ContainerEntryCount.HasValue || (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0)
         };
 
         return r;
@@ -272,6 +303,7 @@ public sealed class ReportView
         var d = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         if (DetectedTypeExtension != null) d["DetectedTypeExtension"] = DetectedTypeExtension;
         if (DetectedTypeName != null) d["DetectedTypeName"] = DetectedTypeName;
+        if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;
@@ -309,6 +341,11 @@ public sealed class ReportView
         if (InnerFindings != null && InnerFindings.Count > 0) d["InnerFindings"] = InnerFindings;
         if (!string.IsNullOrEmpty(InnerFindingsHumanShort)) d["InnerFindingsHuman"] = InnerFindingsHumanShort;
         if (!string.IsNullOrEmpty(InnerFindingsHumanLong))  d["InnerFindingsHumanLong"] = InnerFindingsHumanLong;
+        if (InnerExecutablesSampled.HasValue) d["InnerExecutablesSampled"] = InnerExecutablesSampled.Value;
+        if (InnerSignedExecutables.HasValue) d["InnerSignedExecutables"] = InnerSignedExecutables.Value;
+        if (InnerValidSignedExecutables.HasValue) d["InnerValidSignedExecutables"] = InnerValidSignedExecutables.Value;
+        if (!string.IsNullOrEmpty(InnerPublishersHuman)) d["InnerPublishersHuman"] = InnerPublishersHuman;
+        if (ArchivePreview != null && ArchivePreview.Count > 0) d["ArchivePreview"] = ArchivePreview;
         d["Kind"] = Kind.ToString();
         // Security/MOTW export (if available)
         if (MotwZoneId.HasValue) d["MotwZoneId"] = MotwZoneId.Value;

@@ -160,28 +160,34 @@ var summary = full.ToSummaryView(path);
 
 ## Features
 
-- Fast detection: magic bytes + heuristics (images, archives, PDFs, executables, text/markup, scripts, CSV/TSV, DMG/ISO/UDF, etc.)
+- Fast detection: magic bytes + heuristics (images, archives, PDFs, executables, text/markup, scripts, CSV/TSV, DMG/ISO/UDF, EVTX, ESE, RIFF/media, etc.)
+- Humanized output: friendly type labels (e.g., “Word document”, “ZIP archive”) and legend‑based flag descriptions via ReportView
 - Analysis helpers
-  - ZIP/TAR summaries (entry count, top extensions, nested-archive hints)
+  - ZIP/TAR summaries (EntryCount, TopExtensions, nested archive hints)
+  - Optional deep container scan (bounded): disguised types, known tool indicators, inner signers summary (see below)
   - PDF flags (JavaScript, OpenAction, AA, Names tree, EmbeddedFiles, ManyEmbeddedFiles)
   - PE triage (machine/subsystem, UPX hint)
-  - Text family & CSV/TSV line estimates
+  - Text family & CSV/TSV line estimates; generic log/schema cues (IIS W3C, Event XML, Sysmon, LDIF, AAD, MDE)
 - Script safety cues (neutral): ps:encoded, ps:iex, py:exec-b64, lua:exec, rb:eval (no raw high‑signal strings)
-- Permissions snapshot: cross‑platform owner/group + Unix modes; Windows ACL summaries (Everyone/Users/Admins read/write, deny ACEs)
-- Signatures: Authenticode summary everywhere; optional WinVerifyTrust policy (Windows)
+- Secrets (privacy‑safe counts only): PrivateKey/JWT/KeyPattern
+- Permissions snapshot: cross‑platform owner/group + Unix modes; Windows ACL summaries (Everyone/Users/Admins read/write, deny ACEs); MOTW/ADS on Windows
+- Signatures: Authenticode summary and optional Windows policy (WinVerifyTrust) + timestamp/EKUs
+- Crypto file detection:
+  - ASCII‑armored PGP blocks (message/public key/signature)
+  - Binary OpenPGP packet header (generic, low‑confidence)
+  - DER X.509 certificate (heuristic ASN.1 OID scan)
+  - PKCS#12/PFX (ASN.1 OID scan)
+- Office & PDF flags:
+  - OOXML (Word): Remote template (OfficeRemoteTemplate), possible DDE (OfficePossibleDde)
+  - OOXML (Excel): External links (OfficeExternalLinks) and count (OfficeExternalLinksCount)
+  - PDF: XFA (PdfHasXfa), Encrypted (PdfEncrypted), ManyIncrementalUpdates (PdfManyIncrementalUpdates)
+- Citrix cues: ICA files and Receiver/Workspace configuration (XML)
 - AOT‑friendly: safe for NativeAOT
- - Name/path checks: BiDi controls, double extension, extension mismatch, suspicious whitespace
- - Archive safety: traversal/absolute paths/symlinks flags from ZIP sampling
-- Installer/container focus:
-  - ZIP subtype detection (apk/jar/ipa/vsix/xap/appx/msix)
-  - ZIP inventory flags for executables, scripts, installers (msi/msix/appx/msixbundle)
-  - Appx/MSIX signature extraction (AppxSignature.p7x) → SignatureView shows vendor/cert
- - Office & PDF flags:
-   - OOXML (Word): Remote template (OfficeRemoteTemplate), possible DDE (OfficePossibleDde)
-   - OOXML (Excel): External links (OfficeExternalLinks) and count (OfficeExternalLinksCount)
-   - PDF: XFA (PdfHasXfa), Encrypted (PdfEncrypted), ManyIncrementalUpdates (PdfManyIncrementalUpdates)
+- Name/path checks: BiDi controls, double extension, extension mismatch, suspicious whitespace
+- Archive safety: traversal/absolute paths/symlinks flags from ZIP sampling
 
 ## References & Recipes
+
 
 The library can extract generic references from common configuration files so consumers can validate what will execute or be accessed. This is domain‑agnostic and useful for many scenarios (build pipelines, endpoint hygiene, or pre‑upload checks).
 
@@ -232,7 +238,63 @@ Get-FileInsight -Path .\file.bin -View Assessment | Format-Table -Auto
 
 This stays generic by design. A higher‑level component (e.g., TierBridge) can layer policy (allow/warn/block) using these references and the existing Flags/SecurityFindings.
 
+## Inner Signers Inside Archives (deep scan)
+
+When `Settings.DeepContainerScanEnabled = true`, FileInspectorX can sample a bounded number of inner executables in ZIP archives to provide a quick signer summary without fully extracting archives. The following fields are exposed on `FileAnalysis` and surfaced via `ReportView`:
+
+- `InnerExecutablesSampled`: how many inner EXE/DLLs were sampled (bounded by `DeepContainerMaxEntries` and `DeepContainerMaxEntryBytes`).
+- `InnerSignedExecutables`: how many of those were Authenticode‑signed.
+- `InnerValidSignedExecutables`: how many had a valid chain or passed WinVerifyTrust (when available).
+- `InnerPublisherCounts`: top publishers (SignerSubjectCN) with counts.
+
+Notes:
+- This is a best‑effort, privacy‑safe summary for triage. It extracts only sampled entries to a temporary file for analysis and deletes them immediately.
+- Currently implemented for ZIP. TAR/7z/RAR can be added similarly if needed.
+
+```csharp
+var a = FileInspector.Analyze(path);
+if (a.InnerExecutablesSampled > 0)
+{
+    Console.WriteLine($"Inner execs: {a.InnerExecutablesSampled}, signed: {a.InnerSignedExecutables}, valid: {a.InnerValidSignedExecutables}");
+    if (a.InnerPublisherCounts != null)
+        foreach (var kv in a.InnerPublisherCounts.OrderByDescending(kv => kv.Value).Take(5))
+            Console.WriteLine($"  {kv.Key}: {kv.Value}");
+}
+```
+
+## Friendly Type Labels & ReportView
+
+Use `ReportView.From(FileAnalysis)` for presentation‑ready fields:
+
+- `DetectedTypeFriendly`: a human‑friendly label (e.g., “Word document”, “ZIP archive”, “X.509 certificate”).
+- `FlagsHumanShort/Long`: legend‑based humanization of flags and heuristics.
+- `AssessmentCodesHuman`: humanized assessment codes.
+
+These are exported via `ReportView.ToDictionary()` for templating/email systems.
+
+## Settings Cheatsheet
+
+```csharp
+// Deep container scanning (bounded)
+Settings.DeepContainerScanEnabled = true;      // default: false
+Settings.DeepContainerMaxEntries = 64;         // sample cap
+Settings.DeepContainerMaxEntryBytes = 262144;  // per‑entry cap (256 KB)
+
+// Script & secrets scanning
+Settings.SecurityScanScripts = true;           // default: true
+Settings.SecretsScanEnabled = true;            // default: true
+
+// Authenticode (Windows policy optional)
+Settings.VerifyAuthenticodeWithWinTrust = true;   // default true on Windows
+Settings.VerifyAuthenticodeRevocation = false;    // default
+
+// Vendor allow hints (for assessment)
+Settings.AllowedVendors = new[] { "Microsoft", "YourCompany" };
+Settings.VendorMatchMode = VendorMatchMode.Contains; // or Exact
+```
+
 ## Flags → Assessment Codes (Quick Map)
+
 
 - Archive safety
   - ArchiveHasPathTraversal → Archive.PathTraversal (+40)

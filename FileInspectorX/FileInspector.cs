@@ -50,7 +50,24 @@ public static partial class FileInspector {
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
         var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.');
         if (detected is null || string.IsNullOrEmpty(decl)) return (false, "no-detection-or-declared");
-        var mismatch = !string.Equals(decl, detected.Extension, StringComparison.OrdinalIgnoreCase);
+        var det = (detected.Extension ?? string.Empty).Trim();
+
+        // Treat common synonyms as equivalent (avoid false mismatches)
+        static bool Equivalent(string a, string b) {
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+            // .cer <-> .crt
+            if ((a.Equals("cer", StringComparison.OrdinalIgnoreCase) && b.Equals("crt", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("crt", StringComparison.OrdinalIgnoreCase) && b.Equals("cer", StringComparison.OrdinalIgnoreCase))) return true;
+            // .yml <-> .yaml
+            if ((a.Equals("yml", StringComparison.OrdinalIgnoreCase) && b.Equals("yaml", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("yaml", StringComparison.OrdinalIgnoreCase) && b.Equals("yml", StringComparison.OrdinalIgnoreCase))) return true;
+            // .jpg <-> .jpeg
+            if ((a.Equals("jpg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpeg", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("jpeg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpg", StringComparison.OrdinalIgnoreCase))) return true;
+            return false;
+        }
+
+        var mismatch = !Equivalent(decl, det);
         var reason = mismatch ? $"decl:{decl} vs det:{detected.Extension}" : "match";
         return (mismatch, reason);
     }
@@ -133,6 +150,9 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryHive(src, out var hive)) return Enrich(hive, src, stream, options);
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
+        if (Signatures.TryMatchPkcs12(src, out var p12)) return Enrich(p12, src, stream, options);
+        if (Signatures.TryMatchDerCertificate(src, out var der)) return Enrich(der, src, stream, options);
+        if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Enrich(pgpbin, src, stream, options);
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Enrich(kdbx, src, stream, options);
         if (Signatures.TryMatch7z(src, out var _7z)) return Enrich(_7z, src, stream, options);
         if (Signatures.TryMatchRar(src, out var rar)) return Enrich(rar, src, stream, options);

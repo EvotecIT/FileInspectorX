@@ -54,7 +54,46 @@ internal static partial class Signatures {
             if (head.IndexOf("<!DOCTYPE html"u8) >= 0 || head.IndexOf("<html"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "html", MimeType = "text/html", Confidence = "Medium", Reason = "text:html" }; return true; }
         }
 
-        // YAML (document start) or refined key:value heuristics
+        // Quick PGP ASCII-armored blocks (place before YAML '---' to avoid front-matter collision)
+        {
+            var pgHb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(pgHb));
+            var pgHs = System.Text.Encoding.UTF8.GetString(pgHb);
+            var pgHl = pgHs.ToLowerInvariant();
+            if (pgHl.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
+            if (pgHl.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
+            if (pgHl.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
+            if (pgHl.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
+        }
+
+        // PEM family (certificate / CSR / private keys) and OpenSSH key — must come before YAML
+        // to avoid false positives from lines like "Proc-Type:" / "DEK-Info:".
+        {
+            var pemBuf = new byte[Math.Min(head.Length, 4096)]; head.Slice(0, pemBuf.Length).CopyTo(new System.Span<byte>(pemBuf));
+            var hs = System.Text.Encoding.UTF8.GetString(pemBuf);
+            var l = hs.ToLowerInvariant();
+
+            // Certificates
+            if (l.Contains("-----begin certificate-----")) {
+                result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true;
+            }
+            if (l.Contains("-----begin x509 certificate-----") || l.Contains("-----begin trusted certificate-----")) {
+                result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "text:pem-cert-variant" }; return true;
+            }
+            // Certificate Signing Request
+            if (l.Contains("-----begin certificate request-----") || l.Contains("-----begin new certificate request-----")) {
+                result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pem-csr" }; return true;
+            }
+            // Private keys (generic PEM)
+            if (l.Contains("-----begin private key-----") || l.Contains("-----begin encrypted private key-----") || l.Contains("-----begin rsa private key-----") || l.Contains("-----begin ec private key-----")) {
+                result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true;
+            }
+            // OpenSSH private key (new format)
+            if (l.Contains("-----begin openssh private key-----")) {
+                result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true;
+            }
+        }
+
+        // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above
         if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-') { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
         {
             int yamlish = 0; int scanned = 0; int startLine = 0;
@@ -62,6 +101,9 @@ internal static partial class Signatures {
                 if (head[i] == (byte)'\n') {
                     var raw = head.Slice(startLine, i - startLine);
                     var line = TrimBytes(raw);
+                    // Ignore classic PEM headers that look like YAML key:value
+                    var lineLower = new string(System.Text.Encoding.ASCII.GetChars(line.ToArray())).ToLowerInvariant();
+                    if (lineLower.StartsWith("proc-type:") || lineLower.StartsWith("dek-info:")) { scanned++; startLine = i + 1; continue; }
                     if (LooksYamlKeyValue(line)) yamlish++;
                     scanned++;
                     startLine = i + 1;
@@ -152,6 +194,20 @@ internal static partial class Signatures {
         var hb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(hb));
         var headStr = System.Text.Encoding.UTF8.GetString(hb);
         string headLower = headStr.ToLowerInvariant();
+
+        // PEM/PGP ASCII-armored blocks (detect before script heuristics)
+        {
+            if (headLower.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
+            if (headLower.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
+            if (headLower.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
+            if (headLower.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
+
+            if (headLower.Contains("-----begin certificate request-----") || headLower.Contains("-----begin new certificate request-----")) { result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pkcs10" }; return true; }
+            if (headLower.Contains("-----begin certificate-----")) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true; }
+            if (headLower.Contains("-----begin public key-----")) { result = new ContentTypeDetectionResult { Extension = "pub", MimeType = "application/x-pem-key", Confidence = "Low", Reason = "text:pem-pubkey" }; return true; }
+            if (headLower.Contains("-----begin openssh private key-----") || headLower.Contains("openssh private key")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
+            if (headLower.Contains("-----begin private key-----") || headLower.Contains("-----begin rsa private key-----") || headLower.Contains("-----begin dsa private key-----") || headLower.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
+        }
         if (headLower.Contains("[cmdletbinding]") || headLower.Contains("#requires") || headLower.Contains("param(") || headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) {
             result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = "Low", Reason = "text:ps1", ReasonDetails = "ps1:common-cmdlets" }; return true;
         }

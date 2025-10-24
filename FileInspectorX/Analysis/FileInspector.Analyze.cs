@@ -27,7 +27,8 @@ public static partial class FileInspector {
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
-                    out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings);
+                    out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings,
+                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out List<InnerEntryPreview>? previewOut);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -62,16 +63,28 @@ public static partial class FileInspector {
                     res.SecurityFindings = list;
                     res.InnerFindings = findings.Take(Settings.DeepContainerMaxEntries).ToArray();
                 }
+                if (innerExecSampled > 0)
+                {
+                    res.InnerExecutablesSampled = innerExecSampled;
+                    res.InnerSignedExecutables = innerSignedAny;
+                    res.InnerValidSignedExecutables = innerValid;
+                    if (innerPublishers != null && innerPublishers.Count > 0) res.InnerPublisherCounts = new Dictionary<string,int>(innerPublishers);
+                }
+                if (previewOut != null && previewOut.Count > 0)
+                {
+                    res.ArchivePreviewEntries = previewOut.Take(Settings.DeepContainerMaxEntries).ToList();
+                }
             }
 
             // TAR scan hints
             if ((options?.IncludeContainer != false) && det.Extension == "tar") {
-                TryInspectTar(path, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives);
+                TryInspectTar(path, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives, out var tarPreview);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                 if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
+                if (tarPreview != null && tarPreview.Count > 0) res.ArchivePreviewEntries = tarPreview.Take(Settings.DeepContainerMaxEntries).ToList();
                 // Lightweight TAR safety preflight for traversal/absolute/symlink
                 try {
                     using var fs2 = File.OpenRead(path);
@@ -178,6 +191,22 @@ public static partial class FileInspector {
                     "bat" or "cmd" => "batch",
                     _ => res.TextSubtype
                 };
+
+                // Citrix ICA (INI-like) and ReceiverConfig.cr (XML) detection
+                try {
+                    var headTxt = ReadHeadText(path, 8192);
+                    var lower = headTxt?.ToLowerInvariant() ?? string.Empty;
+                    if (declaredExt == "ica" || lower.Contains("[wfclient]") || lower.Contains("[applicationservers]"))
+                    {
+                        res.TextSubtype = "citrix-ica";
+                    }
+                    else if (declaredExt == "cr" || System.IO.Path.GetFileName(path).ToLowerInvariant().EndsWith("receiverconfig.cr"))
+                    {
+                        // Heuristic: XML with Receiver/Store config cues
+                        if (lower.Contains("<") && (lower.Contains("receiver") || lower.Contains("workspace") || lower.Contains("store")))
+                            res.TextSubtype = "citrix-receiver-config";
+                    }
+                } catch { }
 
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
@@ -401,8 +430,10 @@ public static partial class FileInspector {
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
-        out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut) {
+        out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut,
+        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out List<InnerEntryPreview>? previewOut) {
         hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; encryptedEntryCount = 0; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null;
+        innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; previewOut = null;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -416,6 +447,8 @@ public static partial class FileInspector {
             int deepBytes = Settings.DeepContainerMaxEntryBytes;
             bool deep = Settings.DeepContainerScanEnabled;
             var localFindings = new List<string>(8);
+            var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            var previews = new List<InnerEntryPreview>();
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
@@ -535,6 +568,8 @@ public static partial class FileInspector {
                                 // if declared ext does not indicate executable
                                 if (!(declExt is "exe" or "dll")) hasDisguisedExecutables = true;
                                 hasExecutables = true;
+                                if (previews.Count < 10)
+                                    previews.Add(new InnerEntryPreview { Name = name, DetectedExtension = det2?.Extension ?? declExt });
                             }
                             // Installer hint by name or magic (best-effort)
                             if (!hasInstallers && (declExt is "msi" || lowerName.EndsWith(".msi"))) hasInstallers = true;
@@ -560,6 +595,37 @@ public static partial class FileInspector {
                                     }
                                 } catch { }
                             }
+                            // Inner signer sampling for executables
+                            if (looksExe && e.Length > 0 && e.Length <= deepBytes)
+                            {
+                                try
+                                {
+                                    var tmp = System.IO.Path.GetTempFileName();
+                                    // write full entry within deepBytes
+                                    // rebuild buffer from es2: ensure full up-to-cap content
+                                    using (var fsout = System.IO.File.Create(tmp))
+                                    {
+                                        // write what we already read
+                                        fsout.Write(buf, 0, nn);
+                                        if (nn < cap)
+                                        {
+                                            int left = cap - nn; var tmpbuf = new byte[8192]; int r2;
+                                            while (left > 0 && (r2 = es2.Read(tmpbuf, 0, Math.Min(tmpbuf.Length, left))) > 0) { fsout.Write(tmpbuf, 0, r2); left -= r2; }
+                                        }
+                                    }
+                                    var ia = FileInspector.Analyze(tmp);
+                                    try { System.IO.File.Delete(tmp); } catch { }
+                                    innerExecutablesSampled++;
+                                    if (ia?.Authenticode?.Present == true)
+                                    {
+                                        innerSignedExecutables++;
+                                        bool v = ia.Authenticode.IsTrustedWindowsPolicy == true || ia.Authenticode.ChainValid == true;
+                                        if (v) innerValidSignedExecutables++;
+                                        var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
+                                        if (innerPublishers.TryGetValue(pub, out var pc)) innerPublishers[pub] = pc + 1; else innerPublishers[pub] = 1;
+                                    }
+                                } catch { }
+                            }
                         }
                     } catch { }
                     deepScanned++;
@@ -580,6 +646,11 @@ public static partial class FileInspector {
             // OOXML encrypted packages present these two entries at root
             isOoxmlEncrypted = sawEncryptionInfo && sawEncryptedPackage;
             findingsOut = localFindings.Count > 0 ? localFindings : null;
+            if (innerExecutablesSampled > 0)
+            {
+                innerPublisherCounts = innerPublishers.Count > 0 ? new Dictionary<string,int>(innerPublishers) : null;
+            }
+            if (previews.Count > 0) previewOut = previews;
             // Attach inner findings via the caller's FileAnalysis when available (handled by Analyze caller)
         } catch { }
     }
@@ -810,8 +881,9 @@ public static partial class FileInspector {
         return false;
     }
 
-    private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives) {
-        entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false;
+    private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives, out List<InnerEntryPreview>? previews) {
+        entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null;
+        var localPreviews = new List<InnerEntryPreview>();
         try {
             using var fs = File.OpenRead(path);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -847,6 +919,10 @@ public static partial class FileInspector {
                                 if (de is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf") {
                                     hasNestedArchives = true;
                                 }
+                                if (IsExecutableName(name) && localPreviews.Count < 10)
+                                {
+                                    localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = de ?? ext });
+                                }
                             }
                         }
                         if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
@@ -858,6 +934,7 @@ public static partial class FileInspector {
             }
             entryCount = count;
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
+            if (localPreviews.Count > 0) previews = localPreviews;
         } catch { }
     }
 

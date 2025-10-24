@@ -58,8 +58,10 @@ public static partial class FileInspector
     {
 #if NET8_0_OR_GREATER || NET472
         try {
-            #if NET8_0_OR_GREATER
+            #if NET5_0_OR_GREATER
             if (!OperatingSystem.IsWindows()) return;
+            #else
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
             #endif
             var fi = new FileInfo(path);
             var fs = fi.GetAccessControl();
@@ -162,7 +164,11 @@ public static partial class FileInspector
     private static void TryPopulateMotw(string path, FileSecurity info)
     {
             try {
+                #if NET5_0_OR_GREATER
                 if (!OperatingSystem.IsWindows()) return;
+                #else
+                if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+                #endif
                 var zonePath = path + ":Zone.Identifier";
                 using var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var sr = new StreamReader(fs, System.Text.Encoding.UTF8, true, 1024);
@@ -202,7 +208,15 @@ public static partial class FileInspector
     private static void TryCountAlternateStreams(string path, FileSecurity info)
     {
         try {
+            #if NET5_0_OR_GREATER
+            #if NET5_0_OR_GREATER
             if (!OperatingSystem.IsWindows()) return;
+            #else
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+            #endif
+            #else
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+            #endif
             WIN32_FIND_STREAM_DATA data;
             IntPtr h = FindFirstStreamW(path, 0, out data, 0);
             if (h == IntPtr.Zero || h.ToInt64() == -1) return;
@@ -225,7 +239,11 @@ public static partial class FileInspector
     #endif
     private static string ToOctal(UnixFileMode mode)
     {
+        #if NET5_0_OR_GREATER
         if (OperatingSystem.IsWindows()) return string.Empty;
+        #else
+        if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return string.Empty;
+        #endif
         int bits = 0;
         if ((mode & UnixFileMode.UserRead) != 0) bits |= 0b100_000_000;
         if ((mode & UnixFileMode.UserWrite) != 0) bits |= 0b010_000_000;
@@ -246,7 +264,11 @@ public static partial class FileInspector
     #endif
     private static string ToSymbolic(UnixFileMode mode)
     {
+        #if NET5_0_OR_GREATER
         if (OperatingSystem.IsWindows()) return string.Empty;
+        #else
+        if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return string.Empty;
+        #endif
         char[] c = new char[9];
         c[0] = (mode & UnixFileMode.UserRead) != 0 ? 'r' : '-';
         c[1] = (mode & UnixFileMode.UserWrite) != 0 ? 'w' : '-';
