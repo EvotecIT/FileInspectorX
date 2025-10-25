@@ -114,14 +114,55 @@ public class FileAnalysis {
     public int? InnerValidSignedExecutables { get; set; }
     /// <summary>Counts by publisher (SignerSubjectCN when available) among signed inner executables.</summary>
     public IReadOnlyDictionary<string,int>? InnerPublisherCounts { get; set; }
+
+    /// <summary>
+    /// Parsed certificate metadata for standalone certificate files (.cer/.crt/.der/.pem).
+    /// </summary>
+    public CertificateInfo? Certificate { get; set; }
+
+    /// <summary>
+    /// For PKCS#7 certificate bundles (.p7b/.spc): number of certificates and their subjects (best-effort).
+    /// </summary>
+    public int? CertificateBundleCount { get; set; }
+    /// <summary>
+    /// Subjects present in a PKCS#7 certificate bundle, when parsed.
+    /// </summary>
+    public IReadOnlyList<string>? CertificateBundleSubjects { get; set; }
 }
 
-/// <summary>
-/// Lightweight description of an inner archive entry for preview purposes.
-/// </summary>
+    /// <summary>
+    /// Lightweight description of an inner archive entry for preview purposes.
+    /// </summary>
 public sealed class InnerEntryPreview {
     /// <summary>Entry name or path within the container.</summary>
     public string Name { get; set; } = string.Empty;
     /// <summary>Detected type extension when sampled (e.g., exe, dll), if available.</summary>
     public string? DetectedExtension { get; set; }
+}
+
+/// <summary>
+/// Parsed certificate metadata for standalone certificate files (.cer/.crt/.der/.pem).
+/// </summary>
+public sealed class CertificateInfo
+{
+    /// <summary>Certificate subject (distinguished name).</summary>
+    public string? Subject { get; set; }
+    /// <summary>Certificate issuer (distinguished name).</summary>
+    public string? Issuer { get; set; }
+    /// <summary>NotBefore validity bound in UTC.</summary>
+    public DateTime? NotBeforeUtc { get; set; }
+    /// <summary>NotAfter validity bound in UTC.</summary>
+    public DateTime? NotAfterUtc { get; set; }
+    /// <summary>SHA-1 thumbprint of the certificate.</summary>
+    public string? Thumbprint { get; set; }
+    /// <summary>Public key algorithm (friendly name or OID value).</summary>
+    public string? KeyAlgorithm { get; set; }
+    /// <summary>True when the certificate appears self-signed (Subject equals Issuer).</summary>
+    public bool? SelfSigned { get; set; }
+    /// <summary>True if a local chain build (revocation NoCheck) succeeds.</summary>
+    public bool? ChainTrusted { get; set; }
+    /// <summary>Subject of the last element in a successfully built chain (root), when available.</summary>
+    public string? RootSubject { get; set; }
+    /// <summary>True if a Subject Alternative Name (SAN) extension is present.</summary>
+    public bool? SanPresent { get; set; }
 }

@@ -240,13 +240,27 @@ internal static partial class Signatures {
             if (headLower.Contains("-----begin openssh private key-----") || headLower.Contains("openssh private key")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
             if (headLower.Contains("-----begin private key-----") || headLower.Contains("-----begin rsa private key-----") || headLower.Contains("-----begin dsa private key-----") || headLower.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
         }
-        if (headLower.Contains("[cmdletbinding]") || headLower.Contains("#requires") || headLower.Contains("param(") || headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) {
-            result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = "Low", Reason = "text:ps1", ReasonDetails = "ps1:common-cmdlets" }; return true;
+        if (headLower.Contains("[cmdletbinding]") || headLower.Contains("#requires") || headLower.Contains("param(") ||
+            headLower.Contains("begin{") || headLower.Contains("process{") || headLower.Contains("end{") ||
+            headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0 ||
+            headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Write-Output", System.StringComparison.Ordinal) >= 0 ||
+            headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) {
+            int cues = 0;
+            if (headLower.Contains("[cmdletbinding]")) cues++;
+            if (headLower.Contains("#requires")) cues++;
+            if (headLower.Contains("param(")) cues++;
+            if (headLower.Contains("begin{")) cues++;
+            if (headLower.Contains("process{")) cues++;
+            if (headLower.Contains("end{")) cues++;
+            if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
+            var conf = cues >= 2 ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:ps1", ReasonDetails = cues >= 2 ? "ps1:multi-cues" : "ps1:common-cmdlets" }; return true;
         }
 
         // VBScript heuristic
-        if (headLower.Contains("wscript.") || headLower.Contains("createobject(") || headLower.Contains("vbscript") || headLower.Contains("dim ") || headLower.Contains("end sub")) {
-            result = new ContentTypeDetectionResult { Extension = "vbs", MimeType = "text/vbscript", Confidence = "Low", Reason = "text:vbs", ReasonDetails = "vbs:wscript+createobject" }; return true;
+        if (headLower.Contains("wscript.") || headLower.Contains("createobject(") || headLower.Contains("vbscript") || headLower.Contains("dim ") || headLower.Contains("end sub") || headLower.Contains("option explicit") || headLower.Contains("on error resume next")) {
+            var conf = (headLower.Contains("option explicit") || headLower.Contains("on error resume next") || headLower.Contains("createobject(")) ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "vbs", MimeType = "text/vbscript", Confidence = conf, Reason = "text:vbs", ReasonDetails = conf=="Medium"?"vbs:explicit+error|createobject":"vbs:wscript+dim" }; return true;
         }
 
         // Shell script heuristic
@@ -255,14 +269,22 @@ internal static partial class Signatures {
         }
         // Node.js shebang
         if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shebang", ReasonDetails = "js:shebang" }; return true; }
+        // JavaScript heuristic (non-minified)
+        if (headLower.Contains("function ") || headLower.Contains("const ") || headLower.Contains("let ") || headLower.Contains("var ") || headLower.Contains("=>")) {
+            if (!(head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')))
+                { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Low", Reason = "text:js-heur" }; return true; }
+        }
         // Weak shell cues when no shebang
-        if ((headLower.Contains("set -e") || headLower.Contains("set -u")) && (headLower.Contains(" fi\n") || headLower.Contains(" esac\n") || headLower.Contains(" && "))) {
-            result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Low", Reason = "text:sh-heur", ReasonDetails = "sh:set+fi|esac|&&" }; return true;
+        if ((headLower.Contains("set -e") || headLower.Contains("set -u") || headLower.Contains("export ") || headLower.Contains("[[") || headLower.Contains("]]")) &&
+            (headLower.Contains(" fi\n") || headLower.Contains(" esac\n") || headLower.Contains(" && ") || headLower.Contains(" case ") || headLower.Contains(" do\n"))) {
+            result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Low", Reason = "text:sh-heur", ReasonDetails = "sh:set|export+fi|esac|case|&&|do" }; return true;
         }
 
         // Windows batch (.bat/.cmd) heuristic
-        if (headLower.Contains("@echo off") || (headLower.Contains("rem ") && (headLower.Contains(" set ") || headLower.Contains(" goto ") || headLower.Contains(" if ")))) {
-            result = new ContentTypeDetectionResult { Extension = "bat", MimeType = "text/x-batch", Confidence = "Low", Reason = "text:bat", ReasonDetails = "bat:@echo|rem+set|goto|if" }; return true;
+        if (headLower.Contains("@echo off") || headLower.Contains("setlocal") || headLower.Contains("endlocal") ||
+            headLower.Contains("\ngoto ") || headLower.Contains("\r\ngoto ") || headLower.Contains(" goto ") ||
+            headLower.StartsWith("rem ") || headLower.Contains("\nrem ") || headLower.Contains("\r\nrem ") || headLower.Contains(":end")) {
+            result = new ContentTypeDetectionResult { Extension = "bat", MimeType = "text/x-batch", Confidence = "Medium", Reason = "text:bat", ReasonDetails = "bat:echo|setlocal|goto|rem" }; return true;
         }
 
         // Python heuristic (shebang and cues)

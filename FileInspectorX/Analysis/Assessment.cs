@@ -76,6 +76,7 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.OoxmlEncrypted) != 0) Add("Office.Encrypted", 15);
         if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) Add("Pdf.ManyUpdates", 5);
         if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) Add("Office.ExternalLinks", 5);
+        if ((a.Flags & ContentFlags.HtmlHasExternalLinks) != 0) Add("Html.ExternalLinks", 5);
         if ((a.Flags & ContentFlags.OfficeRemoteTemplate) != 0) Add("Office.RemoteTemplate", 25);
         if ((a.Flags & ContentFlags.OfficePossibleDde) != 0) Add("Office.PossibleDde", 15);
 

@@ -99,6 +99,12 @@ public class Settings {
     public static bool SecretsScanEnabled { get; set; } = true;
 
     /// <summary>
+    /// When true, the References extractor will attempt to check existence for network paths (UNC/file URLs) it discovers.
+    /// Defaults to false to avoid latency or network dependencies.
+    /// </summary>
+    public static bool CheckNetworkPathsInReferences { get; set; } = false;
+
+    /// <summary>
     /// When true on Windows, perform WinVerifyTrust policy verification for Authenticode (catalog-aware).
     /// </summary>
     public static bool VerifyAuthenticodeWithWinTrust { get; set; } = true;
@@ -107,6 +113,44 @@ public class Settings {
     /// When true, attempt revocation checks during WinVerifyTrust (may require network, slower).
     /// </summary>
     public static bool VerifyAuthenticodeRevocation { get; set; } = false;
+
+    /// <summary>
+    /// WinTrust/chain cache TTL in minutes. Cached policy results older than this are discarded. Default 360 minutes (6 hours).
+    /// </summary>
+    public static int WinTrustCacheTtlMinutes { get; set; } = 360;
+
+    /// <summary>
+    /// Maximum number of entries to keep in the WinTrust/chain cache. Oldest entries are pruned opportunistically. Default 1024.
+    /// </summary>
+    public static int WinTrustCacheMaxEntries { get; set; } = 1024;
+
+    /// <summary>
+    /// When true, script/text heuristics attempt quick DNS resolution for discovered hostnames (UNC/URLs) to enrich findings.
+    /// Default false to avoid network dependency.
+    /// </summary>
+    public static bool ResolveNetworkHostsInHeuristics { get; set; } = false;
+
+    /// <summary>
+    /// Maximum hosts to resolve per file when <see cref="ResolveNetworkHostsInHeuristics"/> is enabled. Default 3.
+    /// </summary>
+    public static int NetworkHostResolveMax { get; set; } = 3;
+
+    /// <summary>
+    /// Timeout in milliseconds for DNS/Ping checks in heuristics. Default 300ms.
+    /// </summary>
+    public static int NetworkHostResolveTimeoutMs { get; set; } = 300;
+
+    /// <summary>
+    /// When true, attempt a short ICMP ping in addition to DNS resolution for discovered hosts.
+    /// Default false.
+    /// </summary>
+    public static bool PingHostsInHeuristics { get; set; } = false;
+
+    /// <summary>
+    /// Domains considered trusted/allowed for HTML external links (e.g., your own CDN/domains). Suffix match, case-insensitive.
+    /// When all HTML external links are allowed, HtmlHasExternalLinks flag is suppressed.
+    /// </summary>
+    public static string[] HtmlAllowedDomains { get; set; } = Array.Empty<string>();
 
     /// <summary>
     /// Assessment score threshold for Warn decision. Default 40.

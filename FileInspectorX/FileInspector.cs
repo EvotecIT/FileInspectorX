@@ -64,7 +64,33 @@ public static partial class FileInspector {
             // .jpg <-> .jpeg
             if ((a.Equals("jpg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpeg", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("jpeg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpg", StringComparison.OrdinalIgnoreCase))) return true;
+            // .htm <-> .html
+            if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
+            // Plain‑text family: treat generic text and log/config notes as equivalent
+            if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
             return false;
+        }
+
+        static bool InPlainTextFamily(string ext)
+        {
+            // Conservative set: generic text and common note/config/log formats; excludes csv/tsv/scripts
+            switch ((ext ?? string.Empty).ToLowerInvariant())
+            {
+                case "txt":
+                case "text":
+                case "log":
+                case "cfg":
+                case "conf":
+                case "ini":
+                case "md":
+                case "markdown":
+                case "properties":
+                case "prop":
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         var mismatch = !Equivalent(decl, det);
@@ -220,6 +246,27 @@ public static partial class FileInspector {
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
         } catch { }
         return null;
+    }
+
+    private static void TryParseP7b(string path, FileAnalysis res)
+    {
+        try
+        {
+            var raw = File.ReadAllBytes(path);
+            var cms = new System.Security.Cryptography.Pkcs.SignedCms();
+            cms.Decode(raw);
+            var certs = cms.Certificates;
+            if (certs != null && certs.Count > 0)
+            {
+                var subs = new List<string>(certs.Count);
+                foreach (var c in certs)
+                {
+                    try { if (!string.IsNullOrWhiteSpace(c.Subject)) subs.Add(c.Subject); } catch { }
+                }
+                res.CertificateBundleCount = certs.Count;
+                res.CertificateBundleSubjects = subs;
+            }
+        } catch { }
     }
 
     /// <summary>

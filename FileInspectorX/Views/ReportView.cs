@@ -68,6 +68,38 @@ public sealed class ReportView
     /// <summary>Timestamp authority common name.</summary>
     public string? TimestampAuthorityCN { get; set; }
 
+    // Standalone certificate (DER/CRT/CER/PEM) typed fields
+    /// <summary>Certificate subject (for standalone cert files).</summary>
+    public string? CertSubject { get; set; }
+    /// <summary>Certificate issuer (for standalone cert files).</summary>
+    public string? CertIssuer { get; set; }
+    /// <summary>Certificate NotBefore (UTC).</summary>
+    public DateTime? CertNotBefore { get; set; }
+    /// <summary>Certificate NotAfter (UTC).</summary>
+    public DateTime? CertNotAfter { get; set; }
+    /// <summary>Certificate thumbprint.</summary>
+    public string? CertThumbprint { get; set; }
+    /// <summary>Public key algorithm of the certificate.</summary>
+    public string? CertKeyAlgorithm { get; set; }
+    /// <summary>True if the certificate appears self-signed.</summary>
+    public bool? CertSelfSigned { get; set; }
+    /// <summary>True if a local chain build succeeds.</summary>
+    public bool? CertChainTrusted { get; set; }
+    /// <summary>Subject of the root element in the chain, when available.</summary>
+    public string? CertRootSubject { get; set; }
+    /// <summary>True if SAN extension is present.</summary>
+    public bool? CertSanPresent { get; set; }
+
+    // Certificate bundle (.p7b/.spc)
+    /// <summary>
+    /// Number of certificates found in a PKCS#7 bundle (e.g., .p7b/.spc), when the analyzed file is a certificate bundle.
+    /// </summary>
+    public int? CertBundleCount { get; set; }
+    /// <summary>
+    /// Distinct subject names extracted from a PKCS#7 certificate bundle, in display order.
+    /// </summary>
+    public IReadOnlyList<string>? CertBundleSubjects { get; set; }
+
     /// <summary>Risk score 0-100.</summary>
     public int? AssessmentScore { get; set; }
     /// <summary>Decision label (Allow/Warn/Block/Defer).</summary>
@@ -149,6 +181,26 @@ public sealed class ReportView
             r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
             r.TimestampAuthorityCN = a.Authenticode.TimestampAuthorityCN;
         }
+        // Standalone certificate info (if parsed)
+        if (a.Certificate != null)
+        {
+            r.CertSubject = a.Certificate.Subject;
+            r.CertIssuer = a.Certificate.Issuer;
+            r.CertNotBefore = a.Certificate.NotBeforeUtc;
+            r.CertNotAfter = a.Certificate.NotAfterUtc;
+            r.CertThumbprint = a.Certificate.Thumbprint;
+            r.CertKeyAlgorithm = a.Certificate.KeyAlgorithm;
+            r.CertSelfSigned = a.Certificate.SelfSigned;
+            r.CertChainTrusted = a.Certificate.ChainTrusted;
+            r.CertRootSubject = a.Certificate.RootSubject;
+            r.CertSanPresent = a.Certificate.SanPresent;
+        }
+        // Certificate bundle info
+        if (a.CertificateBundleCount.HasValue)
+        {
+            r.CertBundleCount = a.CertificateBundleCount;
+            r.CertBundleSubjects = a.CertificateBundleSubjects;
+        }
         if (a.VersionInfo != null)
         {
             r.VersionInfo = a.VersionInfo;
@@ -169,7 +221,7 @@ public sealed class ReportView
         // Flags → compact CSV codes for presentation layers to humanize
         var codes = new List<string>(12);
         var f = a.Flags;
-        if ((f & ContentFlags.HasOoxmlMacros) != 0) codes.Add("Macros");
+        if ((f & ContentFlags.HasOoxmlMacros) != 0 || (f & ContentFlags.OleHasVbaMacros) != 0) codes.Add("Macros");
         if ((f & ContentFlags.ContainerContainsExecutables) != 0) codes.Add("HasExe");
         if ((f & ContentFlags.ContainerContainsScripts) != 0) codes.Add("HasScript");
         if ((f & ContentFlags.PdfHasJavaScript) != 0) codes.Add("PdfJS");
@@ -180,6 +232,7 @@ public sealed class ReportView
         if ((f & ContentFlags.ArchiveHasEncryptedEntries) != 0) codes.Add("ZipEnc");
         if ((f & ContentFlags.OoxmlEncrypted) != 0) codes.Add("OoxmlEnc");
         if ((f & ContentFlags.ContainerHasDisguisedExecutables) != 0) codes.Add("DisgExec");
+        if ((f & ContentFlags.HtmlHasExternalLinks) != 0) codes.Add("HtmlLinks");
         if ((f & ContentFlags.PeHasAuthenticodeDirectory) != 0) codes.Add("SigPresent");
         if (codes.Count > 0)
         {
@@ -274,6 +327,9 @@ public sealed class ReportView
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
         AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
         AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
+        AddField("Signature", "CertSubject", r.CertSubject);
+        AddField("Signature", "CertIssuer", r.CertIssuer);
+        AddField("Signature", "CertThumbprint", r.CertThumbprint);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
         if (a.ContainerEntryCount.HasValue) AddField("Archive", "EntryCount", a.ContainerEntryCount.Value.ToString());
@@ -284,7 +340,7 @@ public sealed class ReportView
         {
             ShowTypeAnalysis = !string.IsNullOrEmpty(r.DetectedTypeName) || !string.IsNullOrEmpty(r.DetectedTypeExtension) || !string.IsNullOrEmpty(r.DetectedTypeFriendly),
             ShowProperties = r.CompactFields.TryGetValue("Properties", out var pf) && pf.Count > 0,
-            ShowSignature = (!string.IsNullOrEmpty(r.CertificateBlobSha256)) || r.WinTrustStatusCode.HasValue || (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0),
+            ShowSignature = (!string.IsNullOrEmpty(r.CertificateBlobSha256)) || r.WinTrustStatusCode.HasValue || (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) || !string.IsNullOrEmpty(r.CertSubject),
             ShowScript = !string.IsNullOrEmpty(r.ScriptLanguageHuman),
             ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
             ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) || (r.InnerFindings != null && r.InnerFindings.Count > 0),
@@ -331,6 +387,19 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(AssessmentCodesHumanLong)) d["AssessmentCodesHumanLong"] = AssessmentCodesHumanLong;
         if (EnhancedKeyUsages != null && EnhancedKeyUsages.Count > 0) d["EnhancedKeyUsages"] = EnhancedKeyUsages;
         if (!string.IsNullOrEmpty(TimestampAuthorityCN)) d["TimestampAuthorityCN"] = TimestampAuthorityCN;
+        if (CertBundleCount.HasValue) d["CertBundleCount"] = CertBundleCount.Value;
+        if (CertBundleSubjects != null && CertBundleSubjects.Count > 0) d["CertBundleSubjects"] = CertBundleSubjects;
+        // Certificate (standalone) fields
+        if (!string.IsNullOrEmpty(CertSubject)) d["CertSubject"] = CertSubject;
+        if (!string.IsNullOrEmpty(CertIssuer)) d["CertIssuer"] = CertIssuer;
+        if (CertNotBefore.HasValue) d["CertNotBefore"] = CertNotBefore.Value;
+        if (CertNotAfter.HasValue) d["CertNotAfter"] = CertNotAfter.Value;
+        if (!string.IsNullOrEmpty(CertThumbprint)) d["CertThumbprint"] = CertThumbprint;
+        if (!string.IsNullOrEmpty(CertKeyAlgorithm)) d["CertKeyAlgorithm"] = CertKeyAlgorithm;
+        if (CertSelfSigned.HasValue) d["CertSelfSigned"] = CertSelfSigned.Value;
+        if (CertChainTrusted.HasValue) d["CertChainTrusted"] = CertChainTrusted.Value;
+        if (!string.IsNullOrEmpty(CertRootSubject)) d["CertRootSubject"] = CertRootSubject;
+        if (CertSanPresent.HasValue) d["CertSanPresent"] = CertSanPresent.Value;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         // Archive inventory
         if (ArchiveEntryCount.HasValue) d["ArchiveEntryCount"] = ArchiveEntryCount.Value;

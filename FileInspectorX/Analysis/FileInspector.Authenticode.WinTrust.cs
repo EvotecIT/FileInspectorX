@@ -8,6 +8,9 @@ namespace FileInspectorX;
 /// </summary>
 public static partial class FileInspector
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string,(int status,bool trusted, DateTime ts)> _winTrustCache = new(StringComparer.OrdinalIgnoreCase);
+    private static DateTime _lastPrune = DateTime.MinValue;
+
     /// <summary>
     /// On Windows, invokes WinVerifyTrust to evaluate Authenticode policy (catalog-aware).
     /// Populates <see cref="AuthenticodeInfo.IsTrustedWindowsPolicy"/> and <see cref="AuthenticodeInfo.WinTrustStatusCode"/>.
@@ -16,6 +19,25 @@ public static partial class FileInspector
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
         if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
+        try
+        {
+            var fi = new System.IO.FileInfo(path);
+            string key = $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|rev={(Settings.VerifyAuthenticodeRevocation ? 1 : 0)}";
+            if (_winTrustCache.TryGetValue(key, out var cached))
+            {
+                if ((DateTime.UtcNow - cached.ts).TotalMinutes < Settings.WinTrustCacheTtlMinutes)
+                {
+                    res.Authenticode.WinTrustStatusCode = cached.status;
+                    res.Authenticode.IsTrustedWindowsPolicy = cached.trusted;
+                    return;
+                }
+                else
+                {
+                    _winTrustCache.TryRemove(key, out _);
+                }
+            }
+        }
+        catch { /* ignore cache key issues */ }
         IntPtr pFile = IntPtr.Zero;
         try {
             var guidAction = WINTRUST_ACTION_GENERIC_VERIFY_V2;
@@ -36,6 +58,19 @@ public static partial class FileInspector
             int status = WinVerifyTrust(IntPtr.Zero, ref guidAction, ref data);
             res.Authenticode.WinTrustStatusCode = status;
             res.Authenticode.IsTrustedWindowsPolicy = status == 0;
+            // store in cache
+            try
+            {
+                var fi2 = new System.IO.FileInfo(path);
+                string key2 = $"{fi2.FullName}|{fi2.Length}|{fi2.LastWriteTimeUtc.Ticks}|rev={(Settings.VerifyAuthenticodeRevocation ? 1 : 0)}";
+                _winTrustCache[key2] = (status, status == 0, DateTime.UtcNow);
+                // opportunistic prune
+                if (_winTrustCache.Count > Settings.WinTrustCacheMaxEntries)
+                {
+                    PruneWinTrustCache();
+                }
+            }
+            catch { }
         } catch { }
         finally {
             if (pFile != IntPtr.Zero) {
@@ -43,6 +78,37 @@ public static partial class FileInspector
                 try { Marshal.FreeHGlobal(pFile); } catch { }
             }
         }
+    }
+
+    private static void PruneWinTrustCache()
+    {
+        // Limit prune frequency to once per minute
+        var now = DateTime.UtcNow;
+        if ((now - _lastPrune).TotalSeconds < 60) return;
+        _lastPrune = now;
+        try
+        {
+            // Drop expired first
+            foreach (var kv in _winTrustCache)
+            {
+                if ((now - kv.Value.ts).TotalMinutes >= Settings.WinTrustCacheTtlMinutes)
+                {
+                    _winTrustCache.TryRemove(kv.Key, out _);
+                }
+            }
+            // If still above cap, drop oldest
+            int max = Settings.WinTrustCacheMaxEntries;
+            if (_winTrustCache.Count > max)
+            {
+                var ordered = _winTrustCache.ToArray().OrderBy(kv => kv.Value.ts).ToList();
+                int toDrop = _winTrustCache.Count - max;
+                for (int i = 0; i < toDrop && i < ordered.Count; i++)
+                {
+                    _winTrustCache.TryRemove(ordered[i].Key, out _);
+                }
+            }
+        }
+        catch { }
     }
 
     // P/Invoke

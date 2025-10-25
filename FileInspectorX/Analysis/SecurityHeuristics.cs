@@ -84,6 +84,44 @@ internal static class SecurityHeuristics
             if (declaredExt is "ps1" or "psm1" or "psd1" or "sh" or "bash" or "zsh" or "bat" or "cmd" or "js" or "rb" or "py" or "lua")
                 findings.Add("script:dangerous-kind");
 
+            // Network paths and share mappings (UNC, net use, PSDrive)
+            var uncShares = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var share in ExtractUncShares(text)) uncShares.Add(share);
+            if (uncShares.Count > 0) findings.Add($"net:unc={uncShares.Count}");
+
+            int mapCount = 0;
+            if (lower.Contains("net use ")) mapCount += CountToken(lower, "net use ");
+            if (lower.Contains("new-psdrive ")) mapCount += CountToken(lower, "new-psdrive ");
+            if (mapCount > 0) findings.Add($"net:map={mapCount}");
+
+            var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var h in ExtractHttpHosts(text)) hosts.Add(h);
+            foreach (var share in uncShares) { var h = ExtractHostFromUnc(share); if (!string.IsNullOrEmpty(h)) hosts.Add(h!); }
+            if (hosts.Count > 0) findings.Add($"net:hosts={hosts.Count}");
+
+            if (Settings.ResolveNetworkHostsInHeuristics && hosts.Count > 0)
+            {
+                int max = Math.Max(1, Settings.NetworkHostResolveMax);
+                int ok = 0, fail = 0, pingOk = 0, pingFail = 0, taken = 0;
+                foreach (var h in hosts)
+                {
+                    if (taken++ >= max) break;
+                    bool resolved = TryResolveHost(h, Settings.NetworkHostResolveTimeoutMs);
+                    if (resolved) ok++; else fail++;
+                    if (Settings.PingHostsInHeuristics && resolved)
+                    {
+                        if (TryPingHost(h, Settings.NetworkHostResolveTimeoutMs)) pingOk++; else pingFail++;
+                    }
+                }
+                if (ok > 0) findings.Add($"net:dns-ok={ok}");
+                if (fail > 0) findings.Add($"net:dns-fail={fail}");
+                if (Settings.PingHostsInHeuristics)
+                {
+                    if (pingOk > 0) findings.Add($"net:ping-ok={pingOk}");
+                    if (pingFail > 0) findings.Add($"net:ping-fail={pingFail}");
+                }
+            }
+
             // Lightweight secrets (privacy-safe): only categories, never values
             if (Settings.SecretsScanEnabled)
             {
@@ -215,6 +253,66 @@ internal static class SecurityHeuristics
             return System.Text.Encoding.UTF8.GetString(buf, 0, n);
         } catch { return string.Empty; }
     }
+
+    private static IEnumerable<string> ExtractUncShares(string text)
+    {
+        try
+        {
+            var list = new List<string>();
+            var span = text.AsSpan();
+            int i = 0; while (i + 3 < span.Length)
+            {
+                if (span[i] == '\\' && span[i+1] == '\\')
+                {
+                    int start = i; i += 2; int s = i; while (i < span.Length && IsHostChar(span[i])) i++; if (i <= s || i >= span.Length || span[i] != '\\') { i++; continue; }
+                    string server = span.Slice(s, i - s).ToString(); i++;
+                    int shStart = i; while (i < span.Length && IsShareChar(span[i])) i++; if (i > shStart)
+                    {
+                        string share = span.Slice(shStart, i - shStart).ToString(); list.Add($"\\\\{server}\\{share}");
+                    }
+                }
+                else i++;
+            }
+            return list;
+        } catch { return Array.Empty<string>(); }
+    }
+    private static IEnumerable<string> ExtractHttpHosts(string text)
+    {
+        var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            int i = 0; var s = text;
+            while (i < s.Length)
+            {
+                int at = s.IndexOf("http", i, StringComparison.OrdinalIgnoreCase); if (at < 0) break;
+                int end = at; while (end < s.Length && !char.IsWhiteSpace(s[end]) && s[end] != '"' && s[end] != '\'' && s[end] != ')' && s[end] != '<' && s[end] != '>') end++;
+                var cand = s.Substring(at, end - at);
+                if (Uri.TryCreate(cand, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps) && !string.IsNullOrEmpty(u.Host)) hosts.Add(u.Host);
+                i = end + 1;
+            }
+        } catch { }
+        return hosts;
+    }
+    private static string? ExtractHostFromUnc(string unc)
+    {
+        try
+        {
+            var p = unc.Replace('/', '\\');
+            if (p.StartsWith("\\\\"))
+            {
+                var parts = p.Split(new[]{'\\'}, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0) return parts[0];
+            }
+        } catch { }
+        return null;
+    }
+    private static bool IsHostChar(char c) => char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_';
+    private static bool IsShareChar(char c) => IsHostChar(c) || c == '$';
+    private static int CountToken(string hay, string token) { int c = 0, idx = 0; while ((idx = hay.IndexOf(token, idx, StringComparison.Ordinal)) >= 0) { c++; idx += token.Length; if (c > 1000) break; } return c; }
+    private static bool TryResolveHost(string host, int timeoutMs)
+    { try { using var cts = new System.Threading.CancellationTokenSource(timeoutMs); var t = System.Threading.Tasks.Task.Run(() => System.Net.Dns.GetHostEntry(host), cts.Token); return t.Wait(timeoutMs) && t.Result != null; } catch { return false; } }
+    private static bool TryPingHost(string host, int timeoutMs)
+    { try { using var ping = new System.Net.NetworkInformation.Ping(); var reply = ping.Send(host, timeoutMs); return reply?.Status == System.Net.NetworkInformation.IPStatus.Success; } catch { return false; } }
 
     private static string[] DecodeB64(string[] arr)
     {

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 
 namespace FileInspectorX;
 
@@ -7,6 +8,15 @@ namespace FileInspectorX;
 /// Analysis routines implemented as part of the <see cref="FileInspector"/> facade.
 /// </summary>
 public static partial class FileInspector {
+    private struct ContainerInnerSample
+    {
+        public int ExecSampled;
+        public int Signed;
+        public int Valid;
+        public Dictionary<string,int> Publishers;
+        public ContainerInnerSample(int e, int s, int v, Dictionary<string,int> p) { ExecSampled = e; Signed = s; Valid = v; Publishers = p; }
+    }
+    private static ContainerInnerSample? _lastContainerInnerSample;
     /// <summary>
     /// Runs a best-effort, dependency-free analysis of the file at <paramref name="path"/>, combining content detection,
     /// container hints, version data and lightweight risk signals into a single result.
@@ -85,6 +95,19 @@ public static partial class FileInspector {
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                 if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
                 if (tarPreview != null && tarPreview.Count > 0) res.ArchivePreviewEntries = tarPreview.Take(Settings.DeepContainerMaxEntries).ToList();
+                // Attach inner signer sampling results if available
+                if (_lastContainerInnerSample.HasValue)
+                {
+                    var s = _lastContainerInnerSample.Value;
+                    if (s.ExecSampled > 0)
+                    {
+                        res.InnerExecutablesSampled = s.ExecSampled;
+                        res.InnerSignedExecutables = s.Signed;
+                        res.InnerValidSignedExecutables = s.Valid;
+                        if (s.Publishers != null && s.Publishers.Count > 0) res.InnerPublisherCounts = new Dictionary<string,int>(s.Publishers);
+                    }
+                    _lastContainerInnerSample = null;
+                }
                 // Lightweight TAR safety preflight for traversal/absolute/symlink
                 try {
                     using var fs2 = File.OpenRead(path);
@@ -126,6 +149,21 @@ public static partial class FileInspector {
                             list.Add($"rar4:enc={encCount}/{totalCount}");
                             res.SecurityFindings = list;
                             res.InnerFindings = (res.InnerFindings ?? Array.Empty<string>()).Concat(new[]{ $"rar4:enc={encCount}/{totalCount}" }).ToArray();
+                        }
+                        // Optional deep signer sampling for uncompressed, non-encrypted entries (store-only), bounded by budgets
+                        if (Settings.DeepContainerScanEnabled)
+                        {
+                            if (TrySampleRar4InnerSigners(path, Settings.DeepContainerMaxEntries, Settings.DeepContainerMaxEntryBytes,
+                                out int innerExecSampled, out int innerSignedAny, out int innerValid, out var innerPublishers))
+                            {
+                                if (innerExecSampled > 0)
+                                {
+                                    res.InnerExecutablesSampled = innerExecSampled;
+                                    res.InnerSignedExecutables = innerSignedAny;
+                                    res.InnerValidSignedExecutables = innerValid;
+                                    if (innerPublishers != null && innerPublishers.Count > 0) res.InnerPublisherCounts = innerPublishers;
+                                }
+                            }
                         }
                     }
                     else
@@ -252,6 +290,11 @@ public static partial class FileInspector {
             if ((options?.IncludeAuthenticode != false) && (det.Extension is "exe" or "dll" or "sys" or "cpl")) {
                 TryPopulateAuthenticode(path, res);
             }
+            // PKCS#7 certificate bundle (.p7b/.spc)
+            if (det.Extension is "p7b" or "spc")
+            {
+                TryParseP7b(path, res);
+            }
             // MSI package properties (Windows only)
             if ((options?.IncludeInstaller != false) && (det.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
@@ -266,6 +309,35 @@ public static partial class FileInspector {
                 TryVerifyAuthenticodeWinTrust(path, res);
             }
 #endif
+
+            // Standalone certificate parsing for .cer/.crt/.der/.pem
+            if (det.Extension is "cer" or "crt" or "der" or "pem")
+            {
+                if (TryLoadCertificateFromFile(path, det.Extension!, out var cert))
+                {
+                    var ci = new CertificateInfo();
+                    try { ci.Subject = cert.Subject; } catch { }
+                    try { ci.Issuer = cert.Issuer; } catch { }
+                    try { ci.NotBeforeUtc = cert.NotBefore.ToUniversalTime(); } catch { }
+                    try { ci.NotAfterUtc = cert.NotAfter.ToUniversalTime(); } catch { }
+                    try { ci.Thumbprint = cert.Thumbprint; } catch { }
+                    try { ci.KeyAlgorithm = cert.PublicKey?.Oid?.FriendlyName ?? cert.PublicKey?.Oid?.Value; } catch { }
+                    try { ci.SelfSigned = string.Equals(cert.Subject, cert.Issuer, StringComparison.OrdinalIgnoreCase); } catch { }
+                    try {
+                        using var chain = new X509Chain();
+                        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                        chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
+                        if (chain.Build(cert))
+                        {
+                            ci.ChainTrusted = true;
+                            try { var last = chain.ChainElements[chain.ChainElements.Count - 1]?.Certificate; if (last != null) ci.RootSubject = last.Subject; } catch { }
+                        }
+                        else ci.ChainTrusted = false;
+                    } catch { }
+                    try { var san = cert.Extensions["2.5.29.17"]; if (san != null) ci.SanPresent = true; } catch { }
+                    res.Certificate = ci;
+                }
+            }
 
             // Name + type based heuristics for high-signal artifacts (browsers, AD/registry, transcripts)
             try {
@@ -348,9 +420,64 @@ public static partial class FileInspector {
                 if (sxf > 2) res.Flags |= ContentFlags.PdfManyIncrementalUpdates;
             }
 
+            // OLE2 Office macros (VBA) check for legacy formats (.doc/.xls/.ppt)
+            if (det.Extension is "doc" or "xls" or "ppt")
+            {
+                try
+                {
+                    if (TryGetOleDirectoryNames(File.OpenRead(path), out var names))
+                    {
+                        bool hasVba = names.Any(nm => nm.IndexOf("VBA", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("dir", StringComparison.OrdinalIgnoreCase) >= 0);
+                        if (hasVba) { res.Flags |= ContentFlags.OleHasVbaMacros; var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>()); if (!list.Contains("office:vba")) list.Add("office:vba"); res.SecurityFindings = list; }
+                    }
+                }
+                catch { }
+            }
+
             // Extract generic references (optional)
             if (options?.IncludeReferences != false)
+            {
                 res.References = BuildReferences(path, det);
+                // HTML external links summary flag
+                try
+                {
+                    var htmlUrls = res.References?.Where(r => r.Kind == ReferenceKind.Url && (r.SourceTag?.StartsWith("html:", StringComparison.OrdinalIgnoreCase) ?? false)).ToList() ?? new List<Reference>();
+                    int htmlExtLinks = htmlUrls.Count;
+                    int uncCount = res.References?.Count(r => r.Kind == ReferenceKind.FilePath && (r.SourceTag?.StartsWith("html:", StringComparison.OrdinalIgnoreCase) ?? false) && (r.Issues & ReferenceIssue.UncPath) != 0) ?? 0;
+                    int allowed = 0;
+                    if (htmlExtLinks > 0 && Settings.HtmlAllowedDomains.Length > 0)
+                    {
+                        foreach (var uref in htmlUrls)
+                        {
+                            try
+                            {
+                                var v = uref.Value; if (v.StartsWith("//")) v = "http:" + v;
+                                if (Uri.TryCreate(v, UriKind.Absolute, out var u) && !string.IsNullOrEmpty(u.Host))
+                                {
+                                    var host = u.Host.ToLowerInvariant();
+                                    foreach (var dom in Settings.HtmlAllowedDomains)
+                                    {
+                                        var d = (dom ?? string.Empty).Trim().ToLowerInvariant(); if (string.IsNullOrEmpty(d)) continue;
+                                        if (host.Equals(d) || host.EndsWith("." + d)) { allowed++; break; }
+                                    }
+                                }
+                            } catch { }
+                        }
+                    }
+                    int disallowed = Math.Max(0, htmlExtLinks - allowed);
+                    if (disallowed > 0) res.Flags |= ContentFlags.HtmlHasExternalLinks;
+                    if (htmlExtLinks > 0)
+                    {
+                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                        void AddMarker(string s) { if (!list.Contains(s)) list.Add(s); }
+                        AddMarker($"html:ext-links={htmlExtLinks}");
+                        if (allowed > 0) AddMarker($"html:ext-allowed={allowed}");
+                        if (disallowed > 0) AddMarker($"html:ext-disallowed={disallowed}");
+                        if (uncCount > 0) AddMarker($"html:unc={uncCount}");
+                        res.SecurityFindings = list;
+                    }
+                } catch { }
+            }
 
             // File name/path checks (always cheap)
             res.NameIssues = AnalyzeName(path, det);
@@ -387,6 +514,93 @@ public static partial class FileInspector {
 
         } catch { }
         return res;
+    }
+
+    // Parse OOXML .rels fragments to count external targets and categorize by allowed domains.
+    private static void CountOoxmlExternalTargets(string xml, ref int allowed, ref int disallowed, ref int unc)
+    {
+        try
+        {
+            int idx = 0;
+            while (idx < xml.Length)
+            {
+                int at = xml.IndexOf("Target=\"", idx, StringComparison.OrdinalIgnoreCase);
+                if (at < 0) break; at += 8; // after Target="
+                int end = xml.IndexOf('"', at);
+                if (end < 0) break;
+                var raw = xml.Substring(at, end - at).Trim();
+                idx = end + 1;
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("//"))
+                {
+                    var host = TryGetHost(raw);
+                    if (!string.IsNullOrEmpty(host))
+                    {
+                        if (IsAllowedDomain(host!)) allowed++; else disallowed++;
+                    }
+                }
+                else if (raw.StartsWith("\\\\") || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                {
+                    unc++;
+                }
+            }
+        } catch { }
+    }
+
+    // Overload: also captures up to 5 unique hosts encountered (order of first appearance)
+    private static void CountOoxmlExternalTargets(string xml, ref int allowed, ref int disallowed, ref int unc, List<string> hosts)
+    {
+        try
+        {
+            int idx = 0;
+            while (idx < xml.Length)
+            {
+                int at = xml.IndexOf("Target=\"", idx, StringComparison.OrdinalIgnoreCase);
+                if (at < 0) break; at += 8;
+                int end = xml.IndexOf('"', at);
+                if (end < 0) break;
+                var raw = xml.Substring(at, end - at).Trim();
+                idx = end + 1;
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("//"))
+                {
+                    var host = TryGetHost(raw);
+                    if (!string.IsNullOrEmpty(host))
+                    {
+                        if (IsAllowedDomain(host!)) allowed++; else disallowed++;
+                        if (hosts.Count < 5 && !hosts.Contains(host!, StringComparer.OrdinalIgnoreCase)) hosts.Add(host!);
+                    }
+                }
+                else if (raw.StartsWith("\\\\") || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                {
+                    unc++;
+                }
+            }
+        } catch { }
+    }
+
+    private static string? TryGetHost(string url)
+    {
+        try
+        {
+            if (url.StartsWith("//")) url = "http:" + url;
+            if (Uri.TryCreate(url, UriKind.Absolute, out var u)) return u.Host;
+        } catch { }
+        return null;
+    }
+
+    private static bool IsAllowedDomain(string host)
+    {
+        try
+        {
+            var h = (host ?? string.Empty).Trim().ToLowerInvariant(); if (string.IsNullOrEmpty(h)) return false;
+            foreach (var dom in Settings.HtmlAllowedDomains)
+            {
+                var d = (dom ?? string.Empty).Trim().ToLowerInvariant(); if (string.IsNullOrEmpty(d)) continue;
+                if (h.Equals(d) || h.EndsWith("." + d)) return true;
+            }
+        } catch { }
+        return false;
     }
 
     // Counts RAR4 encrypted files by walking file headers quickly under a simple budget.
@@ -428,6 +642,132 @@ public static partial class FileInspector {
         } catch { return false; }
     }
 
+    /// <summary>
+    /// Best-effort inner signer sampling for RAR4 archives, limited to entries stored without compression (method 0x30) and not encrypted.
+    /// Walks headers and reads up to <paramref name="maxEntryBytes"/> for at most <paramref name="maxEntries"/> executable-looking entries.
+    /// </summary>
+    private static bool TrySampleRar4InnerSigners(string path, int maxEntries, int maxEntryBytes, out int innerExecutablesSampled, out int innerSigned, out int innerValid, out Dictionary<string,int>? publishers)
+    {
+        innerExecutablesSampled = 0; innerSigned = 0; innerValid = 0; publishers = null;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            // Verify RAR4 signature
+            var sig = new byte[]{ (byte)'R',(byte)'a',(byte)'r', (byte)'!', 0x1A, 0x07, 0x00 };
+            var head = new byte[sig.Length];
+            if (fs.Read(head, 0, head.Length) != head.Length) return false;
+            for (int i=0;i<sig.Length;i++) if (head[i]!=sig[i]) return false;
+
+            var br = new BinaryReader(fs);
+            int sampled = 0; var pubs = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            while (fs.Position + 7 <= fs.Length && sampled < maxEntries)
+            {
+                long hdrStart = fs.Position;
+                ushort headCrc = br.ReadUInt16();
+                byte headType = br.ReadByte();
+                ushort headFlags = br.ReadUInt16();
+                ushort headSize = br.ReadUInt16();
+                if (headSize < 7) break; // guard
+                long headerEnd = hdrStart + headSize;
+
+                if (headType == 0x74) // FILE_HEADER
+                {
+                    // Parse fixed fields relative to after base header
+                    long afterBase = fs.Position; // position right after 7-byte base header
+                    // Required fields exist within header size budget; if not readable, break
+                    if (afterBase + 4 + 4 + 1 + 4 + 4 + 1 + 1 + 2 + 4 > headerEnd) { fs.Seek(headerEnd, SeekOrigin.Begin); continue; }
+                    uint packLow = br.ReadUInt32();
+                    uint unpLow  = br.ReadUInt32();
+                    br.ReadByte(); // hostOS
+                    br.ReadUInt32(); // fileCRC
+                    br.ReadUInt32(); // ftime
+                    br.ReadByte();   // unpVer
+                    byte method = br.ReadByte();
+                    ushort nameSize = br.ReadUInt16();
+                    br.ReadUInt32(); // attr
+                    ulong packSize = packLow; ulong unpSize = unpLow;
+                    if ((headFlags & 0x0100) != 0)
+                    {
+                        if (fs.Position + 8 > headerEnd) { fs.Seek(headerEnd, SeekOrigin.Begin); continue; }
+                        uint hPack = br.ReadUInt32(); uint hUnp = br.ReadUInt32();
+                        packSize |= ((ulong)hPack << 32); unpSize |= ((ulong)hUnp << 32);
+                    }
+                    // Read name (best-effort) to decide if it's executable by name; if can't, leave empty
+                    string name = string.Empty;
+                    try
+                    {
+                        int toRead = (int)Math.Min((long)nameSize, headerEnd - fs.Position);
+                        if (toRead > 0)
+                        {
+                            var nb = br.ReadBytes(toRead);
+                            name = Latin1String(nb);
+                        }
+                    } catch { }
+                    // Skip any remaining header fields to reach data start
+                    fs.Seek(headerEnd, SeekOrigin.Begin);
+
+                    bool encrypted = (headFlags & 0x0004) != 0;
+                    bool store = method == 0x30; // '0' => stored without compression
+                    if (!encrypted && store && packSize > 0 && (long)packSize <= maxEntryBytes && sampled < maxEntries)
+                    {
+                        long dataStart = headerEnd; long dataEnd = Math.Min(fs.Length, dataStart + (long)packSize);
+                        long save = fs.Position; fs.Seek(dataStart, SeekOrigin.Begin);
+                        var cap = (int)Math.Min(maxEntryBytes, (long)packSize);
+                        var tmp = System.IO.Path.GetTempFileName();
+                        try
+                        {
+                            using (var outFs = System.IO.File.Create(tmp))
+                            {
+                                int left = cap; var buf = new byte[Math.Min(8192, cap)];
+                                while (left > 0)
+                                {
+                                    int r = fs.Read(buf, 0, Math.Min(buf.Length, left)); if (r <= 0) break; outFs.Write(buf, 0, r); left -= r;
+                                }
+                            }
+                            // Analyze extracted sample and update stats if it is an executable
+                            var ia = FileInspector.Analyze(tmp);
+                            sampled++;
+                            // Decide if it was an executable by original name or detection
+                            bool looksExec = (!string.IsNullOrEmpty(name) && IsExecutableName(name)) || (ia?.Detection?.Extension is "exe" or "dll" or "sys" or "cpl");
+                            if (looksExec)
+                            {
+                                innerExecutablesSampled++;
+                                if (ia?.Authenticode?.Present == true)
+                                {
+                                    innerSigned++;
+                                    bool v = ia.Authenticode.IsTrustedWindowsPolicy == true || ia.Authenticode.ChainValid == true;
+                                    if (v) innerValid++;
+                                    var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
+                                    if (publishers == null) publishers = pubs;
+                                    if (publishers!.TryGetValue(pub, out var pc)) publishers[pub] = pc + 1; else publishers[pub] = 1;
+                                }
+                            }
+                        }
+                        catch { /* ignore per-entry errors */ }
+                        finally
+                        {
+                            try { System.IO.File.Delete(tmp); } catch { }
+                            // Move to end of this file's packed data to continue with the next block
+                            fs.Seek(dataEnd, SeekOrigin.Begin);
+                        }
+                        continue;
+                    }
+                    else
+                    {
+                        // Skip packed data of this entry to reach the next block
+                        fs.Seek((long)Math.Min((ulong)fs.Length, (ulong)headerEnd + packSize), SeekOrigin.Begin);
+                        continue;
+                    }
+                }
+                // Non-file header: just skip to header end
+                fs.Seek(headerEnd, SeekOrigin.Begin);
+            }
+            if (publishers == null && pubs.Count > 0) publishers = pubs;
+            return true;
+        }
+        catch { return false; }
+    }
+
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
         out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut,
@@ -442,6 +782,8 @@ public static partial class FileInspector {
             hasNestedArchives = false;
             int sampled = 0; int maxSamples = 16; int headSample = 64;
             bool ooxmlRemoteTemplate = false; bool ooxmlDde = false; bool ooxmlExtLinks = false; int extLinksCount = 0;
+            int ooxmlAllowed = 0, ooxmlDisallowed = 0, ooxmlUnc = 0;
+            var ooxmlHosts = new List<string>(5);
             bool sawEncryptionInfo = false; bool sawEncryptedPackage = false;
             int deepScanned = 0; int deepMax = Settings.DeepContainerMaxEntries;
             int deepBytes = Settings.DeepContainerMaxEntryBytes;
@@ -449,6 +791,9 @@ public static partial class FileInspector {
             var localFindings = new List<string>(8);
             var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             var previews = new List<InnerEntryPreview>();
+            // JAR/APK/Vendored package cues
+            bool hasManifestMf = false; bool hasClass = false; bool hasJarSig = false;
+            bool hasAndroidManifest = false; bool hasDex = false; bool hasApkSig = false;
             foreach (var e in za.Entries) {
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
@@ -461,6 +806,14 @@ public static partial class FileInspector {
                 if (IsExecutableName(name)) hasExecutables = true;
                 if (IsScriptName(name)) hasScripts = true;
                 if (!hasInstallers && IsInstallerName(name)) hasInstallers = true;
+
+                // JAR/APK cues
+                var low = name.ToLowerInvariant();
+                if (low == "meta-inf/manifest.mf") hasManifestMf = true;
+                if (low.StartsWith("meta-inf/") && (low.EndsWith(".rsa") || low.EndsWith(".dsa"))) { hasJarSig = true; hasApkSig = true; }
+                if (low.EndsWith(".class")) hasClass = true;
+                if (low == "androidmanifest.xml") hasAndroidManifest = true;
+                if (low == "classes.dex") hasDex = true;
 
                 // GPO/SYSVOL indicators within archives
                 if (Settings.DeepContainerScanEnabled)
@@ -503,6 +856,14 @@ public static partial class FileInspector {
                         // Count targets that point to externalLinks folder
                         int pos = 0; int local = 0; while (true) { int at = rels.IndexOf("externalLinks/", pos, StringComparison.OrdinalIgnoreCase); if (at < 0) break; local++; pos = at + 8; }
                         if (local > 0) { ooxmlExtLinks = true; extLinksCount += local; }
+                        // Roughly count external http(s) and UNC targets in workbook relationships
+                        CountOoxmlExternalTargets(rels, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
+                    }
+                    if (name.StartsWith("xl/externalLinks/_rels/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using var s4 = e.Open(); using var sr4 = new StreamReader(s4);
+                        var rels2 = sr4.ReadToEnd();
+                        CountOoxmlExternalTargets(rels2, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
                     }
                 } catch { }
 
@@ -635,11 +996,41 @@ public static partial class FileInspector {
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
             var guess = TryGuessZipSubtype(fs, out var _);
             containerSubtype = guess;
+            // Refine subtype based on cues collected
+            if (containerSubtype == null)
+            {
+                if (hasManifestMf && hasClass) containerSubtype = "jar";
+                if (hasAndroidManifest && hasDex) containerSubtype = "apk";
+            }
+            // Signed JAR/APK hints
+            if (containerSubtype == "jar" && hasJarSig)
+            {
+                if (!localFindings.Contains("jar:signed")) localFindings.Add("jar:signed");
+            }
+            if (containerSubtype == "apk" && hasApkSig)
+            {
+                if (!localFindings.Contains("apk:signed")) localFindings.Add("apk:signed");
+            }
             if (hasNestedArchives && containerSubtype == null) containerSubtype = "nested-archive";
             hasRemoteTemplate = ooxmlRemoteTemplate;
             hasDde = ooxmlDde;
             hasExternalLinks = ooxmlExtLinks;
             externalLinksCount = extLinksCount;
+            // Attach OOXML external link markers
+            if (ooxmlExtLinks)
+            {
+                if (!localFindings.Contains($"ooxml:ext-links={extLinksCount}")) localFindings.Add($"ooxml:ext-links={extLinksCount}");
+                if (ooxmlAllowed > 0 && !localFindings.Contains($"ooxml:ext-allowed={ooxmlAllowed}")) localFindings.Add($"ooxml:ext-allowed={ooxmlAllowed}");
+                if (ooxmlDisallowed > 0 && !localFindings.Contains($"ooxml:ext-disallowed={ooxmlDisallowed}")) localFindings.Add($"ooxml:ext-disallowed={ooxmlDisallowed}");
+                if (ooxmlUnc > 0 && !localFindings.Contains($"ooxml:unc={ooxmlUnc}")) localFindings.Add($"ooxml:unc={ooxmlUnc}");
+                if (ooxmlHosts.Count > 0)
+                {
+                    var top = ooxmlHosts.Take(3);
+                    var joined = string.Join(",", top);
+                    if (!localFindings.Any(x => x.StartsWith("ooxml:hosts=", StringComparison.OrdinalIgnoreCase)))
+                        localFindings.Add($"ooxml:hosts={joined}");
+                }
+            }
             // Check encryption flags and count by scanning central directory
             int encCount = ZipEncryptedEntryCount(fs);
             if (encCount > 0) { hasEncryptedEntries = true; encryptedEntryCount = encCount; }
@@ -884,6 +1275,9 @@ public static partial class FileInspector {
     private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives, out List<InnerEntryPreview>? previews) {
         entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null;
         var localPreviews = new List<InnerEntryPreview>();
+        int innerExecutablesSampled = 0, innerSignedExecutables = 0, innerValidSignedExecutables = 0;
+        var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+        int deepScanned = 0; int deepMax = Settings.DeepContainerMaxEntries; int deepBytes = Settings.DeepContainerMaxEntryBytes; bool deep = Settings.DeepContainerScanEnabled;
         try {
             using var fs = File.OpenRead(path);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -904,28 +1298,82 @@ public static partial class FileInspector {
                     if (IsExecutableName(name)) hasExecutables = true;
                     if (IsScriptName(name)) hasScripts = true;
                     count++;
-                    // Sample small entry head to detect nested archives
-                    if (!hasNestedArchives && size > 0 && size <= 128) {
-                        int sample = (int)Math.Min(64, size);
-                        var head = new byte[sample];
-                        int nhead = fs.Read(head, 0, head.Length);
+                    // Deep sampling for small executables/scripts and nested-archive head peeks
+                    if (size > 0)
+                    {
                         long pad = ((size + 511) / 512) * 512;
-                        long toSkipRem = pad - nhead;
-                        if (nhead > 0) {
-                            var span = new ReadOnlySpan<byte>(head, 0, nhead);
-                            var det = Detect(span, null);
-                            if (det != null) {
-                                var de = det.Extension?.ToLowerInvariant();
-                                if (de is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf") {
-                                    hasNestedArchives = true;
-                                }
-                                if (IsExecutableName(name) && localPreviews.Count < 10)
+                        // 1) Quick nested-archive peek (up to 64 bytes) without moving beyond current entry
+                        if (!hasNestedArchives && size <= 128)
+                        {
+                            int sample = (int)Math.Min(64, size);
+                            var head = new byte[sample];
+                            int nhead = fs.Read(head, 0, head.Length);
+                            if (nhead > 0)
+                            {
+                                var span = new ReadOnlySpan<byte>(head, 0, nhead);
+                                var det = Detect(span, null);
+                                if (det != null)
                                 {
-                                    localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = de ?? ext });
+                                    var de = det.Extension?.ToLowerInvariant();
+                                    if (de is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf")
+                                        hasNestedArchives = true;
+                                    if (IsExecutableName(name) && localPreviews.Count < 10)
+                                        localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = de ?? ext });
                                 }
                             }
+                            long toSkipRem = pad - nhead;
+                            if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+                            continue;
                         }
-                        if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+
+                        // 2) Deep signers sampling for executable entries within budget
+                        if (deep && IsExecutableName(name) && size <= deepBytes && deepScanned < deepMax)
+                        {
+                            try
+                            {
+                                int cap = (int)Math.Min(size, deepBytes);
+                                var tmp = System.IO.Path.GetTempFileName();
+                                using (var outFs = System.IO.File.Create(tmp))
+                                {
+                                    int left = cap;
+                                    var buf = new byte[Math.Min(8192, cap)];
+                                    while (left > 0)
+                                    {
+                                        int r = fs.Read(buf, 0, Math.Min(buf.Length, left));
+                                        if (r <= 0) break;
+                                        outFs.Write(buf, 0, r);
+                                        left -= r;
+                                    }
+                                }
+                                // Skip any remaining bytes of this entry to the padded boundary
+                                long consumed = Math.Min(size, deepBytes);
+                                long toSkipRem = pad - consumed;
+                                if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+
+                                var ia = FileInspector.Analyze(tmp);
+                                try { System.IO.File.Delete(tmp); } catch { }
+                                deepScanned++;
+                                innerExecutablesSampled++;
+                                if (ia?.Authenticode?.Present == true)
+                                {
+                                    innerSignedExecutables++;
+                                    bool v = ia.Authenticode.IsTrustedWindowsPolicy == true || ia.Authenticode.ChainValid == true;
+                                    if (v) innerValidSignedExecutables++;
+                                    var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
+                                    if (innerPublishers.TryGetValue(pub, out var pc)) innerPublishers[pub] = pc + 1; else innerPublishers[pub] = 1;
+                                }
+                                continue;
+                            }
+                            catch
+                            {
+                                // On error, seek to next padded header position to keep parser stable
+                                long toSkipRem = pad;
+                                if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+                                continue;
+                            }
+                        }
+                        // 3) Not sampled – skip entire entry payload to next header
+                        fs.Seek(pad, SeekOrigin.Current);
                         continue;
                     }
                 }
@@ -935,13 +1383,67 @@ public static partial class FileInspector {
             entryCount = count;
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
             if (localPreviews.Count > 0) previews = localPreviews;
+            // Attach inner signer stats (if used) back to FileAnalysis via the caller
+            if (innerExecutablesSampled > 0)
+            {
+                _lastContainerInnerSample = new(innerExecutablesSampled, innerSignedExecutables, innerValidSignedExecutables, innerPublishers);
+            }
+            // TAR is not a JAR/APK container; subtype/signing hints handled in ZIP logic.
         } catch { }
+    }
+
+    private static bool TryLoadCertificateFromFile(string path, string ext, out X509Certificate2 cert)
+    {
+        cert = null!;
+        try
+        {
+#if NET5_0_OR_GREATER || NET8_0_OR_GREATER
+            if (string.Equals(ext, "pem", StringComparison.OrdinalIgnoreCase))
+            {
+                cert = X509Certificate2.CreateFromPemFile(path);
+                return cert != null;
+            }
+#endif
+            // DER/CRT/CER or fallback for PEM (manual decode)
+            if (string.Equals(ext, "pem", StringComparison.OrdinalIgnoreCase))
+            {
+                var text = System.IO.File.ReadAllText(path);
+                const string begin = "-----BEGIN CERTIFICATE-----";
+                const string end = "-----END CERTIFICATE-----";
+                int s = text.IndexOf(begin, StringComparison.OrdinalIgnoreCase);
+                int e = text.IndexOf(end, StringComparison.OrdinalIgnoreCase);
+                if (s >= 0 && e > s)
+                {
+                    var b64 = text.Substring(s + begin.Length, e - (s + begin.Length)).Replace("\r", string.Empty).Replace("\n", string.Empty).Trim();
+                    var der = System.Convert.FromBase64String(b64);
+                    cert = new X509Certificate2(der);
+                    return true;
+                }
+                return false;
+            }
+            cert = new X509Certificate2(path);
+            return cert != null;
+        }
+        catch { return false; }
     }
 
     private static string GetExtension(string name) {
         var i = name.LastIndexOf('.');
         if (i < 0) return string.Empty;
         return name.Substring(i + 1).ToLowerInvariant();
+    }
+
+    private static string Latin1String(byte[] bytes)
+    {
+        try
+        {
+#if NET5_0_OR_GREATER || NET8_0_OR_GREATER
+            return System.Text.Encoding.Latin1.GetString(bytes);
+#else
+            return System.Text.Encoding.GetEncoding(28591).GetString(bytes); // ISO-8859-1 for .NET Framework / netstandard
+#endif
+        }
+        catch { return System.Text.Encoding.ASCII.GetString(bytes); }
     }
 
     private static bool IsExecutableName(string name) {
@@ -951,7 +1453,11 @@ public static partial class FileInspector {
 
     private static bool IsScriptName(string name) {
         var lower = name.ToLowerInvariant();
-        return lower.EndsWith(".ps1") || lower.EndsWith(".bat") || lower.EndsWith(".cmd") || lower.EndsWith(".sh") || lower.EndsWith(".vbs") || lower.EndsWith(".js") || lower.EndsWith(".py") || lower.EndsWith(".rb");
+        return lower.EndsWith(".ps1") || lower.EndsWith(".psm1") || lower.EndsWith(".psd1") ||
+               lower.EndsWith(".bat") || lower.EndsWith(".cmd") ||
+               lower.EndsWith(".sh") || lower.EndsWith(".bash") || lower.EndsWith(".zsh") || lower.EndsWith(".ksh") ||
+               lower.EndsWith(".vbs") || lower.EndsWith(".js") || lower.EndsWith(".mjs") ||
+               lower.EndsWith(".py") || lower.EndsWith(".rb");
     }
 
     private static bool IsInstallerName(string name)

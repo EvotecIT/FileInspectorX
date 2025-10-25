@@ -88,4 +88,10 @@ public enum ContentFlags : long {
     OoxmlEncrypted = 1L << 35,
     /// <summary>Container holds files whose magic indicates executable/installers but names suggest otherwise (e.g., .txt containing PE).</summary>
     ContainerHasDisguisedExecutables = 1L << 36
+    ,
+    /// <summary>HTML document contains one or more external links (absolute URLs or protocol-relative).</summary>
+    HtmlHasExternalLinks = 1L << 37
+    ,
+    /// <summary>OLE Compound Document (e.g., .doc/.xls/.ppt) appears to contain VBA macro streams.</summary>
+    OleHasVbaMacros = 1L << 38
 }
