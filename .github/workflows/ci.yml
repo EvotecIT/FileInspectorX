@@ -46,7 +46,6 @@ jobs:
       upload_artifacts: true
       solution: 'FileInspectorX.sln'
       dotnet_versions: '["8.0.x"]'
-      frameworks: '["net8.0"]'
       # Post failing-tests summary as a sticky PR comment (unique tag per job)
       post_summary_issue: true
       post_summary_destination: 'pr'
@@ -66,7 +65,6 @@ jobs:
       upload_artifacts: true
       solution: 'FileInspectorX.sln'
       dotnet_versions: '["8.0.x"]'
-      frameworks: '["net8.0"]'
       post_summary_issue: true
       post_summary_destination: 'pr'
       sticky_summary_comment: true
@@ -85,7 +83,6 @@ jobs:
       upload_artifacts: true
       solution: 'FileInspectorX.sln'
       dotnet_versions: '["8.0.x"]'
-      frameworks: '["net8.0"]'
       post_summary_issue: true
       post_summary_destination: 'pr'
       sticky_summary_comment: true
@@ -125,4 +122,3 @@ jobs:
       # direct_prompt: ''    # optional custom prompt
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-
