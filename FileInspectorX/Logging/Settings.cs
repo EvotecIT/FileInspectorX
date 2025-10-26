@@ -149,6 +149,7 @@ public class Settings {
     /// <summary>
     /// Domains considered trusted/allowed for HTML external links (e.g., your own CDN/domains). Suffix match, case-insensitive.
     /// When all HTML external links are allowed, HtmlHasExternalLinks flag is suppressed.
+    /// Also used by script/text heuristics to split discovered hosts into internal vs external counts (net:hosts-int/net:hosts-ext).
     /// </summary>
     public static string[] HtmlAllowedDomains { get; set; } = Array.Empty<string>();
 

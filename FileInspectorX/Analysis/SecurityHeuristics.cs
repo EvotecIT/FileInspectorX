@@ -97,7 +97,18 @@ internal static class SecurityHeuristics
             var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var h in ExtractHttpHosts(text)) hosts.Add(h);
             foreach (var share in uncShares) { var h = ExtractHostFromUnc(share); if (!string.IsNullOrEmpty(h)) hosts.Add(h!); }
-            if (hosts.Count > 0) findings.Add($"net:hosts={hosts.Count}");
+            if (hosts.Count > 0)
+            {
+                findings.Add($"net:hosts={hosts.Count}");
+                // Split into internal/external using HtmlAllowedDomains as an allowlist (suffix match)
+                int internalCount = 0, externalCount = 0;
+                foreach (var h in hosts)
+                {
+                    if (IsAllowedHost(h)) internalCount++; else externalCount++;
+                }
+                if (internalCount > 0) findings.Add($"net:hosts-int={internalCount}");
+                if (externalCount > 0) findings.Add($"net:hosts-ext={externalCount}");
+            }
 
             if (Settings.ResolveNetworkHostsInHeuristics && hosts.Count > 0)
             {
@@ -134,6 +145,23 @@ internal static class SecurityHeuristics
             }
         } catch { }
         return findings;
+    }
+
+    private static bool IsAllowedHost(string host)
+    {
+        try
+        {
+            var allow = Settings.HtmlAllowedDomains;
+            if (allow == null || allow.Length == 0) return false;
+            var h = host.ToLowerInvariant();
+            foreach (var d in allow)
+            {
+                if (string.IsNullOrWhiteSpace(d)) continue;
+                var dom = d.Trim().ToLowerInvariant();
+                if (h.EndsWith(dom) || h.Equals(dom, StringComparison.Ordinal)) return true;
+            }
+        } catch { }
+        return false;
     }
 
     internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)

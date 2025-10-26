@@ -189,9 +189,40 @@ public static partial class FileInspector {
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.Add($"7z:files={files}");
                     res.SecurityFindings = list;
+                    // Best-effort: extract likely executable names from unencoded Next Header
+                    if (Settings.DeepContainerScanEnabled && TryScan7zExecutablesFromHeader(path, Settings.DetectionReadBudgetBytes, out var exeNames, out var dllNames))
+                    {
+                        int count = (exeNames?.Count ?? 0) + (dllNames?.Count ?? 0);
+                        if (count > 0)
+                        {
+                            res.Flags |= ContentFlags.ContainerContainsExecutables;
+                            var list2 = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                            list2.Add($"7z:names-exe={count}");
+                            res.SecurityFindings = list2;
+                            // Preview a few
+                            var previews = new List<InnerEntryPreview>();
+                            foreach (var n in (exeNames ?? System.Linq.Enumerable.Empty<string>()).Take(5)) previews.Add(new InnerEntryPreview { Name = n, DetectedExtension = "exe" });
+                            foreach (var n in (dllNames ?? System.Linq.Enumerable.Empty<string>()).Take(Math.Max(0, 5 - previews.Count))) previews.Add(new InnerEntryPreview { Name = n, DetectedExtension = "dll" });
+                            if (previews.Count > 0) res.ArchivePreviewEntries = previews;
+                        }
+                    }
                 }
             }
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
+
+            // MSI metadata enrichment (Windows): product version via msi.dll
+            if ((options?.IncludeInstaller != false) && det.Extension == "msi")
+            {
+                try {
+                    var msiVer = FileInspector.TryGetMsiVersion(path);
+                    if (!string.IsNullOrWhiteSpace(msiVer))
+                    {
+                        var dict = res.VersionInfo != null ? new Dictionary<string,string>(res.VersionInfo.ToDictionary(kv => kv.Key, kv => kv.Value)) : new Dictionary<string,string>();
+                        dict["ProductVersion"] = msiVer!;
+                        res.VersionInfo = dict;
+                    }
+                } catch { }
+            }
 
             // Shebang/script detection for textlike files
             if (InspectHelpers.IsText(det)) {
@@ -1270,6 +1301,61 @@ public static partial class FileInspector {
             byte b = s[idx++]; value |= (ulong)(b & 0x7Fu) << shift; shift += 7; if ((b & 0x80) == 0) return true;
         }
         return false;
+    }
+
+    // Best-effort: read Next Header plain buffer and scan for UTF-16LE file names that end with .exe or .dll
+    private static bool TryScan7zExecutablesFromHeader(string path, int byteBudget, out List<string> exeNames, out List<string> dllNames)
+    {
+        exeNames = new List<string>(); dllNames = new List<string>();
+        try
+        {
+            using var fs = File.OpenRead(path);
+            if (fs.Length < 32) return false;
+            var head = new byte[32]; if (fs.Read(head, 0, head.Length) != head.Length) return false;
+            if (!(head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC && head[3] == 0xAF && head[4] == 0x27 && head[5] == 0x1C)) return false;
+            long nextOff = System.BitConverter.ToInt64(head, 12);
+            long nextSz  = System.BitConverter.ToInt64(head, 20);
+            if (nextOff < 0 || nextSz <= 0 || nextOff + nextSz > fs.Length) return false;
+            fs.Seek(nextOff + 32, SeekOrigin.Begin);
+            int toRead = (int)System.Math.Min(nextSz, byteBudget);
+            var buf = new byte[toRead]; int n = fs.Read(buf, 0, toRead); if (n <= 0) return false;
+            // If encoded header present, bail (we don't parse it)
+            for (int i = 0; i < n; i++) if (buf[i] == 0x17) return false;
+            // Scan for UTF-16LE strings
+            int iPos = 0; int cap = Math.Min(n, toRead);
+            while (iPos + 2 < cap && (exeNames.Count + dllNames.Count) < 12)
+            {
+                // Attempt to read a UTF-16LE run until NUL
+                int start = iPos; int lenBytes = 0; bool hasZero = false;
+                for (int p = iPos; p + 1 < cap; p += 2)
+                {
+                    ushort ch = (ushort)(buf[p] | (buf[p+1] << 8));
+                    if (ch == 0) { hasZero = true; break; }
+                    // keep consuming printable-ish chars; break if too long
+                    lenBytes += 2; if (lenBytes > 512) break;
+                }
+                if (hasZero && lenBytes >= 6)
+                {
+                    try
+                    {
+                        var s = System.Text.Encoding.Unicode.GetString(buf, start, lenBytes);
+                        if (!string.IsNullOrWhiteSpace(s) && s.IndexOf('.') >= 0)
+                        {
+                            var name = s.Trim('\0').Trim();
+                            var lower = name.ToLowerInvariant();
+                            if (lower.EndsWith(".exe")) { if (!exeNames.Contains(name)) exeNames.Add(name); }
+                            else if (lower.EndsWith(".dll")) { if (!dllNames.Contains(name)) dllNames.Add(name); }
+                        }
+                    } catch { }
+                    iPos += lenBytes + 2; // skip NUL
+                }
+                else
+                {
+                    iPos += 2;
+                }
+            }
+            return (exeNames.Count + dllNames.Count) > 0;
+        } catch { return false; }
     }
 
     private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives, out List<InnerEntryPreview>? previews) {

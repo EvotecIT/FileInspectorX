@@ -67,6 +67,10 @@ public sealed class ReportView
     public IReadOnlyList<string>? EnhancedKeyUsages { get; set; }
     /// <summary>Timestamp authority common name.</summary>
     public string? TimestampAuthorityCN { get; set; }
+    /// <summary>Issuer Common Name (CN) of the Authenticode signer certificate.</summary>
+    public string? SignerIssuerCN { get; set; }
+    /// <summary>Issuer Organization (O) of the Authenticode signer certificate.</summary>
+    public string? SignerIssuerO { get; set; }
 
     // Standalone certificate (DER/CRT/CER/PEM) typed fields
     /// <summary>Certificate subject (for standalone cert files).</summary>
@@ -136,6 +140,32 @@ public sealed class ReportView
     public string? InnerPublishersHuman { get; set; }
     /// <summary>Human lines for archive preview entries ("name (ext)").</summary>
     public IReadOnlyList<string>? ArchivePreview { get; set; }
+
+    // Installer summary (subset for presentation)
+    /// <summary>Installer kind when recognized (e.g., MSI, MSIX).</summary>
+    public string? InstallerKind { get; set; }
+    /// <summary>Installer product/package name.</summary>
+    public string? InstallerName { get; set; }
+    /// <summary>Installer manufacturer/publisher.</summary>
+    public string? InstallerManufacturer { get; set; }
+    /// <summary>Installer version string.</summary>
+    public string? InstallerVersion { get; set; }
+    /// <summary>MSI ProductCode (GUID) when applicable.</summary>
+    public string? InstallerProductCode { get; set; }
+    /// <summary>MSI UpgradeCode (GUID) when applicable.</summary>
+    public string? InstallerUpgradeCode { get; set; }
+    /// <summary>Installer scope (PerUser/PerMachine) when applicable.</summary>
+    public string? InstallerScope { get; set; }
+    /// <summary>Installer URLs (About/Update/Help/Support) when available.</summary>
+    public string? InstallerUrlInfoAbout { get; set; }
+    /// <summary>Installer update information URL when available.</summary>
+    public string? InstallerUrlUpdateInfo { get; set; }
+    /// <summary>Installer help link when available.</summary>
+    public string? InstallerHelpLink { get; set; }
+    /// <summary>Installer support URL when available.</summary>
+    public string? InstallerSupportUrl { get; set; }
+    /// <summary>Installer contact string when available.</summary>
+    public string? InstallerContact { get; set; }
     
 
     // Archive + MOTW/ADS summaries
@@ -180,6 +210,8 @@ public sealed class ReportView
             r.WinTrustStatusCode = a.Authenticode.WinTrustStatusCode;
             r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
             r.TimestampAuthorityCN = a.Authenticode.TimestampAuthorityCN;
+            r.SignerIssuerCN = a.Authenticode.IssuerCN;
+            r.SignerIssuerO  = a.Authenticode.IssuerO;
         }
         // Standalone certificate info (if parsed)
         if (a.Certificate != null)
@@ -211,6 +243,22 @@ public sealed class ReportView
             a.VersionInfo.TryGetValue("ProductVersion", out var pver);
             a.VersionInfo.TryGetValue("OriginalFilename", out var origFile);
             r.CompanyName = company; r.ProductName = product; r.FileDescription = fileDesc; r.FileVersion = fver; r.ProductVersion = pver; r.OriginalFilename = origFile;
+        }
+        // Installer summary
+        if (a.Installer != null)
+        {
+            r.InstallerKind = a.Installer.Kind.ToString();
+            r.InstallerName = a.Installer.Name;
+            r.InstallerManufacturer = a.Installer.Manufacturer ?? a.Installer.Publisher ?? a.Installer.PublisherDisplayName;
+            r.InstallerVersion = a.Installer.Version;
+            r.InstallerProductCode = a.Installer.ProductCode;
+            r.InstallerUpgradeCode = a.Installer.UpgradeCode;
+            r.InstallerScope = a.Installer.Scope;
+            r.InstallerUrlInfoAbout = a.Installer.UrlInfoAbout;
+            r.InstallerUrlUpdateInfo = a.Installer.UrlUpdateInfo;
+            r.InstallerHelpLink = a.Installer.HelpLink;
+            r.InstallerSupportUrl = a.Installer.SupportUrl;
+            r.InstallerContact = a.Installer.Contact;
         }
         // Script language
         if (!string.IsNullOrEmpty(a.ScriptLanguage))
@@ -387,6 +435,8 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(AssessmentCodesHumanLong)) d["AssessmentCodesHumanLong"] = AssessmentCodesHumanLong;
         if (EnhancedKeyUsages != null && EnhancedKeyUsages.Count > 0) d["EnhancedKeyUsages"] = EnhancedKeyUsages;
         if (!string.IsNullOrEmpty(TimestampAuthorityCN)) d["TimestampAuthorityCN"] = TimestampAuthorityCN;
+        if (!string.IsNullOrEmpty(SignerIssuerCN)) d["SignerIssuerCN"] = SignerIssuerCN;
+        if (!string.IsNullOrEmpty(SignerIssuerO)) d["SignerIssuerO"] = SignerIssuerO;
         if (CertBundleCount.HasValue) d["CertBundleCount"] = CertBundleCount.Value;
         if (CertBundleSubjects != null && CertBundleSubjects.Count > 0) d["CertBundleSubjects"] = CertBundleSubjects;
         // Certificate (standalone) fields
@@ -400,6 +450,19 @@ public sealed class ReportView
         if (CertChainTrusted.HasValue) d["CertChainTrusted"] = CertChainTrusted.Value;
         if (!string.IsNullOrEmpty(CertRootSubject)) d["CertRootSubject"] = CertRootSubject;
         if (CertSanPresent.HasValue) d["CertSanPresent"] = CertSanPresent.Value;
+        // Installer (subset)
+        if (!string.IsNullOrEmpty(InstallerKind)) d["InstallerKind"] = InstallerKind;
+        if (!string.IsNullOrEmpty(InstallerName)) d["InstallerName"] = InstallerName;
+        if (!string.IsNullOrEmpty(InstallerManufacturer)) d["InstallerManufacturer"] = InstallerManufacturer;
+        if (!string.IsNullOrEmpty(InstallerVersion)) d["InstallerVersion"] = InstallerVersion;
+        if (!string.IsNullOrEmpty(InstallerProductCode)) d["InstallerProductCode"] = InstallerProductCode;
+        if (!string.IsNullOrEmpty(InstallerUpgradeCode)) d["InstallerUpgradeCode"] = InstallerUpgradeCode;
+        if (!string.IsNullOrEmpty(InstallerScope)) d["InstallerScope"] = InstallerScope;
+        if (!string.IsNullOrEmpty(InstallerUrlInfoAbout)) d["InstallerUrlInfoAbout"] = InstallerUrlInfoAbout;
+        if (!string.IsNullOrEmpty(InstallerUrlUpdateInfo)) d["InstallerUrlUpdateInfo"] = InstallerUrlUpdateInfo;
+        if (!string.IsNullOrEmpty(InstallerHelpLink)) d["InstallerHelpLink"] = InstallerHelpLink;
+        if (!string.IsNullOrEmpty(InstallerSupportUrl)) d["InstallerSupportUrl"] = InstallerSupportUrl;
+        if (!string.IsNullOrEmpty(InstallerContact)) d["InstallerContact"] = InstallerContact;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         // Archive inventory
         if (ArchiveEntryCount.HasValue) d["ArchiveEntryCount"] = ArchiveEntryCount.Value;

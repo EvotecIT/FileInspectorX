@@ -248,6 +248,25 @@ public static partial class FileInspector {
         return null;
     }
 
+    /// <summary>
+    /// Attempts to retrieve MSI file version (Windows only) using msi.dll. Returns null on failure or non‑Windows platforms.
+    /// </summary>
+    private static string? TryGetMsiVersion(string path)
+    {
+        try
+        {
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)) return null;
+            int vCap = 256, lCap = 0;
+            var v = new System.Text.StringBuilder(vCap);
+            uint rc = MsiGetFileVersionW(path, v, ref vCap, null, ref lCap);
+            if (rc == 0) return v.ToString();
+        } catch { }
+        return null;
+    }
+
+    [System.Runtime.InteropServices.DllImport("msi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true, EntryPoint = "MsiGetFileVersionW")]
+    private static extern uint MsiGetFileVersionW(string szFilePath, System.Text.StringBuilder? lpVersionBuf, ref int pcchVersionBuf, System.Text.StringBuilder? lpLangBuf, ref int pcchLangBuf);
+
     private static void TryParseP7b(string path, FileAnalysis res)
     {
         try
