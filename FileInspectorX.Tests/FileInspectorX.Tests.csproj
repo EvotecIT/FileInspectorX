@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net472</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +17,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FileInspectorX\FileInspectorX.csproj" />
+  </ItemGroup>
+
+  <!-- net472 compatibility shims -->
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net472' ">
+    <PackageReference Include="System.Memory" Version="4.5.5" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <!-- Exclude tests that require newer BCL/APIs when building for net472 -->
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net472' ">
+    <Compile Remove="AnalyzeDirectoryTests.cs" />
+    <Compile Remove="MsiOleCfDetectionTests.cs" />
+    <Compile Remove="EncryptedArchiveDetectionTests.cs" />
+    <Compile Remove="MoreImprovementsTests.cs" />
   </ItemGroup>
 
 </Project>

@@ -147,6 +147,61 @@ internal static class SecurityHeuristics
         return findings;
     }
 
+    internal enum PsClassLevel { None = 0, Weak = 1, Strong = 2 }
+
+    internal static (PsClassLevel level, int verbHits, int structHits) ClassifyPowerShellFromText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return (PsClassLevel.None, 0, 0);
+        var lower = text.ToLowerInvariant();
+        int structHits = 0;
+        if (lower.Contains("#!/") && (lower.Contains("pwsh") || lower.Contains("powershell"))) structHits++;
+        if (lower.Contains("[cmdletbinding")) structHits++;
+        if (lower.Contains("param(") || lower.Contains("param (")) structHits++;
+        if (lower.Contains("set-strictmode")) structHits++;
+        if (lower.Contains("$psversiontable")) structHits++;
+        if (lower.Contains("import-module")) structHits++;
+        if (lower.Contains("function ")) structHits++;
+
+        // Count common verb-prefixed cmdlets; require multiple distinct occurrences
+        int verbHits = 0;
+        string[] verbs = new [] { "get-", "set-", "invoke-", "new-", "remove-", "start-", "stop-", "enable-", "disable-", "update-", "add-" };
+        int distinct = 0;
+        foreach (var v in verbs)
+        {
+            if (lower.IndexOf(v, StringComparison.Ordinal) >= 0) { distinct++; verbHits += CountToken(lower, v); }
+        }
+        // Heuristic thresholds:
+        //  - Strong: structural cues >=2 OR (>=1 structural cue AND >=3 distinct verbs)
+        //  - Weak:   >=3 distinct verbs OR presence of many PowerShell sigils ($env:, $PSModulePath) without structure
+        if (structHits >= 2 || (structHits >= 1 && distinct >= 3)) return (PsClassLevel.Strong, verbHits, structHits);
+        if (distinct >= 3 || lower.Contains("$env:") || lower.Contains("$psmodulepath")) return (PsClassLevel.Weak, verbHits, structHits);
+        return (PsClassLevel.None, verbHits, structHits);
+    }
+
+    internal static (bool isLog, int info, int warn, int error) ClassifyLogFromText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return (false, 0, 0, 0);
+        int info=0, warn=0, error=0; int tsLines=0, total=0;
+        using (var sr = new System.IO.StringReader(text))
+        {
+            string? line; int lines = 0;
+            while (lines < 800 && (line = sr.ReadLine()) != null)
+            {
+                lines++; total++;
+                var l = line.Trim(); if (l.Length == 0) continue;
+                // Timestamp-like prefix: 2025-10-26 12:34:56,123 or 2025-10-26T12:34:56Z
+                if (l.Length >= 10 && char.IsDigit(l[0]) && char.IsDigit(l[1]) && char.IsDigit(l[2]) && char.IsDigit(l[3]) && l[4]=='-' && char.IsDigit(l[5])) tsLines++;
+                var u = l.ToUpperInvariant();
+                if (u.Contains("INFO")) info++;
+                if (u.Contains("WARN") || u.Contains("WARNING")) warn++;
+                if (u.Contains("ERROR") || u.Contains("ERR ")) error++;
+            }
+        }
+        // Basic log heuristic: at least a few timestamped lines or level tokens across multiple lines
+        bool isLog = (tsLines >= 3 && total >= 10) || (info+warn+error >= 5);
+        return (isLog, info, warn, error);
+    }
+
     internal static IReadOnlyList<string> GetCmdlets(string path, int budgetBytes)
     {
         try

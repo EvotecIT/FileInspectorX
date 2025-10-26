@@ -272,7 +272,7 @@ public static partial class FileInspector {
                 }
             } catch { }
 
-            // Shebang/script detection for textlike files
+            // Shebang/script and text subtypes for textlike files
             if (InspectHelpers.IsText(det)) {
                 var first = ReadFirstLine(path, 256);
                 if (first.StartsWith("#!")) {
@@ -289,12 +289,46 @@ public static partial class FileInspector {
                         res.Flags |= ContentFlags.JsLooksMinified;
                     }
                 }
-                // Potentially dangerous scripts by type
-                if (declaredExt is "ps1" or "sh" or "bat" or "cmd") {
+                // PowerShell classification for plain text files (avoid false positives on changelogs)
+                try {
+                    var headTxt = ReadHeadText(path, Math.Min(Settings.DetectionReadBudgetBytes, 256*1024));
+                    var psClass = SecurityHeuristics.ClassifyPowerShellFromText(headTxt);
+                    if (psClass.level == SecurityHeuristics.PsClassLevel.Strong)
+                    {
+                        res.Flags |= ContentFlags.IsScript | ContentFlags.ScriptsPotentiallyDangerous;
+                        res.ScriptLanguage = "powershell";
+                        // Make subtype visible for non-ps1 files
+                        if (string.IsNullOrEmpty(res.TextSubtype)) res.TextSubtype = "powershell";
+                        // Ensure a neutral finding to explain classification
+                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                        if (!list.Contains("ps:structure")) list.Add("ps:structure");
+                        res.SecurityFindings = list;
+                    }
+                    else if (psClass.level == SecurityHeuristics.PsClassLevel.Weak)
+                    {
+                        // Cues only; do not reclassify subtype
+                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                        if (!list.Contains("ps:cues")) list.Add("ps:cues");
+                        res.SecurityFindings = list;
+                    }
+                    // Text log detection
+                    var log = SecurityHeuristics.ClassifyLogFromText(headTxt);
+                    if (log.isLog)
+                    {
+                        res.TextSubtype = "log";
+                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                        if (!list.Contains("text:log")) list.Add("text:log");
+                        if (log.info+log.warn+log.error > 0) list.Add($"log:levels={log.info}/{log.warn}/{log.error}");
+                        res.SecurityFindings = list;
+                    }
+                } catch { }
+
+                // Potentially dangerous scripts by declared type
+                if (declaredExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd") {
                     res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 // Set TextSubtype for common text families
-                res.TextSubtype = declaredExt switch {
+                res.TextSubtype = string.IsNullOrEmpty(res.TextSubtype) ? declaredExt switch {
                     "md" => "markdown",
                     "yml" or "yaml" => "yaml",
                     "json" => "json",
@@ -307,7 +341,7 @@ public static partial class FileInspector {
                     "sh" or "bash" or "zsh" => "shell",
                     "bat" or "cmd" => "batch",
                     _ => res.TextSubtype
-                };
+                } : res.TextSubtype;
 
                 // Citrix ICA (INI-like) and ReceiverConfig.cr (XML) detection
                 try {
@@ -429,7 +463,7 @@ public static partial class FileInspector {
                 var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
 
                 // AD DS database candidate: ESE database named ntds.dit (or .dit extension)
-                if ((det.Extension is "edb" || string.Equals(det.MimeType, "application/x-ese-database", StringComparison.OrdinalIgnoreCase))
+                if (((det!.Extension is "edb") || string.Equals(det.MimeType, "application/x-ese-database", StringComparison.OrdinalIgnoreCase))
                     && (string.Equals(lowerName, "ntds.dit", StringComparison.OrdinalIgnoreCase) || lowerName.EndsWith(".dit", StringComparison.Ordinal)))
                 {
                     if (!list.Contains("ad:ntds-dit")) list.Add("ad:ntds-dit");
@@ -471,7 +505,7 @@ public static partial class FileInspector {
             } catch { }
 
             // CSV/TSV row estimate (lightweight)
-            if (det.Extension is "csv" or "tsv" || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
+            if ((det!.Extension is "csv" or "tsv") || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
                 res.EstimatedLineCount = EstimateLines(path, Settings.DetectionReadBudgetBytes);
             }
 

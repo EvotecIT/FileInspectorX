@@ -99,8 +99,8 @@ public static partial class FileInspector {
         }
 
         var mismatch = !Equivalent(decl, det);
-        // Special-case: If detection is low-confidence PowerShell but the declared is plain text, treat as match to avoid noise
-        if (mismatch && decl.Equals("txt", StringComparison.OrdinalIgnoreCase) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
+        // Special-case: If detection is low-confidence PowerShell but the declared is plain-text family, treat as match to avoid noise
+        if (mismatch && InPlainTextFamily(decl) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
         {
             var conf = detected.Confidence ?? string.Empty;
             if (conf.Equals("Low", StringComparison.OrdinalIgnoreCase)) mismatch = false;
