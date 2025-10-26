@@ -429,7 +429,7 @@ public static partial class FileInspector {
                 var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
 
                 // AD DS database candidate: ESE database named ntds.dit (or .dit extension)
-                if ((det.Extension is "edb" || string.Equals(det.MimeType, "application/x-ese-database", StringComparison.OrdinalIgnoreCase))
+                if (((det!.Extension is "edb") || string.Equals(det.MimeType, "application/x-ese-database", StringComparison.OrdinalIgnoreCase))
                     && (string.Equals(lowerName, "ntds.dit", StringComparison.OrdinalIgnoreCase) || lowerName.EndsWith(".dit", StringComparison.Ordinal)))
                 {
                     if (!list.Contains("ad:ntds-dit")) list.Add("ad:ntds-dit");
@@ -471,7 +471,7 @@ public static partial class FileInspector {
             } catch { }
 
             // CSV/TSV row estimate (lightweight)
-            if (det.Extension is "csv" or "tsv" || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
+            if ((det!.Extension is "csv" or "tsv") || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
                 res.EstimatedLineCount = EstimateLines(path, Settings.DetectionReadBudgetBytes);
             }
 
