@@ -168,6 +168,8 @@ public sealed class ReportView
     public IReadOnlyDictionary<string,int>? InnerPublisherValidCounts { get; set; }
     /// <summary>Publisher counts among self-signed inner executables.</summary>
     public IReadOnlyDictionary<string,int>? InnerPublisherSelfSignedCounts { get; set; }
+    /// <summary>Counts of inner executable entries by extension (exe/dll/msi/etc.).</summary>
+    public IReadOnlyDictionary<string,int>? InnerExecutableExtCounts { get; set; }
     /// <summary>Human lines for archive preview entries ("name (ext)").</summary>
     public IReadOnlyList<string>? ArchivePreview { get; set; }
 
@@ -411,6 +413,7 @@ public sealed class ReportView
         // Archive + MOTW/ADS
         r.ArchiveEntryCount = a.ContainerEntryCount;
         r.ArchiveTopExtensions = a.ContainerTopExtensions;
+        if (a.InnerExecutableExtCounts != null && a.InnerExecutableExtCounts.Count > 0) r.InnerExecutableExtCounts = a.InnerExecutableExtCounts;
         if (a.Security != null)
         {
             r.MotwZoneId = a.Security.MotwZoneId;
@@ -632,6 +635,7 @@ public sealed class ReportView
         if (InnerPublisherValidCounts != null && InnerPublisherValidCounts.Count > 0) d["InnerPublisherValidCounts"] = InnerPublisherValidCounts;
         if (InnerPublisherSelfSignedCounts != null && InnerPublisherSelfSignedCounts.Count > 0) d["InnerPublisherSelfSignedCounts"] = InnerPublisherSelfSignedCounts;
         if (!string.IsNullOrEmpty(InnerBinariesSummary)) d["InnerBinariesSummary"] = InnerBinariesSummary;
+        if (InnerExecutableExtCounts != null && InnerExecutableExtCounts.Count > 0) d["InnerExecutableExtCounts"] = InnerExecutableExtCounts;
         // Reference samples
         if (!string.IsNullOrEmpty(HtmlExternalLinksSample)) d["HtmlExternalLinksSample"] = HtmlExternalLinksSample;
         if (!string.IsNullOrEmpty(HtmlUncSample)) d["HtmlUncSample"] = HtmlUncSample;

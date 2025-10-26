@@ -38,7 +38,7 @@ public static partial class FileInspector {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
                     out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings,
-                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out Dictionary<string,int>? innerPublishersValid, out Dictionary<string,int>? innerPublishersSelf, out List<InnerEntryPreview>? previewOut);
+                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out Dictionary<string,int>? innerPublishersValid, out Dictionary<string,int>? innerPublishersSelf, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -85,6 +85,10 @@ public static partial class FileInspector {
                 if (previewOut != null && previewOut.Count > 0)
                 {
                     res.ArchivePreviewEntries = previewOut.Take(Settings.DeepContainerMaxEntries).ToList();
+                }
+                if (innerExecExtCounts != null && innerExecExtCounts.Count > 0)
+                {
+                    res.InnerExecutableExtCounts = innerExecExtCounts;
                 }
             }
 
@@ -888,9 +892,9 @@ public static partial class FileInspector {
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
         out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut,
-        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut) {
+        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts) {
         hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; encryptedEntryCount = 0; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null;
-        innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; innerPublisherValidCounts = null; innerPublisherSelfCounts = null; previewOut = null;
+        innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; innerPublisherValidCounts = null; innerPublisherSelfCounts = null; previewOut = null; innerExecExtCounts = null;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -1115,6 +1119,13 @@ public static partial class FileInspector {
             }
             entryCount = count;
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
+            // Export counts for executable extensions (by names)
+            try {
+                var execExts = new [] { "exe","dll","msi","sys","com","scr","cpl" };
+                var execCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var k in execExts) { if (exts.TryGetValue(k, out var c) && c > 0) execCounts[k] = c; }
+                if (execCounts.Count > 0) innerExecExtCounts = execCounts;
+            } catch { }
             var guess = TryGuessZipSubtype(fs, out var _);
             containerSubtype = guess;
             // Refine subtype based on cues collected

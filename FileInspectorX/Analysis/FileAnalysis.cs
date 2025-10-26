@@ -131,6 +131,11 @@ public class FileAnalysis {
     public IReadOnlyDictionary<string,int>? InnerPublisherSelfSignedCounts { get; set; }
 
     /// <summary>
+    /// Counts of inner entries by executable extension (e.g., exe, dll, msi) gathered during container scan.
+    /// </summary>
+    public IReadOnlyDictionary<string,int>? InnerExecutableExtCounts { get; set; }
+
+    /// <summary>
     /// Parsed certificate metadata for standalone certificate files (.cer/.crt/.der/.pem).
     /// </summary>
     public CertificateInfo? Certificate { get; set; }
