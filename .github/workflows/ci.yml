@@ -121,7 +121,6 @@ jobs:
           pattern: trx-*
           path: artifacts
           merge-multiple: true
-          if-no-artifact-found: ignore
 
       - name: Download Pester results
         uses: actions/download-artifact@v4
@@ -129,7 +128,6 @@ jobs:
           pattern: test-results-ps*
           path: artifacts
           merge-multiple: true
-          if-no-artifact-found: ignore
 
       - name: Aggregate failing tests
         id: aggregate
