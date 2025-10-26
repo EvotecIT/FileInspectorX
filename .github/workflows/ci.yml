@@ -39,12 +39,12 @@ jobs:
       solution: 'FileInspectorX.sln'
       os_dotnet: '["windows-latest","ubuntu-latest","macos-latest"]'
       enable_codecov: true
-      run_pester: true
+      ps_run: true
       ps_versions: '["5.1","7"]'
-      module_manifest: 'Module/FileInspectorX.psd1'
-      test_script: 'Module/FileInspectorX.Tests.ps1'
-      tests_path: 'Module/Tests'
-      empty_tests_behavior: 'warn'
+      ps_module_manifest: 'Module/FileInspectorX.psd1'
+      ps_test_script: 'Module/FileInspectorX.Tests.ps1'
+      ps_tests_path: 'Module/Tests'
+      ps_empty_tests_behavior: 'warn'
       claude_review: true
       claude_runs_on: '["ubuntu-latest"]'
       post_pr_comment: true
