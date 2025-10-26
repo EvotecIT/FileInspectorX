@@ -30,6 +30,7 @@ foreach ($Module in $RequiredModules) {
     }
 }
 
+
 Write-Color 'ModuleName: ', $ModuleName, ' Version: ', $PSDInformation.ModuleVersion -Color Yellow, Green, Yellow, Green -LinesBefore 2
 Write-Color 'PowerShell Version: ', $PSVersionTable.PSVersion -Color Yellow, Green
 Write-Color 'PowerShell Edition: ', $PSVersionTable.PSEdition -Color Yellow, Green
