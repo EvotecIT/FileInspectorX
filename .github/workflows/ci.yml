@@ -1,0 +1,128 @@
+name: FileInspectorX CI (Unified)
+
+on:
+  pull_request:
+    branches: ['**']
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'Docs/**'
+      - '**/*.rst'
+      - '**/*.adoc'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.gif'
+      - '**/*.svg'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE*'
+      - '**/README.*'
+  push:
+    branches: ['main','master','release/**']
+    paths-ignore:
+      - '**/*.md'
+      - 'Docs/**'
+      - '**/*.rst'
+      - '**/*.adoc'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.gif'
+      - '**/*.svg'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE*'
+      - '**/README.*'
+  workflow_dispatch:
+
+jobs:
+  # .NET tests per-OS (tests only; build covers all TFMs on Windows including net472)
+  dotnet-windows:
+    name: .NET Tests (Windows)
+    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@main
+    with:
+      runs_on: '["windows-latest"]'
+      run_tests: true
+      run_pester: false
+      collect_coverage: true
+      summarize_failures: true
+      upload_artifacts: true
+      solution: 'FileInspectorX.sln'
+      dotnet_versions: '["8.0.x"]'
+      frameworks: '["net8.0"]'
+      # Post failing-tests summary as a sticky PR comment (unique tag per job)
+      post_summary_issue: true
+      post_summary_destination: 'pr'
+      sticky_summary_comment: true
+      summary_comment_tag: 'ci-dotnet-windows'
+    secrets: inherit
+
+  dotnet-ubuntu:
+    name: .NET Tests (Ubuntu)
+    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@main
+    with:
+      runs_on: '["ubuntu-latest"]'
+      run_tests: true
+      run_pester: false
+      collect_coverage: true
+      summarize_failures: true
+      upload_artifacts: true
+      solution: 'FileInspectorX.sln'
+      dotnet_versions: '["8.0.x"]'
+      frameworks: '["net8.0"]'
+      post_summary_issue: true
+      post_summary_destination: 'pr'
+      sticky_summary_comment: true
+      summary_comment_tag: 'ci-dotnet-ubuntu'
+    secrets: inherit
+
+  dotnet-macos:
+    name: .NET Tests (macOS)
+    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@main
+    with:
+      runs_on: '["macos-latest"]'
+      run_tests: true
+      run_pester: false
+      collect_coverage: true
+      summarize_failures: true
+      upload_artifacts: true
+      solution: 'FileInspectorX.sln'
+      dotnet_versions: '["8.0.x"]'
+      frameworks: '["net8.0"]'
+      post_summary_issue: true
+      post_summary_destination: 'pr'
+      sticky_summary_comment: true
+      summary_comment_tag: 'ci-dotnet-macos'
+    secrets: inherit
+
+  # PowerShell tests as a separate job (Windows-only to include PS 5.1 and PS 7)
+  pester-windows:
+    name: PowerShell Tests (Windows 5.1/7)
+    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@main
+    with:
+      runs_on: '["windows-latest"]'
+      # Build the solution to produce the binary module used by the PS module
+      solution: 'FileInspectorX.sln'
+      run_tests: false
+      run_pester: true
+      ps_versions: '["5.1","7"]'
+      # If you keep your tests elsewhere, point explicitly:
+      test_script: 'Module/FileInspectorX.Tests.ps1'
+      collect_coverage: false
+      summarize_failures: true
+      upload_artifacts: true
+      post_summary_issue: true
+      post_summary_destination: 'pr'
+      sticky_summary_comment: true
+      summary_comment_tag: 'ci-pester-windows'
+    secrets: inherit
+
+  # PR-only Claude review (uses dedicated reusable). No-op on push.
+  claude-review:
+    if: ${{ github.event_name == 'pull_request' }}
+    name: Claude Code Review
+    uses: evotecit/github-actions/.github/workflows/review-claude.yml@main
+    with:
+      runs_on: '["ubuntu-latest"]'
+      # model: ''            # optional override, e.g. 'claude-3-5-sonnet'
+      # direct_prompt: ''    # optional custom prompt
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
