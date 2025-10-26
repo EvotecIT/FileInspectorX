@@ -491,13 +491,13 @@ public sealed class ReportView
                 string Titleize(string s)
                 {
                     if (string.IsNullOrWhiteSpace(s)) return s;
-                    var parts = s.Split('-', StringSplitOptions.RemoveEmptyEntries);
+                    var parts = s.Split(new[]{'-'}, StringSplitOptions.RemoveEmptyEntries);
                     for (int i = 0; i < parts.Length; i++)
                     {
                         var p = parts[i]; if (p.Length == 0) continue;
                         parts[i] = char.ToUpperInvariant(p[0]) + (p.Length > 1 ? p.Substring(1) : string.Empty);
                     }
-                    return string.Join('-', parts);
+                    return string.Join("-", parts);
                 }
                 r.ScriptCmdlets = string.Join(", ", a.ScriptCmdlets.Take(6).Select(Titleize));
             }

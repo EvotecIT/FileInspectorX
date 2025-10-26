@@ -310,6 +310,9 @@ public static partial class FileInspector {
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (sf.Count > 0) res.SecurityFindings = sf;
+                // Cmdlets: best-effort extraction for presentation
+                var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
+                if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
                 // Generic text/log/schema cues
                 var tf = SecurityHeuristics.AssessTextGeneric(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (tf.Count > 0)
@@ -348,16 +351,16 @@ public static partial class FileInspector {
             if (options?.IncludePermissions != false) res.Security = BuildFileSecurity(path);
 
             // PE Authenticode (best-effort, cross-platform) for PE files
-            if ((options?.IncludeAuthenticode != false) && (det.Extension is "exe" or "dll" or "sys" or "cpl")) {
+            if ((options?.IncludeAuthenticode != false) && (det?.Extension is "exe" or "dll" or "sys" or "cpl")) {
                 TryPopulateAuthenticode(path, res);
             }
             // PKCS#7 certificate bundle (.p7b/.spc)
-            if (det.Extension is "p7b" or "spc")
+            if (det?.Extension is "p7b" or "spc")
             {
                 TryParseP7b(path, res);
             }
             // MSI package properties (Windows only)
-            if ((options?.IncludeInstaller != false) && (det.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
+            if ((options?.IncludeInstaller != false) && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
                 TryPopulateMsiProperties(path, res);
             }
@@ -372,9 +375,10 @@ public static partial class FileInspector {
 #endif
 
             // Standalone certificate parsing for .cer/.crt/.der/.pem
-            if (det.Extension is "cer" or "crt" or "der" or "pem")
+            var detExtStandalone = det?.Extension;
+            if (detExtStandalone is "cer" or "crt" or "der" or "pem")
             {
-                if (TryLoadCertificateFromFile(path, det.Extension!, out var cert))
+                if (TryLoadCertificateFromFile(path, detExtStandalone!, out var cert))
                 {
                     var ci = new CertificateInfo();
                     try { ci.Subject = cert.Subject; } catch { }
@@ -566,6 +570,9 @@ public static partial class FileInspector {
                     if (!hasNx) res.Flags |= ContentFlags.PeNoNx;
                     if (!hasCfg) res.Flags |= ContentFlags.PeNoCfg;
                     if (peInfo.IsPEPlus && !hasHighEntropy) res.Flags |= ContentFlags.PeNoHighEntropyVa;
+                    // .NET strong-name flag
+                    if (peInfo.DotNetStrongNameSigned.HasValue)
+                        res.DotNetStrongNameSigned = peInfo.DotNetStrongNameSigned;
                 }
 
                 // DLL export quick signals: highlight COM registration exports

@@ -147,6 +147,28 @@ internal static class SecurityHeuristics
         return findings;
     }
 
+    internal static IReadOnlyList<string> GetCmdlets(string path, int budgetBytes)
+    {
+        try
+        {
+            string text = ReadTextHead(path, budgetBytes);
+            if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
+            var lower = text.ToLowerInvariant();
+            // Common cmdlets/verbs of interest
+            string[] probes = new [] {
+                "start-process", "invoke-webrequest", "invoke-restmethod", "new-psdrive",
+                "set-itemproperty", "copy-item", "remove-item", "add-type", "import-module", "set-executionpolicy"
+            };
+            var ordered = new List<string>(probes.Length);
+            foreach (var p in probes)
+            {
+                if (lower.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) ordered.Add(p);
+            }
+            return ordered;
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
     private static bool IsAllowedHost(string host)
     {
         try

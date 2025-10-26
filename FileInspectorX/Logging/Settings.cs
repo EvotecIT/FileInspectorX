@@ -154,6 +154,16 @@ public class Settings {
     public static string[] HtmlAllowedDomains { get; set; } = Array.Empty<string>();
 
     /// <summary>
+    /// When true, ReportView exports full lists of URLs/UNCs discovered in HTML and scripts (in addition to samples).
+    /// Defaults to false to keep payloads smaller.
+    /// </summary>
+    public static bool ReferenceFullListsEnabled { get; set; } = false;
+    /// <summary>
+    /// Maximum characters for any single exported full reference list. Excess is truncated.
+    /// </summary>
+    public static int ReferenceFullListsMaxChars { get; set; } = 4000;
+
+    /// <summary>
     /// Assessment score threshold for Warn decision. Default 40.
     /// </summary>
     public static int AssessmentWarnThreshold { get; set; } = 40;

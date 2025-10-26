@@ -38,6 +38,11 @@ public static partial class FileInspector
             {
                 TryExtractHtmlReferences(path, list);
             }
+            // Scripts: extract URLs and UNC shares from common script types (PowerShell, batch, shell, JS)
+            if (ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs")
+            {
+                TryExtractScriptReferences(path, list, ext);
+            }
 
             // Windows Internet Shortcut (.url)
             if (ext == "url")
@@ -55,6 +60,47 @@ public static partial class FileInspector
         } catch { }
 
         return list.Count > 0 ? list : null;
+    }
+
+    private static void TryExtractScriptReferences(string path, List<Reference> refs, string ext)
+    {
+        try
+        {
+            string text = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(text)) return;
+            // URLs (absolute http/https)
+            int i = 0; var s = text;
+            while (i < s.Length)
+            {
+                int at = s.IndexOf("http", i, StringComparison.OrdinalIgnoreCase); if (at < 0) break;
+                int end = at; while (end < s.Length && !char.IsWhiteSpace(s[end]) && s[end] != '"' && s[end] != '\'' && s[end] != ')' && s[end] != '<' && s[end] != '>' && s[end] != '`') end++;
+                var cand = s.Substring(at, end - at);
+                if (Uri.TryCreate(cand, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps))
+                {
+                    refs.Add(new Reference { Kind = ReferenceKind.Url, Value = cand, SourceTag = "script:" + ext });
+                }
+                i = end + 1;
+            }
+            // UNC paths (roots)
+            // Simple UNC scanner (reuse minimal logic here to avoid dependencies)
+            var span = text.AsSpan();
+            int p = 0; while (p + 3 < span.Length)
+            {
+                if (span[p] == '\\' && span[p+1] == '\\')
+                {
+                    int start = p; p += 2; int sHost = p; while (p < span.Length && (char.IsLetterOrDigit(span[p]) || span[p] == '.' || span[p] == '-' || span[p] == '_')) p++; if (p <= sHost || p >= span.Length || span[p] != '\\') { p++; continue; }
+                    string server = span.Slice(sHost, p - sHost).ToString(); p++;
+                    int sShare = p; while (p < span.Length && (char.IsLetterOrDigit(span[p]) || span[p] == '.' || span[p] == '-' || span[p] == '_' || span[p] == '$')) p++;
+                    if (p > sShare)
+                    {
+                        string share = span.Slice(sShare, p - sShare).ToString();
+                        refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = "\\\\" + server + "\\" + share, SourceTag = "script:" + ext, Issues = ReferenceIssue.UncPath });
+                    }
+                }
+                else p++;
+            }
+        }
+        catch { }
     }
 
     private static void TryExtractHtmlReferences(string path, List<Reference> refs)

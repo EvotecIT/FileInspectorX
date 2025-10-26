@@ -52,6 +52,11 @@ public class FileAnalysis {
     public IReadOnlyList<string>? SecurityFindings { get; set; }
 
     /// <summary>
+    /// For scripts, best-effort list of notable cmdlets/verbs seen (e.g., Start-Process, Invoke-WebRequest).
+    /// </summary>
+    public IReadOnlyList<string>? ScriptCmdlets { get; set; }
+
+    /// <summary>
     /// Normalized file permission/ownership snapshot (best-effort cross-platform).
     /// </summary>
     public FileSecurity? Security { get; set; }

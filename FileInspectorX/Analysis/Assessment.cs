@@ -87,6 +87,12 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PeNoNx) != 0) Add("PE.NoNX", 20);
         if ((a.Flags & ContentFlags.PeNoCfg) != 0) Add("PE.NoCFG", 15);
         if ((a.Flags & ContentFlags.PeNoHighEntropyVa) != 0 && (a.PeMachine != null && a.PeMachine.IndexOf("64", StringComparison.OrdinalIgnoreCase) >= 0)) Add("PE.NoHighEntropyVA", 5);
+        // .NET strong-name signal (mild weight)
+        if ((a.Flags & ContentFlags.PeIsDotNet) != 0)
+        {
+            if (a.DotNetStrongNameSigned == true) { codes.Add("DotNet.StrongName"); factors["DotNet.StrongName"] = -5; score = Math.Max(0, score - 5); }
+            else if (a.DotNetStrongNameSigned == false) { Add("DotNet.NoStrongName", 5); }
+        }
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;

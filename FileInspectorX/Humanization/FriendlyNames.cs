@@ -57,6 +57,8 @@ public static class FriendlyNames
             case "rar":  return "RAR archive";
             case "tar":  return "TAR archive";
             case "gz":   return "GZIP compressed file";
+            case "nupkg": return "NuGet package (NUPKG)";
+            case "xap":   return "Silverlight application package (XAP)";
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
             case "msi":  return "Windows installer package (.msi)";
@@ -112,6 +114,8 @@ public static class FriendlyNames
         {
             if (a.ContainerSubtype == "appx" || a.ContainerSubtype == "msix") return "Windows app package";
             if (a.ContainerSubtype == "vsix") return "Visual Studio extension (VSIX)";
+            if (a.ContainerSubtype == "nupkg") return "NuGet package (NUPKG)";
+            if (a.ContainerSubtype == "xap") return "Silverlight application package (XAP)";
         }
 
         return det?.MimeType; // fallback to MIME
