@@ -48,6 +48,7 @@ internal static class PeReader {
             info.ExportRva = ddVa[0]; info.ExportSize = ddSz[0];
             info.ResourceRva = ddVa[2]; info.ResourceSize = ddSz[2];
             info.SecurityOffset = ddVa[4]; info.SecuritySize = ddSz[4];
+            info.ClrRva = ddVa[14]; info.ClrSize = ddSz[14];
             fs.Seek(optStart + sizeOptionalHeader, SeekOrigin.Begin);
             var secs = new List<Section>(numberOfSections);
             for (int i = 0; i < numberOfSections; i++) {
@@ -61,6 +62,24 @@ internal static class PeReader {
                 secs.Add(new Section { Name = secName, VirtualAddress = virtualAddress, VirtualSize = virtualSize, SizeOfRawData = sizeOfRawData, PointerToRawData = pointerToRawData });
             }
             info.Sections = secs.ToArray();
+
+            // Try to read CLR header Flags for strong-name signal (if present)
+            try {
+                if (info.ClrRva != 0 && RvaToFileOffset(info, info.ClrRva, out var cliOff))
+                {
+                    // IMAGE_COR20_HEADER layout (partial):
+                    //   0x00: cb (DWORD)
+                    //   0x04: MajorRuntimeVersion (WORD)
+                    //   0x06: MinorRuntimeVersion (WORD)
+                    //   0x08: MetaData RVA (DWORD)
+                    //   0x0C: MetaData Size (DWORD)
+                    //   0x10: Flags (DWORD)
+                    fs.Seek(cliOff + 0x10, SeekOrigin.Begin);
+                    uint flags = br.ReadUInt32();
+                    const uint COMIMAGE_FLAGS_STRONGNAMESIGNED = 0x00000008;
+                    info.DotNetStrongNameSigned = (flags & COMIMAGE_FLAGS_STRONGNAMESIGNED) != 0;
+                }
+            } catch { /* non-fatal */ }
             return true;
         } catch { return false; }
     }

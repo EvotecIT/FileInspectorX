@@ -41,6 +41,8 @@ public sealed class ReportView
     public string? ProductVersion { get; set; }
     /// <summary>Original filename from version info.</summary>
     public string? OriginalFilename { get; set; }
+    /// <summary>True when a managed assembly has a strong-name signature (CLR header flag).</summary>
+    public bool? DotNetStrongNameSigned { get; set; }
     /// <summary>Inferred script language when applicable.</summary>
     public string? ScriptLanguage { get; set; }
     /// <summary>Human-friendly script language label.</summary>
@@ -224,6 +226,9 @@ public sealed class ReportView
             r.SignerIssuerCN = a.Authenticode.IssuerCN;
             r.SignerIssuerO  = a.Authenticode.IssuerO;
         }
+        // .NET strong name (when available)
+        if (a.DotNetStrongNameSigned.HasValue)
+            r.DotNetStrongNameSigned = a.DotNetStrongNameSigned;
         // Standalone certificate info (if parsed)
         if (a.Certificate != null)
         {
@@ -527,6 +532,7 @@ public sealed class ReportView
         if (InnerPublisherSelfSignedCounts != null && InnerPublisherSelfSignedCounts.Count > 0) d["InnerPublisherSelfSignedCounts"] = InnerPublisherSelfSignedCounts;
         if (ArchivePreview != null && ArchivePreview.Count > 0) d["ArchivePreview"] = ArchivePreview;
         d["Kind"] = Kind.ToString();
+        if (DotNetStrongNameSigned.HasValue) d["DotNetStrongNameSigned"] = DotNetStrongNameSigned.Value;
         // Security/MOTW export (if available)
         if (MotwZoneId.HasValue) d["MotwZoneId"] = MotwZoneId.Value;
         if (!string.IsNullOrEmpty(MotwReferrerUrl)) d["MotwReferrerUrl"] = MotwReferrerUrl;

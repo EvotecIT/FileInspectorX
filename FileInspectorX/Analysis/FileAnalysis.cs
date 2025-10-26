@@ -62,6 +62,12 @@ public class FileAnalysis {
     public AuthenticodeInfo? Authenticode { get; set; }
 
     /// <summary>
+    /// For managed PE files: true if the COM descriptor Flags indicate a strong-name signature.
+    /// Null when not applicable or not parsed.
+    /// </summary>
+    public bool? DotNetStrongNameSigned { get; set; }
+
+    /// <summary>
     /// Structured references extracted from the file's content (e.g., command targets from Task Scheduler XML,
     /// GPO scripts lists, URLs). Kept generic to support diverse configuration formats.
     /// </summary>
