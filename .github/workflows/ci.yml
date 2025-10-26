@@ -36,64 +36,48 @@ jobs:
   # .NET tests per-OS (tests only; build covers all TFMs on Windows including net472)
   dotnet-windows:
     name: .NET Tests (Windows)
-    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@master
+    uses: EvotecIT/github-actions/.github/workflows/ci-dotnet.yml@master
     with:
-      runs_on: '["windows-latest"]'
-      run_tests: true
-      run_pester: false
-      collect_coverage: true
-      summarize_failures: true
-      upload_artifacts: true
+      os: '["windows-latest"]'
       solution: 'FileInspectorX.sln'
-      # Per-job PR comments disabled; consolidated summary job will handle it
-      post_summary_issue: false
+      summarize_failures: true
+      enable_codecov: true
     secrets: inherit
 
   dotnet-ubuntu:
     name: .NET Tests (Ubuntu)
-    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@master
+    uses: EvotecIT/github-actions/.github/workflows/ci-dotnet.yml@master
     with:
-      runs_on: '["ubuntu-latest"]'
-      run_tests: true
-      run_pester: false
-      collect_coverage: true
-      summarize_failures: true
-      upload_artifacts: true
+      os: '["ubuntu-latest"]'
       solution: 'FileInspectorX.sln'
-      post_summary_issue: false
+      summarize_failures: true
+      enable_codecov: true
     secrets: inherit
 
   dotnet-macos:
     name: .NET Tests (macOS)
-    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@master
+    uses: EvotecIT/github-actions/.github/workflows/ci-dotnet.yml@master
     with:
-      runs_on: '["macos-latest"]'
-      run_tests: true
-      run_pester: false
-      collect_coverage: true
-      summarize_failures: true
-      upload_artifacts: true
+      os: '["macos-latest"]'
       solution: 'FileInspectorX.sln'
-      post_summary_issue: false
+      summarize_failures: true
+      enable_codecov: true
     secrets: inherit
 
   # PowerShell tests as a separate job (Windows-only to include PS 5.1 and PS 7)
   pester-windows:
     name: PowerShell Tests (Windows 5.1/7)
-    uses: EvotecIT/github-actions/.github/workflows/unified-ci.yml@master
+    uses: EvotecIT/github-actions/.github/workflows/ci-powershell.yml@master
     with:
       runs_on: '["windows-latest"]'
-      # Build the solution to produce the binary module used by the PS module
+      module_manifest: 'Module/FileInspectorX.psd1'
       solution: 'FileInspectorX.sln'
-      run_tests: false
-      run_pester: true
       ps_versions: '["5.1","7"]'
-      # If you keep your tests elsewhere, point explicitly:
       test_script: 'Module/FileInspectorX.Tests.ps1'
-      collect_coverage: false
+      rebuild_psd1: false
       summarize_failures: true
-      upload_artifacts: true
-      post_summary_issue: false
+      # dotnet_version is used only if solution is set
+      dotnet_version: '8.0.x'
     secrets: inherit
 
   # PR-only Claude review (uses dedicated reusable). No-op on push.
@@ -114,6 +98,10 @@ jobs:
     needs: [dotnet-windows, dotnet-ubuntu, dotnet-macos, pester-windows]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - name: Download TRX artifacts
         uses: actions/download-artifact@v4
@@ -192,7 +180,7 @@ jobs:
           "hasfailures=$([string]([bool]($failed -gt 0)))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Post consolidated PR comment
-        if: ${{ github.event_name == 'pull_request' && steps.aggregate.outputs.hasfailures == 'true' }}
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
         env:
           SUMMARY_MARKER: evotec-ci-aggregate-summary
