@@ -9,7 +9,7 @@
         <Description>FileInspector: dependency-free content type detection (magic bytes +
             heuristics)</Description>
         <AssemblyName>FileInspector</AssemblyName>
-        <VersionPrefix>0.1.0</VersionPrefix>
+        <VersionPrefix>1.0.0</VersionPrefix>
         <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
         <PackageReadmeFile>NuGet.README.md</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
