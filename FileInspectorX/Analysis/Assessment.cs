@@ -95,6 +95,13 @@ public static partial class FileInspector
             if (sig.IsSelfSigned == true) Add("Sig.SelfSigned", 20);
             if (sig.ChainValid == false) Add("Sig.ChainInvalid", 25);
             if (sig.EnvelopeSignatureValid == false) Add("Sig.BadEnvelope", 15);
+            if (sig.IsTrustedWindowsPolicy == false) Add("Sig.WinTrustInvalid", 25);
+            if (sig.TimestampPresent == false) Add("Sig.NoTimestamp", 5);
+        }
+        else
+        {
+            var ext = a.Detection?.Extension?.ToLowerInvariant();
+            if (ext is "exe" or "dll") Add("Sig.Absent", 10);
         }
 
         // Scripts/text cues (neutral codes from SecurityFindings)
@@ -154,6 +161,11 @@ public static partial class FileInspector
             if (ca.CountScript > 0) { codes.Add("Msi.CustomActionScript"); score += 20; }
             if (ca.CountDll > 0) { codes.Add("Msi.CustomActionDll"); score += 10; }
         }
+        if (string.Equals(a.Installer?.Scope, "PerUser", StringComparison.OrdinalIgnoreCase)) { codes.Add("Msi.PerUser"); score += 5; }
+        if (!string.IsNullOrWhiteSpace(a.Installer?.UrlInfoAbout) || !string.IsNullOrWhiteSpace(a.Installer?.UrlUpdateInfo) || !string.IsNullOrWhiteSpace(a.Installer?.SupportUrl))
+        { codes.Add("Msi.UrlsPresent"); score += 2; }
+        if (a.SecurityFindings != null && a.SecurityFindings.Any(s => string.Equals(s, "pe:regsvr", StringComparison.OrdinalIgnoreCase)))
+        { codes.Add("PE.RegSvrExport"); score += 10; }
 
         // Appx/MSIX capabilities and extensions
         var caps = a.Installer?.Capabilities;

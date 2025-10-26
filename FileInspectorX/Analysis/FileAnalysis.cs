@@ -114,6 +114,10 @@ public class FileAnalysis {
     public int? InnerValidSignedExecutables { get; set; }
     /// <summary>Counts by publisher (SignerSubjectCN when available) among signed inner executables.</summary>
     public IReadOnlyDictionary<string,int>? InnerPublisherCounts { get; set; }
+    /// <summary>Counts by publisher for valid signed inner executables (chain/policy OK).</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherValidCounts { get; set; }
+    /// <summary>Counts by publisher for self-signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherSelfSignedCounts { get; set; }
 
     /// <summary>
     /// Parsed certificate metadata for standalone certificate files (.cer/.crt/.der/.pem).

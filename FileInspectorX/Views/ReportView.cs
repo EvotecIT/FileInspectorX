@@ -138,6 +138,12 @@ public sealed class ReportView
     public int? InnerValidSignedExecutables { get; set; }
     /// <summary>Top publishers with counts as a human string.</summary>
     public string? InnerPublishersHuman { get; set; }
+    /// <summary>Publisher counts among signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherCounts { get; set; }
+    /// <summary>Publisher counts among validly signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherValidCounts { get; set; }
+    /// <summary>Publisher counts among self-signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherSelfSignedCounts { get; set; }
     /// <summary>Human lines for archive preview entries ("name (ext)").</summary>
     public IReadOnlyList<string>? ArchivePreview { get; set; }
 
@@ -166,6 +172,11 @@ public sealed class ReportView
     public string? InstallerSupportUrl { get; set; }
     /// <summary>Installer contact string when available.</summary>
     public string? InstallerContact { get; set; }
+    // Flattened MSI Custom Action counters for templating
+    internal int? _MsiCAExe { get; set; }
+    internal int? _MsiCADll { get; set; }
+    internal int? _MsiCAScript { get; set; }
+    internal string? _MsiCASamples { get; set; }
     
 
     // Archive + MOTW/ADS summaries
@@ -259,6 +270,16 @@ public sealed class ReportView
             r.InstallerHelpLink = a.Installer.HelpLink;
             r.InstallerSupportUrl = a.Installer.SupportUrl;
             r.InstallerContact = a.Installer.Contact;
+            // MSI Custom Action counts (flatten)
+            if (a.Installer.MsiCustomActions != null)
+            {
+                r._MsiCAExe = a.Installer.MsiCustomActions.CountExe;
+                r._MsiCADll = a.Installer.MsiCustomActions.CountDll;
+                r._MsiCAScript = a.Installer.MsiCustomActions.CountScript;
+                r._MsiCASamples = a.Installer.MsiCustomActions.Samples != null && a.Installer.MsiCustomActions.Samples.Count > 0
+                    ? string.Join(", ", a.Installer.MsiCustomActions.Samples)
+                    : null;
+            }
         }
         // Script language
         if (!string.IsNullOrEmpty(a.ScriptLanguage))
@@ -316,8 +337,28 @@ public sealed class ReportView
         r.InnerValidSignedExecutables = a.InnerValidSignedExecutables;
         if (a.InnerPublisherCounts != null && a.InnerPublisherCounts.Count > 0)
         {
-            var top = a.InnerPublisherCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => $"{kv.Key}({kv.Value})");
+            var top = a.InnerPublisherCounts
+                .OrderByDescending(kv => kv.Value)
+                .ThenBy(kv => kv.Key)
+                .Take(5)
+                .Select(kv =>
+                {
+                    var name = kv.Key;
+                    var total = kv.Value;
+                    int valid = 0, self = 0;
+                    if (a.InnerPublisherValidCounts != null) a.InnerPublisherValidCounts.TryGetValue(name, out valid);
+                    if (a.InnerPublisherSelfSignedCounts != null) a.InnerPublisherSelfSignedCounts.TryGetValue(name, out self);
+                    string files = total == 1 ? "1 file" : $"{total} files";
+                    string qual;
+                    if (self > 0) qual = "self-signed";
+                    else if (valid >= total && total > 0) qual = "valid";
+                    else qual = "signed";
+                    return $"{name} ({files}, {qual})";
+                });
             r.InnerPublishersHuman = string.Join(", ", top);
+            r.InnerPublisherCounts = a.InnerPublisherCounts;
+            if (a.InnerPublisherValidCounts != null && a.InnerPublisherValidCounts.Count > 0) r.InnerPublisherValidCounts = a.InnerPublisherValidCounts;
+            if (a.InnerPublisherSelfSignedCounts != null && a.InnerPublisherSelfSignedCounts.Count > 0) r.InnerPublisherSelfSignedCounts = a.InnerPublisherSelfSignedCounts;
         }
         if (a.ArchivePreviewEntries != null && a.ArchivePreviewEntries.Count > 0)
         {
@@ -463,6 +504,10 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InstallerHelpLink)) d["InstallerHelpLink"] = InstallerHelpLink;
         if (!string.IsNullOrEmpty(InstallerSupportUrl)) d["InstallerSupportUrl"] = InstallerSupportUrl;
         if (!string.IsNullOrEmpty(InstallerContact)) d["InstallerContact"] = InstallerContact;
+        if (_MsiCAExe.HasValue) d["MsiCAExe"] = _MsiCAExe.Value;
+        if (_MsiCADll.HasValue) d["MsiCADll"] = _MsiCADll.Value;
+        if (_MsiCAScript.HasValue) d["MsiCAScript"] = _MsiCAScript.Value;
+        if (!string.IsNullOrEmpty(_MsiCASamples)) d["MsiCASamples"] = _MsiCASamples;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         // Archive inventory
         if (ArchiveEntryCount.HasValue) d["ArchiveEntryCount"] = ArchiveEntryCount.Value;
@@ -477,6 +522,9 @@ public sealed class ReportView
         if (InnerSignedExecutables.HasValue) d["InnerSignedExecutables"] = InnerSignedExecutables.Value;
         if (InnerValidSignedExecutables.HasValue) d["InnerValidSignedExecutables"] = InnerValidSignedExecutables.Value;
         if (!string.IsNullOrEmpty(InnerPublishersHuman)) d["InnerPublishersHuman"] = InnerPublishersHuman;
+        if (InnerPublisherCounts != null && InnerPublisherCounts.Count > 0) d["InnerPublisherCounts"] = InnerPublisherCounts;
+        if (InnerPublisherValidCounts != null && InnerPublisherValidCounts.Count > 0) d["InnerPublisherValidCounts"] = InnerPublisherValidCounts;
+        if (InnerPublisherSelfSignedCounts != null && InnerPublisherSelfSignedCounts.Count > 0) d["InnerPublisherSelfSignedCounts"] = InnerPublisherSelfSignedCounts;
         if (ArchivePreview != null && ArchivePreview.Count > 0) d["ArchivePreview"] = ArchivePreview;
         d["Kind"] = Kind.ToString();
         // Security/MOTW export (if available)

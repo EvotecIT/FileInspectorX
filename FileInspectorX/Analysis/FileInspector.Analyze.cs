@@ -38,7 +38,7 @@ public static partial class FileInspector {
                 TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
                     out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings,
-                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out List<InnerEntryPreview>? previewOut);
+                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out Dictionary<string,int>? innerPublishersValid, out Dictionary<string,int>? innerPublishersSelf, out List<InnerEntryPreview>? previewOut);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -79,6 +79,8 @@ public static partial class FileInspector {
                     res.InnerSignedExecutables = innerSignedAny;
                     res.InnerValidSignedExecutables = innerValid;
                     if (innerPublishers != null && innerPublishers.Count > 0) res.InnerPublisherCounts = new Dictionary<string,int>(innerPublishers);
+                    if (innerPublishersValid != null && innerPublishersValid.Count > 0) res.InnerPublisherValidCounts = new Dictionary<string,int>(innerPublishersValid);
+                    if (innerPublishersSelf != null && innerPublishersSelf.Count > 0) res.InnerPublisherSelfSignedCounts = new Dictionary<string,int>(innerPublishersSelf);
                 }
                 if (previewOut != null && previewOut.Count > 0)
                 {
@@ -223,6 +225,34 @@ public static partial class FileInspector {
                     }
                 } catch { }
             }
+            // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
+            try
+            {
+                if ((options?.IncludeInstaller != false) && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
+                {
+                    det.Extension = "msi";
+                    det.MimeType = "application/x-msi";
+                    det.Confidence = "High";
+                    det.Reason = string.IsNullOrEmpty(det.Reason) ? "ole2:msi-confirmed" : det.Reason + ";msi-confirmed";
+                }
+            } catch { }
+
+            // Best-effort service entry indicator (ASCII scan for 'ServiceMain')
+            try
+            {
+                using var fsSvc = File.OpenRead(path);
+                int capSvc = (int)Math.Min(256 * 1024, fsSvc.Length);
+                var bufSvc = new byte[capSvc]; int ns = fsSvc.Read(bufSvc, 0, bufSvc.Length);
+                if (ns > 0)
+                {
+                    var ascii = System.Text.Encoding.ASCII.GetString(bufSvc, 0, ns);
+                    if (ascii.IndexOf("ServiceMain", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                        list.Add("pe:servicemain"); res.SecurityFindings = list;
+                    }
+                }
+            } catch { }
 
             // Shebang/script detection for textlike files
             if (InspectHelpers.IsText(det)) {
@@ -537,7 +567,42 @@ public static partial class FileInspector {
                     if (!hasCfg) res.Flags |= ContentFlags.PeNoCfg;
                     if (peInfo.IsPEPlus && !hasHighEntropy) res.Flags |= ContentFlags.PeNoHighEntropyVa;
                 }
+
+                // DLL export quick signals: highlight COM registration exports
+                try
+                {
+                    var extLower = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
+                    if (extLower is "dll" || extLower is "exe")
+                    {
+                        if (PeReader.TryListExportNames(path, out var expNames) && expNames != null && expNames.Count > 0)
+                        {
+                            var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                            list.Add($"pe:exports={expNames.Count}");
+                            // Common COM registration entry points
+                            bool reg = false; foreach (var n in expNames) { var ln = n.ToLowerInvariant(); if (ln == "dllregisterserver" || ln == "dllinstall" || ln == "dllunregisterserver") { reg = true; break; } }
+                            if (reg) list.Add("pe:regsvr");
+                            // Top export names (3 max)
+                            try { var top = string.Join(",", expNames.Take(3)); if (!string.IsNullOrWhiteSpace(top)) list.Add($"pe:top={top}"); } catch { }
+                            res.SecurityFindings = list;
+                        }
+                    }
+                } catch { }
             }
+
+            // Best-effort .NET TargetFramework detection for managed PE
+            try
+            {
+                if ((res.Flags & ContentFlags.PeIsDotNet) != 0)
+                {
+                    var tfm = TryDetectTargetFramework(path, Settings.DetectionReadBudgetBytes);
+                    if (!string.IsNullOrWhiteSpace(tfm))
+                    {
+                        var dict = res.VersionInfo != null ? new Dictionary<string,string>(res.VersionInfo.ToDictionary(kv => kv.Key, kv => kv.Value)) : new Dictionary<string,string>();
+                        dict["TargetFramework"] = tfm!;
+                        res.VersionInfo = dict;
+                    }
+                }
+            } catch { }
 
             // Assessment (optional)
             if (options?.IncludeAssessment != false)
@@ -802,9 +867,9 @@ public static partial class FileInspector {
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
         out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut,
-        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out List<InnerEntryPreview>? previewOut) {
+        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut) {
         hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; encryptedEntryCount = 0; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null;
-        innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; previewOut = null;
+        innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; innerPublisherValidCounts = null; innerPublisherSelfCounts = null; previewOut = null;
         try {
             using var fs = File.OpenRead(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
@@ -821,6 +886,8 @@ public static partial class FileInspector {
             bool deep = Settings.DeepContainerScanEnabled;
             var localFindings = new List<string>(8);
             var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            var innerPublisherValid = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            var innerPublisherSelf = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             var previews = new List<InnerEntryPreview>();
             // JAR/APK/Vendored package cues
             bool hasManifestMf = false; bool hasClass = false; bool hasJarSig = false;
@@ -1015,6 +1082,8 @@ public static partial class FileInspector {
                                         if (v) innerValidSignedExecutables++;
                                         var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
                                         if (innerPublishers.TryGetValue(pub, out var pc)) innerPublishers[pub] = pc + 1; else innerPublishers[pub] = 1;
+                                        if (v) { if (innerPublisherValid.TryGetValue(pub, out var pv)) innerPublisherValid[pub] = pv + 1; else innerPublisherValid[pub] = 1; }
+                                        if (ia.Authenticode.IsSelfSigned == true) { if (innerPublisherSelf.TryGetValue(pub, out var ps)) innerPublisherSelf[pub] = ps + 1; else innerPublisherSelf[pub] = 1; }
                                     }
                                 } catch { }
                             }
@@ -1071,6 +1140,8 @@ public static partial class FileInspector {
             if (innerExecutablesSampled > 0)
             {
                 innerPublisherCounts = innerPublishers.Count > 0 ? new Dictionary<string,int>(innerPublishers) : null;
+                innerPublisherValidCounts = innerPublisherValid.Count > 0 ? new Dictionary<string,int>(innerPublisherValid) : null;
+                innerPublisherSelfCounts = innerPublisherSelf.Count > 0 ? new Dictionary<string,int>(innerPublisherSelf) : null;
             }
             if (previews.Count > 0) previewOut = previews;
             // Attach inner findings via the caller's FileAnalysis when available (handled by Analyze caller)

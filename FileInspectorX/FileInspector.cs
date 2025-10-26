@@ -67,6 +67,9 @@ public static partial class FileInspector {
             // .htm <-> .html
             if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
+            // MSI promoted from generic OLE2
+            if ((a.Equals("msi", StringComparison.OrdinalIgnoreCase) && b.Equals("ole2", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
             // Plain‑text family: treat generic text and log/config notes as equivalent
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
             return false;
@@ -216,7 +219,13 @@ public static partial class FileInspector {
                     Confidence = conf,
                     Reason = $"magic:{sig.Extension}"
                 };
-                return Enrich(basic, src, stream, options);
+                var enriched = Enrich(basic, src, stream, options);
+                // Promote generic OLE2 to MSI when directory hints indicate MSI tables (extra safeguard for detection-only callers)
+                if (sig.Extension == "ole2" && stream is not null)
+                {
+                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Enrich(refine, src, stream, options); } catch { }
+                }
+                return enriched;
             }
         }
 
@@ -267,6 +276,36 @@ public static partial class FileInspector {
     [System.Runtime.InteropServices.DllImport("msi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true, EntryPoint = "MsiGetFileVersionW")]
     private static extern uint MsiGetFileVersionW(string szFilePath, System.Text.StringBuilder? lpVersionBuf, ref int pcchVersionBuf, System.Text.StringBuilder? lpLangBuf, ref int pcchLangBuf);
 
+    /// <summary>
+    /// Best-effort scan for TargetFramework moniker in managed binaries by searching ASCII/UTF-16 strings.
+    /// Returns a compact TFM like ".NETFramework,Version=v4.7.2" or ".NETCoreApp,Version=v8.0" when found.
+    /// </summary>
+    internal static string? TryDetectTargetFramework(string path, int byteBudget)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            int cap = (int)Math.Min(Math.Max(64 * 1024, byteBudget), Math.Min(fs.Length, (long)byteBudget));
+            var buf = new byte[cap];
+            int n = fs.Read(buf, 0, buf.Length); if (n <= 0) return null;
+            string ascii = System.Text.Encoding.ASCII.GetString(buf, 0, n);
+            string uni = n >= 2 ? System.Text.Encoding.Unicode.GetString(buf, 0, n - (n % 2)) : string.Empty;
+            string? Extract(string s)
+            {
+                foreach (var prefix in new [] { ".NETFramework,Version=v", ".NETCoreApp,Version=v", ".NETStandard,Version=v" })
+                {
+                    int at = s.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+                    if (at >= 0)
+                    {
+                        int end = at + prefix.Length; while (end < s.Length && (char.IsDigit(s[end]) || s[end] == '.' )) end++;
+                        return s.Substring(at, end - at);
+                    }
+                }
+                return null;
+            }
+            return Extract(ascii) ?? Extract(uni);
+        } catch { return null; }
+    }
     private static void TryParseP7b(string path, FileAnalysis res)
     {
         try
@@ -387,9 +426,9 @@ public static partial class FileInspector {
                 for (int p = 0; p + 4 <= sec.Length; p += 4)
                     fat.Add(BitConverter.ToInt32(sec, p));
             }
-            // Walk directory stream through FAT (limit a few sectors)
+            // Walk directory stream through FAT (bounded). Increase sectors for robust MSI detection.
             const int ENDOFCHAIN = unchecked((int)0xFFFFFFFE);
-            int cur = dirStartSid; int maxSectors = 8; int sectors = 0;
+            int cur = dirStartSid; int maxSectors = 64; int sectors = 0;
             while (cur >= 0 && cur < fat.Count && sectors < maxSectors)
             {
                 long off = 512L + ((long)cur + 1) * sectorSize;

@@ -158,6 +158,28 @@ public static class Legend
                 var longTxt  = $"RAR v4 archive contains password-protected entries: {val}.";
                 friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
             }
+            else if (f.StartsWith("pe:exports=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("pe:exports=".Length);
+                var shortTxt = $"Exports: {val}";
+                var longTxt  = $"DLL/EXE exports {val} symbols.";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (f.StartsWith("pe:top=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("pe:top=".Length);
+                var shortTxt = $"Top exports: {val}";
+                var longTxt  = $"Top exported names: {val}.";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (string.Equals(f, "pe:regsvr", StringComparison.OrdinalIgnoreCase))
+            {
+                friendly.Add(style == HumanizeStyle.Long ? "COM registration exports present (DllRegisterServer/DllInstall)." : "COM registration exports present");
+            }
+            else if (string.Equals(f, "pe:servicemain", StringComparison.OrdinalIgnoreCase))
+            {
+                friendly.Add(style == HumanizeStyle.Long ? "Service entry indicator found (ServiceMain)." : "ServiceMain string present");
+            }
             else if (f.StartsWith("7z:files=", StringComparison.OrdinalIgnoreCase))
             {
                 var val = f.Substring("7z:files=".Length);
