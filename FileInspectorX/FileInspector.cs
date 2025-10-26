@@ -72,6 +72,8 @@ public static partial class FileInspector {
                 (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
             // Plain‑text family: treat generic text and log/config notes as equivalent
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
+            // Heuristic: PowerShell low‑confidence vs .txt — avoid noisy mismatches for changelogs/readmes
+            if (a.Equals("txt", StringComparison.OrdinalIgnoreCase) && b.Equals("ps1", StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
 
@@ -97,6 +99,12 @@ public static partial class FileInspector {
         }
 
         var mismatch = !Equivalent(decl, det);
+        // Special-case: If detection is low-confidence PowerShell but the declared is plain text, treat as match to avoid noise
+        if (mismatch && decl.Equals("txt", StringComparison.OrdinalIgnoreCase) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
+        {
+            var conf = detected.Confidence ?? string.Empty;
+            if (conf.Equals("Low", StringComparison.OrdinalIgnoreCase)) mismatch = false;
+        }
         var reason = mismatch ? $"decl:{decl} vs det:{detected.Extension}" : "match";
         return (mismatch, reason);
     }
