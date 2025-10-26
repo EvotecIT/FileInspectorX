@@ -140,6 +140,28 @@ public sealed class ReportView
     public int? InnerValidSignedExecutables { get; set; }
     /// <summary>Top publishers with counts as a human string.</summary>
     public string? InnerPublishersHuman { get; set; }
+    /// <summary>Compact one-line summary of inner binaries (sampled/signed/valid, top publisher).</summary>
+    public string? InnerBinariesSummary { get; set; }
+
+    // Reference samples for HTML and Scripts
+    /// <summary>Comma-separated sample of external URLs found in HTML content.</summary>
+    public string? HtmlExternalLinksSample { get; set; }
+    /// <summary>Comma-separated sample of UNC share roots found in HTML content.</summary>
+    public string? HtmlUncSample { get; set; }
+    /// <summary>Comma-separated sample of URLs found in scripts.</summary>
+    public string? ScriptUrlsSample { get; set; }
+    /// <summary>Comma-separated sample of UNC share roots found in scripts.</summary>
+    public string? ScriptUncSample { get; set; }
+    /// <summary>Full list of external URLs found in HTML (newline-separated), truncated by settings.</summary>
+    public string? HtmlExternalLinksFull { get; set; }
+    /// <summary>Full list of UNC roots found in HTML (newline-separated), truncated by settings.</summary>
+    public string? HtmlUncFull { get; set; }
+    /// <summary>Full list of URLs found in scripts (newline-separated), truncated by settings.</summary>
+    public string? ScriptUrlsFull { get; set; }
+    /// <summary>Full list of UNC roots found in scripts (newline-separated), truncated by settings.</summary>
+    public string? ScriptUncFull { get; set; }
+    /// <summary>Comma-separated list of notable script cmdlets/verbs encountered.</summary>
+    public string? ScriptCmdlets { get; set; }
     /// <summary>Publisher counts among signed inner executables.</summary>
     public IReadOnlyDictionary<string,int>? InnerPublisherCounts { get; set; }
     /// <summary>Publisher counts among validly signed inner executables.</summary>
@@ -365,6 +387,20 @@ public sealed class ReportView
             if (a.InnerPublisherValidCounts != null && a.InnerPublisherValidCounts.Count > 0) r.InnerPublisherValidCounts = a.InnerPublisherValidCounts;
             if (a.InnerPublisherSelfSignedCounts != null && a.InnerPublisherSelfSignedCounts.Count > 0) r.InnerPublisherSelfSignedCounts = a.InnerPublisherSelfSignedCounts;
         }
+        // Inner binaries compact summary (single line) when counts present
+        if (a.InnerExecutablesSampled.HasValue)
+        {
+            var parts = new List<string> { $"Binaries: {a.InnerExecutablesSampled.Value}" };
+            if (a.InnerSignedExecutables.HasValue) parts.Add($"Signed {a.InnerSignedExecutables.Value}");
+            if (a.InnerValidSignedExecutables.HasValue) parts.Add($"Valid {a.InnerValidSignedExecutables.Value}");
+            if (!string.IsNullOrWhiteSpace(r.InnerPublishersHuman))
+            {
+                var firstSeg = (r.InnerPublishersHuman ?? string.Empty).Split(',');
+                var head = firstSeg.Length > 0 ? firstSeg[0].Trim() : string.Empty;
+                if (!string.IsNullOrWhiteSpace(head)) parts.Add($"Top: {head}");
+            }
+            r.InnerBinariesSummary = string.Join(" • ", parts);
+        }
         if (a.ArchivePreviewEntries != null && a.ArchivePreviewEntries.Count > 0)
         {
             r.ArchivePreview = a.ArchivePreviewEntries
@@ -401,6 +437,71 @@ public sealed class ReportView
         }
         // Friendly type label
         try { r.DetectedTypeFriendly = FriendlyNames.GetTypeLabel(a.Detection, a); } catch { }
+
+        // Reference samples (HTML and scripts)
+        try
+        {
+            var refs = a.References;
+            if (refs != null && refs.Count > 0)
+            {
+                string JoinTop(IEnumerable<string> items, int n)
+                {
+                    var head = items.Where(s => !string.IsNullOrWhiteSpace(s)).Take(n).Select(s => s.Length > 120 ? s.Substring(0, 117) + "…" : s);
+                    return string.Join(", ", head);
+                }
+                var htmlUrls = refs.Where(rf => rf.Kind == ReferenceKind.Url && (rf.SourceTag?.StartsWith("html:", StringComparison.OrdinalIgnoreCase) ?? false)).Select(rf => rf.Value);
+                var htmlUnc  = refs.Where(rf => rf.Kind == ReferenceKind.FilePath && (rf.SourceTag?.StartsWith("html:", StringComparison.OrdinalIgnoreCase) ?? false) && (rf.Issues & ReferenceIssue.UncPath) != 0).Select(rf => rf.Value);
+                var scrUrls  = refs.Where(rf => rf.Kind == ReferenceKind.Url && (rf.SourceTag?.StartsWith("script:", StringComparison.OrdinalIgnoreCase) ?? false)).Select(rf => rf.Value);
+                var scrUnc   = refs.Where(rf => rf.Kind == ReferenceKind.FilePath && (rf.SourceTag?.StartsWith("script:", StringComparison.OrdinalIgnoreCase) ?? false) && (rf.Issues & ReferenceIssue.UncPath) != 0).Select(rf => rf.Value);
+
+                var hUrls = JoinTop(htmlUrls, 5); if (!string.IsNullOrWhiteSpace(hUrls)) r.HtmlExternalLinksSample = hUrls;
+                var hUnc  = JoinTop(htmlUnc, 3);  if (!string.IsNullOrWhiteSpace(hUnc))  r.HtmlUncSample = hUnc;
+                var sUrls = JoinTop(scrUrls, 5);  if (!string.IsNullOrWhiteSpace(sUrls)) r.ScriptUrlsSample = sUrls;
+                var sUnc  = JoinTop(scrUnc, 3);   if (!string.IsNullOrWhiteSpace(sUnc))  r.ScriptUncSample = sUnc;
+
+                // Full lists (optional)
+                if (Settings.ReferenceFullListsEnabled)
+                {
+                    string JoinAll(IEnumerable<string> items)
+                    {
+                        var uniq = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var arr = new List<string>();
+                        foreach (var it in items) { if (string.IsNullOrWhiteSpace(it)) continue; if (uniq.Add(it)) arr.Add(it); }
+                        var joined = string.Join("\n", arr);
+                        if (joined.Length > Settings.ReferenceFullListsMaxChars) joined = joined.Substring(0, Settings.ReferenceFullListsMaxChars) + "…";
+                        return joined;
+                    }
+                    var htmlAll = JoinAll(htmlUrls);
+                    if (!string.IsNullOrWhiteSpace(htmlAll)) r.HtmlExternalLinksFull = htmlAll;
+                    var htmlUncAll = JoinAll(htmlUnc);
+                    if (!string.IsNullOrWhiteSpace(htmlUncAll)) r.HtmlUncFull = htmlUncAll;
+                    var scrAll = JoinAll(scrUrls);
+                    if (!string.IsNullOrWhiteSpace(scrAll)) r.ScriptUrlsFull = scrAll;
+                    var scrUncAll = JoinAll(scrUnc);
+                    if (!string.IsNullOrWhiteSpace(scrUncAll)) r.ScriptUncFull = scrUncAll;
+                }
+            }
+        } catch { }
+
+        // Cmdlets (scripts)
+        try
+        {
+            if (a.ScriptCmdlets != null && a.ScriptCmdlets.Count > 0)
+            {
+                string Titleize(string s)
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return s;
+                    var parts = s.Split('-', StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i < parts.Length; i++)
+                    {
+                        var p = parts[i]; if (p.Length == 0) continue;
+                        parts[i] = char.ToUpperInvariant(p[0]) + (p.Length > 1 ? p.Substring(1) : string.Empty);
+                    }
+                    return string.Join('-', parts);
+                }
+                r.ScriptCmdlets = string.Join(", ", a.ScriptCmdlets.Take(6).Select(Titleize));
+            }
+        } catch { }
 
         // Kind/advice/compact fields
         r.Kind = a.Kind;
@@ -530,6 +631,17 @@ public sealed class ReportView
         if (InnerPublisherCounts != null && InnerPublisherCounts.Count > 0) d["InnerPublisherCounts"] = InnerPublisherCounts;
         if (InnerPublisherValidCounts != null && InnerPublisherValidCounts.Count > 0) d["InnerPublisherValidCounts"] = InnerPublisherValidCounts;
         if (InnerPublisherSelfSignedCounts != null && InnerPublisherSelfSignedCounts.Count > 0) d["InnerPublisherSelfSignedCounts"] = InnerPublisherSelfSignedCounts;
+        if (!string.IsNullOrEmpty(InnerBinariesSummary)) d["InnerBinariesSummary"] = InnerBinariesSummary;
+        // Reference samples
+        if (!string.IsNullOrEmpty(HtmlExternalLinksSample)) d["HtmlExternalLinksSample"] = HtmlExternalLinksSample;
+        if (!string.IsNullOrEmpty(HtmlUncSample)) d["HtmlUncSample"] = HtmlUncSample;
+        if (!string.IsNullOrEmpty(ScriptUrlsSample)) d["ScriptUrlsSample"] = ScriptUrlsSample;
+        if (!string.IsNullOrEmpty(ScriptUncSample)) d["ScriptUncSample"] = ScriptUncSample;
+        if (!string.IsNullOrEmpty(ScriptCmdlets)) d["ScriptCmdlets"] = ScriptCmdlets;
+        if (!string.IsNullOrEmpty(HtmlExternalLinksFull)) d["HtmlExternalLinksFull"] = HtmlExternalLinksFull;
+        if (!string.IsNullOrEmpty(HtmlUncFull)) d["HtmlUncFull"] = HtmlUncFull;
+        if (!string.IsNullOrEmpty(ScriptUrlsFull)) d["ScriptUrlsFull"] = ScriptUrlsFull;
+        if (!string.IsNullOrEmpty(ScriptUncFull)) d["ScriptUncFull"] = ScriptUncFull;
         if (ArchivePreview != null && ArchivePreview.Count > 0) d["ArchivePreview"] = ArchivePreview;
         d["Kind"] = Kind.ToString();
         if (DotNetStrongNameSigned.HasValue) d["DotNetStrongNameSigned"] = DotNetStrongNameSigned.Value;
