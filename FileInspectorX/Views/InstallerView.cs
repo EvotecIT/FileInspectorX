@@ -21,12 +21,28 @@ public sealed class InstallerView
     public string? Version { get; set; }
     /// <summary>MSI product code (GUID).</summary>
     public string? ProductCode { get; set; }
+    /// <summary>MSI upgrade code (GUID).</summary>
+    public string? UpgradeCode { get; set; }
     /// <summary>MSI manufacturer.</summary>
     public string? Manufacturer { get; set; }
+    /// <summary>Installer scope (PerUser/PerMachine), when detectable.</summary>
+    public string? Scope { get; set; }
     /// <summary>Author metadata, when present.</summary>
     public string? Author { get; set; }
     /// <summary>Comments/description, when present.</summary>
     public string? Comments { get; set; }
+    /// <summary>Package code (GUID) from SummaryInformation.</summary>
+    public string? PackageCode { get; set; }
+    /// <summary>About/Info URL.</summary>
+    public string? UrlInfoAbout { get; set; }
+    /// <summary>Update URL.</summary>
+    public string? UrlUpdateInfo { get; set; }
+    /// <summary>Help link.</summary>
+    public string? HelpLink { get; set; }
+    /// <summary>Support URL.</summary>
+    public string? SupportUrl { get; set; }
+    /// <summary>Contact string.</summary>
+    public string? Contact { get; set; }
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
@@ -46,9 +62,17 @@ public sealed class InstallerView
             IdentityName = i.IdentityName,
             Version = i.Version,
             ProductCode = i.ProductCode,
+            UpgradeCode = i.UpgradeCode,
+            Scope = i.Scope,
             Manufacturer = i.Manufacturer,
             Author = i.Author,
             Comments = i.Comments,
+            PackageCode = i.PackageCode,
+            UrlInfoAbout = i.UrlInfoAbout,
+            UrlUpdateInfo = i.UrlUpdateInfo,
+            HelpLink = i.HelpLink,
+            SupportUrl = i.SupportUrl,
+            Contact = i.Contact,
             Raw = null
         };
     }

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 
 namespace FileInspectorX;
 
@@ -49,7 +50,61 @@ public static partial class FileInspector {
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
         var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.');
         if (detected is null || string.IsNullOrEmpty(decl)) return (false, "no-detection-or-declared");
-        var mismatch = !string.Equals(decl, detected.Extension, StringComparison.OrdinalIgnoreCase);
+        var det = (detected.Extension ?? string.Empty).Trim();
+
+        // Treat common synonyms as equivalent (avoid false mismatches)
+        static bool Equivalent(string a, string b) {
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+            // .cer <-> .crt
+            if ((a.Equals("cer", StringComparison.OrdinalIgnoreCase) && b.Equals("crt", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("crt", StringComparison.OrdinalIgnoreCase) && b.Equals("cer", StringComparison.OrdinalIgnoreCase))) return true;
+            // .yml <-> .yaml
+            if ((a.Equals("yml", StringComparison.OrdinalIgnoreCase) && b.Equals("yaml", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("yaml", StringComparison.OrdinalIgnoreCase) && b.Equals("yml", StringComparison.OrdinalIgnoreCase))) return true;
+            // .jpg <-> .jpeg
+            if ((a.Equals("jpg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpeg", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("jpeg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpg", StringComparison.OrdinalIgnoreCase))) return true;
+            // .htm <-> .html
+            if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
+            // MSI promoted from generic OLE2
+            if ((a.Equals("msi", StringComparison.OrdinalIgnoreCase) && b.Equals("ole2", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
+            // Plain‑text family: treat generic text and log/config notes as equivalent
+            if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
+            // Heuristic: PowerShell low‑confidence vs .txt — avoid noisy mismatches for changelogs/readmes
+            if (a.Equals("txt", StringComparison.OrdinalIgnoreCase) && b.Equals("ps1", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        static bool InPlainTextFamily(string ext)
+        {
+            // Conservative set: generic text and common note/config/log formats; excludes csv/tsv/scripts
+            switch ((ext ?? string.Empty).ToLowerInvariant())
+            {
+                case "txt":
+                case "text":
+                case "log":
+                case "cfg":
+                case "conf":
+                case "ini":
+                case "md":
+                case "markdown":
+                case "properties":
+                case "prop":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        var mismatch = !Equivalent(decl, det);
+        // Special-case: If detection is low-confidence PowerShell but the declared is plain text, treat as match to avoid noise
+        if (mismatch && decl.Equals("txt", StringComparison.OrdinalIgnoreCase) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
+        {
+            var conf = detected.Confidence ?? string.Empty;
+            if (conf.Equals("Low", StringComparison.OrdinalIgnoreCase)) mismatch = false;
+        }
         var reason = mismatch ? $"decl:{decl} vs det:{detected.Extension}" : "match";
         return (mismatch, reason);
     }
@@ -124,11 +179,20 @@ public static partial class FileInspector {
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
 
-        // TAR, RIFF, SQLite quick checks first
+        // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Enrich(tar, src, stream, options);
         if (Signatures.TryMatchRiff(src, out var riff)) return Enrich(riff, src, stream, options);
+        if (Signatures.TryMatchEvtx(src, out var evtx)) return Enrich(evtx, src, stream, options);
+        if (Signatures.TryMatchEse(src, out var ese)) return Enrich(ese, src, stream, options);
+        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Enrich(hive, src, stream, options);
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
+        if (Signatures.TryMatchPkcs12(src, out var p12)) return Enrich(p12, src, stream, options);
+        if (Signatures.TryMatchDerCertificate(src, out var der)) return Enrich(der, src, stream, options);
+        if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Enrich(pgpbin, src, stream, options);
+        if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Enrich(kdbx, src, stream, options);
+        if (Signatures.TryMatch7z(src, out var _7z)) return Enrich(_7z, src, stream, options);
+        if (Signatures.TryMatchRar(src, out var rar)) return Enrich(rar, src, stream, options);
         if (Signatures.TryMatchElf(src, out var elf)) return Enrich(elf, src, stream, options);
         if (Signatures.TryMatchMachO(src, out var macho)) return Enrich(macho, src, stream, options);
         if (Signatures.TryMatchCab(src, out var cab)) return Enrich(cab, src, stream, options);
@@ -163,7 +227,13 @@ public static partial class FileInspector {
                     Confidence = conf,
                     Reason = $"magic:{sig.Extension}"
                 };
-                return Enrich(basic, src, stream, options);
+                var enriched = Enrich(basic, src, stream, options);
+                // Promote generic OLE2 to MSI when directory hints indicate MSI tables (extra safeguard for detection-only callers)
+                if (sig.Extension == "ole2" && stream is not null)
+                {
+                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Enrich(refine, src, stream, options); } catch { }
+                }
+                return enriched;
             }
         }
 
@@ -193,6 +263,76 @@ public static partial class FileInspector {
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
         } catch { }
         return null;
+    }
+
+    /// <summary>
+    /// Attempts to retrieve MSI file version (Windows only) using msi.dll. Returns null on failure or non‑Windows platforms.
+    /// </summary>
+    private static string? TryGetMsiVersion(string path)
+    {
+        try
+        {
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)) return null;
+            int vCap = 256, lCap = 0;
+            var v = new System.Text.StringBuilder(vCap);
+            uint rc = MsiGetFileVersionW(path, v, ref vCap, null, ref lCap);
+            if (rc == 0) return v.ToString();
+        } catch { }
+        return null;
+    }
+
+    [System.Runtime.InteropServices.DllImport("msi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true, EntryPoint = "MsiGetFileVersionW")]
+    private static extern uint MsiGetFileVersionW(string szFilePath, System.Text.StringBuilder? lpVersionBuf, ref int pcchVersionBuf, System.Text.StringBuilder? lpLangBuf, ref int pcchLangBuf);
+
+    /// <summary>
+    /// Best-effort scan for TargetFramework moniker in managed binaries by searching ASCII/UTF-16 strings.
+    /// Returns a compact TFM like ".NETFramework,Version=v4.7.2" or ".NETCoreApp,Version=v8.0" when found.
+    /// </summary>
+    internal static string? TryDetectTargetFramework(string path, int byteBudget)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            int cap = (int)Math.Min(Math.Max(64 * 1024, byteBudget), Math.Min(fs.Length, (long)byteBudget));
+            var buf = new byte[cap];
+            int n = fs.Read(buf, 0, buf.Length); if (n <= 0) return null;
+            string ascii = System.Text.Encoding.ASCII.GetString(buf, 0, n);
+            string uni = n >= 2 ? System.Text.Encoding.Unicode.GetString(buf, 0, n - (n % 2)) : string.Empty;
+            string? Extract(string s)
+            {
+                foreach (var prefix in new [] { ".NETFramework,Version=v", ".NETCoreApp,Version=v", ".NETStandard,Version=v" })
+                {
+                    int at = s.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+                    if (at >= 0)
+                    {
+                        int end = at + prefix.Length; while (end < s.Length && (char.IsDigit(s[end]) || s[end] == '.' )) end++;
+                        return s.Substring(at, end - at);
+                    }
+                }
+                return null;
+            }
+            return Extract(ascii) ?? Extract(uni);
+        } catch { return null; }
+    }
+    private static void TryParseP7b(string path, FileAnalysis res)
+    {
+        try
+        {
+            var raw = File.ReadAllBytes(path);
+            var cms = new System.Security.Cryptography.Pkcs.SignedCms();
+            cms.Decode(raw);
+            var certs = cms.Certificates;
+            if (certs != null && certs.Count > 0)
+            {
+                var subs = new List<string>(certs.Count);
+                foreach (var c in certs)
+                {
+                    try { if (!string.IsNullOrWhiteSpace(c.Subject)) subs.Add(c.Subject); } catch { }
+                }
+                res.CertificateBundleCount = certs.Count;
+                res.CertificateBundleSubjects = subs;
+            }
+        } catch { }
     }
 
     /// <summary>
@@ -231,8 +371,102 @@ public static partial class FileInspector {
                 return new ContentTypeDetectionResult { Extension = "xls", MimeType = "application/vnd.ms-excel", Confidence = "Medium", Reason = "ole2:xls" };
             if (ascii.IndexOf("PowerPoint Document", StringComparison.OrdinalIgnoreCase) >= 0)
                 return new ContentTypeDetectionResult { Extension = "ppt", MimeType = "application/vnd.ms-powerpoint", Confidence = "Medium", Reason = "ole2:ppt" };
+            // MSI hint: raise confidence to High when multiple typical MSI table names occur alongside SummaryInformation
+            bool hasSum = ascii.IndexOf("SummaryInformation", StringComparison.OrdinalIgnoreCase) >= 0;
+            int cnt = 0;
+            if (ascii.IndexOf("Property", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
+            if (ascii.IndexOf("Directory", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
+            if (ascii.IndexOf("Media", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
+            if (ascii.IndexOf("Component", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
+            if (hasSum && cnt >= 2)
+                return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = cnt >= 3 ? "High" : "Medium", Reason = cnt >= 3 ? "ole2:msi-dir-high" : "ole2:msi-hint" };
+
+            // Try mini CFBF directory parse for higher confidence
+            if (TryGetOleDirectoryNames(stream, out var names))
+            {
+                bool hasSummary = names.Any(nm => nm.IndexOf("SummaryInformation", StringComparison.OrdinalIgnoreCase) >= 0 || (nm.Length > 0 && nm[0] == '\u0005' && nm.IndexOf("SummaryInformation", StringComparison.OrdinalIgnoreCase) >= 1));
+                int hits = 0;
+                string[] msiNames = new [] { "Property", "Directory", "Feature", "Media", "Component", "File", "InstallExecuteSequence" };
+                foreach (var nm in names) foreach (var t in msiNames) { if (nm.Equals(t, StringComparison.OrdinalIgnoreCase)) { hits++; break; } }
+                if (hasSummary && hits >= 2)
+                    return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = hits >= 3 ? "High" : "Medium", Reason = hits >= 3 ? "ole2:msi-cfbf-high" : "ole2:msi-cfbf" };
+            }
         } catch { }
         return null;
+    }
+
+    private static bool TryGetOleDirectoryNames(Stream stream, out List<string> names)
+    {
+        names = new List<string>();
+        long save = stream.CanSeek ? stream.Position : 0;
+        try {
+            if (!stream.CanSeek) return false;
+            stream.Seek(0, SeekOrigin.Begin);
+            var hdr = new byte[512];
+            if (stream.Read(hdr, 0, hdr.Length) != hdr.Length) return false;
+            // Signature
+            byte[] sig = new byte[] { 0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1 };
+            for (int i = 0; i < 8; i++) if (hdr[i] != sig[i]) return false;
+            int secShift = hdr[0x1E] | (hdr[0x1F] << 8); // typically 9 => 512 bytes
+            int sectorSize = 1 << secShift;
+            int dirStartSid = BitConverter.ToInt32(hdr, 0x30);
+            int fatCount = BitConverter.ToInt32(hdr, 0x2C);
+            if (dirStartSid < 0 || sectorSize < 512 || sectorSize > (1<<20)) return false;
+            // Read FAT sector SIDs from DIFAT in header (109 entries)
+            var fatSids = new List<int>();
+            for (int i = 0; i < 109; i++)
+            {
+                int sid = BitConverter.ToInt32(hdr, 0x4C + i*4);
+                if (sid >= 0) fatSids.Add(sid);
+            }
+            if (fatSids.Count == 0 || fatCount == 0) return false;
+            // Build FAT table
+            var fat = new List<int>();
+            foreach (var sid in fatSids)
+            {
+                long off = 512L + ((long)sid + 1) * sectorSize;
+                if (off < 0 || off + sectorSize > stream.Length) continue;
+                stream.Seek(off, SeekOrigin.Begin);
+                var sec = new byte[sectorSize];
+                int rn = stream.Read(sec, 0, sec.Length);
+                if (rn != sec.Length) break;
+                // Each FAT sector contains 32-bit entries
+                for (int p = 0; p + 4 <= sec.Length; p += 4)
+                    fat.Add(BitConverter.ToInt32(sec, p));
+            }
+            // Walk directory stream through FAT (bounded). Increase sectors for robust MSI detection.
+            const int ENDOFCHAIN = unchecked((int)0xFFFFFFFE);
+            int cur = dirStartSid; int maxSectors = 64; int sectors = 0;
+            while (cur >= 0 && cur < fat.Count && sectors < maxSectors)
+            {
+                long off = 512L + ((long)cur + 1) * sectorSize;
+                if (off < 0 || off + sectorSize > stream.Length) break;
+                stream.Seek(off, SeekOrigin.Begin);
+                var dirSec = new byte[sectorSize];
+                if (stream.Read(dirSec, 0, dirSec.Length) != dirSec.Length) break;
+                // Parse 128-byte directory entries
+                for (int p = 0; p + 128 <= dirSec.Length; p += 128)
+                {
+                    int nameLen = dirSec[p + 0x40] | (dirSec[p + 0x41] << 8); // bytes
+                    if (nameLen >= 2 && nameLen <= 128)
+                    {
+                        int bytes = nameLen - 2; // exclude terminating null
+                        if (bytes > 0 && bytes <= 128)
+                        {
+                            try {
+                                string nm = Encoding.Unicode.GetString(dirSec, p, bytes);
+                                if (!string.IsNullOrWhiteSpace(nm)) names.Add(nm);
+                            } catch { }
+                        }
+                    }
+                }
+                int next = fat[cur];
+                if (next == ENDOFCHAIN) break;
+                cur = next; sectors++;
+            }
+            return names.Count > 0;
+        } catch { return false; }
+        finally { if (stream.CanSeek) stream.Seek(save, SeekOrigin.Begin); }
     }
 
     /// <summary>
@@ -241,6 +475,9 @@ public static partial class FileInspector {
     public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null) {
         options ??= new DetectionOptions();
         if (Signatures.TryMatchRiff(data, out var riff)) return Enrich(riff, data, null, options);
+        if (Signatures.TryMatchEvtx(data, out var evtx2)) return Enrich(evtx2, data, null, options);
+        if (Signatures.TryMatchEse(data, out var ese2)) return Enrich(ese2, data, null, options);
+        if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Enrich(hive2, data, null, options);
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Enrich(ftyp, data, null, options);
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Enrich(sqlite, data, null, options);
         if (Signatures.TryMatchElf(data, out var elf)) return Enrich(elf, data, null, options);
@@ -331,6 +568,9 @@ public static partial class FileInspector {
             if (za.GetEntry("extension.vsixmanifest") != null) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "vsix"; }
 
             if (za.GetEntry("AppManifest.xaml") != null) { mime = "application/x-silverlight-app"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "xap"; }
+
+            // NuGet package (nupkg): presence of a .nuspec file
+            if (za.Entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "nupkg"; }
 
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
         } catch { }

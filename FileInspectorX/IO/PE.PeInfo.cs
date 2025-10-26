@@ -29,4 +29,15 @@ internal sealed class PeInfo {
     public ushort DllCharacteristics;
     /// <summary>Subsystem value from the Optional Header (GUI/CUI/etc.).</summary>
     public ushort Subsystem;
+    /// <summary>RVA of the Export Directory (IMAGE_DIRECTORY_ENTRY_EXPORT).</summary>
+    public uint ExportRva;
+    /// <summary>Size of the Export Directory.</summary>
+    public uint ExportSize;
+
+    /// <summary>RVA of the .NET CLR header (IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR), 0 when not present.</summary>
+    public uint ClrRva;
+    /// <summary>Size of the CLR header directory.</summary>
+    public uint ClrSize;
+    /// <summary>True if COMIMAGE_FLAGS_STRONGNAMESIGNED flag is set in the CLR header Flags field.</summary>
+    public bool? DotNetStrongNameSigned;
 }

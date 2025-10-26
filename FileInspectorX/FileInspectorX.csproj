@@ -9,7 +9,7 @@
         <Description>FileInspector: dependency-free content type detection (magic bytes +
             heuristics)</Description>
         <AssemblyName>FileInspector</AssemblyName>
-        <VersionPrefix>0.1.0</VersionPrefix>
+        <VersionPrefix>1.0.0</VersionPrefix>
         <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
         <PackageReadmeFile>NuGet.README.md</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
@@ -19,6 +19,13 @@
         <PackageTags>file type detection;magic bytes;content
             analysis;authenticode;permissions;zip;pdf;ooxml;msix;appx</PackageTags>
         <WarningsAsErrors>CS1591</WarningsAsErrors>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <WarningsAsErrors>1591</WarningsAsErrors>
+    </PropertyGroup>
+
+    <!-- Avoid building net472 on non-Windows agents where reference assemblies are unavailable -->
+    <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+        <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>

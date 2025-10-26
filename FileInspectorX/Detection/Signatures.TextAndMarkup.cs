@@ -54,7 +54,46 @@ internal static partial class Signatures {
             if (head.IndexOf("<!DOCTYPE html"u8) >= 0 || head.IndexOf("<html"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "html", MimeType = "text/html", Confidence = "Medium", Reason = "text:html" }; return true; }
         }
 
-        // YAML (document start) or refined key:value heuristics
+        // Quick PGP ASCII-armored blocks (place before YAML '---' to avoid front-matter collision)
+        {
+            var pgHb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(pgHb));
+            var pgHs = System.Text.Encoding.UTF8.GetString(pgHb);
+            var pgHl = pgHs.ToLowerInvariant();
+            if (pgHl.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
+            if (pgHl.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
+            if (pgHl.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
+            if (pgHl.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
+        }
+
+        // PEM family (certificate / CSR / private keys) and OpenSSH key — must come before YAML
+        // to avoid false positives from lines like "Proc-Type:" / "DEK-Info:".
+        {
+            var pemBuf = new byte[Math.Min(head.Length, 4096)]; head.Slice(0, pemBuf.Length).CopyTo(new System.Span<byte>(pemBuf));
+            var hs = System.Text.Encoding.UTF8.GetString(pemBuf);
+            var l = hs.ToLowerInvariant();
+
+            // Certificates
+            if (l.Contains("-----begin certificate-----")) {
+                result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true;
+            }
+            if (l.Contains("-----begin x509 certificate-----") || l.Contains("-----begin trusted certificate-----")) {
+                result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "text:pem-cert-variant" }; return true;
+            }
+            // Certificate Signing Request
+            if (l.Contains("-----begin certificate request-----") || l.Contains("-----begin new certificate request-----")) {
+                result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pem-csr" }; return true;
+            }
+            // Private keys (generic PEM)
+            if (l.Contains("-----begin private key-----") || l.Contains("-----begin encrypted private key-----") || l.Contains("-----begin rsa private key-----") || l.Contains("-----begin ec private key-----")) {
+                result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true;
+            }
+            // OpenSSH private key (new format)
+            if (l.Contains("-----begin openssh private key-----")) {
+                result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true;
+            }
+        }
+
+        // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above
         if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-') { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
         {
             int yamlish = 0; int scanned = 0; int startLine = 0;
@@ -62,6 +101,9 @@ internal static partial class Signatures {
                 if (head[i] == (byte)'\n') {
                     var raw = head.Slice(startLine, i - startLine);
                     var line = TrimBytes(raw);
+                    // Ignore classic PEM headers that look like YAML key:value
+                    var lineLower = new string(System.Text.Encoding.ASCII.GetChars(line.ToArray())).ToLowerInvariant();
+                    if (lineLower.StartsWith("proc-type:") || lineLower.StartsWith("dek-info:")) { scanned++; startLine = i + 1; continue; }
                     if (LooksYamlKeyValue(line)) yamlish++;
                     scanned++;
                     startLine = i + 1;
@@ -146,33 +188,103 @@ internal static partial class Signatures {
         int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
         if (StartsWithLevelToken(line3)) levelCount++;
         if (StartsWithLevelToken(line4)) levelCount++;
-        if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true; }
+        if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) {
+            // Boost confidence when we have both timestamps and levels across lines
+            var conf = levelCount >= 2 && (LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = conf, Reason = "text:log-levels", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true;
+        }
 
         // PowerShell heuristic
         var hb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(hb));
         var headStr = System.Text.Encoding.UTF8.GetString(hb);
         string headLower = headStr.ToLowerInvariant();
-        if (headLower.Contains("[cmdletbinding]") || headLower.Contains("#requires") || headLower.Contains("param(") || headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) {
-            result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = "Low", Reason = "text:ps1", ReasonDetails = "ps1:common-cmdlets" }; return true;
+
+        // Windows well-known text logs: DNS, Firewall, Netlogon, Event Viewer text export
+        if (headLower.Contains("dns server log") || headLower.Contains("dns server log file")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" }; return true; }
+        if ((headLower.Contains("microsoft windows firewall") || headLower.Contains("windows firewall")) && headLower.Contains("fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
+        // Netlogon logs often include repeated "netlogon" and secure channel messages
+        {
+            int netCount = 0; int idx = 0; while ((idx = headLower.IndexOf("netlogon", idx, System.StringComparison.Ordinal)) >= 0) { netCount++; idx += 8; if (netCount > 3) break; }
+            if (netCount >= 2 || headLower.Contains("secure channel") || headLower.Contains("netrlogon")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
+        }
+        if ((headLower.Contains("log name:") && headLower.Contains("event id:")) || (headLower.Contains("source:") && headLower.Contains("task category:") && headLower.Contains("level:"))) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
+
+        // Microsoft DHCP Server audit logs (similar to IIS/Firewall headers)
+        if (headLower.Contains("#software: microsoft dhcp server") && headLower.Contains("#fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
+
+        // Microsoft Exchange Message Tracking logs
+        if (headLower.Contains("message tracking log file") || headLower.Contains("#software: microsoft exchange")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
+
+        // Windows Defender textual logs (MpCmdRun outputs or Event Viewer text exports mentioning Defender)
+        if (headLower.Contains("windows defender") || headLower.Contains("microsoft defender") || headLower.Contains("mpcmdrun")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
+
+        // SQL Server ERRORLOG text
+        if ((headLower.Contains("sql server is starting") || headLower.Contains("sql server") || headLower.Contains("errorlog")) && headLower.Contains("spid")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
+
+        // NPS / RADIUS (IAS/NPS) text logs
+        if ((headLower.Contains("#software: microsoft internet authentication service") || headLower.Contains("#software: microsoft network policy server")) && headLower.Contains("#fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
+
+        // SQL Server Agent logs (SQLAgent.out / text snippets)
+        if (headLower.Contains("sqlserveragent") || headLower.Contains("sql server agent")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
+
+        // PEM/PGP ASCII-armored blocks (detect before script heuristics)
+        {
+            if (headLower.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
+            if (headLower.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
+            if (headLower.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
+            if (headLower.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
+
+            if (headLower.Contains("-----begin certificate request-----") || headLower.Contains("-----begin new certificate request-----")) { result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pkcs10" }; return true; }
+            if (headLower.Contains("-----begin certificate-----")) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true; }
+            if (headLower.Contains("-----begin public key-----")) { result = new ContentTypeDetectionResult { Extension = "pub", MimeType = "application/x-pem-key", Confidence = "Low", Reason = "text:pem-pubkey" }; return true; }
+            if (headLower.Contains("-----begin openssh private key-----") || headLower.Contains("openssh private key")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
+            if (headLower.Contains("-----begin private key-----") || headLower.Contains("-----begin rsa private key-----") || headLower.Contains("-----begin dsa private key-----") || headLower.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
+        }
+        if (headLower.Contains("[cmdletbinding]") || headLower.Contains("#requires") || headLower.Contains("param(") ||
+            headLower.Contains("begin{") || headLower.Contains("process{") || headLower.Contains("end{") ||
+            headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0 ||
+            headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Write-Output", System.StringComparison.Ordinal) >= 0 ||
+            headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) {
+            int cues = 0;
+            if (headLower.Contains("[cmdletbinding]")) cues++;
+            if (headLower.Contains("#requires")) cues++;
+            if (headLower.Contains("param(")) cues++;
+            if (headLower.Contains("begin{")) cues++;
+            if (headLower.Contains("process{")) cues++;
+            if (headLower.Contains("end{")) cues++;
+            if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
+            var conf = cues >= 2 ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:ps1", ReasonDetails = cues >= 2 ? "ps1:multi-cues" : "ps1:common-cmdlets" }; return true;
         }
 
         // VBScript heuristic
-        if (headLower.Contains("wscript.") || headLower.Contains("createobject(") || headLower.Contains("vbscript") || headLower.Contains("dim ") || headLower.Contains("end sub")) {
-            result = new ContentTypeDetectionResult { Extension = "vbs", MimeType = "text/vbscript", Confidence = "Low", Reason = "text:vbs", ReasonDetails = "vbs:wscript+createobject" }; return true;
+        if (headLower.Contains("wscript.") || headLower.Contains("createobject(") || headLower.Contains("vbscript") || headLower.Contains("dim ") || headLower.Contains("end sub") || headLower.Contains("option explicit") || headLower.Contains("on error resume next")) {
+            var conf = (headLower.Contains("option explicit") || headLower.Contains("on error resume next") || headLower.Contains("createobject(")) ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "vbs", MimeType = "text/vbscript", Confidence = conf, Reason = "text:vbs", ReasonDetails = conf=="Medium"?"vbs:explicit+error|createobject":"vbs:wscript+dim" }; return true;
         }
 
         // Shell script heuristic
         if (headLower.Contains("#!/bin/sh") || headLower.Contains("#!/usr/bin/env sh") || headLower.Contains("#!/usr/bin/env bash") || headLower.Contains("#!/bin/bash") || headLower.Contains("#!/usr/bin/env zsh") || headLower.Contains("#!/bin/zsh")) {
             result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Medium", Reason = "text:sh-shebang", ReasonDetails = "sh:shebang" }; return true;
         }
+        // Node.js shebang
+        if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shebang", ReasonDetails = "js:shebang" }; return true; }
+        // JavaScript heuristic (non-minified)
+        if (headLower.Contains("function ") || headLower.Contains("const ") || headLower.Contains("let ") || headLower.Contains("var ") || headLower.Contains("=>")) {
+            if (!(head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')))
+                { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Low", Reason = "text:js-heur" }; return true; }
+        }
         // Weak shell cues when no shebang
-        if ((headLower.Contains("set -e") || headLower.Contains("set -u")) && (headLower.Contains(" fi\n") || headLower.Contains(" esac\n") || headLower.Contains(" && "))) {
-            result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Low", Reason = "text:sh-heur", ReasonDetails = "sh:set+fi|esac|&&" }; return true;
+        if ((headLower.Contains("set -e") || headLower.Contains("set -u") || headLower.Contains("export ") || headLower.Contains("[[") || headLower.Contains("]]")) &&
+            (headLower.Contains(" fi\n") || headLower.Contains(" esac\n") || headLower.Contains(" && ") || headLower.Contains(" case ") || headLower.Contains(" do\n"))) {
+            result = new ContentTypeDetectionResult { Extension = "sh", MimeType = "text/x-shellscript", Confidence = "Low", Reason = "text:sh-heur", ReasonDetails = "sh:set|export+fi|esac|case|&&|do" }; return true;
         }
 
         // Windows batch (.bat/.cmd) heuristic
-        if (headLower.Contains("@echo off") || (headLower.Contains("rem ") && (headLower.Contains(" set ") || headLower.Contains(" goto ") || headLower.Contains(" if ")))) {
-            result = new ContentTypeDetectionResult { Extension = "bat", MimeType = "text/x-batch", Confidence = "Low", Reason = "text:bat", ReasonDetails = "bat:@echo|rem+set|goto|if" }; return true;
+        if (headLower.Contains("@echo off") || headLower.Contains("setlocal") || headLower.Contains("endlocal") ||
+            headLower.Contains("\ngoto ") || headLower.Contains("\r\ngoto ") || headLower.Contains(" goto ") ||
+            headLower.StartsWith("rem ") || headLower.Contains("\nrem ") || headLower.Contains("\r\nrem ") || headLower.Contains(":end")) {
+            result = new ContentTypeDetectionResult { Extension = "bat", MimeType = "text/x-batch", Confidence = "Medium", Reason = "text:bat", ReasonDetails = "bat:echo|setlocal|goto|rem" }; return true;
         }
 
         // Python heuristic (shebang and cues)

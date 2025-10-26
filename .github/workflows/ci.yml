@@ -1,0 +1,51 @@
+name: FileInspectorX CI
+
+on:
+  pull_request:
+    branches: ['**']
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'Docs/**'
+      - '**/*.rst'
+      - '**/*.adoc'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.gif'
+      - '**/*.svg'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE*'
+      - '**/README.*'
+  push:
+    branches: ['main','master','release/**']
+    paths-ignore:
+      - '**/*.md'
+      - 'Docs/**'
+      - '**/*.rst'
+      - '**/*.adoc'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.gif'
+      - '**/*.svg'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE*'
+      - '**/README.*'
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: EvotecIT/github-actions/.github/workflows/ci-orchestrator.yml@master
+    with:
+      solution: 'FileInspectorX.sln'
+      os_dotnet: '["windows-latest","ubuntu-latest","macos-latest"]'
+      enable_codecov: true
+      ps_run: true
+      ps_versions: '["5.1","7"]'
+      ps_module_manifest: 'Module/FileInspectorX.psd1'
+      ps_test_script: 'Module/FileInspectorX.Tests.ps1'
+      ps_tests_path: 'Module/Tests'
+      ps_empty_tests_behavior: 'skip'
+      claude_review: true
+      claude_runs_on: '["ubuntu-latest"]'
+      post_pr_comment: true
+    secrets: inherit

@@ -122,13 +122,21 @@ public static partial class FileInspector
     {
 #if NET8_0_OR_GREATER || NET472
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
-        // Windows Installer API – read Property table (Manufacturer, ProductName, ProductCode)
+        // Windows Installer API – read Property table (Manufacturer, ProductName, ProductCode, ProductVersion, UpgradeCode, ALLUSERS, ARP URLs)
         try {
             if (MsiOpenDatabase(path, IntPtr.Zero, out IntPtr hDb) != 0 || hDb == IntPtr.Zero) return;
             try {
                 string? Manufacturer = QueryMsiProperty(hDb, "Manufacturer");
                 string? ProductName = QueryMsiProperty(hDb, "ProductName");
                 string? ProductCode = QueryMsiProperty(hDb, "ProductCode");
+                string? ProductVersion = QueryMsiProperty(hDb, "ProductVersion");
+                string? UpgradeCode = QueryMsiProperty(hDb, "UpgradeCode");
+                string? AllUsers = QueryMsiProperty(hDb, "ALLUSERS");
+                string? UrlInfoAbout = QueryMsiProperty(hDb, "ARPURLINFOABOUT");
+                string? UrlUpdateInfo = QueryMsiProperty(hDb, "ARPURLUPDATEINFO");
+                string? HelpLink = QueryMsiProperty(hDb, "ARPHELPLINK");
+                string? SupportUrl = QueryMsiProperty(hDb, "ARPSUPPORTURL");
+                string? Contact = QueryMsiProperty(hDb, "ARPCONTACT");
                 if (Manufacturer != null || ProductName != null || ProductCode != null)
                 {
                     var info = res.Installer ?? new InstallerInfo();
@@ -136,6 +144,19 @@ public static partial class FileInspector
                     info.Manufacturer = Manufacturer;
                     info.Name = ProductName;
                     info.ProductCode = ProductCode;
+                    if (!string.IsNullOrWhiteSpace(ProductVersion)) info.Version = ProductVersion;
+                    if (!string.IsNullOrWhiteSpace(UpgradeCode)) info.UpgradeCode = UpgradeCode;
+                    // Scope
+                    if (!string.IsNullOrWhiteSpace(AllUsers))
+                    {
+                        info.Scope = (AllUsers == "1" || AllUsers == "2") ? "PerMachine" : "PerUser";
+                    }
+                    // URLs/contacts
+                    if (!string.IsNullOrWhiteSpace(UrlInfoAbout)) info.UrlInfoAbout = UrlInfoAbout;
+                    if (!string.IsNullOrWhiteSpace(UrlUpdateInfo)) info.UrlUpdateInfo = UrlUpdateInfo;
+                    if (!string.IsNullOrWhiteSpace(HelpLink)) info.HelpLink = HelpLink;
+                    if (!string.IsNullOrWhiteSpace(SupportUrl)) info.SupportUrl = SupportUrl;
+                    if (!string.IsNullOrWhiteSpace(Contact)) info.Contact = Contact;
                     res.Installer = info;
                 }
 
@@ -187,18 +208,26 @@ public static partial class FileInspector
 
     private static void TryPopulateMsiSummary(IntPtr hDb, FileAnalysis res)
     {
-        const uint PID_AUTHOR = 4; const uint PID_COMMENTS = 6;
+        const uint PID_AUTHOR = 4; const uint PID_COMMENTS = 6; const uint PID_REVNUMBER = 9;
         IntPtr hSum = IntPtr.Zero;
         try {
             if (MsiGetSummaryInformation(hDb, null, 0, out hSum) != 0 || hSum == IntPtr.Zero) return;
             string? author = GetSummaryString(hSum, PID_AUTHOR);
             string? comments = GetSummaryString(hSum, PID_COMMENTS);
+            string? rev = GetSummaryString(hSum, PID_REVNUMBER);
             if (!string.IsNullOrEmpty(author) || !string.IsNullOrEmpty(comments))
             {
                 var info = res.Installer ?? new InstallerInfo();
                 info.Kind = InstallerKind.Msi;
                 if (!string.IsNullOrEmpty(author)) info.Author = author;
                 if (!string.IsNullOrEmpty(comments)) info.Comments = comments;
+                res.Installer = info;
+            }
+            if (!string.IsNullOrWhiteSpace(rev))
+            {
+                var info = res.Installer ?? new InstallerInfo();
+                info.Kind = InstallerKind.Msi;
+                info.PackageCode = rev;
                 res.Installer = info;
             }
         } finally { if (hSum != IntPtr.Zero) MsiCloseHandle(hSum); }

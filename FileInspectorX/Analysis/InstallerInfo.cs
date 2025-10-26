@@ -19,12 +19,28 @@ public sealed class InstallerInfo
     public string? Version { get; set; }
     /// <summary>MSI product code (GUID), when applicable.</summary>
     public string? ProductCode { get; set; }
+    /// <summary>MSI upgrade code (GUID), when applicable.</summary>
+    public string? UpgradeCode { get; set; }
     /// <summary>MSI manufacturer, when applicable.</summary>
     public string? Manufacturer { get; set; }
+    /// <summary>MSI per-user vs per-machine scope derived from ALLUSERS property (PerUser/PerMachine), when detectable.</summary>
+    public string? Scope { get; set; }
     /// <summary>Author metadata (when present).</summary>
     public string? Author { get; set; }
     /// <summary>Free‑form comments or description.</summary>
     public string? Comments { get; set; }
+    /// <summary>MSI package code (GUID) from SummaryInformation.RevisionNumber, when available.</summary>
+    public string? PackageCode { get; set; }
+    /// <summary>About/Info URL (ARPURLINFOABOUT), when present.</summary>
+    public string? UrlInfoAbout { get; set; }
+    /// <summary>Update URL (ARPURLUPDATEINFO), when present.</summary>
+    public string? UrlUpdateInfo { get; set; }
+    /// <summary>Help link (ARPHELPLINK), when present.</summary>
+    public string? HelpLink { get; set; }
+    /// <summary>Support URL (ARPSUPPORTURL), when present.</summary>
+    public string? SupportUrl { get; set; }
+    /// <summary>Contact string (ARPCONTACT), when present.</summary>
+    public string? Contact { get; set; }
     /// <summary>Declared capabilities (MSIX/APPX); element/local names as found.</summary>
     public IReadOnlyList<string>? Capabilities { get; set; }
     /// <summary>Declared extensions (e.g., windows.protocol:edge or protocol names); compact string tokens.</summary>

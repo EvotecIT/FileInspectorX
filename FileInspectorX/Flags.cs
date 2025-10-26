@@ -81,5 +81,17 @@ public enum ContentFlags : long {
     /// <summary>OOXML document contains possible DDE/DDEAUTO field instructions.</summary>
     OfficePossibleDde = 1L << 32,
     /// <summary>OOXML document (Excel) references external links (xl/externalLinks or related relationships).</summary>
-    OfficeExternalLinks = 1L << 33
+    OfficeExternalLinks = 1L << 33,
+    /// <summary>Archive contains one or more encrypted entries (e.g., ZIP general purpose bit 0 set).</summary>
+    ArchiveHasEncryptedEntries = 1L << 34,
+    /// <summary>OOXML package is encrypted (EncryptionInfo/EncryptedPackage present).</summary>
+    OoxmlEncrypted = 1L << 35,
+    /// <summary>Container holds files whose magic indicates executable/installers but names suggest otherwise (e.g., .txt containing PE).</summary>
+    ContainerHasDisguisedExecutables = 1L << 36
+    ,
+    /// <summary>HTML document contains one or more external links (absolute URLs or protocol-relative).</summary>
+    HtmlHasExternalLinks = 1L << 37
+    ,
+    /// <summary>OLE Compound Document (e.g., .doc/.xls/.ppt) appears to contain VBA macro streams.</summary>
+    OleHasVbaMacros = 1L << 38
 }

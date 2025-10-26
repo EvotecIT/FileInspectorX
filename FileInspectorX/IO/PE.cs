@@ -45,8 +45,10 @@ internal static class PeReader {
             uint[] ddVa = new uint[16];
             uint[] ddSz = new uint[16];
             for (int i = 0; i < 16; i++) { ddVa[i] = br.ReadUInt32(); ddSz[i] = br.ReadUInt32(); }
+            info.ExportRva = ddVa[0]; info.ExportSize = ddSz[0];
             info.ResourceRva = ddVa[2]; info.ResourceSize = ddSz[2];
             info.SecurityOffset = ddVa[4]; info.SecuritySize = ddSz[4];
+            info.ClrRva = ddVa[14]; info.ClrSize = ddSz[14];
             fs.Seek(optStart + sizeOptionalHeader, SeekOrigin.Begin);
             var secs = new List<Section>(numberOfSections);
             for (int i = 0; i < numberOfSections; i++) {
@@ -60,6 +62,75 @@ internal static class PeReader {
                 secs.Add(new Section { Name = secName, VirtualAddress = virtualAddress, VirtualSize = virtualSize, SizeOfRawData = sizeOfRawData, PointerToRawData = pointerToRawData });
             }
             info.Sections = secs.ToArray();
+
+            // Try to read CLR header Flags for strong-name signal (if present)
+            try {
+                if (info.ClrRva != 0 && RvaToFileOffset(info, info.ClrRva, out var cliOff))
+                {
+                    // IMAGE_COR20_HEADER layout (partial):
+                    //   0x00: cb (DWORD)
+                    //   0x04: MajorRuntimeVersion (WORD)
+                    //   0x06: MinorRuntimeVersion (WORD)
+                    //   0x08: MetaData RVA (DWORD)
+                    //   0x0C: MetaData Size (DWORD)
+                    //   0x10: Flags (DWORD)
+                    fs.Seek(cliOff + 0x10, SeekOrigin.Begin);
+                    uint flags = br.ReadUInt32();
+                    const uint COMIMAGE_FLAGS_STRONGNAMESIGNED = 0x00000008;
+                    info.DotNetStrongNameSigned = (flags & COMIMAGE_FLAGS_STRONGNAMESIGNED) != 0;
+                }
+            } catch { /* non-fatal */ }
+            return true;
+        } catch { return false; }
+    }
+
+    /// <summary>
+    /// Attempts to list export names for PE image. Returns false when export directory is missing or invalid.
+    /// </summary>
+    public static bool TryListExportNames(string path, out IReadOnlyList<string> names)
+    {
+        names = Array.Empty<string>();
+        if (!TryReadPe(path, out var pe)) return false;
+        if (pe.ExportRva == 0 || pe.ExportSize == 0) return false;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            using var br = new BinaryReader(fs);
+            if (!RvaToFileOffset(pe, pe.ExportRva, out var expOff)) return false;
+            fs.Seek(expOff, SeekOrigin.Begin);
+            // IMAGE_EXPORT_DIRECTORY layout (40 bytes)
+            br.ReadUInt32(); // Characteristics
+            br.ReadUInt32(); // TimeDateStamp
+            br.ReadUInt16(); br.ReadUInt16(); // Major/Minor
+            uint nameRva = br.ReadUInt32();
+            br.ReadUInt32(); // Base
+            uint numberOfFunctions = br.ReadUInt32();
+            uint numberOfNames = br.ReadUInt32();
+            uint addressOfFunctions = br.ReadUInt32();
+            uint addressOfNames = br.ReadUInt32();
+            uint addressOfNameOrdinals = br.ReadUInt32();
+            if (numberOfNames == 0 || addressOfNames == 0) return true; // no names
+            if (!RvaToFileOffset(pe, addressOfNames, out var namesOff)) return false;
+            if (!RvaToFileOffset(pe, addressOfNameOrdinals, out var ordOff)) ordOff = 0;
+            fs.Seek(namesOff, SeekOrigin.Begin);
+            int count = (int)Math.Min(numberOfNames, 4096); // safety cap
+            var list = new List<string>(count);
+            for (int i = 0; i < count; i++)
+            {
+                uint nameRvaI = br.ReadUInt32();
+                long save = fs.Position;
+                if (RvaToFileOffset(pe, nameRvaI, out var strOff))
+                {
+                    fs.Seek(strOff, SeekOrigin.Begin);
+                    var sb = new System.Text.StringBuilder(260);
+                    int b; int read = 0;
+                    while (read < 512 && (b = fs.ReadByte()) > 0) { sb.Append((char)b); read++; }
+                    var s = sb.ToString();
+                    if (!string.IsNullOrWhiteSpace(s)) list.Add(s);
+                }
+                fs.Seek(save, SeekOrigin.Begin);
+            }
+            names = list;
             return true;
         } catch { return false; }
     }

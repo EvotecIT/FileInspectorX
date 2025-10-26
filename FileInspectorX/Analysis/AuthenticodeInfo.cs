@@ -51,6 +51,11 @@ public sealed class AuthenticodeInfo
     /// <summary>Distinguished name or URL of the timestamp authority.</summary>
     public string? TimestampAuthority { get; set; }
 
+    /// <summary>Enhanced key usages (EKUs) present on the signer certificate (friendly names or OIDs).</summary>
+    public IReadOnlyList<string>? EnhancedKeyUsages { get; set; }
+    /// <summary>Timestamp authority common name, when available.</summary>
+    public string? TimestampAuthorityCN { get; set; }
+
     /// <summary>
     /// Note about what was verified; cross‑platform builds only verify the PKCS#7 envelope and chain, not the file re-hash.
     /// </summary>

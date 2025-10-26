@@ -62,6 +62,7 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0) Add("Archive.ContainsExecutables", 25);
         if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) Add("Archive.ContainsScripts", 20);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
+        if ((a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0) Add("Archive.DisguisedExecutables", 25);
 
         // Documents with active content
         if ((a.Flags & ContentFlags.HasOoxmlMacros) != 0) Add("Office.Macros", 30);
@@ -71,8 +72,11 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PdfHasNamesTree) != 0) Add("Pdf.NamesTree", 10);
         if ((a.Flags & ContentFlags.PdfHasXfa) != 0) Add("Pdf.Xfa", 10);
         if ((a.Flags & ContentFlags.PdfEncrypted) != 0) Add("Pdf.Encrypted", 10);
+        if ((a.Flags & ContentFlags.ArchiveHasEncryptedEntries) != 0) Add("Archive.EncryptedEntries", 10);
+        if ((a.Flags & ContentFlags.OoxmlEncrypted) != 0) Add("Office.Encrypted", 15);
         if ((a.Flags & ContentFlags.PdfManyIncrementalUpdates) != 0) Add("Pdf.ManyUpdates", 5);
         if ((a.Flags & ContentFlags.OfficeExternalLinks) != 0) Add("Office.ExternalLinks", 5);
+        if ((a.Flags & ContentFlags.HtmlHasExternalLinks) != 0) Add("Html.ExternalLinks", 5);
         if ((a.Flags & ContentFlags.OfficeRemoteTemplate) != 0) Add("Office.RemoteTemplate", 25);
         if ((a.Flags & ContentFlags.OfficePossibleDde) != 0) Add("Office.PossibleDde", 15);
 
@@ -83,6 +87,12 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PeNoNx) != 0) Add("PE.NoNX", 20);
         if ((a.Flags & ContentFlags.PeNoCfg) != 0) Add("PE.NoCFG", 15);
         if ((a.Flags & ContentFlags.PeNoHighEntropyVa) != 0 && (a.PeMachine != null && a.PeMachine.IndexOf("64", StringComparison.OrdinalIgnoreCase) >= 0)) Add("PE.NoHighEntropyVA", 5);
+        // .NET strong-name signal (mild weight)
+        if ((a.Flags & ContentFlags.PeIsDotNet) != 0)
+        {
+            if (a.DotNetStrongNameSigned == true) { codes.Add("DotNet.StrongName"); factors["DotNet.StrongName"] = -5; score = Math.Max(0, score - 5); }
+            else if (a.DotNetStrongNameSigned == false) { Add("DotNet.NoStrongName", 5); }
+        }
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;
@@ -91,6 +101,13 @@ public static partial class FileInspector
             if (sig.IsSelfSigned == true) Add("Sig.SelfSigned", 20);
             if (sig.ChainValid == false) Add("Sig.ChainInvalid", 25);
             if (sig.EnvelopeSignatureValid == false) Add("Sig.BadEnvelope", 15);
+            if (sig.IsTrustedWindowsPolicy == false) Add("Sig.WinTrustInvalid", 25);
+            if (sig.TimestampPresent == false) Add("Sig.NoTimestamp", 5);
+        }
+        else
+        {
+            var ext = a.Detection?.Extension?.ToLowerInvariant();
+            if (ext is "exe" or "dll") Add("Sig.Absent", 10);
         }
 
         // Scripts/text cues (neutral codes from SecurityFindings)
@@ -98,6 +115,7 @@ public static partial class FileInspector
         {
             switch (f)
             {
+                case var t when t != null && t.StartsWith("tool:"): Add("Tool.Indicator", 10); break;
                 case "ps:encoded": Add("Script.Encoded", 25); break;
                 case "ps:iex": Add("Script.IEX", 20); break;
                 case "ps:web-dl": Add("Script.WebDownload", 15); break;
@@ -149,6 +167,11 @@ public static partial class FileInspector
             if (ca.CountScript > 0) { codes.Add("Msi.CustomActionScript"); score += 20; }
             if (ca.CountDll > 0) { codes.Add("Msi.CustomActionDll"); score += 10; }
         }
+        if (string.Equals(a.Installer?.Scope, "PerUser", StringComparison.OrdinalIgnoreCase)) { codes.Add("Msi.PerUser"); score += 5; }
+        if (!string.IsNullOrWhiteSpace(a.Installer?.UrlInfoAbout) || !string.IsNullOrWhiteSpace(a.Installer?.UrlUpdateInfo) || !string.IsNullOrWhiteSpace(a.Installer?.SupportUrl))
+        { codes.Add("Msi.UrlsPresent"); score += 2; }
+        if (a.SecurityFindings != null && a.SecurityFindings.Any(s => string.Equals(s, "pe:regsvr", StringComparison.OrdinalIgnoreCase)))
+        { codes.Add("PE.RegSvrExport"); score += 10; }
 
         // Appx/MSIX capabilities and extensions
         var caps = a.Installer?.Capabilities;

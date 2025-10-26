@@ -99,6 +99,12 @@ public class Settings {
     public static bool SecretsScanEnabled { get; set; } = true;
 
     /// <summary>
+    /// When true, the References extractor will attempt to check existence for network paths (UNC/file URLs) it discovers.
+    /// Defaults to false to avoid latency or network dependencies.
+    /// </summary>
+    public static bool CheckNetworkPathsInReferences { get; set; } = false;
+
+    /// <summary>
     /// When true on Windows, perform WinVerifyTrust policy verification for Authenticode (catalog-aware).
     /// </summary>
     public static bool VerifyAuthenticodeWithWinTrust { get; set; } = true;
@@ -107,6 +113,55 @@ public class Settings {
     /// When true, attempt revocation checks during WinVerifyTrust (may require network, slower).
     /// </summary>
     public static bool VerifyAuthenticodeRevocation { get; set; } = false;
+
+    /// <summary>
+    /// WinTrust/chain cache TTL in minutes. Cached policy results older than this are discarded. Default 360 minutes (6 hours).
+    /// </summary>
+    public static int WinTrustCacheTtlMinutes { get; set; } = 360;
+
+    /// <summary>
+    /// Maximum number of entries to keep in the WinTrust/chain cache. Oldest entries are pruned opportunistically. Default 1024.
+    /// </summary>
+    public static int WinTrustCacheMaxEntries { get; set; } = 1024;
+
+    /// <summary>
+    /// When true, script/text heuristics attempt quick DNS resolution for discovered hostnames (UNC/URLs) to enrich findings.
+    /// Default false to avoid network dependency.
+    /// </summary>
+    public static bool ResolveNetworkHostsInHeuristics { get; set; } = false;
+
+    /// <summary>
+    /// Maximum hosts to resolve per file when <see cref="ResolveNetworkHostsInHeuristics"/> is enabled. Default 3.
+    /// </summary>
+    public static int NetworkHostResolveMax { get; set; } = 3;
+
+    /// <summary>
+    /// Timeout in milliseconds for DNS/Ping checks in heuristics. Default 300ms.
+    /// </summary>
+    public static int NetworkHostResolveTimeoutMs { get; set; } = 300;
+
+    /// <summary>
+    /// When true, attempt a short ICMP ping in addition to DNS resolution for discovered hosts.
+    /// Default false.
+    /// </summary>
+    public static bool PingHostsInHeuristics { get; set; } = false;
+
+    /// <summary>
+    /// Domains considered trusted/allowed for HTML external links (e.g., your own CDN/domains). Suffix match, case-insensitive.
+    /// When all HTML external links are allowed, HtmlHasExternalLinks flag is suppressed.
+    /// Also used by script/text heuristics to split discovered hosts into internal vs external counts (net:hosts-int/net:hosts-ext).
+    /// </summary>
+    public static string[] HtmlAllowedDomains { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// When true, ReportView exports full lists of URLs/UNCs discovered in HTML and scripts (in addition to samples).
+    /// Defaults to false to keep payloads smaller.
+    /// </summary>
+    public static bool ReferenceFullListsEnabled { get; set; } = false;
+    /// <summary>
+    /// Maximum characters for any single exported full reference list. Excess is truncated.
+    /// </summary>
+    public static int ReferenceFullListsMaxChars { get; set; } = 4000;
 
     /// <summary>
     /// Assessment score threshold for Warn decision. Default 40.
@@ -129,6 +184,32 @@ public class Settings {
     /// 'Exact' requires a full case-insensitive equality.
     /// </summary>
     public static VendorMatchMode VendorMatchMode { get; set; } = VendorMatchMode.Contains;
+
+    /// <summary>
+    /// When true, zip/tar container analysis performs a deeper scan of inner entries (bounded by budgets) to detect disguised types and suspicious names.
+    /// Defaults to false to keep analysis fast.
+    /// </summary>
+    public static bool DeepContainerScanEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Maximum number of entries to scan deeply inside a container when <see cref="DeepContainerScanEnabled"/> is true. Default 64.
+    /// </summary>
+    public static int DeepContainerMaxEntries { get; set; } = 64;
+
+    /// <summary>
+    /// Maximum number of bytes to read from each inner entry during deep scan. Default 262144 (256 KB).
+    /// </summary>
+    public static int DeepContainerMaxEntryBytes { get; set; } = 262_144;
+
+    /// <summary>
+    /// Name indicators for well-known admin/security tools. Checked against inner entry names (case-insensitive) to emit neutral findings like "tool:pingcastle".
+    /// </summary>
+    public static string[] KnownToolNameIndicators { get; set; } = new[] { "pingcastle", "bloodhound" };
+
+    /// <summary>
+    /// Optional list of known tool SHA-256 hashes (lowercase hex). When deep container scanning computes an inner hash that matches, a finding 'toolhash:&lt;name&gt;' is emitted.
+    /// </summary>
+    public static IReadOnlyDictionary<string,string> KnownToolHashes { get; set; } = new Dictionary<string,string>();
 }
 
 /// <summary>

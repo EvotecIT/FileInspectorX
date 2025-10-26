@@ -150,4 +150,20 @@ public class TextDetectionsTests {
             Assert.Equal("bat", r!.Extension);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
+
+    [Fact]
+    public void Html_External_Links_Parsed()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".html");
+        try
+        {
+            File.WriteAllText(p, "<html><head><script src=\"https://cdn.example.com/app.js\"></script></head><body><a href=\"http://example.com\">x</a><img src=\"//cdn.example.com/img.png\"></body></html>");
+            var a = FileInspector.Analyze(p);
+            Assert.NotNull(a);
+            Assert.True((a.Flags & ContentFlags.HtmlHasExternalLinks) != 0);
+            Assert.NotNull(a.References);
+            Assert.Contains(a.References!, r => r.Kind == ReferenceKind.Url && (r.SourceTag ?? string.Empty).StartsWith("html:"));
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
 }

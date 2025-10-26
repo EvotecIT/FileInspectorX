@@ -33,10 +33,269 @@ public static partial class FileInspector
                 TryExtractGpoScriptsXml(path, list);
             }
 
+            // HTML: extract external links and network paths from common tags/attributes
+            if (ext == "html" || ext == "htm")
+            {
+                TryExtractHtmlReferences(path, list);
+            }
+            // Scripts: extract URLs and UNC shares from common script types (PowerShell, batch, shell, JS)
+            if (ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs")
+            {
+                TryExtractScriptReferences(path, list, ext);
+            }
+
+            // Windows Internet Shortcut (.url)
+            if (ext == "url")
+            {
+                TryExtractInternetShortcut(path, list);
+            }
+
+            // Windows Shell Link (.lnk) — best-effort target extraction
+            if (ext == "lnk")
+            {
+                TryExtractWindowsLnk(path, list);
+            }
+
             // Generic: if detection is plain text and starts with a command-ish shebang, we skip here; richer parsers can be added later
         } catch { }
 
         return list.Count > 0 ? list : null;
+    }
+
+    private static void TryExtractScriptReferences(string path, List<Reference> refs, string ext)
+    {
+        try
+        {
+            string text = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(text)) return;
+            // URLs (absolute http/https)
+            int i = 0; var s = text;
+            while (i < s.Length)
+            {
+                int at = s.IndexOf("http", i, StringComparison.OrdinalIgnoreCase); if (at < 0) break;
+                int end = at; while (end < s.Length && !char.IsWhiteSpace(s[end]) && s[end] != '"' && s[end] != '\'' && s[end] != ')' && s[end] != '<' && s[end] != '>' && s[end] != '`') end++;
+                var cand = s.Substring(at, end - at);
+                if (Uri.TryCreate(cand, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps))
+                {
+                    refs.Add(new Reference { Kind = ReferenceKind.Url, Value = cand, SourceTag = "script:" + ext });
+                }
+                i = end + 1;
+            }
+            // UNC paths (roots)
+            // Simple UNC scanner (reuse minimal logic here to avoid dependencies)
+            var span = text.AsSpan();
+            int p = 0; while (p + 3 < span.Length)
+            {
+                if (span[p] == '\\' && span[p+1] == '\\')
+                {
+                    int start = p; p += 2; int sHost = p; while (p < span.Length && (char.IsLetterOrDigit(span[p]) || span[p] == '.' || span[p] == '-' || span[p] == '_')) p++; if (p <= sHost || p >= span.Length || span[p] != '\\') { p++; continue; }
+                    string server = span.Slice(sHost, p - sHost).ToString(); p++;
+                    int sShare = p; while (p < span.Length && (char.IsLetterOrDigit(span[p]) || span[p] == '.' || span[p] == '-' || span[p] == '_' || span[p] == '$')) p++;
+                    if (p > sShare)
+                    {
+                        string share = span.Slice(sShare, p - sShare).ToString();
+                        refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = "\\\\" + server + "\\" + share, SourceTag = "script:" + ext, Issues = ReferenceIssue.UncPath });
+                    }
+                }
+                else p++;
+            }
+        }
+        catch { }
+    }
+
+    private static void TryExtractHtmlReferences(string path, List<Reference> refs)
+    {
+        try {
+            var text = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(text)) return;
+            int cap = Math.Min(text.Length, 512 * 1024);
+            var head = text.AsSpan(0, cap);
+
+            int cdnCount = 0;
+            var hostCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var attr in new [] { "href", "src", "data", "action" })
+            {
+                int idx = 0;
+                while (idx < head.Length)
+                {
+                    int at = IndexOfAttrCI(head, attr, idx); if (at < 0) break; idx = at + attr.Length;
+                    var val = ReadAttrValue(head, at + attr.Length);
+                    if (string.IsNullOrWhiteSpace(val)) continue;
+                    var v = val.Trim();
+                    if (IsAbsoluteHttpUrl(v) || IsProtocolRelative(v))
+                    {
+                        string tag = "html:" + attr;
+                        var host = TryGetHost(v);
+                        if (!string.IsNullOrEmpty(host))
+                        {
+                            if (IsCdnHost(host!)) { tag += ":cdn"; cdnCount++; }
+                            hostCounts[host!] = hostCounts.TryGetValue(host!, out var c) ? c + 1 : 1;
+                        }
+                        refs.Add(new Reference { Kind = ReferenceKind.Url, Value = v, SourceTag = tag });
+                    }
+                    else if (LooksLikeUnc(v) || v.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var expanded = ExpandEnv(v);
+                        var issues = ReferenceIssue.UncPath;
+                        bool? exists = null;
+                        if (Settings.CheckNetworkPathsInReferences)
+                        {
+                            try { exists = Directory.Exists(GetUncShareRoot(v)); } catch { exists = null; }
+                        }
+                        refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = v, ExpandedValue = expanded, Exists = exists, Issues = issues, SourceTag = "html:" + attr });
+                    }
+                }
+            }
+
+            // CSS url(...) pattern within inline styles
+            int pos = 0;
+            while (pos < head.Length)
+            {
+                int up = IndexOfTokenCI(head, "url(", pos); if (up < 0) break; int start = up + 4; int end = head.Slice(start).IndexOf(')'); if (end < 0) break; end += start; var raw = head.Slice(start, Math.Max(0, end - start)).ToString().Trim('"', '\'', ' ', '\t'); pos = end + 1;
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (IsAbsoluteHttpUrl(raw) || IsProtocolRelative(raw))
+                {
+                    string tag = "html:css-url";
+                    var host = TryGetHost(raw);
+                    if (!string.IsNullOrEmpty(host))
+                    {
+                        if (IsCdnHost(host!)) { tag += ":cdn"; cdnCount++; }
+                        hostCounts[host!] = hostCounts.TryGetValue(host!, out var c) ? c + 1 : 1;
+                    }
+                    refs.Add(new Reference { Kind = ReferenceKind.Url, Value = raw, SourceTag = tag });
+                }
+                else if (LooksLikeUnc(raw) || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                {
+                    var expanded = ExpandEnv(raw);
+                    bool? exists = null; if (Settings.CheckNetworkPathsInReferences) { try { exists = Directory.Exists(GetUncShareRoot(raw)); } catch { exists = null; } }
+                    refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = raw, ExpandedValue = expanded, Exists = exists, Issues = ReferenceIssue.UncPath, SourceTag = "html:css-url" });
+                }
+            }
+            // Attach summary finding for CDN usage if any
+            if (cdnCount > 0)
+            {
+                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:cdn={cdnCount}", SourceTag = "summary" });
+            }
+            // Top external domains summary (first 3 by frequency)
+            if (hostCounts.Count > 0)
+            {
+                var top = hostCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(3).Select(kv => kv.Key);
+                var joined = string.Join(",", top);
+                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:hosts={joined}", SourceTag = "summary" });
+            }
+        } catch { }
+
+        static int IndexOfAttrCI(ReadOnlySpan<char> s, string attr, int from)
+        {
+            // find attr ignoring case and allowing whitespace before '='
+            int at = IndexOfTokenCI(s, attr, from); if (at < 0) return -1;
+            int p = at + attr.Length; while (p < s.Length && char.IsWhiteSpace(s[p])) p++;
+            if (p < s.Length && s[p] == '=') return at; else return IndexOfAttrCI(s, attr, p);
+        }
+        static string ReadAttrValue(ReadOnlySpan<char> s, int afterAttr)
+        {
+            int p = afterAttr; while (p < s.Length && char.IsWhiteSpace(s[p])) p++; if (p >= s.Length || s[p] != '=') return string.Empty; p++; while (p < s.Length && char.IsWhiteSpace(s[p])) p++; if (p >= s.Length) return string.Empty;
+            char quote = s[p]; bool quoted = quote == '"' || quote == '\''; if (quoted) p++; int start = p; while (p < s.Length) { char c = s[p]; if (quoted) { if (c == quote) break; } else { if (char.IsWhiteSpace(c) || c == '>') break; } p++; }
+            var val = s.Slice(start, Math.Max(0, p - start)).ToString();
+            return val;
+        }
+        static int IndexOfTokenCI(ReadOnlySpan<char> hay, string token, int from)
+        {
+            var t = token.AsSpan(); int n = hay.Length - t.Length; for (int i = Math.Max(0, from); i <= n; i++) { bool ok = true; for (int j = 0; j < t.Length; j++) { char a = char.ToLowerInvariant(hay[i + j]); char b = char.ToLowerInvariant(t[j]); if (a != b) { ok = false; break; } } if (ok) return i; } return -1;
+        }
+        static bool IsAbsoluteHttpUrl(string s) => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        static bool IsProtocolRelative(string s) => s.StartsWith("//");
+        static bool LooksLikeUnc(string s) => s.StartsWith("\\\\") || s.StartsWith("//");
+        static string? TryGetHost(string url)
+        {
+            try
+            {
+                if (url.StartsWith("//")) url = "http:" + url;
+                if (Uri.TryCreate(url, UriKind.Absolute, out var u)) return u.Host;
+            } catch { }
+            return null;
+        }
+        static bool IsCdnHost(string host)
+        {
+            var h = host.ToLowerInvariant();
+            if (h.StartsWith("cdn.")) return true;
+            // common public CDN/provider suffixes
+            string[] suffixes = new [] {
+                ".cloudfront.net", ".akamaihd.net", ".akamai.net", ".edgesuite.net", ".edgekey.net",
+                ".fastly.net", ".cdn.jsdelivr.net", ".jsdelivr.net", ".bootstrapcdn.com", ".cdnjs.cloudflare.com",
+                ".gstatic.com", ".googleapis.com", ".unpkg.com", ".cloudflare.com"
+            };
+            foreach (var s in suffixes) if (h.EndsWith(s)) return true;
+            return false;
+        }
+        static string GetUncShareRoot(string s)
+        {
+            try {
+                if (s.StartsWith("file://", StringComparison.OrdinalIgnoreCase)) s = s.Substring(7);
+                s = s.Replace('/', '\\');
+                if (s.StartsWith("\\\\"))
+                {
+                    // \\server\share\...
+                    var parts = s.Split(new[]{'\\'}, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2) return "\\\\" + parts[0] + "\\" + parts[1];
+                }
+            } catch { }
+            return s;
+        }
+    }
+
+    private static void TryExtractInternetShortcut(string path, List<Reference> refs)
+    {
+        try
+        {
+            var lines = File.ReadAllLines(path);
+            foreach (var line in lines)
+            {
+                var t = line.Trim();
+                if (t.StartsWith("URL=", StringComparison.OrdinalIgnoreCase))
+                {
+                    var url = t.Substring(4).Trim();
+                    if (!string.IsNullOrWhiteSpace(url)) refs.Add(new Reference { Kind = ReferenceKind.Url, Value = url, SourceTag = "url:file" });
+                }
+            }
+        } catch { }
+    }
+
+    private static void TryExtractWindowsLnk(string path, List<Reference> refs)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            var hdr = new byte[Math.Min(4096, fs.Length)];
+            int n = fs.Read(hdr, 0, hdr.Length);
+            if (n < 32) return;
+            // Quick signature: header size 0x4C at offset 0
+            if (hdr[0] != 0x4C || hdr[1] != 0x00) { /* not strict */ }
+            // Best-effort: scan ASCII for plausible target path
+            string ascii = System.Text.Encoding.ASCII.GetString(hdr, 0, n);
+            string? best = null;
+            foreach (var token in new [] { ":\\", "\\\\" })
+            {
+                int idx = ascii.IndexOf(token, StringComparison.Ordinal);
+                if (idx > 0)
+                {
+                    // backtrack to start of token (letter for drive or \\\\)
+                    int start = idx;
+                    while (start > 0 && ascii[start-1] >= 32 && ascii[start-1] < 127) start--;
+                    int end = idx + token.Length;
+                    while (end < ascii.Length && ascii[end] >= 32 && ascii[end] < 127) end++;
+                    var cand = ascii.Substring(start, end - start).Trim('\0');
+                    if (cand.Length >= 3) { best = cand; break; }
+                }
+            }
+            if (!string.IsNullOrEmpty(best))
+            {
+                var exp = ExpandEnv(best!);
+                var issues = ComputePathIssues(best!, exp, treatAsCommandHead: true);
+                bool exi = FileExistsSafe(exp);
+                refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = best!, ExpandedValue = exp, Exists = exi, Issues = issues, SourceTag = "lnk:target" });
+            }
+        } catch { }
     }
 
     private static bool LooksLikeTaskXml(string path)

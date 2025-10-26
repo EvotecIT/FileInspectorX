@@ -251,3 +251,4 @@ csharp_prefer_braces = true
 
 # Suggest XML documentation for public members/types
 dotnet_diagnostic.CS1591.severity = suggestion
+

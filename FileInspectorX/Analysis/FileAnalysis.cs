@@ -52,6 +52,11 @@ public class FileAnalysis {
     public IReadOnlyList<string>? SecurityFindings { get; set; }
 
     /// <summary>
+    /// For scripts, best-effort list of notable cmdlets/verbs seen (e.g., Start-Process, Invoke-WebRequest).
+    /// </summary>
+    public IReadOnlyList<string>? ScriptCmdlets { get; set; }
+
+    /// <summary>
     /// Normalized file permission/ownership snapshot (best-effort cross-platform).
     /// </summary>
     public FileSecurity? Security { get; set; }
@@ -60,6 +65,12 @@ public class FileAnalysis {
     /// Windows PE Authenticode signature summary (when present). Cross-platform, best-effort parsing.
     /// </summary>
     public AuthenticodeInfo? Authenticode { get; set; }
+
+    /// <summary>
+    /// For managed PE files: true if the COM descriptor Flags indicate a strong-name signature.
+    /// Null when not applicable or not parsed.
+    /// </summary>
+    public bool? DotNetStrongNameSigned { get; set; }
 
     /// <summary>
     /// Structured references extracted from the file's content (e.g., command targets from Task Scheduler XML,
@@ -90,4 +101,88 @@ public class FileAnalysis {
     /// Number of external link definitions detected in OOXML Excel documents (xl/externalLinks/* or workbook rels). Null when not applicable.
     /// </summary>
     public int? OfficeExternalLinksCount { get; set; }
+
+    /// <summary>
+    /// Number of encrypted entries detected inside a ZIP container (central directory flags or AES extra field). Null when not applicable.
+    /// </summary>
+    public int? EncryptedEntryCount { get; set; }
+    /// <summary>
+    /// Per-entry indicators collected during deep container scan (bounded).
+    /// </summary>
+    public IReadOnlyList<string>? InnerFindings { get; set; }
+
+    // Inner archive signer summary (from sampled executables inside ZIP/TAR when deep scan is enabled)
+    /// <summary>
+    /// Preview of notable inner entries found inside an archive (e.g., top executables). Bounded and sampling-based.
+    /// </summary>
+    public IReadOnlyList<InnerEntryPreview>? ArchivePreviewEntries { get; set; }
+
+    /// <summary>Total inner executables sampled during deep scan.</summary>
+    public int? InnerExecutablesSampled { get; set; }
+    /// <summary>Number of sampled inner executables that were Authenticode signed.</summary>
+    public int? InnerSignedExecutables { get; set; }
+    /// <summary>Number of sampled inner executables with a valid chain or trusted WinVerifyTrust policy.</summary>
+    public int? InnerValidSignedExecutables { get; set; }
+    /// <summary>Counts by publisher (SignerSubjectCN when available) among signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherCounts { get; set; }
+    /// <summary>Counts by publisher for valid signed inner executables (chain/policy OK).</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherValidCounts { get; set; }
+    /// <summary>Counts by publisher for self-signed inner executables.</summary>
+    public IReadOnlyDictionary<string,int>? InnerPublisherSelfSignedCounts { get; set; }
+
+    /// <summary>
+    /// Counts of inner entries by executable extension (e.g., exe, dll, msi) gathered during container scan.
+    /// </summary>
+    public IReadOnlyDictionary<string,int>? InnerExecutableExtCounts { get; set; }
+
+    /// <summary>
+    /// Parsed certificate metadata for standalone certificate files (.cer/.crt/.der/.pem).
+    /// </summary>
+    public CertificateInfo? Certificate { get; set; }
+
+    /// <summary>
+    /// For PKCS#7 certificate bundles (.p7b/.spc): number of certificates and their subjects (best-effort).
+    /// </summary>
+    public int? CertificateBundleCount { get; set; }
+    /// <summary>
+    /// Subjects present in a PKCS#7 certificate bundle, when parsed.
+    /// </summary>
+    public IReadOnlyList<string>? CertificateBundleSubjects { get; set; }
+}
+
+    /// <summary>
+    /// Lightweight description of an inner archive entry for preview purposes.
+    /// </summary>
+public sealed class InnerEntryPreview {
+    /// <summary>Entry name or path within the container.</summary>
+    public string Name { get; set; } = string.Empty;
+    /// <summary>Detected type extension when sampled (e.g., exe, dll), if available.</summary>
+    public string? DetectedExtension { get; set; }
+}
+
+/// <summary>
+/// Parsed certificate metadata for standalone certificate files (.cer/.crt/.der/.pem).
+/// </summary>
+public sealed class CertificateInfo
+{
+    /// <summary>Certificate subject (distinguished name).</summary>
+    public string? Subject { get; set; }
+    /// <summary>Certificate issuer (distinguished name).</summary>
+    public string? Issuer { get; set; }
+    /// <summary>NotBefore validity bound in UTC.</summary>
+    public DateTime? NotBeforeUtc { get; set; }
+    /// <summary>NotAfter validity bound in UTC.</summary>
+    public DateTime? NotAfterUtc { get; set; }
+    /// <summary>SHA-1 thumbprint of the certificate.</summary>
+    public string? Thumbprint { get; set; }
+    /// <summary>Public key algorithm (friendly name or OID value).</summary>
+    public string? KeyAlgorithm { get; set; }
+    /// <summary>True when the certificate appears self-signed (Subject equals Issuer).</summary>
+    public bool? SelfSigned { get; set; }
+    /// <summary>True if a local chain build (revocation NoCheck) succeeds.</summary>
+    public bool? ChainTrusted { get; set; }
+    /// <summary>Subject of the last element in a successfully built chain (root), when available.</summary>
+    public string? RootSubject { get; set; }
+    /// <summary>True if a Subject Alternative Name (SAN) extension is present.</summary>
+    public bool? SanPresent { get; set; }
 }
