@@ -56,24 +56,10 @@ internal static partial class Signatures {
                 var r = s.Read(arr, 0, arr.Length);
                 return r == 5 && new ReadOnlySpan<byte>(arr).SequenceEqual("CD001"u8);
             }
-            if (checkAt(fs, 0x8001) || checkAt(fs, 0x8801) || checkAt(fs, 0x9001) || ScanAnywhere(fs)) {
+            // Only accept ISO when CD001 appears at standard Primary/Backup Volume Descriptor offsets.
+            if (checkAt(fs, 0x8001) || checkAt(fs, 0x8801) || checkAt(fs, 0x9001)) {
                 result = new ContentTypeDetectionResult { Extension = "iso", MimeType = "application/x-iso9660-image", Confidence = "High", Reason = "iso:cd001" };
                 return true;
-            }
-            static bool ScanAnywhere(Stream s) {
-                try {
-                    if (s.CanSeek) s.Seek(0, SeekOrigin.Begin);
-                    ReadOnlySpan<byte> pat = "CD001"u8;
-                    var buf = new byte[8192];
-                    int read; long total = 0;
-                    int cap = FileInspectorX.Settings.DetectionReadBudgetBytes;
-                    while ((read = s.Read(buf, 0, buf.Length)) > 0 && total < cap) {
-                        var span = new ReadOnlySpan<byte>(buf, 0, read);
-                        for (int i = 0; i + pat.Length <= span.Length; i++) if (span.Slice(i, pat.Length).SequenceEqual(pat)) return true;
-                        total += read;
-                    }
-                } catch { }
-                return false;
             }
         } catch { }
         return false;

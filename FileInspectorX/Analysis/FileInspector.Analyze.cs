@@ -232,18 +232,20 @@ public static partial class FileInspector {
                     }
                 } catch (Exception ex) { Breadcrumbs.Write("MSI_META_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             }
-            // If the file name declares .msi, promote detection to MSI and attempt MSI property read even if the magic stayed at OLE2
+            // If the file name declares .msi, promote detection to MSI even if the magic stayed at OLE2.
+            // This avoids mislabeling MSI packages as generic OLE2 or Office when installer enrichment is disabled.
             try
             {
                 var declaredExtM = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
-                if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && string.Equals(declaredExtM, "msi", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(declaredExtM, "msi", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!string.Equals(det.Extension, "msi", StringComparison.OrdinalIgnoreCase))
                     {
                         det.Extension = "msi"; det.MimeType = "application/x-msi"; det.Confidence = string.IsNullOrEmpty(det.Confidence) ? "High" : det.Confidence;
                         det.Reason = string.IsNullOrEmpty(det.Reason) ? "declared:msi" : det.Reason + ";declared:msi";
                     }
-                    if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
+                    // MSI property enrichment is optional and may be disabled for stability; only attempt when enabled
+                    if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
                 }
             } catch (Exception ex) { Breadcrumbs.Write("MSI_PROMOTE_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
