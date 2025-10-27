@@ -38,6 +38,7 @@ jobs:
     with:
       solution: 'FileInspectorX.sln'
       os_dotnet: '["windows-latest","ubuntu-latest","macos-latest"]'
+      dotnet_frameworks: '["net8.0","net472"]'
       enable_codecov: true
       ps_run: true
       ps_versions: '["5.1","7"]'

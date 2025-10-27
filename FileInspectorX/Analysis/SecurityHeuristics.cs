@@ -181,7 +181,7 @@ internal static class SecurityHeuristics
     internal static (bool isLog, int info, int warn, int error) ClassifyLogFromText(string text)
     {
         if (string.IsNullOrEmpty(text)) return (false, 0, 0, 0);
-        int info=0, warn=0, error=0; int tsLines=0, total=0;
+        int info=0, warn=0, error=0; int tsLines=0, total=0; bool eventViewer=false;
         using (var sr = new System.IO.StringReader(text))
         {
             string? line; int lines = 0;
@@ -195,10 +195,11 @@ internal static class SecurityHeuristics
                 if (u.Contains("INFO")) info++;
                 if (u.Contains("WARN") || u.Contains("WARNING")) warn++;
                 if (u.Contains("ERROR") || u.Contains("ERR ")) error++;
+                if (!eventViewer && (u.Contains("LOG NAME:") && (u.Contains("EVENT ID:") || u.Contains("TASK CATEGORY:") || u.Contains("LEVEL:")))) eventViewer = true;
             }
         }
         // Basic log heuristic: at least a few timestamped lines or level tokens across multiple lines
-        bool isLog = (tsLines >= 3 && total >= 10) || (info+warn+error >= 5);
+        bool isLog = eventViewer || (tsLines >= 3 && total >= 10) || (info+warn+error >= 5);
         return (isLog, info, warn, error);
     }
 
