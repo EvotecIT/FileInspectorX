@@ -6,10 +6,9 @@
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Description>FileInspector: dependency-free content type detection (magic bytes +
-            heuristics)</Description>
-        <AssemblyName>FileInspector</AssemblyName>
-        <VersionPrefix>1.0.0</VersionPrefix>
+        <Description>FileInspectorX: dependency-free content type detection (magic bytes + heuristics)</Description>
+        <AssemblyName>FileInspectorX</AssemblyName>
+        <VersionPrefix>1.0.1</VersionPrefix>
         <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
         <PackageReadmeFile>NuGet.README.md</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
