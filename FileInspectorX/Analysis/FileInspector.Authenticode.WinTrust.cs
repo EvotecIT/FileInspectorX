@@ -39,9 +39,17 @@ public static partial class FileInspector
         }
         catch { /* ignore cache key issues */ }
         IntPtr pFile = IntPtr.Zero;
+        IntPtr pPath = IntPtr.Zero;
         try {
             var guidAction = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-            var fileInfo = new WINTRUST_FILE_INFO(path);
+            // Build unmanaged WINTRUST_FILE_INFO with explicit unmanaged string to avoid GC/marshalling issues
+            var fileInfo = new WINTRUST_FILE_INFO();
+            fileInfo.cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_FILE_INFO));
+            pPath = Marshal.StringToHGlobalUni(path);
+            fileInfo.pcwszFilePath = pPath;
+            fileInfo.hFile = IntPtr.Zero;
+            fileInfo.pgKnownSubject = IntPtr.Zero;
+
             var data = new WINTRUST_DATA();
             data.cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_DATA));
             data.dwUIChoice = WTD_UI_NONE;
@@ -76,6 +84,9 @@ public static partial class FileInspector
             if (pFile != IntPtr.Zero) {
                 try { Marshal.DestroyStructure(pFile, typeof(WINTRUST_FILE_INFO)); } catch { }
                 try { Marshal.FreeHGlobal(pFile); } catch { }
+            }
+            if (pPath != IntPtr.Zero) {
+                try { Marshal.FreeHGlobal(pPath); } catch { }
             }
         }
     }
@@ -133,17 +144,9 @@ public static partial class FileInspector
     private struct WINTRUST_FILE_INFO
     {
         public uint cbStruct;
-        public string pcwszFilePath;
+        public IntPtr pcwszFilePath; // LPCWSTR
         public IntPtr hFile;
         public IntPtr pgKnownSubject;
-
-        public WINTRUST_FILE_INFO(string filePath)
-        {
-            cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_FILE_INFO));
-            pcwszFilePath = filePath;
-            hFile = IntPtr.Zero;
-            pgKnownSubject = IntPtr.Zero;
-        }
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
