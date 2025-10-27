@@ -119,6 +119,7 @@ public static partial class FileInspector
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _msiLocks = new(System.StringComparer.OrdinalIgnoreCase);
+    private static readonly object _msiGlobalLock = new object();
 
     private static void TryPopulateMsiProperties(string path, FileAnalysis res)
     {
@@ -138,6 +139,7 @@ public static partial class FileInspector
 
         // Serialize native MSI access per path to avoid re-entrancy issues inside msi.dll
         var locker = _msiLocks.GetOrAdd(path, _ => new object());
+        lock (_msiGlobalLock)
         lock (locker)
         {
         Breadcrumbs.Write("MSI_PROPS_BEGIN", path: path);
@@ -181,8 +183,12 @@ public static partial class FileInspector
 
                 // SummaryInformation (Author, Comments) – best effort
                 TryPopulateMsiSummary(hDb, res);
-                // CustomActions summary (Windows-only)
-                TryPopulateMsiCustomActions(hDb, res);
+                // CustomActions summary (Windows-only) — opt-in via env var to maximize stability
+                try {
+                    var ca = Environment.GetEnvironmentVariable("TIERBRIDGE_ENABLE_MSI_CA");
+                    if (!string.IsNullOrEmpty(ca) && (ca.Equals("1") || ca.Equals("true", StringComparison.OrdinalIgnoreCase)))
+                        TryPopulateMsiCustomActions(hDb, res);
+                } catch { }
             } finally { if (hDb != IntPtr.Zero) MsiCloseHandle(hDb); Breadcrumbs.Write("MSI_PROPS_END", path: path); }
         } catch (Exception ex) { Breadcrumbs.Write("MSI_PROPS_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
         }

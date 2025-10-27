@@ -119,13 +119,16 @@ internal static partial class Signatures {
             }
         }
 
-        // Markdown quick cues
+        // Markdown quick cues (guarded to avoid scripts)
         {
             var hb2 = new byte[Math.Min(head.Length, 2048)]; head.Slice(0, hb2.Length).CopyTo(new System.Span<byte>(hb2));
             var s = System.Text.Encoding.UTF8.GetString(hb2);
             var sl = s.ToLowerInvariant();
-            if (sl.StartsWith("# ") || sl.Contains("\n# ") || sl.Contains("```") || (sl.Contains("[")) && sl.Contains("](") ) {
-                result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true;
+            bool looksMd = sl.StartsWith("# ") || sl.Contains("\n# ") || sl.Contains("```") || sl.Contains("](");
+            if (looksMd)
+            {
+                // Do not classify as Markdown if strong PowerShell cues are present
+                if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
             }
         }
 

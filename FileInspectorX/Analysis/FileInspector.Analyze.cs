@@ -306,11 +306,11 @@ public static partial class FileInspector {
                         var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                         if (!list.Contains("ps:structure")) list.Add("ps:structure");
                         res.SecurityFindings = list;
-                        // Promote detection to ps1 when previous text-like detection was ambiguous (e.g., yml/txt/json/xml/conf)
+                        // Promote detection to ps1 when previous text-like detection was ambiguous (e.g., yml/txt/json/xml/conf/md)
                         if (res.Detection != null)
                         {
                             var de = (res.Detection.Extension ?? string.Empty).ToLowerInvariant();
-                            if (de is "yml" or "yaml" or "txt" or "log" or "json" or "xml" or "conf" or "cfg")
+                            if (de is "yml" or "yaml" or "txt" or "log" or "json" or "xml" or "conf" or "cfg" or "md")
                             {
                                 res.Detection.Extension = "ps1";
                                 res.Detection.MimeType = "text/x-powershell";

@@ -127,7 +127,7 @@ public class Settings {
     /// <summary>
     /// When false, MSI/AppX/Installer metadata enrichment is skipped even if Analyze() is asked to include installer metadata.
     /// </summary>
-    public static bool IncludeInstaller { get; set; } = true;
+    public static bool IncludeInstaller { get; set; } = false;
 
     /// <summary>
     /// Enable ultra-light breadcrumb logging to a local file for crash forensics.
