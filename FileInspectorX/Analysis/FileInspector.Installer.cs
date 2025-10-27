@@ -133,7 +133,8 @@ public static partial class FileInspector
         {
             var ext = System.IO.Path.GetExtension(path);
             var byName = !string.IsNullOrEmpty(ext) && ext.Equals(".msi", StringComparison.OrdinalIgnoreCase);
-            var byDetect = (res?.Detection?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false);
+            // 'res' is a required parameter here; avoid null-conditional on it to preserve non-null flow
+            var byDetect = (res.Detection?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false);
             if (!(byName || byDetect)) return;
         } catch { return; }
 
