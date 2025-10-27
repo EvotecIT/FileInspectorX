@@ -93,9 +93,14 @@ internal static partial class Signatures {
             }
         }
 
-        // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above
-        if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-') { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
+        // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above.
+        // Do not classify as YAML if strong PowerShell cues are present (common in .ps1 files with colon-bearing text literals).
+        if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-') {
+            if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
+        }
         {
+            // Heuristic tightening: count only plausible YAML key lines near the start.
+            // Reject keys that appear inside quoted strings (common in scripts, e.g., Write-Host "...:").
             int yamlish = 0; int scanned = 0; int startLine = 0;
             for (int i = 0; i < head.Length && scanned < 6; i++) {
                 if (head[i] == (byte)'\n') {
@@ -109,7 +114,9 @@ internal static partial class Signatures {
                     startLine = i + 1;
                 }
             }
-            if (yamlish >= 2) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml-keys", ReasonDetails = $"yaml:key-lines={yamlish}" }; return true; }
+            if (yamlish >= 2) {
+                if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml-keys", ReasonDetails = $"yaml:key-lines={yamlish}" }; return true; }
+            }
         }
 
         // Markdown quick cues
@@ -240,11 +247,8 @@ internal static partial class Signatures {
             if (headLower.Contains("-----begin openssh private key-----") || headLower.Contains("openssh private key")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
             if (headLower.Contains("-----begin private key-----") || headLower.Contains("-----begin rsa private key-----") || headLower.Contains("-----begin dsa private key-----") || headLower.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
         }
-        if (headLower.Contains("[cmdletbinding]") || headLower.Contains("#requires") || headLower.Contains("param(") ||
-            headLower.Contains("begin{") || headLower.Contains("process{") || headLower.Contains("end{") ||
-            headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0 ||
-            headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Write-Output", System.StringComparison.Ordinal) >= 0 ||
-            headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) {
+        // PowerShell heuristic — tightened to require at least two strong cues
+        {
             int cues = 0;
             if (headLower.Contains("[cmdletbinding]")) cues++;
             if (headLower.Contains("#requires")) cues++;
@@ -253,8 +257,35 @@ internal static partial class Signatures {
             if (headLower.Contains("process{")) cues++;
             if (headLower.Contains("end{")) cues++;
             if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
-            var conf = cues >= 2 ? "Medium" : "Low";
-            result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:ps1", ReasonDetails = cues >= 2 ? "ps1:multi-cues" : "ps1:common-cmdlets" }; return true;
+            if (headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
+            if (headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
+            // Count Get-/Set- as a mild cue only when combined with another cue
+            bool hasGetSet = headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0;
+            if (hasGetSet) cues++;
+            if (cues >= 2) {
+                var conf = cues >= 3 ? "Medium" : "Low";
+                result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:ps1", ReasonDetails = cues >= 3 ? "ps1:multi-cues" : "ps1:common-cmdlets" }; return true;
+            }
+        }
+
+        // Local helper to guard YAML against PowerShell-looking content
+        static bool HasPowerShellCues(ReadOnlySpan<byte> head)
+        {
+            var hb = new byte[Math.Min(head.Length, 4096)]; head.Slice(0, hb.Length).CopyTo(new System.Span<byte>(hb));
+            var s = System.Text.Encoding.UTF8.GetString(hb);
+            var sl = s.ToLowerInvariant();
+            int cues = 0;
+            if (sl.Contains("[cmdletbinding]")) cues++;
+            if (sl.Contains("#requires")) cues++;
+            if (sl.Contains("param(")) cues++;
+            if (sl.Contains("begin{")) cues++;
+            if (sl.Contains("process{")) cues++;
+            if (sl.Contains("end{")) cues++;
+            if (s.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
+            if (s.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
+            if (s.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
+            if (s.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || s.IndexOf("Set-", System.StringComparison.Ordinal) >= 0) cues++;
+            return cues >= 2;
         }
 
         // VBScript heuristic
@@ -349,13 +380,20 @@ internal static partial class Signatures {
         }
         static bool LooksYamlKeyValue(ReadOnlySpan<byte> l) {
             if (l.Length == 0) return false;
+            // Ignore common log tokens
             if (StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]")) return false;
             if (StartsWithToken(l, "INFO:") || StartsWithToken(l, "WARN:") || StartsWithToken(l, "ERROR:") || StartsWithToken(l, "DEBUG:")) return false;
-            int cpos = l.IndexOf((byte)':'); if (cpos <= 0 || cpos > Math.Min(48, l.Length - 2)) return false;
+            int cpos = l.IndexOf((byte)':'); if (cpos <= 0 || cpos > Math.Min(80, l.Length - 1)) return false;
+            // If there is any quote before ':', do not treat as YAML key (likely part of a quoted string)
+            for (int i = 0; i < cpos; i++) { if (l[i] == (byte)'"' || l[i] == (byte)'\'') return false; }
+            // Ignore URI-like key:/value
             if (cpos + 1 < l.Length && l[cpos + 1] == (byte)'/') return false;
             int p = 0; while (p < l.Length && (l[p] == (byte)' ' || l[p] == (byte)'\t' || l[p] == (byte)'-')) p++;
-            if (p >= l.Length) return false;
-            if (!char.IsLetter((char)l[p])) return false;
+            if (p >= l.Length || p >= cpos) return false;
+            // Require key segment without whitespace to reduce false positives like "Data being exported:"
+            for (int i = p; i < cpos; i++) { if (l[i] == (byte)' ' || l[i] == (byte)'\t') return false; }
+            // Start token must look like an identifier (letter or underscore)
+            if (!(char.IsLetter((char)l[p]) || l[p] == (byte)'_')) return false;
             return true;
         }
         static bool StartsWithLevelToken(ReadOnlySpan<byte> l) {

@@ -118,13 +118,32 @@ public static partial class FileInspector
 #endif
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _msiLocks = new(System.StringComparer.OrdinalIgnoreCase);
+
     private static void TryPopulateMsiProperties(string path, FileAnalysis res)
     {
 #if NET8_0_OR_GREATER || NET472
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+        // Optional kill-switch for native MSI parsing to maximize service resilience
+        try { var disable = Environment.GetEnvironmentVariable("TIERBRIDGE_DISABLE_MSI_NATIVE"); if (!string.IsNullOrEmpty(disable) && (disable.Equals("1") || disable.Equals("true", StringComparison.OrdinalIgnoreCase))) return; } catch { }
+        if (!Settings.IncludeInstaller) return;
+        // Only attempt when file likely is MSI: declared .msi or detection already flagged msi
+        try
+        {
+            var ext = System.IO.Path.GetExtension(path);
+            var byName = !string.IsNullOrEmpty(ext) && ext.Equals(".msi", StringComparison.OrdinalIgnoreCase);
+            var byDetect = (res?.Detection?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false);
+            if (!(byName || byDetect)) return;
+        } catch { return; }
+
+        // Serialize native MSI access per path to avoid re-entrancy issues inside msi.dll
+        var locker = _msiLocks.GetOrAdd(path, _ => new object());
+        lock (locker)
+        {
+        Breadcrumbs.Write("MSI_PROPS_BEGIN", path: path);
         // Windows Installer API – read Property table (Manufacturer, ProductName, ProductCode, ProductVersion, UpgradeCode, ALLUSERS, ARP URLs)
         try {
-            if (MsiOpenDatabase(path, IntPtr.Zero, out IntPtr hDb) != 0 || hDb == IntPtr.Zero) return;
+            if (MsiOpenDatabase(path, MSIDBOPEN_READONLY, out IntPtr hDb) != 0 || hDb == IntPtr.Zero) return;
             try {
                 string? Manufacturer = QueryMsiProperty(hDb, "Manufacturer");
                 string? ProductName = QueryMsiProperty(hDb, "ProductName");
@@ -164,29 +183,35 @@ public static partial class FileInspector
                 TryPopulateMsiSummary(hDb, res);
                 // CustomActions summary (Windows-only)
                 TryPopulateMsiCustomActions(hDb, res);
-            } finally { if (hDb != IntPtr.Zero) MsiCloseHandle(hDb); }
-        } catch { }
+            } finally { if (hDb != IntPtr.Zero) MsiCloseHandle(hDb); Breadcrumbs.Write("MSI_PROPS_END", path: path); }
+        } catch (Exception ex) { Breadcrumbs.Write("MSI_PROPS_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
+        }
 
 #endif
     }
 
 #if NET8_0_OR_GREATER || NET472
     // P/Invoke (class scope)
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
-    private static extern int MsiOpenDatabase(string szDatabasePath, IntPtr phPersist, out IntPtr phDatabase);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    private const string MSIDBOPEN_READONLY = "MSIDBOPEN_READONLY";
+
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiOpenDatabaseW")]
+    private static extern int MsiOpenDatabase(string szDatabasePath, string? szPersist, out IntPtr phDatabase);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiDatabaseOpenViewW")]
     private static extern int MsiDatabaseOpenView(IntPtr hDatabase, string szQuery, out IntPtr phView);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiViewExecute")]
     private static extern int MsiViewExecute(IntPtr hView, IntPtr hRecord);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiViewFetch")]
     private static extern int MsiViewFetch(IntPtr hView, out IntPtr phRecord);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
-    private static extern int MsiRecordGetString(IntPtr hRecord, int iField, System.Text.StringBuilder szValueBuf, ref int pcchValueBuf);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    // Two overloads: one for size-query (null buffer) and one for actual copy
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiRecordGetStringW")]
+    private static extern int MsiRecordGetStringPtr(IntPtr hRecord, int iField, IntPtr szValueBuf, ref int pcchValueBuf);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiRecordGetStringW")]
+    private static extern int MsiRecordGetStringBuf(IntPtr hRecord, int iField, System.Text.StringBuilder szValueBuf, ref int pcchValueBuf);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiCloseHandle")]
     private static extern int MsiCloseHandle(IntPtr hAny);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiGetSummaryInformationW")]
     private static extern int MsiGetSummaryInformation(IntPtr hDatabase, string? szDatabasePath, uint uiUpdateCount, out IntPtr phSummaryInfo);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiSummaryInfoGetPropertyW")]
     private static extern int MsiSummaryInfoGetProperty(IntPtr hSummaryInfo, uint uiProperty, out uint puiDataType, out int piValue, System.Text.StringBuilder szValueBuf, ref uint pcchValueBuf);
 
     private static string? QueryMsiProperty(IntPtr hDb, string property)
@@ -196,9 +221,10 @@ public static partial class FileInspector
             if (MsiDatabaseOpenView(hDb, $"SELECT `Value` FROM `Property` WHERE `Property`='{property}'", out hView) != 0) return null;
             if (MsiViewExecute(hView, IntPtr.Zero) != 0) return null;
             if (MsiViewFetch(hView, out hRec) != 0 || hRec == IntPtr.Zero) return null;
-            int sz = 0; MsiRecordGetString(hRec, 1, null!, ref sz);
+            int sz = 0; _ = MsiRecordGetStringPtr(hRec, 1, IntPtr.Zero, ref sz);
+            if (sz <= 0) return null;
             var sb = new System.Text.StringBuilder(sz + 1);
-            if (MsiRecordGetString(hRec, 1, sb, ref sz) != 0) return null;
+            if (MsiRecordGetStringBuf(hRec, 1, sb, ref sz) != 0) return null;
             return sb.ToString();
         } finally {
             if (hRec != IntPtr.Zero) MsiCloseHandle(hRec);
@@ -278,9 +304,10 @@ public static partial class FileInspector
 
         static string? GetStringField(IntPtr rec, int idx)
         {
-            int cch = 0; MsiRecordGetString(rec, idx, null!, ref cch);
+            int cch = 0; _ = MsiRecordGetStringPtr(rec, idx, IntPtr.Zero, ref cch);
+            if (cch <= 0) return null;
             var sb = new System.Text.StringBuilder(cch + 1);
-            if (MsiRecordGetString(rec, idx, sb, ref cch) != 0) return null; return sb.ToString();
+            if (MsiRecordGetStringBuf(rec, idx, sb, ref cch) != 0) return null; return sb.ToString();
         }
     }
 #endif
