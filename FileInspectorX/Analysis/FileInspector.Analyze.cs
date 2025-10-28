@@ -22,6 +22,7 @@ public static partial class FileInspector {
     /// container hints, version data and lightweight risk signals into a single result.
     /// </summary>
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
+        Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
         var det = Detect(path, options);
         var res = new FileAnalysis {
             Detection = det,
@@ -29,6 +30,7 @@ public static partial class FileInspector {
             Flags = ContentFlags.None,
             GuessedExtension = det?.GuessedExtension
         };
+        bool msiPropsDone = false;
 
         try {
             if (det is null) return res;
@@ -217,9 +219,10 @@ public static partial class FileInspector {
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 
             // MSI metadata enrichment (Windows): product version via msi.dll
-            if ((options?.IncludeInstaller != false) && det.Extension == "msi")
+            if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && det.Extension == "msi")
             {
                 try {
+                    Breadcrumbs.Write("MSI_META_BEGIN", path: path);
                     var msiVer = FileInspector.TryGetMsiVersion(path);
                     if (!string.IsNullOrWhiteSpace(msiVer))
                     {
@@ -227,26 +230,28 @@ public static partial class FileInspector {
                         dict["ProductVersion"] = msiVer!;
                         res.VersionInfo = dict;
                     }
-                } catch { }
+                } catch (Exception ex) { Breadcrumbs.Write("MSI_META_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             }
-            // If the file name declares .msi, promote detection to MSI and attempt MSI property read even if the magic stayed at OLE2
+            // If the file name declares .msi, promote detection to MSI even if the magic stayed at OLE2.
+            // This avoids mislabeling MSI packages as generic OLE2 or Office when installer enrichment is disabled.
             try
             {
                 var declaredExtM = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
-                if ((options?.IncludeInstaller != false) && string.Equals(declaredExtM, "msi", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(declaredExtM, "msi", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!string.Equals(det.Extension, "msi", StringComparison.OrdinalIgnoreCase))
                     {
                         det.Extension = "msi"; det.MimeType = "application/x-msi"; det.Confidence = string.IsNullOrEmpty(det.Confidence) ? "High" : det.Confidence;
                         det.Reason = string.IsNullOrEmpty(det.Reason) ? "declared:msi" : det.Reason + ";declared:msi";
                     }
-                    TryPopulateMsiProperties(path, res);
+                    // MSI property enrichment is optional and may be disabled for stability; only attempt when enabled
+                    if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
                 }
-            } catch { }
+            } catch (Exception ex) { Breadcrumbs.Write("MSI_PROMOTE_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
             try
             {
-                if ((options?.IncludeInstaller != false) && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
+                if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
                 {
                     det.Extension = "msi";
                     det.MimeType = "application/x-msi";
@@ -303,6 +308,18 @@ public static partial class FileInspector {
                         var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                         if (!list.Contains("ps:structure")) list.Add("ps:structure");
                         res.SecurityFindings = list;
+                        // Promote detection to ps1 when previous text-like detection was ambiguous (e.g., yml/txt/json/xml/conf/md)
+                        if (res.Detection != null)
+                        {
+                            var de = (res.Detection.Extension ?? string.Empty).ToLowerInvariant();
+                            if (de is "yml" or "yaml" or "txt" or "log" or "json" or "xml" or "conf" or "cfg" or "md")
+                            {
+                                res.Detection.Extension = "ps1";
+                                res.Detection.MimeType = "text/x-powershell";
+                                res.Detection.Confidence = string.IsNullOrEmpty(res.Detection.Confidence) ? "Medium" : res.Detection.Confidence;
+                                res.Detection.Reason = string.IsNullOrEmpty(res.Detection.Reason) ? "ps1:structure" : res.Detection.Reason + ";ps1:structure";
+                            }
+                        }
                     }
                     else if (psClass.level == SecurityHeuristics.PsClassLevel.Weak)
                     {
@@ -417,7 +434,7 @@ public static partial class FileInspector {
             // MSI package properties (Windows only)
             if ((options?.IncludeInstaller != false) && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
-                TryPopulateMsiProperties(path, res);
+                if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
             }
             // On Windows, attempt WinVerifyTrust for MSI and general files (policy validation)
 #if NET8_0_OR_GREATER || NET472
@@ -924,6 +941,7 @@ public static partial class FileInspector {
             return true;
         }
         catch { return false; }
+        finally { Breadcrumbs.Write("ANALYZE_END", path: path); }
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,

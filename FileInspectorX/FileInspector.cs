@@ -67,13 +67,26 @@ public static partial class FileInspector {
             // .htm <-> .html
             if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
+            // Ambiguous config family: treat .config/.conf/.cfg as matching common text-based config formats (xml/json/yaml/ini/etc.)
+            if (a.Equals("config", StringComparison.OrdinalIgnoreCase) || a.Equals("conf", StringComparison.OrdinalIgnoreCase) || a.Equals("cfg", StringComparison.OrdinalIgnoreCase))
+                return InConfigFamily(b);
+            if (b.Equals("config", StringComparison.OrdinalIgnoreCase) || b.Equals("conf", StringComparison.OrdinalIgnoreCase) || b.Equals("cfg", StringComparison.OrdinalIgnoreCase))
+                return InConfigFamily(a);
+            // PowerShell family: .ps1 <-> .psm1 <-> .psd1
+            if ((a.Equals("ps1", StringComparison.OrdinalIgnoreCase) || a.Equals("psm1", StringComparison.OrdinalIgnoreCase) || a.Equals("psd1", StringComparison.OrdinalIgnoreCase)) &&
+                (b.Equals("ps1", StringComparison.OrdinalIgnoreCase) || b.Equals("psm1", StringComparison.OrdinalIgnoreCase) || b.Equals("psd1", StringComparison.OrdinalIgnoreCase))) return true;
+            // Windows scripts: .bat <-> .cmd
+            if ((a.Equals("bat", StringComparison.OrdinalIgnoreCase) && b.Equals("cmd", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("cmd", StringComparison.OrdinalIgnoreCase) && b.Equals("bat", StringComparison.OrdinalIgnoreCase))) return true;
             // MSI promoted from generic OLE2
             if ((a.Equals("msi", StringComparison.OrdinalIgnoreCase) && b.Equals("ole2", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
             // Plain‑text family: treat generic text and log/config notes as equivalent
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
-            // Heuristic: PowerShell low‑confidence vs .txt — avoid noisy mismatches for changelogs/readmes
-            if (a.Equals("txt", StringComparison.OrdinalIgnoreCase) && b.Equals("ps1", StringComparison.OrdinalIgnoreCase)) return true;
+            // Heuristic: PowerShell vs .txt — avoid noisy mismatches for short scripts/changelogs
+            if ((a.Equals("txt", StringComparison.OrdinalIgnoreCase) && (b.Equals("ps1", StringComparison.OrdinalIgnoreCase) || b.Equals("psm1", StringComparison.OrdinalIgnoreCase) || b.Equals("psd1", StringComparison.OrdinalIgnoreCase))) ||
+                (b.Equals("txt", StringComparison.OrdinalIgnoreCase) && (a.Equals("ps1", StringComparison.OrdinalIgnoreCase) || a.Equals("psm1", StringComparison.OrdinalIgnoreCase) || a.Equals("psd1", StringComparison.OrdinalIgnoreCase))))
+                return true;
             return false;
         }
 
@@ -92,6 +105,27 @@ public static partial class FileInspector {
                 case "markdown":
                 case "properties":
                 case "prop":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static bool InConfigFamily(string ext)
+        {
+            switch ((ext ?? string.Empty).ToLowerInvariant())
+            {
+                case "xml":
+                case "json":
+                case "yml":
+                case "yaml":
+                case "ini":
+                case "conf":
+                case "cfg":
+                case "properties":
+                case "prop":
+                case "toml":
+                case "txt": // permissive: some vendors ship plain-text .config without strict format
                     return true;
                 default:
                     return false;
@@ -273,11 +307,14 @@ public static partial class FileInspector {
         try
         {
             if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)) return null;
+            try { var disable = Environment.GetEnvironmentVariable("TIERBRIDGE_DISABLE_MSI_NATIVE"); if (!string.IsNullOrEmpty(disable) && (disable.Equals("1") || disable.Equals("true", StringComparison.OrdinalIgnoreCase))) return null; } catch { }
+            Breadcrumbs.Write("MSI_VER_BEGIN", path: path);
             int vCap = 256, lCap = 0;
             var v = new System.Text.StringBuilder(vCap);
             uint rc = MsiGetFileVersionW(path, v, ref vCap, null, ref lCap);
-            if (rc == 0) return v.ToString();
-        } catch { }
+            if (rc == 0) { var ver = v.ToString(); Breadcrumbs.Write("MSI_VER_END", message: ver, path: path); return ver; }
+        } catch (Exception ex) { Breadcrumbs.Write("MSI_VER_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
+        finally { Breadcrumbs.Write("MSI_VER_FINALLY", path: path); }
         return null;
     }
 

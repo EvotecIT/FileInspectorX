@@ -19,6 +19,7 @@ public static partial class FileInspector
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
         if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
+        Breadcrumbs.Write("WVT_BEGIN", path: path);
         try
         {
             var fi = new System.IO.FileInfo(path);
@@ -66,6 +67,7 @@ public static partial class FileInspector
             int status = WinVerifyTrust(IntPtr.Zero, ref guidAction, ref data);
             res.Authenticode.WinTrustStatusCode = status;
             res.Authenticode.IsTrustedWindowsPolicy = status == 0;
+            Breadcrumbs.Write("WVT_END", message: $"status=0x{status:X8}", path: path);
             // store in cache
             try
             {
@@ -79,15 +81,15 @@ public static partial class FileInspector
                 }
             }
             catch { }
-        } catch { }
+        } catch (Exception ex) { Breadcrumbs.Write("WVT_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
         finally {
             if (pFile != IntPtr.Zero) {
-                try { Marshal.DestroyStructure(pFile, typeof(WINTRUST_FILE_INFO)); } catch { }
                 try { Marshal.FreeHGlobal(pFile); } catch { }
             }
             if (pPath != IntPtr.Zero) {
                 try { Marshal.FreeHGlobal(pPath); } catch { }
             }
+            Breadcrumbs.Write("WVT_FINALLY", path: path);
         }
     }
 

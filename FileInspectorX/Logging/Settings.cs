@@ -125,6 +125,27 @@ public class Settings {
     public static int WinTrustCacheMaxEntries { get; set; } = 1024;
 
     /// <summary>
+    /// When false, MSI/AppX/Installer metadata enrichment is skipped even if Analyze() is asked to include installer metadata.
+    /// </summary>
+    public static bool IncludeInstaller { get; set; } = false;
+
+    /// <summary>
+    /// Enable ultra-light breadcrumb logging to a local file for crash forensics.
+    /// Default false. Can be toggled by env var TIERBRIDGE_BREADCRUMBS=1.
+    /// </summary>
+    public static bool BreadcrumbsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Optional override for breadcrumb log file path. When null, defaults to %ProgramData%/TierBridge/FileInspectorX.Breadcrumbs.log.
+    /// </summary>
+    public static string? BreadcrumbsPath { get; set; } = null;
+
+    /// <summary>
+    /// Maximum breadcrumb log size in bytes before rotation. Default 5 MB.
+    /// </summary>
+    public static int BreadcrumbsMaxBytes { get; set; } = 5_000_000;
+
+    /// <summary>
     /// When true, script/text heuristics attempt quick DNS resolution for discovered hostnames (UNC/URLs) to enrich findings.
     /// Default false to avoid network dependency.
     /// </summary>
