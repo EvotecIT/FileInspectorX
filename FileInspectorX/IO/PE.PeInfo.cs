@@ -27,6 +27,8 @@ internal sealed class PeInfo {
     public uint SecuritySize;
     /// <summary>DllCharacteristics bitmask from the Optional Header (ASLR/NX/CFG/etc.).</summary>
     public ushort DllCharacteristics;
+    /// <summary>IMAGE_FILE_HEADER Characteristics bitmask.</summary>
+    public ushort Characteristics;
     /// <summary>Subsystem value from the Optional Header (GUI/CUI/etc.).</summary>
     public ushort Subsystem;
     /// <summary>RVA of the Export Directory (IMAGE_DIRECTORY_ENTRY_EXPORT).</summary>

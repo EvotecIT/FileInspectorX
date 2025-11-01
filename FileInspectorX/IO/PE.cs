@@ -29,7 +29,7 @@ internal static class PeReader {
             br.ReadUInt32(); // PointerToSymbolTable
             br.ReadUInt32(); // NumberOfSymbols
             ushort sizeOptionalHeader = br.ReadUInt16();
-            br.ReadUInt16(); // Characteristics
+            ushort characteristics = br.ReadUInt16(); info.Characteristics = characteristics;
             long optStart = fs.Position; info.OptionalHeaderStart = optStart;
             ushort magic = br.ReadUInt16();
             bool isPlus = magic == 0x20b; info.IsPEPlus = isPlus;

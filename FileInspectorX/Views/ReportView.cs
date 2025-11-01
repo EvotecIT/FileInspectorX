@@ -239,6 +239,7 @@ public sealed class ReportView
             r.DetectedTypeName = a.Detection.MimeType;
             r.DetectionConfidence = a.Detection.Confidence;
             r.DetectionReason = a.Detection.Reason;
+            // Additional friendliness for PE is handled in detection; nothing to do here
             if (!string.IsNullOrEmpty(a.Detection.GuessedExtension)) r.GuessedExtension = a.Detection.GuessedExtension;
         }
         if (a.Authenticode != null)
