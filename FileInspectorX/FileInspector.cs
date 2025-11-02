@@ -132,7 +132,33 @@ public static partial class FileInspector {
             }
         }
 
-        var mismatch = !Equivalent(decl, det);
+        // PE family normalization: DLL/OCX/CPL/SCR belong to DLL family; SYS is driver; EXE is generic PE image
+        static bool IsPeFamilyMember(string ext) => ext.Equals("exe", StringComparison.OrdinalIgnoreCase)
+                                                  || ext.Equals("dll", StringComparison.OrdinalIgnoreCase)
+                                                  || ext.Equals("sys", StringComparison.OrdinalIgnoreCase)
+                                                  || ext.Equals("ocx", StringComparison.OrdinalIgnoreCase)
+                                                  || ext.Equals("cpl", StringComparison.OrdinalIgnoreCase)
+                                                  || ext.Equals("scr", StringComparison.OrdinalIgnoreCase);
+
+        bool familyMatch = false;
+        if (IsPeFamilyMember(decl) && IsPeFamilyMember(det))
+        {
+            // Treat DLL-family declared (dll/ocx/cpl/scr) as matching detected "exe" (generic PE)
+            if (det.Equals("exe", StringComparison.OrdinalIgnoreCase) &&
+                (decl.Equals("dll", StringComparison.OrdinalIgnoreCase) || decl.Equals("ocx", StringComparison.OrdinalIgnoreCase) || decl.Equals("cpl", StringComparison.OrdinalIgnoreCase) || decl.Equals("scr", StringComparison.OrdinalIgnoreCase)))
+            {
+                familyMatch = true;
+            }
+            // Drivers: treat sys as matching generic exe as well
+            if (det.Equals("exe", StringComparison.OrdinalIgnoreCase) && decl.Equals("sys", StringComparison.OrdinalIgnoreCase))
+            {
+                familyMatch = true;
+            }
+            // Exact family: exe/exe or dll/dll etc.
+            if (decl.Equals(det, StringComparison.OrdinalIgnoreCase)) familyMatch = true;
+        }
+
+        var mismatch = !(Equivalent(decl, det) || familyMatch);
         // Special-case: If detection is low-confidence PowerShell but the declared is plain-text family, treat as match to avoid noise
         if (mismatch && InPlainTextFamily(decl) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
         {
@@ -183,7 +209,16 @@ public static partial class FileInspector {
             using var fs = File.OpenRead(path);
             // Try MSG (.msg) path-based detection (OLE with msg markers)
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
-            return Detect(fs, null);
+            var det = Detect(fs, null);
+            // Refine PE family when generic 'exe' detected
+            try {
+                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
+                    const ushort IMAGE_FILE_DLL = 0x2000;
+                    if ((pe.Characteristics & IMAGE_FILE_DLL) != 0) { det.Extension = "dll"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
+                    else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
+                }
+            } catch { }
+            return det;
         } catch { return null; }
     }
 
@@ -197,7 +232,15 @@ public static partial class FileInspector {
             if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
             using var fs = File.OpenRead(path);
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
-            return Detect(fs, options);
+            var det = Detect(fs, options);
+            try {
+                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
+                    const ushort IMAGE_FILE_DLL = 0x2000;
+                    if ((pe.Characteristics & IMAGE_FILE_DLL) != 0) { det.Extension = "dll"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
+                    else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
+                }
+            } catch { }
+            return det;
         } catch { return null; }
     }
 
@@ -317,6 +360,9 @@ public static partial class FileInspector {
         finally { Breadcrumbs.Write("MSI_VER_FINALLY", path: path); }
         return null;
     }
+
+    private static string AppendReason(string? reason, string tag)
+        => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
     [System.Runtime.InteropServices.DllImport("msi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true, EntryPoint = "MsiGetFileVersionW")]
     private static extern uint MsiGetFileVersionW(string szFilePath, System.Text.StringBuilder? lpVersionBuf, ref int pcchVersionBuf, System.Text.StringBuilder? lpLangBuf, ref int pcchLangBuf);
