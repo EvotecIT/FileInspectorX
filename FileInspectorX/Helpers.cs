@@ -39,6 +39,6 @@ public static class InspectHelpers {
         var mime = r.MimeType ?? string.Empty;
         if (mime.StartsWith("text/", StringComparison.OrdinalIgnoreCase)) return true;
         var ext = (r.Extension ?? string.Empty).ToLowerInvariant();
-        return ext is "txt" or "json" or "xml" or "html" or "csv" or "tsv" or "yml" or "yaml" or "ini" or "log" or "rtf" or "eml";
+        return ext is "txt" or "json" or "xml" or "html" or "csv" or "tsv" or "yml" or "yaml" or "ini" or "log" or "rtf" or "eml" or "ndjson" or "jsonl" or "toml";
     }
 }

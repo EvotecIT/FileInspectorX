@@ -61,6 +61,9 @@ public static partial class FileInspector {
             // .yml <-> .yaml
             if ((a.Equals("yml", StringComparison.OrdinalIgnoreCase) && b.Equals("yaml", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("yaml", StringComparison.OrdinalIgnoreCase) && b.Equals("yml", StringComparison.OrdinalIgnoreCase))) return true;
+            // .jsonl <-> .ndjson
+            if ((a.Equals("jsonl", StringComparison.OrdinalIgnoreCase) && b.Equals("ndjson", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("ndjson", StringComparison.OrdinalIgnoreCase) && b.Equals("jsonl", StringComparison.OrdinalIgnoreCase))) return true;
             // .jpg <-> .jpeg
             if ((a.Equals("jpg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpeg", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("jpeg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpg", StringComparison.OrdinalIgnoreCase))) return true;
