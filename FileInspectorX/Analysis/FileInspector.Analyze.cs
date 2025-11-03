@@ -277,8 +277,17 @@ public static partial class FileInspector {
                 }
             } catch { }
 
-            // Shebang/script and text subtypes for textlike files
-            if (InspectHelpers.IsText(det)) {
+            // Shebang/script and text subtypes for textlike files (treat PEM/PGP ASCII‑armored as text-like too)
+            bool IsTextLike(ContentTypeDetectionResult? d)
+            {
+                if (InspectHelpers.IsText(d)) return true;
+                var e = (d?.Extension ?? string.Empty).ToLowerInvariant();
+                var m = (d?.MimeType ?? string.Empty).ToLowerInvariant();
+                if (e is "pem" or "key" or "csr" or "crt" or "cer" or "asc" or "pgp" or "gpg") return true;
+                if (m.StartsWith("application/x-pem") || m.StartsWith("application/pkix") || m.StartsWith("application/pkcs") || m.StartsWith("application/pgp")) return true;
+                return false;
+            }
+            if (IsTextLike(det)) {
                 var first = ReadFirstLine(path, 256);
                 if (first.StartsWith("#!")) {
                     res.Flags |= ContentFlags.IsScript;

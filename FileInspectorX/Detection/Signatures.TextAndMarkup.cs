@@ -8,20 +8,41 @@ internal static partial class Signatures {
         result = null;
         if (src.Length == 0) return false;
 
-        // BOMs
-        if (src.Length >= 3 && src[0] == 0xEF && src[1] == 0xBB && src[2] == 0xBF) { result = new ContentTypeDetectionResult { Extension = "txt", MimeType = "text/plain; charset=utf-8", Confidence = "Medium", Reason = "bom:utf8" }; return true; }
-        if (src.Length >= 2 && src[0] == 0xFF && src[1] == 0xFE) { result = new ContentTypeDetectionResult { Extension = "txt", MimeType = "text/plain; charset=utf-16le", Confidence = "Medium", Reason = "bom:utf16le" }; return true; }
-        if (src.Length >= 2 && src[0] == 0xFE && src[1] == 0xFF) { result = new ContentTypeDetectionResult { Extension = "txt", MimeType = "text/plain; charset=utf-16be", Confidence = "Medium", Reason = "bom:utf16be" }; return true; }
+        // BOMs: record and continue refining instead of early-returning as plain text.
+        // This allows CSV/TSV/JSON/XML detection to work on UTF-8/UTF-16 files exported with BOMs.
+        int bomSkip = 0;
+        string? bomCharset = null;
+        if (src.Length >= 3 && src[0] == 0xEF && src[1] == 0xBB && src[2] == 0xBF) { bomSkip = 3; bomCharset = "utf-8"; }
+        else if (src.Length >= 2 && src[0] == 0xFF && src[1] == 0xFE) { bomSkip = 2; bomCharset = "utf-16le"; }
+        else if (src.Length >= 2 && src[0] == 0xFE && src[1] == 0xFF) { bomSkip = 2; bomCharset = "utf-16be"; }
 
         // Binary heuristic: NUL in head implies not text
         for (int i = 0; i < src.Length && i < 1024; i++) if (src[i] == 0x00) return false;
 
         // Trim leading whitespace for structure checks
-        int start = 0; while (start < src.Length && char.IsWhiteSpace((char)src[start])) start++;
+        int start = bomSkip; while (start < src.Length && char.IsWhiteSpace((char)src[start])) start++;
         var head = src.Slice(start, Math.Min(2048, src.Length - start));
 
         // RTF
         if (src.Length >= 5 && src[0] == '{' && src[1] == '\\' && src[2] == 'r' && src[3] == 't' && src[4] == 'f') { result = new ContentTypeDetectionResult { Extension = "rtf", MimeType = "application/rtf", Confidence = "Medium", Reason = "text:rtf" }; return true; }
+
+        // NDJSON / JSON Lines (require at least two JSON-looking lines). Must come before single-object JSON check.
+        {
+            int ln1 = head.IndexOf((byte)'\n'); if (ln1 < 0) ln1 = head.Length;
+            var l1 = TrimBytes(head.Slice(0, ln1));
+            var rem = head.Slice(Math.Min(ln1 + 1, head.Length));
+            int ln2 = rem.IndexOf((byte)'\n'); if (ln2 < 0) ln2 = rem.Length;
+            var l2 = TrimBytes(rem.Slice(0, ln2));
+            static bool LooksJsonLine(ReadOnlySpan<byte> l) {
+                if (l.Length < 2) return false;
+                int i = 0; while (i < l.Length && (l[i] == (byte)' ' || l[i] == (byte)'\t')) i++;
+                if (i >= l.Length || l[i] != (byte)'{') return false;
+                int q = l.IndexOf((byte)'"'); if (q < 0) return false;
+                int colon = l.IndexOf((byte)':'); if (colon < 0) return false;
+                int end = l.LastIndexOf((byte)'}'); if (end < 0) return false;
+                return colon > q && end > colon; }
+            if (LooksJsonLine(l1) && LooksJsonLine(l2)) { result = new ContentTypeDetectionResult { Extension = "ndjson", MimeType = "application/x-ndjson", Confidence = "Low", Reason = "text:ndjson" }; return true; }
+        }
 
         // JSON (tighter heuristics)
         if (head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')) {
@@ -53,6 +74,8 @@ internal static partial class Signatures {
             if (head.Length >= 5 && head.Slice(0, 5).SequenceEqual("<?xml"u8)) { result = new ContentTypeDetectionResult { Extension = "xml", MimeType = "application/xml", Confidence = "Medium", Reason = "text:xml" }; return true; }
             if (head.IndexOf("<!DOCTYPE html"u8) >= 0 || head.IndexOf("<html"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "html", MimeType = "text/html", Confidence = "Medium", Reason = "text:html" }; return true; }
         }
+
+        // (moved NDJSON block earlier)
 
         // Quick PGP ASCII-armored blocks (place before YAML '---' to avoid front-matter collision)
         {
@@ -94,9 +117,12 @@ internal static partial class Signatures {
         }
 
         // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above.
-        // Do not classify as YAML if strong PowerShell cues are present (common in .ps1 files with colon-bearing text literals).
+        // Do not classify as YAML if strong PowerShell cues are present or if the content looks like Windows Event Viewer text export keys.
         if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-') {
-            if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
+            if (!HasPowerShellCues(head)) {
+                var winLogLike = IndexOfToken(head, "Log Name:") >= 0 || IndexOfToken(head, "Event ID:") >= 0 || IndexOfToken(head, "Source:") >= 0 || IndexOfToken(head, "Task Category:") >= 0 || IndexOfToken(head, "Level:") >= 0;
+                if (!winLogLike) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
+            }
         }
         {
             // Heuristic tightening: count only plausible YAML key lines near the start.
@@ -115,7 +141,10 @@ internal static partial class Signatures {
                 }
             }
             if (yamlish >= 2) {
-                if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml-keys", ReasonDetails = $"yaml:key-lines={yamlish}" }; return true; }
+                if (!HasPowerShellCues(head)) {
+                    var winLogLike = IndexOfToken(head, "Log Name:") >= 0 || IndexOfToken(head, "Event ID:") >= 0 || IndexOfToken(head, "Source:") >= 0 || IndexOfToken(head, "Task Category:") >= 0 || IndexOfToken(head, "Level:") >= 0;
+                    if (!winLogLike) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml-keys", ReasonDetails = $"yaml:key-lines={yamlish}" }; return true; }
+                }
             }
         }
 
@@ -129,6 +158,45 @@ internal static partial class Signatures {
             {
                 // Do not classify as Markdown if strong PowerShell cues are present
                 if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
+            }
+        }
+
+        // TOML heuristic (tables + key=value with TOML-ish values). Comes before INI.
+        {
+            int keys = 0, tables = 0, dotted = 0; int scanned = 0; int startLine2 = 0;
+            for (int i = 0; i < head.Length && scanned < 20; i++)
+            {
+                if (head[i] == (byte)'\n')
+                {
+                    var raw = head.Slice(startLine2, i - startLine2);
+                    var line = TrimBytes(raw);
+                    if (line.Length > 0 && line[0] == (byte)'#') { scanned++; startLine2 = i + 1; continue; } // comment
+                    if (line.Length >= 3 && line[0] == (byte)'[')
+                    {
+                        // [table] or [[array.of.tables]]
+                        if (line.IndexOf((byte)']') > 1) { tables++; }
+                    }
+                    int eq = line.IndexOf((byte)'=');
+                    if (eq > 0 && eq < line.Length - 1)
+                    {
+                        // left side must be bare/dotted identifier
+                        bool ok = true; int dots = 0; for (int k = 0; k < eq; k++) { byte c = line[k]; if (!(char.IsLetterOrDigit((char)c) || c == (byte)'_' || c == (byte)'.')) { ok = false; break; } if (c == (byte)'.') dots++; }
+                        if (ok) { dotted += dots > 0 ? 1 : 0; keys++; }
+                    }
+                    scanned++; startLine2 = i + 1;
+                }
+            }
+            if ((tables >= 1 && keys >= 1) || (keys >= 2 && dotted >= 1)) { result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" }; return true; }
+            // Lenient fallback using string scan: look for bracketed tables and multiple key=value in first 2KB
+            {
+                var hbToml = new byte[Math.Min(head.Length, 2048)]; head.Slice(0, hbToml.Length).CopyTo(new System.Span<byte>(hbToml));
+                var s = System.Text.Encoding.UTF8.GetString(hbToml);
+                int eqCount = 0; foreach (var ch in s) if (ch == '=') eqCount++;
+                bool hasTable = s.Contains("\n[") || s.StartsWith("[");
+                if (hasTable && eqCount >= 2)
+                {
+                    result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" }; return true;
+                }
             }
         }
 
@@ -149,7 +217,14 @@ internal static partial class Signatures {
         // MSG basics (very weak text fallback)
         if (head.IndexOf("__substg1.0_"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "msg", MimeType = "application/vnd.ms-outlook", Confidence = "Low", Reason = "msg:marker" }; return true; }
 
-        // CSV/TSV/Delimited heuristics (look at first two lines)
+        // Quick Windows DNS log check very early (before generic log heuristics)
+        if (head.IndexOf("DNS Server Log File"u8) >= 0 || head.IndexOf("DNS Server Log"u8) >= 0)
+        {
+            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" };
+            return true;
+        }
+
+        // CSV/TSV/Delimited heuristics (look at first two lines) — also handle single-line CSV/TSV
         var span = head;
         int nl = head.IndexOf((byte)'\n'); if (nl < 0) nl = head.Length;
         var line1 = span.Slice(0, nl);
@@ -161,8 +236,20 @@ internal static partial class Signatures {
         int semis1 = Count(line1, (byte)';'); int semis2 = Count(line2, (byte)';');
         int pipes1 = Count(line1, (byte)'|'); int pipes2 = Count(line2, (byte)'|');
         int tabs1 = Count(line1, (byte)'\t'); int tabs2 = Count(line2, (byte)'\t');
+        // Two-line consistency (existing rule)
         if ((commas1 >= 1 && commas2 >= 1 && Math.Abs(commas1 - commas2) <= 2) || (semis1 >= 1 && semis2 >= 1 && Math.Abs(semis1 - semis2) <= 2) || (pipes1 >= 1 && pipes2 >= 1 && Math.Abs(pipes1 - pipes2) <= 2)) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:delimiter-repeat-2lines" }; return true; }
         if (tabs1 >= 1 && tabs2 >= 1 && Math.Abs(tabs1 - tabs2) <= 2) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:tabs-2lines" }; return true; }
+        // Single-line CSV/TSV fallback: require at least 2 delimiters and token count >= 3
+        if (line2.Length == 0 || (line2.Length == 0 && rest.Length == 0)) {
+            static int TokenCount(ReadOnlySpan<byte> l, byte sep) {
+                if (l.Length == 0) return 0;
+                int tokens = 1; for (int i = 0; i < l.Length; i++) if (l[i] == sep) tokens++; return tokens;
+            }
+            // Prefer comma/semicolon; fall back to TSV on tabs
+            if (commas1 >= 2 && TokenCount(line1, (byte)',') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
+            if (semis1 >= 2 && TokenCount(line1, (byte)';') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
+            if (tabs1 >= 2 && TokenCount(line1, (byte)'\t') >= 3) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:single-line" }; return true; }
+        }
 
         // INI heuristic
         if (line1.IndexOf((byte)'=') > 0 || line2.IndexOf((byte)'=') > 0) {
@@ -303,8 +390,9 @@ internal static partial class Signatures {
         }
         // Node.js shebang
         if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shebang", ReasonDetails = "js:shebang" }; return true; }
-        // JavaScript heuristic (non-minified)
-        if (headLower.Contains("function ") || headLower.Contains("const ") || headLower.Contains("let ") || headLower.Contains("var ") || headLower.Contains("=>")) {
+        // JavaScript heuristic (non-minified). Avoid misclassifying Lua where "local function" is common.
+        if ((headLower.Contains("const ") || headLower.Contains("let ") || headLower.Contains("var ") || headLower.Contains("=>")) ||
+            (headLower.Contains("function ") && !headLower.Contains("local function"))) {
             if (!(head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')))
                 { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Low", Reason = "text:js-heur" }; return true; }
         }
@@ -344,7 +432,7 @@ internal static partial class Signatures {
             if (rbCues >= 2) { result = new ContentTypeDetectionResult { Extension = "rb", MimeType = "text/x-ruby", Confidence = "Low", Reason = "text:rb-heur", ReasonDetails = $"rb:cues-{rbCues}" }; return true; }
         }
 
-        // Lua heuristic
+        // Lua heuristic (placed after JS guard that ignores "local function" cases)
         if (headLower.Contains("#!/usr/bin/env lua") || headLower.Contains("#!/usr/bin/lua")) { result = new ContentTypeDetectionResult { Extension = "lua", MimeType = "text/x-lua", Confidence = "Medium", Reason = "text:lua-shebang", ReasonDetails = "lua:shebang" }; return true; }
         {
             int luaCues = 0;
@@ -355,10 +443,15 @@ internal static partial class Signatures {
             if (luaCues >= 2) { result = new ContentTypeDetectionResult { Extension = "lua", MimeType = "text/x-lua", Confidence = "Low", Reason = "text:lua-heur", ReasonDetails = $"lua:cues-{luaCues}" }; return true; }
         }
 
-        // Fallback: treat as plain text if mostly printable
+        // Fallback: treat as plain text if mostly printable. Include BOM charset when known.
         int printable = 0; int sample = Math.Min(1024, src.Length);
         for (int i = 0; i < sample; i++) { byte b = src[i]; if (b == 9 || b == 10 || b == 13 || (b >= 32 && b < 127)) printable++; }
-        if ((double)printable / sample > 0.95) { result = new ContentTypeDetectionResult { Extension = "txt", MimeType = "text/plain", Confidence = "Low", Reason = "text:plain" }; return true; }
+        if ((double)printable / sample > 0.95) {
+            var mime = "text/plain";
+            if (!string.IsNullOrEmpty(bomCharset)) mime += "; charset=" + bomCharset;
+            result = new ContentTypeDetectionResult { Extension = "txt", MimeType = mime, Confidence = "Low", Reason = string.IsNullOrEmpty(bomCharset) ? "text:plain" : "bom:text-plain" };
+            return true;
+        }
         return false;
 
         static int Count(ReadOnlySpan<byte> l, byte ch) { int c = 0; for (int i = 0; i < l.Length; i++) if (l[i] == ch) c++; return c; }
