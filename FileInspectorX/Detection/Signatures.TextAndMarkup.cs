@@ -4,6 +4,9 @@ namespace FileInspectorX;
 /// Text and markup format detection (JSON, XML/HTML, YAML, EML, CSV/TSV/INI/LOG) and Outlook MSG hints.
 /// </summary>
 internal static partial class Signatures {
+    private const int BINARY_SCAN_LIMIT = 1024;
+    private const int HEADER_BYTES = 2048;
+
     internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length == 0) return false;
@@ -16,12 +19,16 @@ internal static partial class Signatures {
         else if (src.Length >= 2 && src[0] == 0xFF && src[1] == 0xFE) { bomSkip = 2; bomCharset = "utf-16le"; }
         else if (src.Length >= 2 && src[0] == 0xFE && src[1] == 0xFF) { bomSkip = 2; bomCharset = "utf-16be"; }
 
-        // Binary heuristic: NUL in head implies not text
-        for (int i = 0; i < src.Length && i < 1024; i++) if (src[i] == 0x00) return false;
+        // Binary heuristic: NUL in head implies not text (quick bail-out)
+        for (int i = 0; i < src.Length && i < BINARY_SCAN_LIMIT; i++) if (src[i] == 0x00) return false;
 
         // Trim leading whitespace for structure checks
         int start = bomSkip; while (start < src.Length && char.IsWhiteSpace((char)src[start])) start++;
-        var head = src.Slice(start, Math.Min(2048, src.Length - start));
+        var head = src.Slice(start, Math.Min(HEADER_BYTES, src.Length - start));
+        // Cache string conversions (single pass) for heuristics that need them
+        static string Utf8(ReadOnlySpan<byte> s) { if (s.Length == 0) return string.Empty; var a = s.ToArray(); return System.Text.Encoding.UTF8.GetString(a); }
+        var headStr = Utf8(head);
+        var headLower = headStr.ToLowerInvariant();
 
         // RTF
         if (src.Length >= 5 && src[0] == '{' && src[1] == '\\' && src[2] == 'r' && src[3] == 't' && src[4] == 'f') { result = new ContentTypeDetectionResult { Extension = "rtf", MimeType = "application/rtf", Confidence = "Medium", Reason = "text:rtf" }; return true; }
@@ -40,8 +47,16 @@ internal static partial class Signatures {
                 int q = l.IndexOf((byte)'"'); if (q < 0) return false;
                 int colon = l.IndexOf((byte)':'); if (colon < 0) return false;
                 int end = l.LastIndexOf((byte)'}'); if (end < 0) return false;
-                return colon > q && end > colon; }
-            if (LooksJsonLine(l1) && LooksJsonLine(l2)) { result = new ContentTypeDetectionResult { Extension = "ndjson", MimeType = "application/x-ndjson", Confidence = "Low", Reason = "text:ndjson" }; return true; }
+                // light structure check: braces balanced (depth==0), at least one colon outside quotes
+                int depth = 0; bool inQ = false; bool colonOut = false; for (int k = 0; k < l.Length; k++) { byte c = l[k]; if (c == (byte)'"') { inQ = !inQ; } else if (!inQ) { if (c == (byte)'{') depth++; else if (c == (byte)'}') depth--; else if (c == (byte)':') colonOut = true; } }
+                if (depth != 0) return false; return colonOut && colon > q && end > colon; }
+            bool j1 = LooksJsonLine(l1); bool j2 = LooksJsonLine(l2);
+            if (j1 && j2) {
+                // Confidence: Medium if a third line also looks like JSON; Low otherwise
+                var rem2 = rem.Slice(Math.Min(ln2 + 1, rem.Length)); int ln3 = rem2.IndexOf((byte)'\n'); if (ln3 < 0) ln3 = rem2.Length; var l3 = TrimBytes(rem2.Slice(0, ln3));
+                string conf = LooksJsonLine(l3) ? "Medium" : "Low";
+                result = new ContentTypeDetectionResult { Extension = "ndjson", MimeType = "application/x-ndjson", Confidence = conf, Reason = "text:ndjson" }; return true;
+            }
         }
 
         // JSON (tighter heuristics)
@@ -79,47 +94,27 @@ internal static partial class Signatures {
 
         // Quick PGP ASCII-armored blocks (place before YAML '---' to avoid front-matter collision)
         {
-            var pgHb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(pgHb));
-            var pgHs = System.Text.Encoding.UTF8.GetString(pgHb);
-            var pgHl = pgHs.ToLowerInvariant();
-            if (pgHl.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
-            if (pgHl.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
-            if (pgHl.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
-            if (pgHl.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
+            if (headLower.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
+            if (headLower.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
+            if (headLower.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
+            if (headLower.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
         }
 
         // PEM family (certificate / CSR / private keys) and OpenSSH key — must come before YAML
         // to avoid false positives from lines like "Proc-Type:" / "DEK-Info:".
         {
-            var pemBuf = new byte[Math.Min(head.Length, 4096)]; head.Slice(0, pemBuf.Length).CopyTo(new System.Span<byte>(pemBuf));
-            var hs = System.Text.Encoding.UTF8.GetString(pemBuf);
-            var l = hs.ToLowerInvariant();
-
-            // Certificates
-            if (l.Contains("-----begin certificate-----")) {
-                result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true;
-            }
-            if (l.Contains("-----begin x509 certificate-----") || l.Contains("-----begin trusted certificate-----")) {
-                result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "text:pem-cert-variant" }; return true;
-            }
-            // Certificate Signing Request
-            if (l.Contains("-----begin certificate request-----") || l.Contains("-----begin new certificate request-----")) {
-                result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pem-csr" }; return true;
-            }
-            // Private keys (generic PEM)
-            if (l.Contains("-----begin private key-----") || l.Contains("-----begin encrypted private key-----") || l.Contains("-----begin rsa private key-----") || l.Contains("-----begin ec private key-----")) {
-                result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true;
-            }
-            // OpenSSH private key (new format)
-            if (l.Contains("-----begin openssh private key-----")) {
-                result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true;
-            }
+            var l = headLower;
+            if (l.Contains("-----begin certificate-----")) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true; }
+            if (l.Contains("-----begin x509 certificate-----") || l.Contains("-----begin trusted certificate-----")) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "text:pem-cert-variant" }; return true; }
+            if (l.Contains("-----begin certificate request-----") || l.Contains("-----begin new certificate request-----")) { result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pem-csr" }; return true; }
+            if (l.Contains("-----begin private key-----") || l.Contains("-----begin encrypted private key-----") || l.Contains("-----begin rsa private key-----") || l.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
+            if (l.Contains("-----begin openssh private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
         }
 
         // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above.
         // Do not classify as YAML if strong PowerShell cues are present or if the content looks like Windows Event Viewer text export keys.
         if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-') {
-            if (!HasPowerShellCues(head)) {
+            if (!HasPowerShellCues(head, headStr, headLower)) {
                 var winLogLike = IndexOfToken(head, "Log Name:") >= 0 || IndexOfToken(head, "Event ID:") >= 0 || IndexOfToken(head, "Source:") >= 0 || IndexOfToken(head, "Task Category:") >= 0 || IndexOfToken(head, "Level:") >= 0;
                 if (!winLogLike) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" }; return true; }
             }
@@ -141,7 +136,7 @@ internal static partial class Signatures {
                 }
             }
             if (yamlish >= 2) {
-                if (!HasPowerShellCues(head)) {
+                if (!HasPowerShellCues(head, headStr, headLower)) {
                     var winLogLike = IndexOfToken(head, "Log Name:") >= 0 || IndexOfToken(head, "Event ID:") >= 0 || IndexOfToken(head, "Source:") >= 0 || IndexOfToken(head, "Task Category:") >= 0 || IndexOfToken(head, "Level:") >= 0;
                     if (!winLogLike) { result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml-keys", ReasonDetails = $"yaml:key-lines={yamlish}" }; return true; }
                 }
@@ -150,14 +145,12 @@ internal static partial class Signatures {
 
         // Markdown quick cues (guarded to avoid scripts)
         {
-            var hb2 = new byte[Math.Min(head.Length, 2048)]; head.Slice(0, hb2.Length).CopyTo(new System.Span<byte>(hb2));
-            var s = System.Text.Encoding.UTF8.GetString(hb2);
-            var sl = s.ToLowerInvariant();
+            var s = headStr; var sl = headLower;
             bool looksMd = sl.StartsWith("# ") || sl.Contains("\n# ") || sl.Contains("```") || sl.Contains("](");
             if (looksMd)
             {
                 // Do not classify as Markdown if strong PowerShell cues are present
-                if (!HasPowerShellCues(head)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
+                if (!HasPowerShellCues(head, headStr, headLower)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
             }
         }
 
@@ -291,10 +284,7 @@ internal static partial class Signatures {
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = conf, Reason = "text:log-levels", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true;
         }
 
-        // PowerShell heuristic
-        var hb = new byte[head.Length]; head.CopyTo(new System.Span<byte>(hb));
-        var headStr = System.Text.Encoding.UTF8.GetString(hb);
-        string headLower = headStr.ToLowerInvariant();
+        // PowerShell heuristic (uses cached headStr/headLower)
 
         // Windows well-known text logs: DNS, Firewall, Netlogon, Event Viewer text export
         if (headLower.Contains("dns server log") || headLower.Contains("dns server log file")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" }; return true; }
@@ -359,11 +349,8 @@ internal static partial class Signatures {
         }
 
         // Local helper to guard YAML against PowerShell-looking content
-        static bool HasPowerShellCues(ReadOnlySpan<byte> head)
+        static bool HasPowerShellCues(ReadOnlySpan<byte> headSpan, string s, string sl)
         {
-            var hb = new byte[Math.Min(head.Length, 4096)]; head.Slice(0, hb.Length).CopyTo(new System.Span<byte>(hb));
-            var s = System.Text.Encoding.UTF8.GetString(hb);
-            var sl = s.ToLowerInvariant();
             int cues = 0;
             if (sl.Contains("[cmdletbinding]")) cues++;
             if (sl.Contains("#requires")) cues++;

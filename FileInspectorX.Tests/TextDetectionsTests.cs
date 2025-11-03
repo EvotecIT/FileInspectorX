@@ -223,6 +223,57 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Ndjson_Malformed_NotDetected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ndjson");
+        try
+        {
+            // Missing closing brace on second line
+            File.WriteAllText(p, "{\"a\":1}\n{\"b\":\"x\"\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.NotEqual("ndjson", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Toml_NestedTables_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".toml");
+        try
+        {
+            var txt = "[database.settings]\nuser=\"sa\"\npassword=\"p@ss\"\n[products]\n[[products.item]]\nname=\"X\"\n";
+            File.WriteAllText(p, txt);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("toml", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Json_Utf8Bom_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+            using (var fs = File.Create(p))
+            {
+                fs.Write(bom, 0, bom.Length);
+                var txt = System.Text.Encoding.UTF8.GetBytes("{\"ok\":true}\n");
+                fs.Write(txt, 0, txt.Length);
+            }
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("json", r!.Extension);
+            Assert.Equal("application/json", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void VBScript_Heuristic_Detected() {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
