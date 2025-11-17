@@ -247,34 +247,44 @@ public static partial class FileInspector {
             } catch { }
             // Special-case ETL: on Windows, when the declared extension is .etl and feature enabled,
             // try a fast tracerpt-based validation to avoid trusting the extension blindly.
-            try
-            {
-                var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-                if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
+                try
                 {
-                    // Native probe first
-                    var okNative = EtlNative.TryOpen(path);
-                    if (okNative == true)
+                    var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+                    if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
                     {
-                        return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream", Confidence = "Medium", Reason = "etw:ok" };
+                        Breadcrumbs.Write("ETL_VALIDATE_BEGIN", path: path);
+                        // Native probe first
+                        bool? okNative = null;
+                        try { okNative = EtlNative.TryOpen(path); }
+                        catch (Exception ex) { Breadcrumbs.Write("ETL_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                        if (okNative == true)
+                        {
+                            Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
+                            return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream", Confidence = "Medium", Reason = "etw:ok" };
+                        }
+                        // Optional tracerpt fallback when mode explicitly allows it
+                        bool allowFallback = Settings.EtlValidation == Settings.EtlValidationMode.NativeThenTracerpt;
+                        if (allowFallback)
+                        {
+                            bool? okTr = null;
+                            try { okTr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs); }
+                            catch (Exception ex) { Breadcrumbs.Write("ETL_TRACERPT_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                            if (okTr == true)
+                            {
+                                Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
+                                return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
+                            }
+                        }
+                        if (okNative == false || allowFallback)
+                        {
+                            // Explicitly mark as mismatch later by returning the current detection (if any) or null; let callers compare
+                            Breadcrumbs.Write("ETL_VALIDATE_END", message: okNative == false ? "native-fail" : "no-success", path: path);
+                        }
                     }
-                    // Optional tracerpt fallback when mode explicitly allows it
-                    bool allowFallback = Settings.EtlValidation == Settings.EtlValidationMode.NativeThenTracerpt;
-                    if (allowFallback)
-                    {
-                        var okTr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
-                        if (okTr == true)
-                            return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
-                    }
-                    if (okNative == false)
-                    {
-                        // Explicitly mark as mismatch later by returning the current detection (if any) or null; let callers compare
-                    }
-                }
-            } catch { }
-            return det;
-        } catch { return null; }
-    }
+                } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                return det;
+            } catch { return null; }
+        }
 
     /// <summary>
     /// Detects content type from a readable stream; the stream is rewound where possible.
@@ -458,15 +468,47 @@ public static partial class FileInspector {
     /// var detOnly = FileInspector.Inspect(path, new FileInspector.DetectionOptions { DetectOnly = true });
     /// var full    = FileInspector.Inspect(path, new FileInspector.DetectionOptions { ComputeSha256 = true });
     /// </example>
-    /// </summary>
-    public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
-    {
-        options ??= new DetectionOptions();
-        if (options.DetectOnly)
+        /// </summary>
+        public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
         {
-            var det = Detect(path, options);
-            return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
-        }
+            options ??= new DetectionOptions();
+
+            // Fast-path ETL: avoid full analysis (which can be expensive/fragile on multi‑GB traces).
+            try
+            {
+                var extQuick = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+                if (extQuick == "etl" && !options.DetectOnly)
+                {
+                    Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
+                    string reason = "etl-ext-only";
+                    string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                    string confidence = "Low";
+                    try
+                    {
+                        var nativeOk = EtlNative.TryOpen(path);
+                        if (nativeOk == true) { reason = "etl-native-ok"; confidence = "Medium"; }
+                        else if (nativeOk == false) { reason = "etl-native-fail"; confidence = "Low"; }
+                        else { reason = "etl-native-n/a"; }
+                    }
+                    catch (Exception ex)
+                    {
+                        Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                        reason = "etl-native-error";
+                    }
+
+                    var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
+                    var quick = new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+                    Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
+                    return quick;
+                }
+            }
+            catch { /* non-fatal */ }
+
+            if (options.DetectOnly)
+            {
+                var det = Detect(path, options);
+                return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+            }
         return Analyze(path, options);
     }
 
