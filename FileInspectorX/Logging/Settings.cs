@@ -269,18 +269,19 @@ public class Settings {
     /// ETL validation strategies.
     /// </summary>
     public enum EtlValidationMode {
-        /// <summary>Do not perform ETL validation; rely on generic detection only.</summary>
+        /// <summary>Do not perform ETL validation; rely on magic/extension only.</summary>
         Off,
-        /// <summary>Validate via native ETW (OpenTrace/CloseTrace) only.</summary>
-        NativeOnly,
-        /// <summary>Validate via native ETW; if that fails, fall back to tracerpt.exe with a short timeout.</summary>
+        /// <summary>Magic/extension only (no external tools).</summary>
+        MagicOnly,
+        /// <summary>Use tracerpt.exe with timeout; avoids native P/Invoke.</summary>
+        TracerptOnly,
+        /// <summary>Attempt native ETW first, then tracerpt; UNSAFE until native struct usage is fixed.</summary>
         NativeThenTracerpt
     }
     /// <summary>
-    /// ETL validation mode: Off, NativeOnly (OpenTrace/CloseTrace), or NativeThenTracerpt (fallback to tracerpt on failure).
-    /// Default NativeOnly.
+    /// ETL validation mode. Default MagicOnly for maximum stability.
     /// </summary>
-    public static EtlValidationMode EtlValidation { get; set; } = EtlValidationMode.NativeOnly;
+    public static EtlValidationMode EtlValidation { get; set; } = EtlValidationMode.MagicOnly;
     /// <summary>Timeout in milliseconds for the tracerpt probe. Default 4000.</summary>
     public static int EtlProbeTimeoutMs { get; set; } = 4000;
 }

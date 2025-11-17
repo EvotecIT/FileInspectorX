@@ -483,17 +483,26 @@ public static partial class FileInspector {
                     string reason = "etl-ext-only";
                     string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
                     string confidence = "Low";
-                    try
+                    var mode = Settings.EtlValidation;
+                    if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                     {
-                        var nativeOk = EtlNative.TryOpen(path);
-                        if (nativeOk == true) { reason = "etl-native-ok"; confidence = "Medium"; }
-                        else if (nativeOk == false) { reason = "etl-native-fail"; confidence = "Low"; }
-                        else { reason = "etl-native-n/a"; }
+                        reason = "etl-magic-only";
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
-                        reason = "etl-native-error";
+                        // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
+                        try
+                        {
+                            var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                            if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "Medium"; }
+                            else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
+                            else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                        }
+                        catch (Exception ex)
+                        {
+                            Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                            reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                        }
                     }
 
                     var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
