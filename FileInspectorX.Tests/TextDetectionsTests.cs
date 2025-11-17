@@ -16,6 +16,64 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Csv_Utf8Bom_SingleLine_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".csv");
+        try
+        {
+            // Write UTF-8 BOM + header-only CSV
+            var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+            using (var fs = File.Create(p))
+            {
+                fs.Write(bom, 0, bom.Length);
+                var txt = System.Text.Encoding.UTF8.GetBytes("Col1,Col2,Col3\n");
+                fs.Write(txt, 0, txt.Length);
+            }
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("csv", r!.Extension);
+            Assert.Equal("text/csv", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Csv_Utf8Bom_TwoLines_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".csv");
+        try
+        {
+            var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+            using (var fs = File.Create(p))
+            {
+                fs.Write(bom, 0, bom.Length);
+                var txt = System.Text.Encoding.UTF8.GetBytes("A,B,C\n1,2,3\n");
+                fs.Write(txt, 0, txt.Length);
+            }
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("csv", r!.Extension);
+            Assert.Equal("text/csv", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Tsv_SingleLine_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tsv");
+        try
+        {
+            File.WriteAllText(p, "a\tb\tc\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("tsv", r!.Extension);
+            Assert.Equal("text/tab-separated-values", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Python_Heuristic_Detected() {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
@@ -116,6 +174,103 @@ public class TextDetectionsTests {
             Assert.Equal("md", r!.Extension);
             Assert.Equal("text/markdown", r.MimeType);
         } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Ndjson_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ndjson");
+        try
+        {
+            File.WriteAllText(p, "{\"a\":1}\n{\"b\":\"x\"}\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ndjson", r!.Extension);
+            Assert.Equal("application/x-ndjson", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Jsonl_Detected_As_Ndjson()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            File.WriteAllText(p, "{\"a\":1}\n{\"b\":\"x\"}\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ndjson", r!.Extension);
+            Assert.Equal("application/x-ndjson", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Toml_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".toml");
+        try
+        {
+            var txt = "title = \"TOML Example\"\n[owner]\nname = \"Tom\"\n";
+            File.WriteAllText(p, txt);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("toml", r!.Extension);
+            Assert.Equal("application/toml", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Ndjson_Malformed_NotDetected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ndjson");
+        try
+        {
+            // Missing closing brace on second line
+            File.WriteAllText(p, "{\"a\":1}\n{\"b\":\"x\"\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.NotEqual("ndjson", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Toml_NestedTables_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".toml");
+        try
+        {
+            var txt = "[database.settings]\nuser=\"sa\"\npassword=\"p@ss\"\n[products]\n[[products.item]]\nname=\"X\"\n";
+            File.WriteAllText(p, txt);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("toml", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Json_Utf8Bom_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+            using (var fs = File.Create(p))
+            {
+                fs.Write(bom, 0, bom.Length);
+                var txt = System.Text.Encoding.UTF8.GetBytes("{\"ok\":true}\n");
+                fs.Write(txt, 0, txt.Length);
+            }
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("json", r!.Extension);
+            Assert.Equal("application/json", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
     }
 
     [Fact]

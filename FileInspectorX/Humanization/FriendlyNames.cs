@@ -33,6 +33,10 @@ public static class FriendlyNames
             case "key": return "Private key (PEM/OpenSSH)";
             case "pub": return "Public key (PEM)";
             case "asc": return "PGP ASCII‑armored data";
+            case "b64": return "Base64‑encoded data";
+            case "hex": return "Hex‑encoded data";
+            case "b85": return "Base85/ASCII85‑encoded data";
+            case "uu":  return "UUEncoded data";
             case "pgp":
             case "gpg": return "PGP/GPG encrypted data";
             case "docx": return "Word document";
@@ -45,11 +49,14 @@ public static class FriendlyNames
             case "txt":  return "Text file";
             case "md":   return "Markdown document";
             case "json": return "JSON file";
+            case "ndjson":
+            case "jsonl": return "NDJSON (JSON Lines)";
             case "yml":
             case "yaml": return "YAML document";
             case "xml":  return "XML file";
+            case "toml": return "TOML document";
             case "eml":  return "Email message (.eml)";
-            case "log":  return "Text log";
+            // 'log' handled below to allow richer labels
             case "csv":  return "CSV (comma-separated values)";
             case "tsv":  return "TSV (tab-separated values)";
             case "zip":  return "ZIP archive";
@@ -67,6 +74,7 @@ public static class FriendlyNames
             case "ipa":  return "iOS application archive (IPA)";
             case "evtx": return "Windows Event Log (EVTX)";
             case "sqlite": return "SQLite database";
+            case "etl": return "Windows Trace Log (ETL)";
         }
 
         // Special-case text logs: use heuristic findings to return a friendlier label
@@ -85,6 +93,22 @@ public static class FriendlyNames
             if (f.Contains("sql:agent", StringComparer.OrdinalIgnoreCase)) return "SQL Server Agent log";
             if (f.Contains("event-xml", StringComparer.OrdinalIgnoreCase)) return "Windows Event XML";
             if (f.Contains("event:txt", StringComparer.OrdinalIgnoreCase)) return "Windows Event text log";
+
+            // Fallback to detection reason when findings are unavailable (e.g., detection-only contexts)
+            var reason = det?.Reason?.ToLowerInvariant() ?? string.Empty;
+            if (!string.IsNullOrEmpty(reason))
+            {
+                if (reason.Contains("text:log-dns")) return "Windows DNS Server log";
+                if (reason.Contains("text:log-firewall")) return "Windows Firewall log";
+                if (reason.Contains("text:log-netlogon")) return "Windows Netlogon log";
+                if (reason.Contains("text:log-dhcp")) return "Windows DHCP Server log";
+                if (reason.Contains("text:log-exchange")) return "Exchange message tracking log";
+                if (reason.Contains("text:log-sql-errorlog")) return "SQL Server ERRORLOG";
+                if (reason.Contains("text:log-nps")) return "NPS/RADIUS log";
+                if (reason.Contains("text:log-sqlagent")) return "SQL Server Agent log";
+                if (reason.Contains("text:event-txt")) return "Windows Event text log";
+            }
+            return "Text log";
         }
 
         // MIME fallbacks

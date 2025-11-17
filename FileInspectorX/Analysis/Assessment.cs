@@ -80,6 +80,28 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.OfficeRemoteTemplate) != 0) Add("Office.RemoteTemplate", 25);
         if ((a.Flags & ContentFlags.OfficePossibleDde) != 0) Add("Office.PossibleDde", 15);
 
+        // Encoded content signals
+        if (!string.IsNullOrWhiteSpace(a.EncodedKind))
+        {
+            Add("Encoded.Present", 10);
+            var innerExt = a.EncodedInnerDetection?.Extension?.ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(innerExt))
+            {
+                switch (innerExt)
+                {
+                    case "exe": case "dll": case "sys": case "ocx": case "cpl": case "scr": case "msi":
+                        Add("Encoded.InnerExecutable", 20); break;
+                    case "ps1": case "psm1": case "psd1": case "bat": case "cmd": case "sh": case "bash": case "zsh": case "js": case "vbs": case "py": case "rb":
+                        Add("Encoded.InnerScript", 15); break;
+                }
+            }
+        }
+        // Embedded base64 data URIs in HTML/scripts
+        if ((a.SecurityFindings ?? Array.Empty<string>()).Any(s => s.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) || s.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase)))
+        {
+            Add("Encoded.Embedded", 10);
+        }
+
         // Executables
         if ((a.Flags & ContentFlags.PeLooksPackedUpx) != 0) Add("PE.PackerSuspect", 20);
         if ((a.Flags & ContentFlags.PeHasAuthenticode) != 0 && (a.Signature?.IsSigned == true)) { /* neutral */ }

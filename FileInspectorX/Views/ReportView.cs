@@ -22,6 +22,16 @@ public sealed class ReportView
     /// <summary>Best-guess extension when ambiguous.</summary>
     public string? GuessedExtension { get; set; }
 
+    // Encoded payload summary (base64/hex) with inner detection
+    /// <summary>When the content appears encoded, indicates the encoding kind (e.g., "base64" or "hex").</summary>
+    public string? EncodedKind { get; set; }
+    /// <summary>Inner detected extension from decoded payload (e.g., exe), when discovered.</summary>
+    public string? EncodedInnerDetectedExtension { get; set; }
+    /// <summary>Inner detected MIME from decoded payload, when discovered.</summary>
+    public string? EncodedInnerDetectedName { get; set; }
+    /// <summary>User-friendly label for inner detected type from decoded payload.</summary>
+    public string? EncodedInnerDetectedFriendly { get; set; }
+
     /// <summary>WinVerifyTrust final policy verdict (Windows only).</summary>
     public bool? IsTrustedWindowsPolicy { get; set; }
     /// <summary>Raw WinVerifyTrust status code (0 = success).</summary>
@@ -198,6 +208,10 @@ public sealed class ReportView
     public string? InstallerSupportUrl { get; set; }
     /// <summary>Installer contact string when available.</summary>
     public string? InstallerContact { get; set; }
+    /// <summary>Installer creation time (UTC) when available.</summary>
+    public string? InstallerCreated { get; set; }
+    /// <summary>Installer last saved time (UTC) when available.</summary>
+    public string? InstallerLastSaved { get; set; }
     // Flattened MSI Custom Action counters for templating
     internal int? _MsiCAExe { get; set; }
     internal int? _MsiCADll { get; set; }
@@ -241,6 +255,18 @@ public sealed class ReportView
             r.DetectionReason = a.Detection.Reason;
             // Additional friendliness for PE is handled in detection; nothing to do here
             if (!string.IsNullOrEmpty(a.Detection.GuessedExtension)) r.GuessedExtension = a.Detection.GuessedExtension;
+        }
+        // Encoded payload presentation
+        if (!string.IsNullOrWhiteSpace(a.EncodedKind))
+        {
+            r.EncodedKind = a.EncodedKind;
+            var inner = a.EncodedInnerDetection;
+            if (inner != null)
+            {
+                r.EncodedInnerDetectedExtension = inner.Extension;
+                r.EncodedInnerDetectedName = inner.MimeType;
+                r.EncodedInnerDetectedFriendly = FriendlyNames.GetTypeLabel(inner, a);
+            }
         }
         if (a.Authenticode != null)
         {
@@ -300,6 +326,8 @@ public sealed class ReportView
             r.InstallerHelpLink = a.Installer.HelpLink;
             r.InstallerSupportUrl = a.Installer.SupportUrl;
             r.InstallerContact = a.Installer.Contact;
+            if (a.Installer.CreatedUtc.HasValue) r.InstallerCreated = a.Installer.CreatedUtc.Value.ToString("u");
+            if (a.Installer.LastSavedUtc.HasValue) r.InstallerLastSaved = a.Installer.LastSavedUtc.Value.ToString("u");
             // MSI Custom Action counts (flatten)
             if (a.Installer.MsiCustomActions != null)
             {
@@ -332,6 +360,10 @@ public sealed class ReportView
         if ((f & ContentFlags.OoxmlEncrypted) != 0) codes.Add("OoxmlEnc");
         if ((f & ContentFlags.ContainerHasDisguisedExecutables) != 0) codes.Add("DisgExec");
         if ((f & ContentFlags.HtmlHasExternalLinks) != 0) codes.Add("HtmlLinks");
+        if ((f & ContentFlags.EncodedBase64) != 0) codes.Add("EncB64");
+        if ((f & ContentFlags.EncodedHex) != 0) codes.Add("EncHex");
+        if ((f & ContentFlags.EncodedBase85) != 0) codes.Add("EncB85");
+        if ((f & ContentFlags.EncodedUu) != 0) codes.Add("EncUu");
         if ((f & ContentFlags.PeHasAuthenticodeDirectory) != 0) codes.Add("SigPresent");
         if (codes.Count > 0)
         {
@@ -562,6 +594,10 @@ public sealed class ReportView
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;
+        if (!string.IsNullOrEmpty(EncodedKind)) d["EncodedKind"] = EncodedKind;
+        if (!string.IsNullOrEmpty(EncodedInnerDetectedExtension)) d["EncodedInnerDetectedExtension"] = EncodedInnerDetectedExtension;
+        if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
+        if (!string.IsNullOrEmpty(EncodedInnerDetectedFriendly)) d["EncodedInnerDetectedFriendly"] = EncodedInnerDetectedFriendly;
         if (IsTrustedWindowsPolicy.HasValue) d["IsTrustedWindowsPolicy"] = IsTrustedWindowsPolicy.Value;
         if (WinTrustStatusCode.HasValue) d["WinTrustStatusCode"] = WinTrustStatusCode.Value;
         if (VersionInfo != null) d["VersionInfo"] = VersionInfo;
@@ -614,6 +650,8 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InstallerHelpLink)) d["InstallerHelpLink"] = InstallerHelpLink;
         if (!string.IsNullOrEmpty(InstallerSupportUrl)) d["InstallerSupportUrl"] = InstallerSupportUrl;
         if (!string.IsNullOrEmpty(InstallerContact)) d["InstallerContact"] = InstallerContact;
+        if (!string.IsNullOrEmpty(InstallerCreated)) d["InstallerCreated"] = InstallerCreated;
+        if (!string.IsNullOrEmpty(InstallerLastSaved)) d["InstallerLastSaved"] = InstallerLastSaved;
         if (_MsiCAExe.HasValue) d["MsiCAExe"] = _MsiCAExe.Value;
         if (_MsiCADll.HasValue) d["MsiCADll"] = _MsiCADll.Value;
         if (_MsiCAScript.HasValue) d["MsiCAScript"] = _MsiCAScript.Value;

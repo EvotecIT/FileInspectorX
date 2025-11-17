@@ -37,11 +37,15 @@ jobs:
     uses: EvotecIT/github-actions/.github/workflows/ci-orchestrator.yml@master
     with:
       solution: 'FileInspectorX.sln'
-      os_dotnet: '["windows-latest","ubuntu-latest","macos-latest"]'
-      dotnet_frameworks: '["net8.0","net472"]'
-      enable_codecov: true
-      ps_run: true
-      ps_versions: '["5.1","7"]'
+      dotnet_windows_runs_on: '["windows-latest"]'
+      dotnet_windows_frameworks: '["net472","net8.0"]'
+      dotnet_ubuntu_runs_on: '["ubuntu-latest"]'
+      dotnet_ubuntu_frameworks: '["net8.0"]'
+      dotnet_macos_runs_on: '["macos-latest"]'
+      dotnet_macos_frameworks: '["net8.0"]'
+      codecov_enable: true
+      ps_windows_runs_on: '["windows-latest"]'
+      ps_windows_versions: '["5.1","7"]'
       ps_module_manifest: 'Module/FileInspectorX.psd1'
       ps_test_script: 'Module/FileInspectorX.Tests.ps1'
       ps_tests_path: 'Module/Tests'

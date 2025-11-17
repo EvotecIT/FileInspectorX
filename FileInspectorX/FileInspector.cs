@@ -61,6 +61,9 @@ public static partial class FileInspector {
             // .yml <-> .yaml
             if ((a.Equals("yml", StringComparison.OrdinalIgnoreCase) && b.Equals("yaml", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("yaml", StringComparison.OrdinalIgnoreCase) && b.Equals("yml", StringComparison.OrdinalIgnoreCase))) return true;
+            // .jsonl <-> .ndjson
+            if ((a.Equals("jsonl", StringComparison.OrdinalIgnoreCase) && b.Equals("ndjson", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("ndjson", StringComparison.OrdinalIgnoreCase) && b.Equals("jsonl", StringComparison.OrdinalIgnoreCase))) return true;
             // .jpg <-> .jpeg
             if ((a.Equals("jpg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpeg", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("jpeg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpg", StringComparison.OrdinalIgnoreCase))) return true;
@@ -81,7 +84,7 @@ public static partial class FileInspector {
             // MSI promoted from generic OLE2
             if ((a.Equals("msi", StringComparison.OrdinalIgnoreCase) && b.Equals("ole2", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
-            // Plain‑text family: treat generic text and log/config notes as equivalent
+            // Plain‑text family: treat generic text and note/config/log formats as equivalent
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
             // Heuristic: PowerShell vs .txt — avoid noisy mismatches for short scripts/changelogs
             if ((a.Equals("txt", StringComparison.OrdinalIgnoreCase) && (b.Equals("ps1", StringComparison.OrdinalIgnoreCase) || b.Equals("psm1", StringComparison.OrdinalIgnoreCase) || b.Equals("psd1", StringComparison.OrdinalIgnoreCase))) ||
@@ -105,6 +108,8 @@ public static partial class FileInspector {
                 case "markdown":
                 case "properties":
                 case "prop":
+                case "csv":
+                case "tsv":
                     return true;
                 default:
                     return false;
@@ -240,9 +245,46 @@ public static partial class FileInspector {
                     else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
                 }
             } catch { }
-            return det;
-        } catch { return null; }
-    }
+            // Special-case ETL: on Windows, when the declared extension is .etl and feature enabled,
+            // try a fast tracerpt-based validation to avoid trusting the extension blindly.
+                try
+                {
+                    var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+                    if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
+                    {
+                        Breadcrumbs.Write("ETL_VALIDATE_BEGIN", path: path);
+                        // Native probe first
+                        bool? okNative = null;
+                        try { okNative = EtlNative.TryOpen(path); }
+                        catch (Exception ex) { Breadcrumbs.Write("ETL_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                        if (okNative == true)
+                        {
+                            Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
+                            return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream", Confidence = "Medium", Reason = "etw:ok" };
+                        }
+                        // Optional tracerpt fallback when mode explicitly allows it
+                        bool allowFallback = Settings.EtlValidation == Settings.EtlValidationMode.NativeThenTracerpt;
+                        if (allowFallback)
+                        {
+                            bool? okTr = null;
+                            try { okTr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs); }
+                            catch (Exception ex) { Breadcrumbs.Write("ETL_TRACERPT_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                            if (okTr == true)
+                            {
+                                Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
+                                return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
+                            }
+                        }
+                        if (okNative == false || allowFallback)
+                        {
+                            // Explicitly mark as mismatch later by returning the current detection (if any) or null; let callers compare
+                            Breadcrumbs.Write("ETL_VALIDATE_END", message: okNative == false ? "native-fail" : "no-success", path: path);
+                        }
+                    }
+                } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                return det;
+            } catch { return null; }
+        }
 
     /// <summary>
     /// Detects content type from a readable stream; the stream is rewound where possible.
@@ -350,7 +392,6 @@ public static partial class FileInspector {
         try
         {
             if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)) return null;
-            try { var disable = Environment.GetEnvironmentVariable("TIERBRIDGE_DISABLE_MSI_NATIVE"); if (!string.IsNullOrEmpty(disable) && (disable.Equals("1") || disable.Equals("true", StringComparison.OrdinalIgnoreCase))) return null; } catch { }
             Breadcrumbs.Write("MSI_VER_BEGIN", path: path);
             int vCap = 256, lCap = 0;
             var v = new System.Text.StringBuilder(vCap);
@@ -427,15 +468,56 @@ public static partial class FileInspector {
     /// var detOnly = FileInspector.Inspect(path, new FileInspector.DetectionOptions { DetectOnly = true });
     /// var full    = FileInspector.Inspect(path, new FileInspector.DetectionOptions { ComputeSha256 = true });
     /// </example>
-    /// </summary>
-    public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
-    {
-        options ??= new DetectionOptions();
-        if (options.DetectOnly)
+        /// </summary>
+        public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
         {
-            var det = Detect(path, options);
-            return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
-        }
+            options ??= new DetectionOptions();
+
+            // Fast-path ETL: avoid full analysis (which can be expensive/fragile on multi‑GB traces).
+            try
+            {
+                var extQuick = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+                if (extQuick == "etl" && !options.DetectOnly)
+                {
+                    Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
+                    string reason = "etl-ext-only";
+                    string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                    string confidence = "Low";
+                    var mode = Settings.EtlValidation;
+                    if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
+                    {
+                        reason = "etl-magic-only";
+                    }
+                    else
+                    {
+                        // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
+                        try
+                        {
+                            var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                            if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "Medium"; }
+                            else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
+                            else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                        }
+                        catch (Exception ex)
+                        {
+                            Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                            reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                        }
+                    }
+
+                    var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
+                    var quick = new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+                    Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
+                    return quick;
+                }
+            }
+            catch { /* non-fatal */ }
+
+            if (options.DetectOnly)
+            {
+                var det = Detect(path, options);
+                return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+            }
         return Analyze(path, options);
     }
 

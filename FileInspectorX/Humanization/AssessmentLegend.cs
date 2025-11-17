@@ -63,6 +63,12 @@ public static class AssessmentLegend
         ["Appx.Capability.BroadFileSystemAccess"] = new("Appx.Capability.BroadFileSystemAccess", "MSIX BroadFileSystemAccess", "Appx/MSIX requests broadFileSystemAccess.", "Package", 45),
         ["Appx.Extension.Protocol"]           = new("Appx.Extension.Protocol", "MSIX protocol handler", "Appx/MSIX registers a custom URL protocol.", "Package", 10),
         ["Appx.Extension.FTA"]                = new("Appx.Extension.FTA",      "MSIX file associations", "Appx/MSIX declares file type associations.", "Package", 10),
+
+        // Encoded content
+        ["Encoded.Present"]        = new("Encoded.Present",        "Encoded content present",   "Text or file appears to contain encoded payload (base64/hex/base85/uu).", "Content", 40),
+        ["Encoded.InnerExecutable"] = new("Encoded.InnerExecutable", "Encoded inner executable",  "Decoded payload contains an executable module.", "Content", 60),
+        ["Encoded.InnerScript"]     = new("Encoded.InnerScript",     "Encoded inner script",      "Decoded payload contains a script.", "Content", 50),
+        ["Encoded.Embedded"]        = new("Encoded.Embedded",        "Embedded data URIs",        "HTML/script contains embedded base64 data URIs.", "Content", 35),
     };
 
     /// <summary>Returns a stable, typed legend for assessment codes.</summary>

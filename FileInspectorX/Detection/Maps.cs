@@ -76,13 +76,18 @@ public static class MimeMaps {
         ["heic"] = "image/heic",
 
         ["json"] = "application/json",
+        ["ndjson"] = "application/x-ndjson",
+        ["jsonl"] = "application/x-ndjson",
         ["xml"] = "application/xml",
         ["html"] = "text/html",
+        ["toml"] = "application/toml",
         ["csv"] = "text/csv",
         ["tsv"] = "text/tab-separated-values",
         ["txt"] = "text/plain",
         ["log"] = "text/plain",
         ["ini"] = "text/plain"
+        ,
+        ["etl"] = "application/octet-stream"
     };
 
     /// <summary>
