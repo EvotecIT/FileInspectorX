@@ -33,6 +33,10 @@ public static class FriendlyNames
             case "key": return "Private key (PEM/OpenSSH)";
             case "pub": return "Public key (PEM)";
             case "asc": return "PGP ASCII‑armored data";
+            case "b64": return "Base64‑encoded data";
+            case "hex": return "Hex‑encoded data";
+            case "b85": return "Base85/ASCII85‑encoded data";
+            case "uu":  return "UUEncoded data";
             case "pgp":
             case "gpg": return "PGP/GPG encrypted data";
             case "docx": return "Word document";
@@ -70,6 +74,7 @@ public static class FriendlyNames
             case "ipa":  return "iOS application archive (IPA)";
             case "evtx": return "Windows Event Log (EVTX)";
             case "sqlite": return "SQLite database";
+            case "etl": return "Windows Trace Log (ETL)";
         }
 
         // Special-case text logs: use heuristic findings to return a friendlier label

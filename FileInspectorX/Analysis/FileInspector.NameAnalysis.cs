@@ -36,9 +36,10 @@ public static partial class FileInspector
                     // Two dots present => double extension
                     issues |= NameIssues.DoubleExtension;
                 }
-                if (det != null && !string.IsNullOrEmpty(det.Extension) && !ext.Equals(det.Extension, System.StringComparison.OrdinalIgnoreCase))
+                if (det != null && !string.IsNullOrEmpty(det.Extension))
                 {
-                    issues |= NameIssues.ExtensionMismatch;
+                    var cmp = CompareDeclared(ext, det);
+                    if (cmp.Mismatch) issues |= NameIssues.ExtensionMismatch;
                 }
             }
         } catch { }

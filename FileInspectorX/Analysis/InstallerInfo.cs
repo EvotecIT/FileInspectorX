@@ -31,6 +31,10 @@ public sealed class InstallerInfo
     public string? Comments { get; set; }
     /// <summary>MSI package code (GUID) from SummaryInformation.RevisionNumber, when available.</summary>
     public string? PackageCode { get; set; }
+    /// <summary>Package creation time (UTC), when available.</summary>
+    public DateTime? CreatedUtc { get; set; }
+    /// <summary>Package last saved time (UTC), when available.</summary>
+    public DateTime? LastSavedUtc { get; set; }
     /// <summary>About/Info URL (ARPURLINFOABOUT), when present.</summary>
     public string? UrlInfoAbout { get; set; }
     /// <summary>Update URL (ARPURLUPDATEINFO), when present.</summary>

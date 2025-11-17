@@ -84,7 +84,7 @@ public static partial class FileInspector {
             // MSI promoted from generic OLE2
             if ((a.Equals("msi", StringComparison.OrdinalIgnoreCase) && b.Equals("ole2", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
-            // Plain‑text family: treat generic text and log/config notes as equivalent
+            // Plain‑text family: treat generic text and note/config/log formats as equivalent
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
             // Heuristic: PowerShell vs .txt — avoid noisy mismatches for short scripts/changelogs
             if ((a.Equals("txt", StringComparison.OrdinalIgnoreCase) && (b.Equals("ps1", StringComparison.OrdinalIgnoreCase) || b.Equals("psm1", StringComparison.OrdinalIgnoreCase) || b.Equals("psd1", StringComparison.OrdinalIgnoreCase))) ||
@@ -108,6 +108,8 @@ public static partial class FileInspector {
                 case "markdown":
                 case "properties":
                 case "prop":
+                case "csv":
+                case "tsv":
                     return true;
                 default:
                     return false;
@@ -243,6 +245,33 @@ public static partial class FileInspector {
                     else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
                 }
             } catch { }
+            // Special-case ETL: on Windows, when the declared extension is .etl and feature enabled,
+            // try a fast tracerpt-based validation to avoid trusting the extension blindly.
+            try
+            {
+                var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+                if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
+                {
+                    // Native probe first
+                    var okNative = EtlNative.TryOpen(path);
+                    if (okNative == true)
+                    {
+                        return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream", Confidence = "Medium", Reason = "etw:ok" };
+                    }
+                    // Optional tracerpt fallback when mode explicitly allows it
+                    bool allowFallback = Settings.EtlValidation == Settings.EtlValidationMode.NativeThenTracerpt;
+                    if (allowFallback)
+                    {
+                        var okTr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                        if (okTr == true)
+                            return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
+                    }
+                    if (okNative == false)
+                    {
+                        // Explicitly mark as mismatch later by returning the current detection (if any) or null; let callers compare
+                    }
+                }
+            } catch { }
             return det;
         } catch { return null; }
     }
@@ -353,7 +382,6 @@ public static partial class FileInspector {
         try
         {
             if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)) return null;
-            try { var disable = Environment.GetEnvironmentVariable("TIERBRIDGE_DISABLE_MSI_NATIVE"); if (!string.IsNullOrEmpty(disable) && (disable.Equals("1") || disable.Equals("true", StringComparison.OrdinalIgnoreCase))) return null; } catch { }
             Breadcrumbs.Write("MSI_VER_BEGIN", path: path);
             int vCap = 256, lCap = 0;
             var v = new System.Text.StringBuilder(vCap);

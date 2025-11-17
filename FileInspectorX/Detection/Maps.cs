@@ -86,6 +86,8 @@ public static class MimeMaps {
         ["txt"] = "text/plain",
         ["log"] = "text/plain",
         ["ini"] = "text/plain"
+        ,
+        ["etl"] = "application/octet-stream"
     };
 
     /// <summary>

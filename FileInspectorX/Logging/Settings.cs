@@ -130,6 +130,12 @@ public class Settings {
     public static bool IncludeInstaller { get; set; } = false;
 
     /// <summary>
+    /// When true, MSI CustomAction summary is collected (Windows only) during installer enrichment.
+    /// Default false for maximum stability.
+    /// </summary>
+    public static bool EnableMsiCustomActions { get; set; } = false;
+
+    /// <summary>
     /// Enable ultra-light breadcrumb logging to a local file for crash forensics.
     /// Default false. Can be toggled by env var TIERBRIDGE_BREADCRUMBS=1.
     /// </summary>
@@ -231,6 +237,52 @@ public class Settings {
     /// Optional list of known tool SHA-256 hashes (lowercase hex). When deep container scanning computes an inner hash that matches, a finding 'toolhash:&lt;name&gt;' is emitted.
     /// </summary>
     public static IReadOnlyDictionary<string,string> KnownToolHashes { get; set; } = new Dictionary<string,string>();
+
+    // Encoded content detection/decoding limits
+    /// <summary>
+    /// Minimum contiguous base64 characters to consider base64 classification.
+    /// </summary>
+    public static int EncodedBase64MinBlock { get; set; } = 128;
+    /// <summary>
+    /// Maximum number of characters to probe in the head for base64 detection.
+    /// </summary>
+    public static int EncodedBase64ProbeChars { get; set; } = 8192;
+    /// <summary>
+    /// Ratio of allowed base64 characters among non‑whitespace required to classify as base64.
+    /// </summary>
+    public static double EncodedBase64AllowedRatio { get; set; } = 0.92;
+    /// <summary>
+    /// Minimum hex characters (continuous) to classify as hex dump (80 bytes).
+    /// </summary>
+    public static int EncodedHexMinChars { get; set; } = 160;
+    /// <summary>
+    /// Number of bytes to read from file head when probing for encoded payloads during Analyze().
+    /// </summary>
+    public static int EncodedProbeReadBytes { get; set; } = 16 * 1024;
+    /// <summary>
+    /// Maximum decoded bytes to analyze from encoded payloads.
+    /// </summary>
+    public static int EncodedDecodeMaxBytes { get; set; } = 128 * 1024;
+
+    // ETL validation (Windows only)
+    /// <summary>
+    /// ETL validation strategies.
+    /// </summary>
+    public enum EtlValidationMode {
+        /// <summary>Do not perform ETL validation; rely on generic detection only.</summary>
+        Off,
+        /// <summary>Validate via native ETW (OpenTrace/CloseTrace) only.</summary>
+        NativeOnly,
+        /// <summary>Validate via native ETW; if that fails, fall back to tracerpt.exe with a short timeout.</summary>
+        NativeThenTracerpt
+    }
+    /// <summary>
+    /// ETL validation mode: Off, NativeOnly (OpenTrace/CloseTrace), or NativeThenTracerpt (fallback to tracerpt on failure).
+    /// Default NativeOnly.
+    /// </summary>
+    public static EtlValidationMode EtlValidation { get; set; } = EtlValidationMode.NativeOnly;
+    /// <summary>Timeout in milliseconds for the tracerpt probe. Default 4000.</summary>
+    public static int EtlProbeTimeoutMs { get; set; } = 4000;
 }
 
 /// <summary>

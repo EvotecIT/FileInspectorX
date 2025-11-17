@@ -39,7 +39,7 @@ public static partial class FileInspector
                 TryExtractHtmlReferences(path, list);
             }
             // Scripts: extract URLs and UNC shares from common script types (PowerShell, batch, shell, JS)
-            if (ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs")
+            if (ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css")
             {
                 TryExtractScriptReferences(path, list, ext);
             }
@@ -68,6 +68,7 @@ public static partial class FileInspector
         {
             string text = File.ReadAllText(path);
             if (string.IsNullOrWhiteSpace(text)) return;
+            int dataB64 = 0; var dataExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             // URLs (absolute http/https)
             int i = 0; var s = text;
             while (i < s.Length)
@@ -99,6 +100,39 @@ public static partial class FileInspector
                 }
                 else p++;
             }
+
+            // data: URIs inside scripts (strings or code)
+            int di = 0;
+            while (di < text.Length)
+            {
+                int at = text.IndexOf("data:", di, StringComparison.OrdinalIgnoreCase); if (at < 0) break;
+                // Find end token – stop at whitespace or quotes or ')'
+                int end = at + 5; while (end < text.Length && text[end] != '"' && text[end] != '\'' && !char.IsWhiteSpace(text[end]) && text[end] != ')' && text[end] != '<' && text[end] != '>') end++;
+                var cand = text.Substring(at, end - at);
+                if (TryParseDataUriBase64(cand, out var media, out var sample) && sample != null && sample.Length > 0)
+                {
+                    dataB64++;
+                    try {
+                        var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
+                        if (det != null && !string.IsNullOrEmpty(det.Extension))
+                        {
+                            var k = det.Extension.ToLowerInvariant();
+                            dataExtCounts[k] = dataExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
+                        }
+                    } catch { }
+                }
+                di = end + 1;
+            }
+
+            if (dataB64 > 0)
+            {
+                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"script:data-b64={dataB64}", SourceTag = "summary" });
+                if (dataExtCounts.Count > 0)
+                {
+                    var headExts = string.Join(",", dataExtCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Select(kv => kv.Key + ":" + kv.Value));
+                    refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"script:data-exts={headExts}", SourceTag = "summary" });
+                }
+            }
         }
         catch { }
     }
@@ -113,6 +147,8 @@ public static partial class FileInspector
 
             int cdnCount = 0;
             var hostCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            int dataB64Count = 0;
+            var dataInnerExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             foreach (var attr in new [] { "href", "src", "data", "action" })
             {
                 int idx = 0;
@@ -132,6 +168,25 @@ public static partial class FileInspector
                             hostCounts[host!] = hostCounts.TryGetValue(host!, out var c) ? c + 1 : 1;
                         }
                         refs.Add(new Reference { Kind = ReferenceKind.Url, Value = v, SourceTag = tag });
+                    }
+                    else if (v.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // data: URI – detect base64 payload and sample inner type (bounded)
+                        if (TryParseDataUriBase64(v, out var media, out var sample))
+                        {
+                            dataB64Count++;
+                            if (sample != null && sample.Length > 0)
+                            {
+                                try {
+                                    var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
+                                    if (det != null && !string.IsNullOrEmpty(det.Extension))
+                                    {
+                                        var k = det.Extension.ToLowerInvariant();
+                                        dataInnerExtCounts[k] = dataInnerExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
+                                    }
+                                } catch { }
+                            }
+                        }
                     }
                     else if (LooksLikeUnc(v) || v.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
                     {
@@ -164,6 +219,24 @@ public static partial class FileInspector
                     }
                     refs.Add(new Reference { Kind = ReferenceKind.Url, Value = raw, SourceTag = tag });
                 }
+                else if (raw.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (TryParseDataUriBase64(raw, out var media, out var sample))
+                    {
+                        dataB64Count++;
+                        if (sample != null && sample.Length > 0)
+                        {
+                            try {
+                                var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
+                                if (det != null && !string.IsNullOrEmpty(det.Extension))
+                                {
+                                    var k = det.Extension.ToLowerInvariant();
+                                    dataInnerExtCounts[k] = dataInnerExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
+                                }
+                            } catch { }
+                        }
+                    }
+                }
                 else if (LooksLikeUnc(raw) || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
                 {
                     var expanded = ExpandEnv(raw);
@@ -182,6 +255,16 @@ public static partial class FileInspector
                 var top = hostCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(3).Select(kv => kv.Key);
                 var joined = string.Join(",", top);
                 refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:hosts={joined}", SourceTag = "summary" });
+            }
+            // Data URI summary
+            if (dataB64Count > 0)
+            {
+                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:data-b64={dataB64Count}", SourceTag = "summary" });
+                if (dataInnerExtCounts.Count > 0)
+                {
+                    var headExts = string.Join(",", dataInnerExtCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Select(kv => kv.Key + ":" + kv.Value));
+                    refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:data-exts={headExts}", SourceTag = "summary" });
+                }
             }
         } catch { }
 
@@ -242,6 +325,36 @@ public static partial class FileInspector
             } catch { }
             return s;
         }
+    }
+
+    private static bool TryParseDataUriBase64(string uri, out string? mediaType, out byte[]? sample)
+    {
+        mediaType = null; sample = null;
+        try
+        {
+            if (!uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return false;
+            int comma = uri.IndexOf(','); if (comma < 0) return false;
+            var header = uri.Substring(5, comma - 5); // between data: and comma
+            var lower = header.ToLowerInvariant();
+            if (!lower.Contains(";base64")) return false; // we only handle base64
+            // Extract media type before first ';'
+            int sc = header.IndexOf(';');
+            if (sc > 0) mediaType = header.Substring(0, sc);
+            string payload = uri.Substring(comma + 1);
+            // Normalize and bound decode
+            var sb = new System.Text.StringBuilder(payload.Length);
+            foreach (var ch in payload)
+            {
+                if (ch == '-') sb.Append('+');
+                else if (ch == '_') sb.Append('/');
+                else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '+' || ch == '/' || ch == '=') sb.Append(ch);
+            }
+            var s = sb.ToString(); int mod = s.Length % 4; if (mod != 0) s = s.PadRight(s.Length + (4 - mod), '=');
+            var raw = Convert.FromBase64String(s);
+            int max = Math.Min(raw.Length, Settings.EncodedDecodeMaxBytes);
+            sample = raw.Take(max).ToArray();
+            return true;
+        } catch { return false; }
     }
 
     private static void TryExtractInternetShortcut(string path, List<Reference> refs)

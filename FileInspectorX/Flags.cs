@@ -94,4 +94,16 @@ public enum ContentFlags : long {
     ,
     /// <summary>OLE Compound Document (e.g., .doc/.xls/.ppt) appears to contain VBA macro streams.</summary>
     OleHasVbaMacros = 1L << 38
+    ,
+    /// <summary>Text content appears to be base64-encoded payload.</summary>
+    EncodedBase64 = 1L << 39
+    ,
+    /// <summary>Text content appears to be hex-encoded payload.</summary>
+    EncodedHex = 1L << 40
+    ,
+    /// <summary>Text content appears to be ASCII85/Base85-encoded.</summary>
+    EncodedBase85 = 1L << 41
+    ,
+    /// <summary>Text content appears to be UUEncoded.</summary>
+    EncodedUu = 1L << 42
 }

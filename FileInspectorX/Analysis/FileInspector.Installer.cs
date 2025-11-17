@@ -125,8 +125,6 @@ public static partial class FileInspector
     {
 #if NET8_0_OR_GREATER || NET472
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
-        // Optional kill-switch for native MSI parsing to maximize service resilience
-        try { var disable = Environment.GetEnvironmentVariable("TIERBRIDGE_DISABLE_MSI_NATIVE"); if (!string.IsNullOrEmpty(disable) && (disable.Equals("1") || disable.Equals("true", StringComparison.OrdinalIgnoreCase))) return; } catch { }
         if (!Settings.IncludeInstaller) return;
         // Only attempt when file likely is MSI: declared .msi or detection already flagged msi
         try
@@ -144,10 +142,14 @@ public static partial class FileInspector
         lock (locker)
         {
         Breadcrumbs.Write("MSI_PROPS_BEGIN", path: path);
-        // Windows Installer API – read Property table (Manufacturer, ProductName, ProductCode, ProductVersion, UpgradeCode, ALLUSERS, ARP URLs)
         try {
-            if (MsiOpenDatabase(path, MSIDBOPEN_READONLY, out IntPtr hDb) != 0 || hDb == IntPtr.Zero) return;
-            try {
+            InspectorMetrics.Msi.IncAttempt();
+            MsiNative.SuppressUI();
+            if (!MsiNative.TryOpenDatabase(path, out var hDb)) return;
+            using (hDb)
+            {
+                // Guard: ensure standard Property table exists
+                if (!HasTable(hDb, "Property")) { Breadcrumbs.Write("MSI_NO_PROPERTY_TABLE", path: path); InspectorMetrics.Msi.IncSkipped(); return; }
                 string? Manufacturer = QueryMsiProperty(hDb, "Manufacturer");
                 string? ProductName = QueryMsiProperty(hDb, "ProductName");
                 string? ProductCode = QueryMsiProperty(hDb, "ProductCode");
@@ -184,14 +186,16 @@ public static partial class FileInspector
 
                 // SummaryInformation (Author, Comments) – best effort
                 TryPopulateMsiSummary(hDb, res);
-                // CustomActions summary (Windows-only) — opt-in via env var to maximize stability
-                try {
-                    var ca = Environment.GetEnvironmentVariable("TIERBRIDGE_ENABLE_MSI_CA");
-                    if (!string.IsNullOrEmpty(ca) && (ca.Equals("1") || ca.Equals("true", StringComparison.OrdinalIgnoreCase)))
-                        TryPopulateMsiCustomActions(hDb, res);
-                } catch { }
-            } finally { if (hDb != IntPtr.Zero) MsiCloseHandle(hDb); Breadcrumbs.Write("MSI_PROPS_END", path: path); }
-        } catch (Exception ex) { Breadcrumbs.Write("MSI_PROPS_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
+                // CustomActions summary (Windows-only) — opt-in via Settings.EnableMsiCustomActions for stability
+                try { if (Settings.EnableMsiCustomActions && HasTable(hDb, "CustomAction")) TryPopulateMsiCustomActions(hDb, res); } catch { }
+                InspectorMetrics.Msi.IncSuccess();
+            }
+            Breadcrumbs.Write("MSI_PROPS_END", path: path);
+        } catch (Exception ex) {
+            var last = MsiNative.GetLastErrorString();
+            Breadcrumbs.Write("MSI_PROPS_ERROR", message: ex.GetType().Name+":"+ex.Message + (string.IsNullOrEmpty(last)?string.Empty:(";"+last)), path: path);
+            InspectorMetrics.Msi.IncFail();
+        }
         }
 
 #endif
@@ -201,53 +205,46 @@ public static partial class FileInspector
     // P/Invoke (class scope)
     private const string MSIDBOPEN_READONLY = "MSIDBOPEN_READONLY";
 
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiOpenDatabaseW")]
-    private static extern int MsiOpenDatabase(string szDatabasePath, string? szPersist, out IntPtr phDatabase);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiDatabaseOpenViewW")]
-    private static extern int MsiDatabaseOpenView(IntPtr hDatabase, string szQuery, out IntPtr phView);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiViewExecute")]
-    private static extern int MsiViewExecute(IntPtr hView, IntPtr hRecord);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiViewFetch")]
-    private static extern int MsiViewFetch(IntPtr hView, out IntPtr phRecord);
-    // Two overloads: one for size-query (null buffer) and one for actual copy
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiRecordGetStringW")]
-    private static extern int MsiRecordGetStringPtr(IntPtr hRecord, int iField, IntPtr szValueBuf, ref int pcchValueBuf);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiRecordGetStringW")]
-    private static extern int MsiRecordGetStringBuf(IntPtr hRecord, int iField, System.Text.StringBuilder szValueBuf, ref int pcchValueBuf);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiCloseHandle")]
-    private static extern int MsiCloseHandle(IntPtr hAny);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiGetSummaryInformationW")]
-    private static extern int MsiGetSummaryInformation(IntPtr hDatabase, string? szDatabasePath, uint uiUpdateCount, out IntPtr phSummaryInfo);
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiSummaryInfoGetPropertyW")]
-    private static extern int MsiSummaryInfoGetProperty(IntPtr hSummaryInfo, uint uiProperty, out uint puiDataType, out int piValue, System.Text.StringBuilder szValueBuf, ref uint pcchValueBuf);
+    // P/Invoke moved to MsiNative with SafeHandles
 
-    private static string? QueryMsiProperty(IntPtr hDb, string property)
+    private static string? QueryMsiProperty(MsiNative.SafeMsiHandle hDb, string property)
     {
-        IntPtr hView = IntPtr.Zero, hRec = IntPtr.Zero;
-        try {
-            if (MsiDatabaseOpenView(hDb, $"SELECT `Value` FROM `Property` WHERE `Property`='{property}'", out hView) != 0) return null;
-            if (MsiViewExecute(hView, IntPtr.Zero) != 0) return null;
-            if (MsiViewFetch(hView, out hRec) != 0 || hRec == IntPtr.Zero) return null;
-            int sz = 0; _ = MsiRecordGetStringPtr(hRec, 1, IntPtr.Zero, ref sz);
-            if (sz <= 0) return null;
-            var sb = new System.Text.StringBuilder(sz + 1);
-            if (MsiRecordGetStringBuf(hRec, 1, sb, ref sz) != 0) return null;
-            return sb.ToString();
-        } finally {
-            if (hRec != IntPtr.Zero) MsiCloseHandle(hRec);
-            if (hView != IntPtr.Zero) MsiCloseHandle(hView);
+        if (!MsiNative.TryOpenView(hDb, $"SELECT `Value` FROM `Property` WHERE `Property`='{property}'", out var hView)) { Breadcrumbs.Write("MSI_VIEW_OPEN_ERROR", message: property); return null; }
+        using (hView)
+        {
+            if (MsiNative.MsiViewExecute(hView.DangerousGetHandle(), IntPtr.Zero) != MsiNative.ERROR_SUCCESS) { Breadcrumbs.Write("MSI_VIEW_EXEC_ERROR", message: property); return null; }
+            if (MsiNative.MsiViewFetch(hView.DangerousGetHandle(), out var hRec) != MsiNative.ERROR_SUCCESS || hRec == IntPtr.Zero) { Breadcrumbs.Write("MSI_VIEW_FETCH_ERROR", message: property); return null; }
+            try { return MsiNative.GetRecordString(hRec, 1); }
+            finally { _ = MsiNative.CloseHandle(hRec); }
         }
     }
 
-    private static void TryPopulateMsiSummary(IntPtr hDb, FileAnalysis res)
+    private static bool HasTable(MsiNative.SafeMsiHandle hDb, string tableName)
+    {
+        try
+        {
+            if (!MsiNative.TryOpenView(hDb, $"SELECT `Name` FROM `_Tables` WHERE `Name`='{tableName}'", out var hView)) return false;
+            using (hView)
+            {
+                if (MsiNative.MsiViewExecute(hView.DangerousGetHandle(), IntPtr.Zero) != MsiNative.ERROR_SUCCESS) return false;
+                return MsiNative.MsiViewFetch(hView.DangerousGetHandle(), out var hRec) == MsiNative.ERROR_SUCCESS && hRec != IntPtr.Zero && MsiNative.CloseHandle(hRec);
+            }
+        }
+        catch { return false; }
+    }
+
+    private static void TryPopulateMsiSummary(MsiNative.SafeMsiHandle hDb, FileAnalysis res)
     {
         const uint PID_AUTHOR = 4; const uint PID_COMMENTS = 6; const uint PID_REVNUMBER = 9;
-        IntPtr hSum = IntPtr.Zero;
-        try {
-            if (MsiGetSummaryInformation(hDb, null, 0, out hSum) != 0 || hSum == IntPtr.Zero) return;
-            string? author = GetSummaryString(hSum, PID_AUTHOR);
-            string? comments = GetSummaryString(hSum, PID_COMMENTS);
-            string? rev = GetSummaryString(hSum, PID_REVNUMBER);
+        const uint PID_CREATE_DTM = 12; const uint PID_LASTSAVE_DTM = 13;
+        if (!MsiNative.TryGetSummaryInfo(hDb, out var hSum)) return;
+        using (hSum)
+        {
+            string? author = MsiNative.GetSummaryString(hSum, PID_AUTHOR);
+            string? comments = MsiNative.GetSummaryString(hSum, PID_COMMENTS);
+            string? rev = MsiNative.GetSummaryString(hSum, PID_REVNUMBER);
+            string? created = MsiNative.GetSummaryString(hSum, PID_CREATE_DTM);
+            string? lastSaved = MsiNative.GetSummaryString(hSum, PID_LASTSAVE_DTM);
             if (!string.IsNullOrEmpty(author) || !string.IsNullOrEmpty(comments))
             {
                 var info = res.Installer ?? new InstallerInfo();
@@ -263,32 +260,33 @@ public static partial class FileInspector
                 info.PackageCode = rev;
                 res.Installer = info;
             }
-        } finally { if (hSum != IntPtr.Zero) MsiCloseHandle(hSum); }
-    }
-
-    private static string? GetSummaryString(IntPtr hSum, uint pid)
-    {
-        uint type = 0; int iVal = 0; uint cch = 0;
-        MsiSummaryInfoGetProperty(hSum, pid, out type, out iVal, null!, ref cch);
-        if (cch == 0) return null;
-        var sb = new System.Text.StringBuilder((int)cch + 1);
-        if (MsiSummaryInfoGetProperty(hSum, pid, out type, out iVal, sb, ref cch) != 0) return null;
-        return sb.ToString();
-    }
-
-    private static void TryPopulateMsiCustomActions(IntPtr hDb, FileAnalysis res)
-    {
-        IntPtr hView = IntPtr.Zero, hRec = IntPtr.Zero;
-        try {
-            if (MsiDatabaseOpenView(hDb, "SELECT `Type`,`Source`,`Target` FROM `CustomAction`", out hView) != 0) return;
-            if (MsiViewExecute(hView, IntPtr.Zero) != 0) return;
-            int exe=0, dll=0, script=0, other=0; var samples = new List<string>(6);
-            while (MsiViewFetch(hView, out hRec) == 0 && hRec != IntPtr.Zero)
+            // Dates (best-effort: the API lets us format to string; parse to UTC when possible)
+            if (!string.IsNullOrEmpty(created) || !string.IsNullOrEmpty(lastSaved))
             {
-                string? sType = GetStringField(hRec, 1);
+                var info = res.Installer ?? new InstallerInfo();
+                info.Kind = InstallerKind.Msi;
+                if (!string.IsNullOrEmpty(created) && DateTime.TryParse(created, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var cdt)) info.CreatedUtc = cdt;
+                if (!string.IsNullOrEmpty(lastSaved) && DateTime.TryParse(lastSaved, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var ldt)) info.LastSavedUtc = ldt;
+                res.Installer = info;
+            }
+        }
+    }
+
+    // Summary property retrieval moved to MsiNative.GetSummaryString
+
+    private static void TryPopulateMsiCustomActions(MsiNative.SafeMsiHandle hDb, FileAnalysis res)
+    {
+        int exe=0, dll=0, script=0, other=0; var samples = new List<string>(6);
+        if (!MsiNative.TryOpenView(hDb, "SELECT `Type`,`Source`,`Target` FROM `CustomAction`", out var hView)) return;
+        using (hView)
+        {
+            if (MsiNative.MsiViewExecute(hView.DangerousGetHandle(), IntPtr.Zero) != MsiNative.ERROR_SUCCESS) return;
+            while (MsiNative.MsiViewFetch(hView.DangerousGetHandle(), out var hRec) == MsiNative.ERROR_SUCCESS && hRec != IntPtr.Zero)
+            {
+                string? sType = MsiNative.GetRecordString(hRec, 1);
                 int type = 0; _ = int.TryParse(sType, out type);
-                string src = GetStringField(hRec, 2) ?? string.Empty;
-                string tgt = GetStringField(hRec, 3) ?? string.Empty;
+                string src = MsiNative.GetRecordString(hRec, 2) ?? string.Empty;
+                string tgt = MsiNative.GetRecordString(hRec, 3) ?? string.Empty;
                 int kind = type & 0x0007;
                 switch (kind)
                 {
@@ -306,16 +304,9 @@ public static partial class FileInspector
                 info.MsiCustomActions = new MsiCustomActionSummary { CountExe = exe, CountDll = dll, CountScript = script, CountOther = other, Samples = samples };
                 res.Installer = info;
             }
-        } catch { }
-        finally { if (hRec != IntPtr.Zero) MsiCloseHandle(hRec); if (hView != IntPtr.Zero) MsiCloseHandle(hView); }
-
-        static string? GetStringField(IntPtr rec, int idx)
-        {
-            int cch = 0; _ = MsiRecordGetStringPtr(rec, idx, IntPtr.Zero, ref cch);
-            if (cch <= 0) return null;
-            var sb = new System.Text.StringBuilder(cch + 1);
-            if (MsiRecordGetStringBuf(rec, idx, sb, ref cch) != 0) return null; return sb.ToString();
         }
     }
 #endif
 }
+
+// (no extra partial declarations here)

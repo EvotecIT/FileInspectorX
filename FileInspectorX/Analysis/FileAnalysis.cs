@@ -148,6 +148,17 @@ public class FileAnalysis {
     /// Subjects present in a PKCS#7 certificate bundle, when parsed.
     /// </summary>
     public IReadOnlyList<string>? CertificateBundleSubjects { get; set; }
+
+    /// <summary>
+    /// When content appears encoded (e.g., base64, hex), indicates the encoding kind.
+    /// Values: "base64", "hex".
+    /// </summary>
+    public string? EncodedKind { get; set; }
+
+    /// <summary>
+    /// If an encoded payload was detected and partially decoded, the inner content type detected from the decoded bytes.
+    /// </summary>
+    public ContentTypeDetectionResult? EncodedInnerDetection { get; set; }
 }
 
     /// <summary>
