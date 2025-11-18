@@ -8,7 +8,7 @@ internal static partial class Signatures {
     private const int HEADER_BYTES = 2048;
     // see FileInspectorX.Settings for configurable thresholds
 
-    internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result, string? declaredExtension = null) {
         result = null;
         if (src.Length == 0) return false;
 
@@ -22,6 +22,12 @@ internal static partial class Signatures {
 
         // Binary heuristic: NUL in head implies not text (quick bail-out)
         for (int i = 0; i < src.Length && i < BINARY_SCAN_LIMIT; i++) if (src[i] == 0x00) return false;
+        int nulScan = Math.Min(2048, src.Length);
+        for (int i = 0; i < nulScan; i++) { if (src[i] == 0x00) return false; }
+
+        var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        bool declaredMd = decl == "md" || decl == "markdown";
+        bool declaredLog = decl == "log";
 
         // Trim leading whitespace for structure checks
         int start = bomSkip; while (start < src.Length && char.IsWhiteSpace((char)src[start])) start++;
@@ -226,17 +232,6 @@ internal static partial class Signatures {
             }
         }
 
-        // Markdown quick cues (guarded to avoid scripts)
-        {
-            var s = headStr; var sl = headLower;
-            bool looksMd = sl.StartsWith("# ") || sl.Contains("\n# ") || sl.Contains("```") || sl.Contains("](");
-            if (looksMd)
-            {
-                // Do not classify as Markdown if strong PowerShell cues are present
-                if (!HasPowerShellCues(head, headStr, headLower)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
-            }
-        }
-
         // TOML heuristic (tables + key=value with TOML-ish values). Comes before INI.
         {
             int keys = 0, tables = 0, dotted = 0; int scanned = 0; int startLine2 = 0;
@@ -300,21 +295,7 @@ internal static partial class Signatures {
             return true;
         }
 
-        // CSV/TSV/Delimited heuristics (look at first two lines) — also handle Excel 'sep=' directive and single-line CSV/TSV
-        // Excel separator directive (first non-whitespace line like `sep=,` or `sep=;` or `sep=\t`)
-        {
-            // Use cached headStr/headLower to find directive at the very beginning
-            string s = headStr.TrimStart('\ufeff', ' ', '\t', '\r', '\n');
-            if (s.StartsWith("sep=", System.StringComparison.OrdinalIgnoreCase))
-            {
-                // classify as CSV/TSV depending on separator char or explicit "\\t" token
-                bool isTab = s.StartsWith("sep=\\t", System.StringComparison.OrdinalIgnoreCase) || (s.Length > 4 && s[4] == '\t');
-                if (isTab) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:sep-directive" }; return true; }
-                else { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:sep-directive" }; return true; }
-            }
-        }
-
-        // Delimiter heuristics
+        // Delimiter heuristics shared by CSV/TSV + log detection
         var span = head;
         int nl = head.IndexOf((byte)'\n'); if (nl < 0) nl = head.Length;
         var line1 = span.Slice(0, nl);
@@ -322,31 +303,7 @@ internal static partial class Signatures {
         int nl2 = rest.IndexOf((byte)'\n'); if (nl2 < 0) nl2 = rest.Length;
         var line2 = rest.Slice(0, nl2);
 
-        int commas1 = Count(line1, (byte)','); int commas2 = Count(line2, (byte)',');
-        int semis1 = Count(line1, (byte)';'); int semis2 = Count(line2, (byte)';');
-        int pipes1 = Count(line1, (byte)'|'); int pipes2 = Count(line2, (byte)'|');
-        int tabs1 = Count(line1, (byte)'\t'); int tabs2 = Count(line2, (byte)'\t');
-        // Two-line consistency (existing rule)
-        if ((commas1 >= 1 && commas2 >= 1 && Math.Abs(commas1 - commas2) <= 2) || (semis1 >= 1 && semis2 >= 1 && Math.Abs(semis1 - semis2) <= 2) || (pipes1 >= 1 && pipes2 >= 1 && Math.Abs(pipes1 - pipes2) <= 2)) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:delimiter-repeat-2lines" }; return true; }
-        if (tabs1 >= 1 && tabs2 >= 1 && Math.Abs(tabs1 - tabs2) <= 2) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:tabs-2lines" }; return true; }
-        // Single-line CSV/TSV fallback: require at least 2 delimiters and token count >= 3
-        if (line2.Length == 0 || (line2.Length == 0 && rest.Length == 0)) {
-            static int TokenCount(ReadOnlySpan<byte> l, byte sep) {
-                if (l.Length == 0) return 0;
-                int tokens = 1; for (int i = 0; i < l.Length; i++) if (l[i] == sep) tokens++; return tokens;
-            }
-            // Prefer comma/semicolon; fall back to TSV on tabs
-            if (commas1 >= 2 && TokenCount(line1, (byte)',') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
-            if (semis1 >= 2 && TokenCount(line1, (byte)';') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
-            if (tabs1 >= 2 && TokenCount(line1, (byte)'\t') >= 3) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:single-line" }; return true; }
-        }
-
-        // INI heuristic
-        if (line1.IndexOf((byte)'=') > 0 || line2.IndexOf((byte)'=') > 0) {
-            if (head.IndexOf((byte)'[') >= 0 && head.IndexOf((byte)']') > head.IndexOf((byte)'[')) { result = new ContentTypeDetectionResult { Extension = "ini", MimeType = "text/plain", Confidence = "Low", Reason = "text:ini", ReasonDetails = "ini:section+equals" }; return true; }
-        }
-
-        // LOG heuristic (timestamps at start of two lines)
+        // LOG heuristic (timestamps/levels) promoted ahead of CSV/Markdown to avoid mislabels
         static bool LooksLikeTimestamp(ReadOnlySpan<byte> l) {
             if (l.Length < 10) return false;
             bool y = IsDigit(l[0]) && IsDigit(l[1]) && IsDigit(l[2]) && IsDigit(l[3]);
@@ -356,15 +313,17 @@ internal static partial class Signatures {
             bool d = IsDigit(l[8]) && IsDigit(l[9]);
             return y && sep1 && m && sep2 && d;
         }
-        if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-2" }; return true; }
-
-        // Log heuristic by keywords at start of lines
         static bool StartsWithToken(ReadOnlySpan<byte> l, string token) {
             var tb = System.Text.Encoding.ASCII.GetBytes(token);
             if (l.Length < tb.Length) return false;
             for (int i = 0; i < tb.Length; i++) if (char.ToUpperInvariant((char)l[i]) != char.ToUpperInvariant((char)tb[i])) return false;
             return true;
         }
+
+        bool logCues = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2);
+
+        if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-2" }; return true; }
+
         int levelCount = 0;
         if (StartsWithLevelToken(line1)) levelCount++;
         if (StartsWithLevelToken(line2)) levelCount++;
@@ -375,10 +334,70 @@ internal static partial class Signatures {
         int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
         if (StartsWithLevelToken(line3)) levelCount++;
         if (StartsWithLevelToken(line4)) levelCount++;
+        int tsCount = 0; if (LooksLikeTimestamp(line1)) tsCount++; if (LooksLikeTimestamp(line2)) tsCount++; if (LooksLikeTimestamp(line3)) tsCount++; if (LooksLikeTimestamp(line4)) tsCount++;
+        if (tsCount >= 2) {
+            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-multi" }; return true;
+        }
         if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) {
             // Boost confidence when we have both timestamps and levels across lines
             var conf = levelCount >= 2 && (LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) ? "Medium" : "Low";
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = conf, Reason = "text:log-levels", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true;
+        }
+        if (levelCount > 0) logCues = true;
+        if (declaredLog && logCues) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:declared" }; return true; }
+
+        // CSV/TSV/Delimited heuristics (look at first two lines) — also handle Excel 'sep=' directive and single-line CSV/TSV
+        // Excel separator directive (first non-whitespace line like `sep=,` or `sep=;` or `sep=\t`)
+        {
+            string s = headStr.TrimStart('\ufeff', ' ', '\t', '\r', '\n');
+            if (s.StartsWith("sep=", System.StringComparison.OrdinalIgnoreCase))
+            {
+                if (!logCues)
+                {
+                    bool isTab = s.StartsWith("sep=\\t", System.StringComparison.OrdinalIgnoreCase) || (s.Length > 4 && s[4] == '\t');
+                    if (isTab) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:sep-directive" }; return true; }
+                    else { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:sep-directive" }; return true; }
+                }
+            }
+        }
+
+        int commas1 = Count(line1, (byte)','); int commas2 = Count(line2, (byte)',');
+        int semis1 = Count(line1, (byte)';'); int semis2 = Count(line2, (byte)';');
+        int pipes1 = Count(line1, (byte)'|'); int pipes2 = Count(line2, (byte)'|');
+        int tabs1 = Count(line1, (byte)'\t'); int tabs2 = Count(line2, (byte)'\t');
+        if (!logCues) {
+            if ((commas1 >= 1 && commas2 >= 1 && Math.Abs(commas1 - commas2) <= 2) || (semis1 >= 1 && semis2 >= 1 && Math.Abs(semis1 - semis2) <= 2) || (pipes1 >= 1 && pipes2 >= 1 && Math.Abs(pipes1 - pipes2) <= 2)) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:delimiter-repeat-2lines" }; return true; }
+            if (tabs1 >= 1 && tabs2 >= 1 && Math.Abs(tabs1 - tabs2) <= 2) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:tabs-2lines" }; return true; }
+            if (line2.Length == 0 || (line2.Length == 0 && rest.Length == 0)) {
+                static int TokenCount(ReadOnlySpan<byte> l, byte sep) {
+                    if (l.Length == 0) return 0;
+                    int tokens = 1; for (int i = 0; i < l.Length; i++) if (l[i] == sep) tokens++; return tokens;
+                }
+                if (commas1 >= 2 && TokenCount(line1, (byte)',') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
+                if (semis1 >= 2 && TokenCount(line1, (byte)';') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
+                if (tabs1 >= 2 && TokenCount(line1, (byte)'\t') >= 3) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:single-line" }; return true; }
+            }
+        }
+
+        // INI heuristic
+        if (line1.IndexOf((byte)'=') > 0 || line2.IndexOf((byte)'=') > 0) {
+            if (head.IndexOf((byte)'[') >= 0 && head.IndexOf((byte)']') > head.IndexOf((byte)'[')) { result = new ContentTypeDetectionResult { Extension = "ini", MimeType = "text/plain", Confidence = "Low", Reason = "text:ini", ReasonDetails = "ini:section+equals" }; return true; }
+        }
+
+        // Markdown quick cues (guarded to avoid scripts/logs; allow when declared .md)
+        {
+            var s = headStr; var sl = headLower;
+            bool looksMd = sl.StartsWith("# ") || sl.Contains("\n# ") || sl.Contains("```") || sl.Contains("](");
+            int mdCues = 0;
+            if (sl.StartsWith("# ") || sl.Contains("\n# ")) mdCues++;
+            if (sl.Contains("```")) mdCues++;
+            if (sl.Contains("](")) mdCues++;
+            if (looksMd)
+            {
+                // Do not classify as Markdown if strong PowerShell cues or log cues are present
+                var okByCues = declaredMd ? mdCues >= 1 : mdCues >= 2;
+                if (okByCues && (!HasPowerShellCues(head, headStr, headLower) && !logCues)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
+            }
         }
 
         // PowerShell heuristic (uses cached headStr/headLower)
@@ -424,24 +443,61 @@ internal static partial class Signatures {
             if (headLower.Contains("-----begin openssh private key-----") || headLower.Contains("openssh private key")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
             if (headLower.Contains("-----begin private key-----") || headLower.Contains("-----begin rsa private key-----") || headLower.Contains("-----begin dsa private key-----") || headLower.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
         }
-        // PowerShell heuristic — tightened to require at least two strong cues
+        // PowerShell heuristic — includes pwsh/powershell shebang, cmdlet verb-noun/pipeline/attribute cues, and module/data hints
         {
+            if (declaredMd) { /* allow markdown with fenced PS examples */ }
+            bool psShebang = headLower.Contains("#!/usr/bin/env pwsh") || headLower.Contains("#!/usr/bin/pwsh") ||
+                             headLower.Contains("#!/usr/bin/env powershell") || headLower.Contains("#!/usr/bin/powershell");
+            if (psShebang)
+            {
+                result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = "Medium", Reason = "text:ps1-shebang", ReasonDetails = "ps1:shebang" };
+                return true;
+            }
+            bool declaredPsm1 = decl == "psm1";
+            bool declaredPsd1 = decl == "psd1";
+            bool hasVerbNoun = HasVerbNounCmdlet(headStr);
+            bool hasPipeline = (headStr.IndexOf("| Where-Object", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                headStr.IndexOf("| ForEach-Object", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                headStr.IndexOf("| Select-Object", System.StringComparison.OrdinalIgnoreCase) >= 0) &&
+                               headStr.IndexOf("$", System.StringComparison.Ordinal) >= 0;
+            bool hasModuleExport = headStr.IndexOf("Export-ModuleMember", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   headStr.IndexOf("FunctionsToExport", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   headStr.IndexOf("RootModule", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            bool psd1Hashtable = declaredPsd1 && headStr.TrimStart().StartsWith("@{");
+
             int cues = 0;
+            int strong = 0;
             if (headLower.Contains("[cmdletbinding]")) cues++;
             if (headLower.Contains("#requires")) cues++;
-            if (headLower.Contains("param(")) cues++;
-            if (headLower.Contains("begin{")) cues++;
-            if (headLower.Contains("process{")) cues++;
-            if (headLower.Contains("end{")) cues++;
+            if (headLower.Contains("param(")) { cues++; strong++; }
+            if (headLower.Contains("begin{")) { cues++; strong++; }
+            if (headLower.Contains("process{")) { cues++; strong++; }
+            if (headLower.Contains("end{")) { cues++; strong++; }
+            if (headLower.Contains("[parameter(")) { cues++; strong++; }
+            if (headLower.Contains("[validate")) { cues++; strong++; }
             if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
             // Count Get-/Set- as a mild cue only when combined with another cue
             bool hasGetSet = headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0;
             if (hasGetSet) cues++;
-            if (cues >= 2) {
+            if (hasVerbNoun) { cues++; strong++; }
+            if (hasPipeline) { cues++; strong++; }
+
+            // Module/data file special-cases
+            if (declaredPsm1 && (hasModuleExport || hasVerbNoun))
+            {
+                result = new ContentTypeDetectionResult { Extension = "psm1", MimeType = "text/x-powershell", Confidence = "Medium", Reason = "text:psm1", ReasonDetails = "psm1:module-cues" }; return true;
+            }
+            if (declaredPsd1 && (psd1Hashtable || hasModuleExport))
+            {
+                result = new ContentTypeDetectionResult { Extension = "psd1", MimeType = "text/x-powershell", Confidence = "Low", Reason = "text:psd1", ReasonDetails = psd1Hashtable ? "psd1:hashtable" : "psd1:module-keys" }; return true;
+            }
+
+            if (cues >= 2 || (cues >= 1 && strong >= 1)) {
                 var conf = cues >= 3 ? "Medium" : "Low";
-                result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:ps1", ReasonDetails = cues >= 3 ? "ps1:multi-cues" : "ps1:common-cmdlets" }; return true;
+                var details = cues >= 3 ? "ps1:multi-cues" : (strong >= 1 && cues == 1 ? "ps1:single-strong-cue" : "ps1:common-cmdlets");
+                result = new ContentTypeDetectionResult { Extension = "ps1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:ps1", ReasonDetails = details }; return true;
             }
         }
 
@@ -455,6 +511,8 @@ internal static partial class Signatures {
             if (sl.Contains("begin{")) cues++;
             if (sl.Contains("process{")) cues++;
             if (sl.Contains("end{")) cues++;
+            if (sl.Contains("[parameter(")) cues++;
+            if (sl.Contains("[validate")) cues++;
             if (s.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
             if (s.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
             if (s.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
@@ -577,7 +635,7 @@ internal static partial class Signatures {
             return true;
         }
         static bool StartsWithLevelToken(ReadOnlySpan<byte> l) {
-            return StartsWithToken(l, "INFO") || StartsWithToken(l, "WARN") || StartsWithToken(l, "ERROR") || StartsWithToken(l, "DEBUG") || StartsWithToken(l, "TRACE") || StartsWithToken(l, "FATAL") || StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]");
+            return StartsWithToken(l, "INFO") || StartsWithToken(l, "WARN") || StartsWithToken(l, "ERROR") || StartsWithToken(l, "DEBUG") || StartsWithToken(l, "TRACE") || StartsWithToken(l, "FATAL") || StartsWithToken(l, "CRITICAL") || StartsWithToken(l, "ALERT") || StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]") || StartsWithToken(l, "[CRITICAL]") || StartsWithToken(l, "[ALERT]");
         }
         static int IndexOfToken(ReadOnlySpan<byte> hay, string token) {
             var tb = System.Text.Encoding.ASCII.GetBytes(token);
@@ -586,6 +644,22 @@ internal static partial class Signatures {
                 if (m) return i;
             }
             return -1;
+        }
+
+        static bool HasVerbNounCmdlet(string s)
+        {
+            // quick token scan to avoid regex
+            var separators = new[] { ' ', '\t', '\r', '\n', ';', '(', '{' };
+            foreach (var part in s.Split(separators, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int dash = part.IndexOf('-');
+                if (dash <= 1 || dash >= part.Length - 1) continue;
+                char a = part[0];
+                if (!char.IsUpper(a)) continue;
+                if (!char.IsLetter(part[dash + 1])) continue;
+                return true;
+            }
+            return false;
         }
     }
 

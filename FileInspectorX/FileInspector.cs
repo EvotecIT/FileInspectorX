@@ -214,7 +214,8 @@ public static partial class FileInspector {
             using var fs = File.OpenRead(path);
             // Try MSG (.msg) path-based detection (OLE with msg markers)
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
-            var det = Detect(fs, null);
+            var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+            var det = Detect(fs, null, extDeclared);
             // Refine PE family when generic 'exe' detected
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
@@ -223,6 +224,7 @@ public static partial class FileInspector {
                     else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
                 }
             } catch { }
+            det = ApplyDeclaredBias(det, extDeclared);
             return det;
         } catch { return null; }
     }
@@ -237,7 +239,8 @@ public static partial class FileInspector {
             if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
             using var fs = File.OpenRead(path);
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
-            var det = Detect(fs, options);
+            var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+            var det = Detect(fs, options, extDeclared);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
                     const ushort IMAGE_FILE_DLL = 0x2000;
@@ -272,9 +275,9 @@ public static partial class FileInspector {
                             if (okTr == true)
                             {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
-                                return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
-                            }
-                        }
+                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
+                }
+            }
                         if (okNative == false || allowFallback)
                         {
                             // Explicitly mark as mismatch later by returning the current detection (if any) or null; let callers compare
@@ -282,15 +285,16 @@ public static partial class FileInspector {
                         }
                     }
                 } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
-                return det;
-            } catch { return null; }
-        }
+            det = ApplyDeclaredBias(det, extDeclared);
+            return det;
+        } catch { return null; }
+    }
 
     /// <summary>
     /// Detects content type from a readable stream; the stream is rewound where possible.
     /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(Stream stream, DetectionOptions? options = null) {
+    public static ContentTypeDetectionResult? Detect(Stream stream, DetectionOptions? options = null, string? declaredExtension = null) {
         options ??= new DetectionOptions();
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
         var header = new byte[headLen];
@@ -356,7 +360,7 @@ public static partial class FileInspector {
             }
         }
 
-        if (Signatures.TryMatchText(src, out var text)) {
+        if (Signatures.TryMatchText(src, out var text, declaredExtension)) {
             if (text is not null && text.Extension == "json") {
                 var refined = TryRefineGltfJson(stream);
                 if (refined != null) return Enrich(refined, src, stream, options);
@@ -774,6 +778,31 @@ public static partial class FileInspector {
             if (MimeMaps.Default.TryGetValue(ext, out var better)) return better;
         }
         return mime;
+    }
+
+    private static ContentTypeDetectionResult? ApplyDeclaredBias(ContentTypeDetectionResult? det, string? declaredExt)
+    {
+        if (det == null) return det;
+        if (string.IsNullOrWhiteSpace(declaredExt)) return det;
+        var decl = declaredExt.Trim().TrimStart('.').ToLowerInvariant();
+        if (det.Confidence.Equals("Low", StringComparison.OrdinalIgnoreCase))
+        {
+            // Only bias when detection is generic/ambiguous text.
+            bool detectedGeneric = string.IsNullOrEmpty(det.Extension) ||
+                                   det.Extension.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
+                                   det.Extension.Equals("text", StringComparison.OrdinalIgnoreCase);
+            if (detectedGeneric &&
+                (decl == "log" || decl == "txt" || decl == "md" || decl == "markdown" || decl == "ps1" || decl == "psm1" || decl == "psd1"))
+            {
+                if (!decl.Equals(det.Extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    det.Extension = decl;
+                    det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+                    det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
+                }
+            }
+        }
+        return det;
     }
 
     private static string ToLowerHex(byte[] data) {

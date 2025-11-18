@@ -321,4 +321,133 @@ public class TextDetectionsTests {
         }
         finally { if (File.Exists(p)) File.Delete(p); }
     }
+
+    [Fact]
+    public void Log_With_Markdown_Like_Header_Is_Not_Markdown()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            File.WriteAllText(p, "# Fields: time level message\n2025-01-01 12:00:00 INFO started\n2025-01-01 12:01:00 ERROR failed\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Comma_Delimited_Logs_Not_Classified_As_Csv()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "2025-01-01 00:00:00,INFO,Started\n2025-01-01 00:01:00,ERROR,Failed\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_Shebang_Minimal_Script_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "#!/usr/bin/env pwsh\nGet-ChildItem\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ps1", r!.Extension);
+            Assert.Equal("text/x-powershell", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_VerbNoun_Function_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "function Get-Thing { param([string]$Name) Write-Output $Name }\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ps1", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_Pipeline_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "Get-Process | Where-Object { $_.Id -gt 4 }\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ps1", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_Module_Psm1_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".psm1");
+        try
+        {
+            File.WriteAllText(p, "function Get-Thing { Write-Output 1 }\nExport-ModuleMember -Function Get-Thing\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("psm1", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_Data_Psd1_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".psd1");
+        try
+        {
+            File.WriteAllText(p, "@{ ModuleVersion = '1.0'; RootModule = 'My.psm1' }\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("psd1", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Markdown_With_PowerShell_Content_Stays_Markdown()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".md");
+        try
+        {
+            File.WriteAllText(p, "# Doc\n\n```powershell\nGet-ChildItem\n```\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("md", r!.Extension);
+            Assert.Equal("text/markdown", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Declared_Log_With_Low_Cues_Biased_To_Log()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            File.WriteAllText(p, "Only one line without timestamps or levels\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
 }
