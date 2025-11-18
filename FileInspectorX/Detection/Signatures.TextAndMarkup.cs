@@ -392,6 +392,12 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (sl.StartsWith("# ") || sl.Contains("\n# ")) mdCues++;
             if (sl.Contains("```")) mdCues++;
             if (sl.Contains("](")) mdCues++;
+            if (sl.Contains("\n- ") || sl.StartsWith("- ") || sl.Contains("\n* ") || sl.StartsWith("* ")) mdCues++; // bullet list hint
+            // Treat presence of a heading plus any additional non-empty line as another weak cue (without needing link/fence)
+            if (mdCues == 1) {
+                var lines = headStr.Split('\n');
+                if (lines.Length >= 2 && lines[1].Trim().Length > 0) mdCues++;
+            }
             if (looksMd)
             {
                 // Do not classify as Markdown if strong PowerShell cues or log cues are present

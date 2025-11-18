@@ -17,9 +17,8 @@
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <PackageTags>file type detection;magic bytes;content
             analysis;authenticode;permissions;zip;pdf;ooxml;msix;appx</PackageTags>
-        <WarningsAsErrors>CS1591</WarningsAsErrors>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <WarningsAsErrors>1591</WarningsAsErrors>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
 
     <!-- Avoid building net472 on non-Windows agents where reference assemblies are unavailable -->

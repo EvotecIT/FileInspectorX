@@ -784,13 +784,14 @@ public static partial class FileInspector {
     {
         if (det == null) return det;
         if (string.IsNullOrWhiteSpace(declaredExt)) return det;
-        var decl = declaredExt.Trim().TrimStart('.').ToLowerInvariant();
-        if (det.Confidence.Equals("Low", StringComparison.OrdinalIgnoreCase))
+        var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        if (!string.IsNullOrEmpty(det.Confidence) && det.Confidence.Equals("Low", StringComparison.OrdinalIgnoreCase))
         {
             // Only bias when detection is generic/ambiguous text.
-            bool detectedGeneric = string.IsNullOrEmpty(det.Extension) ||
-                                   det.Extension.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
-                                   det.Extension.Equals("text", StringComparison.OrdinalIgnoreCase);
+            var detExt = det.Extension ?? string.Empty;
+            bool detectedGeneric = string.IsNullOrEmpty(detExt) ||
+                                   detExt.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
+                                   detExt.Equals("text", StringComparison.OrdinalIgnoreCase);
             if (detectedGeneric &&
                 (decl == "log" || decl == "txt" || decl == "md" || decl == "markdown" || decl == "ps1" || decl == "psm1" || decl == "psd1"))
             {

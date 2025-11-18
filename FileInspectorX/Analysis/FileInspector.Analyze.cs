@@ -62,8 +62,8 @@ public static partial class FileInspector {
                 }
                 if (string.IsNullOrWhiteSpace(core)) return false;
                 // Strip non-base64 and normalize URL-safe
-                System.Text.StringBuilder sb = new System.Text.StringBuilder(core.Length);
-                foreach (var ch in core)
+                System.Text.StringBuilder sb = new System.Text.StringBuilder((core ?? string.Empty).Length);
+                foreach (var ch in core!)
                 {
                     if (ch == '-' ) sb.Append('+');
                     else if (ch == '_' ) sb.Append('/');
