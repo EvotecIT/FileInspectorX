@@ -435,8 +435,8 @@ public static partial class FileInspector {
     private static bool TryMatchEtlMagic(string path) {
         try {
             using var fs = File.OpenRead(path);
-            Span<byte> buf = stackalloc byte[4];
-            int n = fs.Read(buf);
+            var buf = new byte[4];
+            int n = fs.Read(buf, 0, buf.Length);
             return n == 4 && buf[0] == 0x45 && buf[1] == 0x6C && buf[2] == 0x66 && buf[3] == 0x46; // "ElfF"
         } catch { return false; }
     }
