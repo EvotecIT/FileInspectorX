@@ -47,6 +47,8 @@ public static class FriendlyNames
             case "ppt":  return "PowerPoint 97-2003 presentation";
             case "pdf":  return "PDF document";
             case "txt":  return "Text file";
+            case "ini":  return "INI configuration file";
+            case "inf":  return "Windows INF file";
             case "md":   return "Markdown document";
             case "json": return "JSON file";
             case "ndjson":
@@ -54,6 +56,8 @@ public static class FriendlyNames
             case "yml":
             case "yaml": return "YAML document";
             case "xml":  return "XML file";
+            case "admx": return "Group Policy ADMX template";
+            case "adml": return "Group Policy ADML resource file";
             case "toml": return "TOML document";
             case "eml":  return "Email message (.eml)";
             // 'log' handled below to allow richer labels
@@ -69,12 +73,15 @@ public static class FriendlyNames
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
             case "msi":  return "Windows installer package (.msi)";
+            case "bat":
+            case "cmd":  return "Windows batch script";
             case "vsix": return "Visual Studio extension (VSIX)";
             case "apk":  return "Android package (APK)";
             case "ipa":  return "iOS application archive (IPA)";
             case "evtx": return "Windows Event Log (EVTX)";
             case "sqlite": return "SQLite database";
             case "etl": return "Windows Trace Log (ETL)";
+            case "pol": return "Group Policy Registry.pol file";
         }
 
         // Special-case text logs: use heuristic findings to return a friendlier label

@@ -12,6 +12,10 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         result = null;
         if (src.Length == 0) return false;
 
+        // Note: we may transcode UTF-16 BOM text to UTF-8 bytes for downstream heuristics.
+        // Keep the original BOM charset for MIME/Reason hints.
+        ReadOnlySpan<byte> data = src;
+
         // BOMs: record and continue refining instead of early-returning as plain text.
         // This allows CSV/TSV/JSON/XML detection to work on UTF-8/UTF-16 files exported with BOMs.
         int bomSkip = 0;
@@ -20,25 +24,68 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         else if (src.Length >= 2 && src[0] == 0xFF && src[1] == 0xFE) { bomSkip = 2; bomCharset = "utf-16le"; }
         else if (src.Length >= 2 && src[0] == 0xFE && src[1] == 0xFF) { bomSkip = 2; bomCharset = "utf-16be"; }
 
+        // UTF-16 BOM text contains NUL bytes. Transcode to UTF-8 bytes so the existing heuristics work.
+        if (bomCharset == "utf-16le" || bomCharset == "utf-16be")
+        {
+            try
+            {
+                var enc = bomCharset == "utf-16le" ? System.Text.Encoding.Unicode : System.Text.Encoding.BigEndianUnicode;
+                // Transcode only a small prefix (detection is HEADER_BYTES bounded) to avoid large temporary allocations
+                // if callers provide a large buffer.
+                //
+                // For ASCII-heavy UTF-16, bytes roughly halve after transcoding to UTF-8 (2 bytes per char -> 1 byte).
+                // So, read 2x HEADER_BYTES of UTF-16 to yield ~HEADER_BYTES bytes of UTF-8 for the heuristics below.
+                const int UTF16_DECODE_BUDGET_BYTES = HEADER_BYTES * 2; // 4KB with HEADER_BYTES=2048
+                int remaining = src.Length - bomSkip;
+                int maxUtf16Bytes = Math.Min(remaining, UTF16_DECODE_BUDGET_BYTES);
+                if (maxUtf16Bytes <= 0) return false;
+                if ((maxUtf16Bytes & 1) == 1) maxUtf16Bytes--; // UTF-16 code units are 2 bytes
+                if (maxUtf16Bytes <= 0) return false;
+
+                // Avoid allocating the UTF-16 input array; rent a buffer and convert only the initial segment.
+                var rented = ArrayPool<byte>.Shared.Rent(maxUtf16Bytes);
+                try
+                {
+                    src.Slice(bomSkip, maxUtf16Bytes).CopyTo(rented);
+                    data = System.Text.Encoding.Convert(enc, System.Text.Encoding.UTF8, rented, 0, maxUtf16Bytes);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+                }
+                bomSkip = 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // Binary heuristic: NUL in head implies not text (quick bail-out)
-        for (int i = 0; i < src.Length && i < BINARY_SCAN_LIMIT; i++) if (src[i] == 0x00) return false;
-        int nulScan = Math.Min(2048, src.Length);
-        for (int i = 0; i < nulScan; i++) { if (src[i] == 0x00) return false; }
+        for (int i = 0; i < data.Length && i < BINARY_SCAN_LIMIT; i++) if (data[i] == 0x00) return false;
+        int nulScan = Math.Min(2048, data.Length);
+        for (int i = 0; i < nulScan; i++) { if (data[i] == 0x00) return false; }
 
         var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
         bool declaredMd = decl == "md" || decl == "markdown";
         bool declaredLog = decl == "log";
+        bool declaredIni = decl == "ini";
+        bool declaredInf = decl == "inf";
+        bool declaredToml = decl == "toml";
+        bool declaredAdmx = decl == "admx";
+        bool declaredAdml = decl == "adml";
+        bool declaredCmd = decl == "cmd";
 
         // Trim leading whitespace for structure checks
-        int start = bomSkip; while (start < src.Length && char.IsWhiteSpace((char)src[start])) start++;
-        var head = src.Slice(start, Math.Min(HEADER_BYTES, src.Length - start));
+        int start = bomSkip; while (start < data.Length && char.IsWhiteSpace((char)data[start])) start++;
+        var head = data.Slice(start, Math.Min(HEADER_BYTES, data.Length - start));
         // Cache string conversions (single pass) for heuristics that need them
         static string Utf8(ReadOnlySpan<byte> s) { if (s.Length == 0) return string.Empty; var a = s.ToArray(); return System.Text.Encoding.UTF8.GetString(a); }
         var headStr = Utf8(head);
         var headLower = headStr.ToLowerInvariant();
 
-        // RTF
-        if (src.Length >= 5 && src[0] == '{' && src[1] == '\\' && src[2] == 'r' && src[3] == 't' && src[4] == 'f') { result = new ContentTypeDetectionResult { Extension = "rtf", MimeType = "application/rtf", Confidence = "Medium", Reason = "text:rtf" }; return true; }
+        // RTF (respect BOM/whitespace trimming)
+        if (head.Length >= 5 && head[0] == '{' && head[1] == '\\' && head[2] == 'r' && head[3] == 't' && head[4] == 'f') { result = new ContentTypeDetectionResult { Extension = "rtf", MimeType = "application/rtf", Confidence = "Medium", Reason = "text:rtf" }; return true; }
 
         // PEM and PGP ASCII-armored blocks are handled later with specific types (asc/crt/key/csr).
 
@@ -175,7 +222,11 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
         // XML / HTML
         if (head.Length >= 5 && head[0] == (byte)'<') {
-            if (head.Length >= 5 && head.Slice(0, 5).SequenceEqual("<?xml"u8)) { result = new ContentTypeDetectionResult { Extension = "xml", MimeType = "application/xml", Confidence = "Medium", Reason = "text:xml" }; return true; }
+            if (head.Length >= 5 && head.Slice(0, 5).SequenceEqual("<?xml"u8)) {
+                var ext = declaredAdmx ? "admx" : (declaredAdml ? "adml" : "xml");
+                result = new ContentTypeDetectionResult { Extension = ext, MimeType = "application/xml", Confidence = "Medium", Reason = "text:xml", ReasonDetails = ext == "xml" ? null : $"xml:decl-{ext}" };
+                return true;
+            }
             if (head.IndexOf("<!DOCTYPE html"u8) >= 0 || head.IndexOf("<html"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "html", MimeType = "text/html", Confidence = "Medium", Reason = "text:html" }; return true; }
         }
 
@@ -232,41 +283,66 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             }
         }
 
-        // TOML heuristic (tables + key=value with TOML-ish values). Comes before INI.
+        // TOML heuristic (tables + key=value). Guarded to avoid misclassifying INI/INF (common in Windows/GPO).
         {
-            int keys = 0, tables = 0, dotted = 0; int scanned = 0; int startLine2 = 0;
-            for (int i = 0; i < head.Length && scanned < 20; i++)
+            if (!declaredToml && (declaredIni || declaredInf))
             {
-                if (head[i] == (byte)'\n')
-                {
-                    var raw = head.Slice(startLine2, i - startLine2);
-                    var line = TrimBytes(raw);
-                    if (line.Length > 0 && line[0] == (byte)'#') { scanned++; startLine2 = i + 1; continue; } // comment
-                    if (line.Length >= 3 && line[0] == (byte)'[')
-                    {
-                        // [table] or [[array.of.tables]]
-                        if (line.IndexOf((byte)']') > 1) { tables++; }
-                    }
-                    int eq = line.IndexOf((byte)'=');
-                    if (eq > 0 && eq < line.Length - 1)
-                    {
-                        // left side must be bare/dotted identifier
-                        bool ok = true; int dots = 0; for (int k = 0; k < eq; k++) { byte c = line[k]; if (!(char.IsLetterOrDigit((char)c) || c == (byte)'_' || c == (byte)'.')) { ok = false; break; } if (c == (byte)'.') dots++; }
-                        if (ok) { dotted += dots > 0 ? 1 : 0; keys++; }
-                    }
-                    scanned++; startLine2 = i + 1;
-                }
+                // Skip: INI/INF can look extremely similar to TOML at the top of the file.
+                // INI detection below will classify these correctly.
             }
-            if ((tables >= 1 && keys >= 1) || (keys >= 2 && dotted >= 1)) { result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" }; return true; }
-            // Lenient fallback using string scan: look for bracketed tables and multiple key=value in first 2KB
+            else
             {
-                var hbToml = new byte[Math.Min(head.Length, 2048)]; head.Slice(0, hbToml.Length).CopyTo(new System.Span<byte>(hbToml));
-                var s = System.Text.Encoding.UTF8.GetString(hbToml);
-                int eqCount = 0; foreach (var ch in s) if (ch == '=') eqCount++;
-                bool hasTable = s.Contains("\n[") || s.StartsWith("[");
-                if (hasTable && eqCount >= 2)
+                int keys = 0, tables = 0, dotted = 0;
+                bool hasArrayTables = false;
+                bool hasIniStyleComments = false; // strong INI/INF signal when not declared TOML
+                int scanned = 0; int startLine2 = 0;
+                for (int i = 0; i < head.Length && scanned < 20; i++)
                 {
-                    result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" }; return true;
+                    if (head[i] == (byte)'\n')
+                    {
+                        var raw = head.Slice(startLine2, i - startLine2);
+                        var line = TrimBytes(raw);
+                        if (line.Length > 0 && line[0] == (byte)'#') { scanned++; startLine2 = i + 1; continue; } // TOML comment
+                        if (line.Length > 0 && line[0] == (byte)';') { hasIniStyleComments = true; scanned++; startLine2 = i + 1; continue; } // INI/INF-style comment
+                        if (line.Length >= 3 && line[0] == (byte)'[')
+                        {
+                            // [table] or [[array.of.tables]]
+                            if (line.Length >= 4 && line[1] == (byte)'[')
+                            {
+                                // array of tables
+                                if (line.IndexOf("]]"u8) > 1) { tables++; hasArrayTables = true; }
+                            }
+                            else if (line.IndexOf((byte)']') > 1) { tables++; }
+                        }
+                        int eq = line.IndexOf((byte)'=');
+                        if (eq > 0 && eq < line.Length - 1)
+                        {
+                            // left side must be bare/dotted identifier
+                            bool ok = true; int dots = 0; for (int k = 0; k < eq; k++) { byte c = line[k]; if (!(char.IsLetterOrDigit((char)c) || c == (byte)'_' || c == (byte)'.')) { ok = false; break; } if (c == (byte)'.') dots++; }
+                            if (ok) { dotted += dots > 0 ? 1 : 0; keys++; }
+                        }
+                        scanned++; startLine2 = i + 1;
+                    }
+                }
+                bool tomlStrong = hasArrayTables || dotted >= 1;
+                bool allowUndeclared = tomlStrong && !hasIniStyleComments;
+                if ((declaredToml || allowUndeclared) && (tables >= 1 && keys >= 1))
+                {
+                    result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" };
+                    return true;
+                }
+                // Lenient fallback using string scan: look for bracketed tables and multiple key=value in first 2KB
+                if (declaredToml)
+                {
+                    var hbToml = new byte[Math.Min(head.Length, 2048)]; head.Slice(0, hbToml.Length).CopyTo(new System.Span<byte>(hbToml));
+                    var s = System.Text.Encoding.UTF8.GetString(hbToml);
+                    int eqCount = 0; foreach (var ch in s) if (ch == '=') eqCount++;
+                    bool hasTable = s.Contains("\n[") || s.StartsWith("[");
+                    if (hasTable && eqCount >= 2)
+                    {
+                        result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" };
+                        return true;
+                    }
                 }
             }
         }
@@ -379,9 +455,50 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             }
         }
 
-        // INI heuristic
-        if (line1.IndexOf((byte)'=') > 0 || line2.IndexOf((byte)'=') > 0) {
-            if (head.IndexOf((byte)'[') >= 0 && head.IndexOf((byte)']') > head.IndexOf((byte)'[')) { result = new ContentTypeDetectionResult { Extension = "ini", MimeType = "text/plain", Confidence = "Low", Reason = "text:ini", ReasonDetails = "ini:section+equals" }; return true; }
+        // INI/INF heuristic (guarded against PowerShell/type-accelerator patterns)
+        {
+            bool hasPsCues = HasPowerShellCues(head, headStr, headLower) || HasVerbNounCmdlet(headStr);
+            if (!hasPsCues)
+            {
+                bool hasSection = false;
+                bool hasEquals = false;
+
+                // Look for [Section] and key=value within the first few meaningful lines.
+                // This avoids false positives when an INI file starts with comments/blank lines.
+                int meaningfulLines = 0;
+                int lineStart = 0;
+                for (int i = 0; i < head.Length && meaningfulLines < 8; i++)
+                {
+                    if (head[i] == (byte)'\n' || i == head.Length - 1)
+                    {
+                        int end = head[i] == (byte)'\n' ? i : i + 1;
+                        var raw = head.Slice(lineStart, Math.Max(0, end - lineStart));
+                        lineStart = i + 1;
+                        var line = TrimBytes(raw);
+                        if (line.Length == 0) continue;
+
+                        // Skip comment-only lines
+                        if (line[0] == (byte)';' || line[0] == (byte)'#') continue;
+
+                        if (!hasSection && LooksIniSectionLine(line)) hasSection = true;
+                        if (!hasEquals)
+                        {
+                            int eq = line.IndexOf((byte)'=');
+                            if (eq > 0) hasEquals = true;
+                        }
+
+                        meaningfulLines++;
+                        if (hasSection && hasEquals) break;
+                    }
+                }
+
+                if (hasSection && hasEquals)
+                {
+                    var ext = declaredInf ? "inf" : "ini";
+                    result = new ContentTypeDetectionResult { Extension = ext, MimeType = "text/plain", Confidence = "Low", Reason = "text:ini", ReasonDetails = ext == "inf" ? "inf:section+equals" : "ini:section+equals" };
+                    return true;
+                }
+            }
         }
 
         // Markdown quick cues (guarded to avoid scripts/logs; allow when declared .md)
@@ -511,19 +628,52 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         static bool HasPowerShellCues(ReadOnlySpan<byte> headSpan, string s, string sl)
         {
             int cues = 0;
-            if (sl.Contains("[cmdletbinding]")) cues++;
-            if (sl.Contains("#requires")) cues++;
-            if (sl.Contains("param(")) cues++;
-            if (sl.Contains("begin{")) cues++;
-            if (sl.Contains("process{")) cues++;
-            if (sl.Contains("end{")) cues++;
-            if (sl.Contains("[parameter(")) cues++;
-            if (sl.Contains("[validate")) cues++;
-            if (s.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
-            if (s.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
-            if (s.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
-            if (s.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || s.IndexOf("Set-", System.StringComparison.Ordinal) >= 0) cues++;
-            return cues >= 2;
+            int strong = 0;
+
+            if (sl.Contains("[cmdletbinding]")) { cues++; strong++; }
+            if (sl.Contains("#requires")) { cues++; strong++; }
+            if (sl.Contains("param(")) { cues++; strong++; }
+            if (sl.Contains("begin{")) { cues++; strong++; }
+            if (sl.Contains("process{")) { cues++; strong++; }
+            if (sl.Contains("end{")) { cues++; strong++; }
+            if (sl.Contains("[parameter(")) { cues++; strong++; }
+            if (sl.Contains("[validate")) { cues++; strong++; }
+
+            // Type accelerators / casts used in PowerShell: [int]$x, [string] $name, etc.
+            if (sl.Contains("]$") || sl.Contains("] $")) { cues++; strong++; }
+            // Common PowerShell literals / constructs
+            if (sl.Contains("$true") || sl.Contains("$false") || sl.Contains("$null")) { cues++; strong++; }
+            if (sl.Contains("@{") || sl.Contains("@(") || sl.Contains("$(") || sl.Contains("${")) { cues++; }
+            if (sl.Contains("[pscustomobject]@{")) { cues++; strong++; }
+
+            // PowerShell operators (avoid matching "-in" inside other words by checking token-ish boundaries)
+            static bool HasOp(string text, string op)
+            {
+                int idx = 0;
+                while ((idx = text.IndexOf(op, idx, System.StringComparison.Ordinal)) >= 0)
+                {
+                    bool leftOk = idx == 0 || char.IsWhiteSpace(text[idx - 1]) || text[idx - 1] == '(' || text[idx - 1] == '{' || text[idx - 1] == ';';
+                    int end = idx + op.Length;
+                    bool rightOk = end >= text.Length || char.IsWhiteSpace(text[end]) || text[end] == ')' || text[end] == '}' || text[end] == ';';
+                    if (leftOk && rightOk) return true;
+                    idx = end;
+                }
+                return false;
+            }
+
+            if (HasOp(sl, "-eq") || HasOp(sl, "-ne") || HasOp(sl, "-like") || HasOp(sl, "-notlike") || HasOp(sl, "-match") ||
+                HasOp(sl, "-contains") || HasOp(sl, "-notcontains") || HasOp(sl, "-in") || HasOp(sl, "-notin") ||
+                HasOp(sl, "-is") || HasOp(sl, "-isnot") || HasOp(sl, "-as"))
+            {
+                cues++; strong++;
+            }
+
+            if (s.IndexOf("Write-Host", System.StringComparison.OrdinalIgnoreCase) >= 0) { cues++; strong++; }
+            if (s.IndexOf("Import-Module", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (s.IndexOf("New-Object", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (s.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+
+            return strong >= 1 || cues >= 2;
         }
 
         // VBScript heuristic
@@ -554,7 +704,9 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         if (headLower.Contains("@echo off") || headLower.Contains("setlocal") || headLower.Contains("endlocal") ||
             headLower.Contains("\ngoto ") || headLower.Contains("\r\ngoto ") || headLower.Contains(" goto ") ||
             headLower.StartsWith("rem ") || headLower.Contains("\nrem ") || headLower.Contains("\r\nrem ") || headLower.Contains(":end")) {
-            result = new ContentTypeDetectionResult { Extension = "bat", MimeType = "text/x-batch", Confidence = "Medium", Reason = "text:bat", ReasonDetails = "bat:echo|setlocal|goto|rem" }; return true;
+            var ext = declaredCmd ? "cmd" : "bat";
+            result = new ContentTypeDetectionResult { Extension = ext, MimeType = "text/x-batch", Confidence = "Medium", Reason = ext == "cmd" ? "text:cmd" : "text:bat", ReasonDetails = "bat:echo|setlocal|goto|rem" };
+            return true;
         }
 
         // Python heuristic (shebang and cues)
@@ -592,8 +744,8 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
 
         // Fallback: treat as plain text if mostly printable. Include BOM charset when known.
-        int printable = 0; int sample = Math.Min(1024, src.Length);
-        for (int i = 0; i < sample; i++) { byte b = src[i]; if (b == 9 || b == 10 || b == 13 || (b >= 32 && b < 127)) printable++; }
+        int printable = 0; int sample = Math.Min(1024, data.Length);
+        for (int i = 0; i < sample; i++) { byte b = data[i]; if (b == 9 || b == 10 || b == 13 || (b >= 32 && b < 127)) printable++; }
         if ((double)printable / sample > 0.95) {
             var mime = "text/plain";
             if (!string.IsNullOrEmpty(bomCharset)) mime += "; charset=" + bomCharset;
@@ -609,6 +761,34 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             while (a <= b && (s[a] == (byte)' ' || s[a] == (byte)'\t' || s[a] == (byte)'\r')) a++;
             while (b >= a && (s[b] == (byte)' ' || s[b] == (byte)'\t' || s[b] == (byte)'\r')) b--;
             return a <= b ? s.Slice(a, b - a + 1) : ReadOnlySpan<byte>.Empty;
+        }
+        static bool LooksIniSectionLine(ReadOnlySpan<byte> line)
+        {
+            // INI/INF sections are typically "[Section Name]" as the full (non-comment) line.
+            // Avoid false positives from PowerShell type accelerators/attributes like "[int]$x" or "[ValidateSet(...)]".
+            if (line.Length < 3) return false;
+            int start = 0;
+            while (start < line.Length && (line[start] == (byte)' ' || line[start] == (byte)'\t')) start++;
+            if (start >= line.Length || line[start] != (byte)'[') return false;
+
+            int closeRel = line.Slice(start + 1).IndexOf((byte)']');
+            if (closeRel < 0) return false;
+            int close = start + 1 + closeRel;
+            if (close <= start + 1) return false;
+
+            // Require the section token to be "simple": allow letters/digits/space/._- but not ()=@{} etc.
+            for (int i = start + 1; i < close; i++)
+            {
+                byte c = line[i];
+                if (c == (byte)'(' || c == (byte)')' || c == (byte)'=' || c == (byte)'@' || c == (byte)'{' || c == (byte)'}') return false;
+                if (!(char.IsLetterOrDigit((char)c) || c == (byte)' ' || c == (byte)'_' || c == (byte)'-' || c == (byte)'.')) return false;
+            }
+
+            // After the closing bracket, allow only whitespace or a comment delimiter.
+            int after = close + 1;
+            while (after < line.Length && (line[after] == (byte)' ' || line[after] == (byte)'\t')) after++;
+            if (after >= line.Length) return true;
+            return line[after] == (byte)';' || line[after] == (byte)'#';
         }
         static bool HasQuotedKeyColon(ReadOnlySpan<byte> s) {
             for (int i = 0; i + 3 < s.Length; i++) {

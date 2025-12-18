@@ -70,6 +70,15 @@ public static partial class FileInspector {
             // .htm <-> .html
             if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
+            // Group Policy templates: .admx/.adml are XML-based
+            if ((a.Equals("admx", StringComparison.OrdinalIgnoreCase) || a.Equals("adml", StringComparison.OrdinalIgnoreCase)) && b.Equals("xml", StringComparison.OrdinalIgnoreCase)) return true;
+            if ((b.Equals("admx", StringComparison.OrdinalIgnoreCase) || b.Equals("adml", StringComparison.OrdinalIgnoreCase)) && a.Equals("xml", StringComparison.OrdinalIgnoreCase)) return true;
+            // INI/TOML are both key/value config formats; treat as equivalent to reduce false mismatches
+            if ((a.Equals("ini", StringComparison.OrdinalIgnoreCase) && b.Equals("toml", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("toml", StringComparison.OrdinalIgnoreCase) && b.Equals("ini", StringComparison.OrdinalIgnoreCase))) return true;
+            // INF is INI-like; accept ini/toml detection
+            if ((a.Equals("inf", StringComparison.OrdinalIgnoreCase) && (b.Equals("ini", StringComparison.OrdinalIgnoreCase) || b.Equals("toml", StringComparison.OrdinalIgnoreCase))) ||
+                (b.Equals("inf", StringComparison.OrdinalIgnoreCase) && (a.Equals("ini", StringComparison.OrdinalIgnoreCase) || a.Equals("toml", StringComparison.OrdinalIgnoreCase)))) return true;
             // Ambiguous config family: treat .config/.conf/.cfg as matching common text-based config formats (xml/json/yaml/ini/etc.)
             if (a.Equals("config", StringComparison.OrdinalIgnoreCase) || a.Equals("conf", StringComparison.OrdinalIgnoreCase) || a.Equals("cfg", StringComparison.OrdinalIgnoreCase))
                 return InConfigFamily(b);
@@ -81,6 +90,10 @@ public static partial class FileInspector {
             // Windows scripts: .bat <-> .cmd
             if ((a.Equals("bat", StringComparison.OrdinalIgnoreCase) && b.Equals("cmd", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("cmd", StringComparison.OrdinalIgnoreCase) && b.Equals("bat", StringComparison.OrdinalIgnoreCase))) return true;
+            // Batch scripts are plain text. If the file is declared as .bat/.cmd but detected as generic text, treat as match.
+            // (Do NOT treat the reverse as match: a .txt detected as .bat/.cmd is a potentially dangerous rename.)
+            if ((a.Equals("bat", StringComparison.OrdinalIgnoreCase) || a.Equals("cmd", StringComparison.OrdinalIgnoreCase)) &&
+                (b.Equals("txt", StringComparison.OrdinalIgnoreCase) || b.Equals("text", StringComparison.OrdinalIgnoreCase) || b.Equals("log", StringComparison.OrdinalIgnoreCase))) return true;
             // MSI promoted from generic OLE2
             if ((a.Equals("msi", StringComparison.OrdinalIgnoreCase) && b.Equals("ole2", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
@@ -225,6 +238,7 @@ public static partial class FileInspector {
                 }
             } catch { }
             det = ApplyDeclaredBias(det, extDeclared);
+            TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
         } catch { return null; }
     }
@@ -286,6 +300,7 @@ public static partial class FileInspector {
                     }
                 } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
             det = ApplyDeclaredBias(det, extDeclared);
+            TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
         } catch { return null; }
     }
@@ -308,6 +323,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchEvtx(src, out var evtx)) return Enrich(evtx, src, stream, options);
         if (Signatures.TryMatchEse(src, out var ese)) return Enrich(ese, src, stream, options);
         if (Signatures.TryMatchRegistryHive(src, out var hive)) return Enrich(hive, src, stream, options);
+        if (Signatures.TryMatchRegistryPol(src, out var pol)) return Enrich(pol, src, stream, options);
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
         if (Signatures.TryMatchPkcs12(src, out var p12)) return Enrich(p12, src, stream, options);
@@ -408,6 +424,60 @@ public static partial class FileInspector {
 
     private static string AppendReason(string? reason, string tag)
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
+
+    private static void TryValidateAdmxAdmlXmlWellFormedness(Stream stream, string path, ContentTypeDetectionResult? det, string? declaredExt)
+    {
+        if (det is null) return;
+        if (!Settings.AdmxAdmlXmlWellFormednessValidationEnabled) return;
+
+        var detExt = (det.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        bool wantsAdmxAdml = detExt == "admx" || detExt == "adml" || decl == "admx" || decl == "adml";
+        if (!wantsAdmxAdml) return;
+
+        try
+        {
+            var max = Settings.AdmxAdmlXmlWellFormednessMaxBytes;
+            if (max > 0)
+            {
+                long len = -1;
+                try { if (stream.CanSeek) len = stream.Length; } catch { len = -1; }
+                if (len < 0)
+                {
+                    try { len = new FileInfo(path).Length; } catch { len = -1; }
+                }
+                if (len > 0 && len > max) return;
+            }
+
+            long pos = 0;
+            try { if (stream.CanSeek) pos = stream.Position; } catch { pos = 0; }
+            try
+            {
+                if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
+                var settings = new System.Xml.XmlReaderSettings
+                {
+                    DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    CloseInput = false
+                };
+                using var reader = System.Xml.XmlReader.Create(stream, settings);
+                while (reader.Read()) { }
+            }
+            finally
+            {
+                try { if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); } catch { /* ignore */ }
+            }
+        }
+        catch (System.Xml.XmlException)
+        {
+            det.Confidence = "Low";
+            det.Reason = AppendReason(det.Reason, "xml:malformed");
+        }
+        catch
+        {
+            // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
+        }
+    }
 
     [System.Runtime.InteropServices.DllImport("msi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true, EntryPoint = "MsiGetFileVersionW")]
     private static extern uint MsiGetFileVersionW(string szFilePath, System.Text.StringBuilder? lpVersionBuf, ref int pcchVersionBuf, System.Text.StringBuilder? lpLangBuf, ref int pcchLangBuf);
@@ -785,6 +855,38 @@ public static partial class FileInspector {
         if (det == null) return det;
         if (string.IsNullOrWhiteSpace(declaredExt)) return det;
         var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+
+        // Prefer the declared extension only for ambiguous/generic detections (avoid masking strong magic-byte hits).
+        // This is primarily to reduce false mismatches for "well-known text containers" (cmd/admx/adml/inf/ini) where the
+        // content is still plain text / XML but the extension is more specific and expected in Windows/GPO contexts.
+
+        // Batch: detection heuristics may return "bat" for both .bat and .cmd; preserve the declared type for reporting.
+        if (decl == "cmd" && string.Equals(det.Extension, "bat", StringComparison.OrdinalIgnoreCase))
+        {
+            det.Extension = "cmd";
+            det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+            det.Reason = AppendReason(det.Reason, "bias:decl:cmd");
+            return det;
+        }
+
+        // GPO templates are XML with distinct extensions.
+        if ((decl == "admx" || decl == "adml") && string.Equals(det.Extension, "xml", StringComparison.OrdinalIgnoreCase))
+        {
+            det.Extension = decl;
+            det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+            det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
+            return det;
+        }
+
+        // INF is INI-like; when detected as ini, keep declared.
+        if (decl == "inf" && string.Equals(det.Extension, "ini", StringComparison.OrdinalIgnoreCase))
+        {
+            det.Extension = "inf";
+            det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+            det.Reason = AppendReason(det.Reason, "bias:decl:inf");
+            return det;
+        }
+
         if (!string.IsNullOrEmpty(det.Confidence) && det.Confidence.Equals("Low", StringComparison.OrdinalIgnoreCase))
         {
             // Only bias when detection is generic/ambiguous text.
@@ -793,7 +895,8 @@ public static partial class FileInspector {
                                    detExt.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
                                    detExt.Equals("text", StringComparison.OrdinalIgnoreCase);
             if (detectedGeneric &&
-                (decl == "log" || decl == "txt" || decl == "md" || decl == "markdown" || decl == "ps1" || decl == "psm1" || decl == "psd1"))
+                (decl == "log" || decl == "txt" || decl == "md" || decl == "markdown" || decl == "ps1" || decl == "psm1" || decl == "psd1" ||
+                 decl == "cmd" || decl == "bat" || decl == "ini" || decl == "inf"))
             {
                 if (!decl.Equals(det.Extension, StringComparison.OrdinalIgnoreCase))
                 {
@@ -801,6 +904,14 @@ public static partial class FileInspector {
                     det.MimeType = NormalizeMime(det.Extension, det.MimeType);
                     det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
                 }
+            }
+
+            // TOML vs INI is ambiguous for small files; if declared INI/INF, prefer declared.
+            if ((decl == "ini" || decl == "inf") && detExt.Equals("toml", StringComparison.OrdinalIgnoreCase))
+            {
+                det.Extension = decl;
+                det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+                det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
             }
         }
         return det;

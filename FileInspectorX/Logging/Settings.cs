@@ -75,6 +75,19 @@ public class Settings {
     public static int HeaderReadBytes { get; set; } = 4096;
 
     /// <summary>
+    /// When true, <see cref="FileInspector.Detect(string)"/> performs a best-effort XML well-formedness check for
+    /// Group Policy ADMX/ADML files (declared or detected) using a secure XmlReader (DTD prohibited).
+    /// Default true to reduce false positives and surface malformed GPO templates explicitly.
+    /// </summary>
+    public static bool AdmxAdmlXmlWellFormednessValidationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Maximum file size in bytes to validate when <see cref="AdmxAdmlXmlWellFormednessValidationEnabled"/> is true.
+    /// Defaults to 5 MB.
+    /// </summary>
+    public static long AdmxAdmlXmlWellFormednessMaxBytes { get; set; } = 5_000_000;
+
+    /// <summary>
     /// JS minified heuristic: minimum total characters to consider the heuristic.
     /// </summary>
     public static int JsMinifiedMinLength { get; set; } = 1024;
