@@ -99,4 +99,32 @@ public class GroupPolicyDetectionsTests
         }
         finally { if (File.Exists(p)) File.Delete(p); }
     }
+
+    [Fact]
+    public void Ini_With_Leading_Comments_Detected_From_Txt()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "# Comment line\n; Another comment\n\n[General]\nsetting=value\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ini", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_TypeAccelerators_Not_Misclassified_As_Ini()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "[int]$age = 25\nif ($age -eq 25) { $x = 1 }\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.NotEqual("ini", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
 }
