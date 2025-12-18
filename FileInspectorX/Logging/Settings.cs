@@ -297,6 +297,12 @@ public class Settings {
     public static EtlValidationMode EtlValidation { get; set; } = EtlValidationMode.MagicOnly;
     /// <summary>Timeout in milliseconds for the tracerpt probe. Default 4000.</summary>
     public static int EtlProbeTimeoutMs { get; set; } = 4000;
+    /// <summary>
+    /// When &gt; 0, ETL analysis is short-circuited for files at or above this size (bytes),
+    /// returning a lightweight detection-only result to avoid heavy processing on very large traces.
+    /// Default 500 MB. Set to 0 to disable the size-based shortcut.
+    /// </summary>
+    public static long EtlLargeFileQuickScanBytes { get; set; } = 500_000_000;
 }
 
 /// <summary>

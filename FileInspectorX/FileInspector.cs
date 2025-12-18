@@ -220,27 +220,7 @@ public static partial class FileInspector {
     /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path) {
-        try {
-            if (Signatures.TryMatchUdf(path, out var udf)) return udf;
-            if (Signatures.TryMatchIso(path, out var iso)) return iso;
-            if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
-            using var fs = File.OpenRead(path);
-            // Try MSG (.msg) path-based detection (OLE with msg markers)
-            if (Signatures.TryMatchMsg(path, out var msg)) return msg;
-            var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            var det = Detect(fs, null, extDeclared);
-            // Refine PE family when generic 'exe' detected
-            try {
-                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
-                    const ushort IMAGE_FILE_DLL = 0x2000;
-                    if ((pe.Characteristics & IMAGE_FILE_DLL) != 0) { det.Extension = "dll"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
-                    else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
-                }
-            } catch { }
-            det = ApplyDeclaredBias(det, extDeclared);
-            TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
-            return det;
-        } catch { return null; }
+        return Detect(path, null);
     }
 
     /// <summary>
@@ -278,7 +258,12 @@ public static partial class FileInspector {
                     }
                     else
                     {
-                        var detEtl = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:magic" };
+                        var detEtl = det ?? new ContentTypeDetectionResult();
+                        detEtl.Extension = "etl";
+                        detEtl.MimeType = mime;
+                        detEtl.Confidence = "Low";
+                        detEtl.Reason = "etl:magic";
+
                         var mode = Settings.EtlValidation;
                         if (mode == Settings.EtlValidationMode.MagicOnly)
                         {
@@ -583,38 +568,45 @@ public static partial class FileInspector {
             try
             {
                 var extQuick = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-                    if (extQuick == "etl" && !options.DetectOnly && TryMatchEtlMagic(path))
+                if (extQuick == "etl" && !options.DetectOnly)
                 {
-                    Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
-                        string reason = "etl:magic";
-                    string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                    string confidence = "Low";
+                    long len = -1;
+                    try { len = new FileInfo(path).Length; } catch { len = -1; }
+                    var threshold = Settings.EtlLargeFileQuickScanBytes;
                     var mode = Settings.EtlValidation;
+                    bool allowQuick = mode != Settings.EtlValidationMode.Off && threshold > 0 && len >= threshold;
+                    if (allowQuick && TryMatchEtlMagic(path))
+                    {
+                        Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
+                        string reason = "etl:magic";
+                        string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                        string confidence = "Low";
                         if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                         {
                             reason = "etl:magic";
                         }
-                    else
-                    {
-                        // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
-                        try
+                        else
                         {
-                            var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
-                            if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "Medium"; }
-                            else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
-                            else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                            // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
+                            try
+                            {
+                                var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                                if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "Medium"; }
+                                else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
+                                else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                            }
+                            catch (Exception ex)
+                            {
+                                Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                                reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                            }
                         }
-                        catch (Exception ex)
-                        {
-                            Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
-                            reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
-                        }
-                    }
 
-                    var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
-                    var quick = new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
-                    Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
-                    return quick;
+                        var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
+                        var quick = new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+                        Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
+                        return quick;
+                    }
                 }
             }
             catch { /* non-fatal */ }
