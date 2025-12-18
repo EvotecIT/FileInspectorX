@@ -85,8 +85,11 @@ public static class MimeMaps {
         ["tsv"] = "text/tab-separated-values",
         ["txt"] = "text/plain",
         ["log"] = "text/plain",
-        ["ini"] = "text/plain"
-        ,
+        ["ini"] = "text/plain",
+        ["inf"] = "text/plain",
+        ["admx"] = "application/xml",
+        ["adml"] = "application/xml",
+        ["pol"] = "application/x-group-policy-registry-pol",
         ["etl"] = "application/octet-stream"
     };
 

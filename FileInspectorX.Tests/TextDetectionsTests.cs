@@ -394,6 +394,20 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void PowerShell_TypeAccelerators_Not_Ini()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "$folder = \"D:\\\\TierBridge\\\\Data\"\n$acl = Get-Acl $folder -Audit\n$rule = New-Object System.Security.AccessControl.FileSystemAuditRule(\"Everyone\", [System.Security.AccessControl.FileSystemRights]::CreateFiles -bor [System.Security.AccessControl.FileSystemRights]::WriteData, [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AuditFlags]::Success)\n$acl.AddAuditRule($rule)\nSet-Acl $folder $acl\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ps1", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void PowerShell_Module_Psm1_Detected()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".psm1");

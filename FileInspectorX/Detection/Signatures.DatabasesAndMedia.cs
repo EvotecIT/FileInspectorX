@@ -20,6 +20,32 @@ internal static partial class Signatures {
     }
 
     /// <summary>
+    /// Recognizes Group Policy Registry.pol files by header ("PReg" + version).
+    /// </summary>
+    internal static bool TryMatchRegistryPol(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        // Registry.pol begins with ASCII "PReg" followed by a 32-bit LE version (typically 1)
+        if (src.Length >= 8 &&
+            src[0] == (byte)'P' && src[1] == (byte)'R' && src[2] == (byte)'e' && src[3] == (byte)'g')
+        {
+            // Version is little-endian DWORD at offset 4
+            uint version = (uint)(src[4] | (src[5] << 8) | (src[6] << 16) | (src[7] << 24));
+            var conf = version == 1 ? "High" : "Medium";
+            result = new ContentTypeDetectionResult
+            {
+                Extension = "pol",
+                MimeType = "application/x-group-policy-registry-pol",
+                Confidence = conf,
+                Reason = version == 1 ? "gpo:registry-pol" : "gpo:registry-pol-variant",
+                ReasonDetails = $"pol:version={version}"
+            };
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Recognizes Microsoft Extensible Storage Engine (ESE/JET Blue) databases (e.g., .edb, .dit).
     /// </summary>
     internal static bool TryMatchEse(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
