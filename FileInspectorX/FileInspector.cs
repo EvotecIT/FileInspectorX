@@ -262,26 +262,45 @@ public static partial class FileInspector {
                     else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
                 }
             } catch { }
-            // Special-case ETL: on Windows, when the declared extension is .etl and feature enabled,
-            // try a fast tracerpt-based validation to avoid trusting the extension blindly.
-                try
+            // Special-case ETL: when the declared extension is .etl and feature enabled,
+            // validate using magic (default) and optionally tracerpt/native per mode.
+            try
+            {
+                var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+                if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
                 {
-                    var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-                    if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
+                    Breadcrumbs.Write("ETL_VALIDATE_BEGIN", path: path);
+                    var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                    bool magicOk = TryMatchEtlMagic(path);
+                    if (!magicOk)
                     {
-                        Breadcrumbs.Write("ETL_VALIDATE_BEGIN", path: path);
-                        // Native probe first
-                        bool? okNative = null;
-                        try { okNative = EtlNative.TryOpen(path); }
-                        catch (Exception ex) { Breadcrumbs.Write("ETL_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
-                        if (okNative == true)
+                        Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-mismatch", path: path);
+                    }
+                    else
+                    {
+                        var detEtl = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:magic" };
+                        var mode = Settings.EtlValidation;
+                        if (mode == Settings.EtlValidationMode.MagicOnly)
                         {
-                            Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
-                            return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream", Confidence = "Medium", Reason = "etw:ok" };
+                            Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-ok", path: path);
+                            return detEtl;
                         }
-                        // Optional tracerpt fallback when mode explicitly allows it
-                        bool allowFallback = Settings.EtlValidation == Settings.EtlValidationMode.NativeThenTracerpt;
-                        if (allowFallback)
+
+                        bool? okNative = null;
+                        if (mode == Settings.EtlValidationMode.NativeThenTracerpt)
+                        {
+                            try { okNative = EtlNative.TryOpen(path); }
+                            catch (Exception ex) { Breadcrumbs.Write("ETL_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                            if (okNative == true)
+                            {
+                                Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
+                                detEtl.Confidence = "Medium";
+                                detEtl.Reason = "etw:ok";
+                                return detEtl;
+                            }
+                        }
+
+                        if (mode == Settings.EtlValidationMode.TracerptOnly || mode == Settings.EtlValidationMode.NativeThenTracerpt)
                         {
                             bool? okTr = null;
                             try { okTr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs); }
@@ -289,16 +308,19 @@ public static partial class FileInspector {
                             if (okTr == true)
                             {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
-                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mm2) ? mm2 : "application/octet-stream", Confidence = "Medium", Reason = "tracerpt:ok" };
-                }
-            }
-                        if (okNative == false || allowFallback)
-                        {
-                            // Explicitly mark as mismatch later by returning the current detection (if any) or null; let callers compare
-                            Breadcrumbs.Write("ETL_VALIDATE_END", message: okNative == false ? "native-fail" : "no-success", path: path);
+                                detEtl.Confidence = "Medium";
+                                detEtl.Reason = "tracerpt:ok";
+                                return detEtl;
+                            }
+                            if (okTr == false) detEtl.Reason = AppendReason(detEtl.Reason, "tracerpt-fail");
+                            else if (okTr == null) detEtl.Reason = AppendReason(detEtl.Reason, "tracerpt-n/a");
                         }
+
+                        Breadcrumbs.Write("ETL_VALIDATE_END", message: okNative == false ? "native-fail" : "no-success", path: path);
+                        return detEtl;
                     }
-                } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                }
+            } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
             det = ApplyDeclaredBias(det, extDeclared);
             TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
@@ -425,6 +447,15 @@ public static partial class FileInspector {
     private static string AppendReason(string? reason, string tag)
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
+    private static bool TryMatchEtlMagic(string path) {
+        try {
+            using var fs = File.OpenRead(path);
+            Span<byte> buf = stackalloc byte[4];
+            int n = fs.Read(buf);
+            return n == 4 && buf[0] == 0x45 && buf[1] == 0x6C && buf[2] == 0x66 && buf[3] == 0x46; // "ElfF"
+        } catch { return false; }
+    }
+
     private static void TryValidateAdmxAdmlXmlWellFormedness(Stream stream, string path, ContentTypeDetectionResult? det, string? declaredExt)
     {
         if (det is null) return;
@@ -468,11 +499,12 @@ public static partial class FileInspector {
                 try { if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); } catch { /* ignore */ }
             }
         }
-        catch (System.Xml.XmlException)
-        {
-            det.Confidence = "Low";
-            det.Reason = AppendReason(det.Reason, "xml:malformed");
-        }
+            catch (System.Xml.XmlException ex)
+            {
+                Breadcrumbs.Write("XML_MALFORMED", message: ex.Message, path: path);
+                det.Confidence = "Low";
+                det.Reason = AppendReason(det.Reason, "xml:malformed");
+            }
         catch
         {
             // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
@@ -551,17 +583,17 @@ public static partial class FileInspector {
             try
             {
                 var extQuick = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-                if (extQuick == "etl" && !options.DetectOnly)
+                    if (extQuick == "etl" && !options.DetectOnly && TryMatchEtlMagic(path))
                 {
                     Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
-                    string reason = "etl-ext-only";
+                        string reason = "etl:magic";
                     string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
                     string confidence = "Low";
                     var mode = Settings.EtlValidation;
-                    if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
-                    {
-                        reason = "etl-magic-only";
-                    }
+                        if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
+                        {
+                            reason = "etl:magic";
+                        }
                     else
                     {
                         // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
@@ -713,13 +745,25 @@ public static partial class FileInspector {
     /// </summary>
     public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null) {
         options ??= new DetectionOptions();
+        if (Signatures.TryMatchTar(data, out var tar)) return Enrich(tar, data, null, options);
         if (Signatures.TryMatchRiff(data, out var riff)) return Enrich(riff, data, null, options);
         if (Signatures.TryMatchEvtx(data, out var evtx2)) return Enrich(evtx2, data, null, options);
         if (Signatures.TryMatchEse(data, out var ese2)) return Enrich(ese2, data, null, options);
         if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Enrich(hive2, data, null, options);
+        if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Enrich(pol2, data, null, options);
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Enrich(ftyp, data, null, options);
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Enrich(sqlite, data, null, options);
+        if (Signatures.TryMatchPkcs12(data, out var p12)) return Enrich(p12, data, null, options);
+        if (Signatures.TryMatchDerCertificate(data, out var der)) return Enrich(der, data, null, options);
+        if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Enrich(pgpbin, data, null, options);
+        if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Enrich(kdbx, data, null, options);
+        if (Signatures.TryMatch7z(data, out var _7z)) return Enrich(_7z, data, null, options);
+        if (Signatures.TryMatchRar(data, out var rar)) return Enrich(rar, data, null, options);
         if (Signatures.TryMatchElf(data, out var elf)) return Enrich(elf, data, null, options);
+        if (Signatures.TryMatchMachO(data, out var macho)) return Enrich(macho, data, null, options);
+        if (Signatures.TryMatchCab(data, out var cab)) return Enrich(cab, data, null, options);
+        if (Signatures.TryMatchGlb(data, out var glb)) return Enrich(glb, data, null, options);
+        if (Signatures.TryMatchTiff(data, out var tiff)) return Enrich(tiff, data, null, options);
         foreach (var sig in Signatures.All()) if (Signatures.Match(data, sig)) {
                 var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                 var basic = new ContentTypeDetectionResult {

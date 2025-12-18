@@ -4,7 +4,7 @@ namespace FileInspectorX;
 /// Text and markup format detection (JSON, XML/HTML, YAML, EML, CSV/TSV/INI/LOG) and Outlook MSG hints.
 /// </summary>
 internal static partial class Signatures {
-    private const int BINARY_SCAN_LIMIT = 1024;
+    private const int BINARY_SCAN_LIMIT = 2048;
     private const int HEADER_BYTES = 2048;
     // see FileInspectorX.Settings for configurable thresholds
 
@@ -35,12 +35,12 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                 //
                 // For ASCII-heavy UTF-16, bytes roughly halve after transcoding to UTF-8 (2 bytes per char -> 1 byte).
                 // So, read 2x HEADER_BYTES of UTF-16 to yield ~HEADER_BYTES bytes of UTF-8 for the heuristics below.
+                // UTF-16 uses 2 bytes per code unit, so 2x is a safe budget for ASCII-heavy text.
                 const int UTF16_DECODE_BUDGET_BYTES = HEADER_BYTES * 2; // 4KB with HEADER_BYTES=2048
                 int remaining = src.Length - bomSkip;
                 int maxUtf16Bytes = Math.Min(remaining, UTF16_DECODE_BUDGET_BYTES);
-                if (maxUtf16Bytes <= 0) return false;
+                if (maxUtf16Bytes <= 1) return false;
                 if ((maxUtf16Bytes & 1) == 1) maxUtf16Bytes--; // UTF-16 code units are 2 bytes
-                if (maxUtf16Bytes <= 0) return false;
 
                 // Avoid allocating the UTF-16 input array; rent a buffer and convert only the initial segment.
                 var rented = ArrayPool<byte>.Shared.Rent(maxUtf16Bytes);
@@ -62,8 +62,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
 
         // Binary heuristic: NUL in head implies not text (quick bail-out)
-        for (int i = 0; i < data.Length && i < BINARY_SCAN_LIMIT; i++) if (data[i] == 0x00) return false;
-        int nulScan = Math.Min(2048, data.Length);
+        int nulScan = Math.Min(BINARY_SCAN_LIMIT, data.Length);
         for (int i = 0; i < nulScan; i++) { if (data[i] == 0x00) return false; }
 
         var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
@@ -764,6 +763,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
         static bool LooksIniSectionLine(ReadOnlySpan<byte> line)
         {
+            const string DisallowedIniSectionChars = "()=@{}";
             // INI/INF sections are typically "[Section Name]" as the full (non-comment) line.
             // Avoid false positives from PowerShell type accelerators/attributes like "[int]$x" or "[ValidateSet(...)]".
             if (line.Length < 3) return false;
@@ -777,12 +777,12 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (close <= start + 1) return false;
 
             // Require the section token to be "simple": allow letters/digits/space/._- but not ()=@{} etc.
-            for (int i = start + 1; i < close; i++)
-            {
-                byte c = line[i];
-                if (c == (byte)'(' || c == (byte)')' || c == (byte)'=' || c == (byte)'@' || c == (byte)'{' || c == (byte)'}') return false;
-                if (!(char.IsLetterOrDigit((char)c) || c == (byte)' ' || c == (byte)'_' || c == (byte)'-' || c == (byte)'.')) return false;
-            }
+                for (int i = start + 1; i < close; i++)
+                {
+                    byte c = line[i];
+                    if (DisallowedIniSectionChars.IndexOf((char)c) >= 0) return false;
+                    if (!(char.IsLetterOrDigit((char)c) || c == (byte)' ' || c == (byte)'_' || c == (byte)'-' || c == (byte)'.')) return false;
+                }
 
             // After the closing bracket, allow only whitespace or a comment delimiter.
             int after = close + 1;
@@ -834,18 +834,24 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         static bool HasVerbNounCmdlet(string s)
         {
-            // quick token scan to avoid regex
-            var separators = new[] { ' ', '\t', '\r', '\n', ';', '(', '{' };
-            foreach (var part in s.Split(separators, StringSplitOptions.RemoveEmptyEntries))
-            {
-                int dash = part.IndexOf('-');
-                if (dash <= 1 || dash >= part.Length - 1) continue;
-                char a = part[0];
-                if (!char.IsUpper(a)) continue;
-                if (!char.IsLetter(part[dash + 1])) continue;
-                return true;
+            // quick token scan to avoid regex and allocations
+            int i = 0;
+            while (i < s.Length) {
+                while (i < s.Length && IsSep(s[i])) i++;
+                int start = i;
+                while (i < s.Length && !IsSep(s[i])) i++;
+                int len = i - start;
+                if (len > 2) {
+                    int dash = s.IndexOf('-', start, len);
+                    if (dash > start && dash < start + len - 1) {
+                        char a = s[start];
+                        if (char.IsUpper(a) && char.IsLetter(s[dash + 1])) return true;
+                    }
+                }
             }
             return false;
+
+            static bool IsSep(char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';' || c == '(' || c == '{';
         }
     }
 
