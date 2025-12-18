@@ -21,28 +21,32 @@ internal static partial class Signatures {
 
     /// <summary>
     /// Recognizes Group Policy Registry.pol files by header ("PReg" + version).
+    /// Format: 4-byte ASCII signature "PReg" followed by a little-endian DWORD version (commonly 1).
     /// </summary>
     internal static bool TryMatchRegistryPol(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        // Registry.pol begins with ASCII "PReg" followed by a 32-bit LE version (typically 1)
-        if (src.Length >= 8 &&
-            src[0] == (byte)'P' && src[1] == (byte)'R' && src[2] == (byte)'e' && src[3] == (byte)'g')
+        const int POL_SIGNATURE_LEN = 4;
+        const int POL_VERSION_OFFSET = 4;
+        const uint POL_VERSION_SUPPORTED = 1;
+
+        // Registry.pol begins with ASCII "PReg" followed by a 32-bit LE version.
+        if (src.Length < POL_VERSION_OFFSET + sizeof(uint)) return false;
+        if (!src.Slice(0, POL_SIGNATURE_LEN).SequenceEqual("PReg"u8)) return false;
+
+        // Version is little-endian DWORD at offset 4
+        uint version = (uint)(src[POL_VERSION_OFFSET] | (src[POL_VERSION_OFFSET + 1] << 8) | (src[POL_VERSION_OFFSET + 2] << 16) | (src[POL_VERSION_OFFSET + 3] << 24));
+        if (version != POL_VERSION_SUPPORTED) return false;
+
+        result = new ContentTypeDetectionResult
         {
-            // Version is little-endian DWORD at offset 4
-            uint version = (uint)(src[4] | (src[5] << 8) | (src[6] << 16) | (src[7] << 24));
-            var conf = version == 1 ? "High" : "Medium";
-            result = new ContentTypeDetectionResult
-            {
-                Extension = "pol",
-                MimeType = "application/x-group-policy-registry-pol",
-                Confidence = conf,
-                Reason = version == 1 ? "gpo:registry-pol" : "gpo:registry-pol-variant",
-                ReasonDetails = $"pol:version={version}"
-            };
-            return true;
-        }
-        return false;
+            Extension = "pol",
+            MimeType = "application/x-group-policy-registry-pol",
+            Confidence = "High",
+            Reason = "gpo:registry-pol",
+            ReasonDetails = $"pol:version={version}"
+        };
+        return true;
     }
 
     /// <summary>

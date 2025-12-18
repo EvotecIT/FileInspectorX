@@ -32,14 +32,27 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                 var enc = bomCharset == "utf-16le" ? System.Text.Encoding.Unicode : System.Text.Encoding.BigEndianUnicode;
                 // Transcode only a small prefix (detection is HEADER_BYTES bounded) to avoid large temporary allocations
                 // if callers provide a large buffer.
+                //
+                // For ASCII-heavy UTF-16, bytes roughly halve after transcoding to UTF-8 (2 bytes per char -> 1 byte).
+                // So, read 2x HEADER_BYTES of UTF-16 to yield ~HEADER_BYTES bytes of UTF-8 for the heuristics below.
+                const int UTF16_DECODE_BUDGET_BYTES = HEADER_BYTES * 2; // 4KB with HEADER_BYTES=2048
                 int remaining = src.Length - bomSkip;
-                int maxUtf16Bytes = Math.Min(remaining, HEADER_BYTES * 4); // 8KB UTF-16 => ~4KB UTF-8 (ASCII-heavy)
+                int maxUtf16Bytes = Math.Min(remaining, UTF16_DECODE_BUDGET_BYTES);
                 if (maxUtf16Bytes <= 0) return false;
                 if ((maxUtf16Bytes & 1) == 1) maxUtf16Bytes--; // UTF-16 code units are 2 bytes
                 if (maxUtf16Bytes <= 0) return false;
-                var utf16 = src.Slice(bomSkip, maxUtf16Bytes).ToArray();
-                var transcoded = System.Text.Encoding.Convert(enc, System.Text.Encoding.UTF8, utf16);
-                data = transcoded;
+
+                // Avoid allocating the UTF-16 input array; rent a buffer and convert only the initial segment.
+                var rented = ArrayPool<byte>.Shared.Rent(maxUtf16Bytes);
+                try
+                {
+                    src.Slice(bomSkip, maxUtf16Bytes).CopyTo(rented);
+                    data = System.Text.Encoding.Convert(enc, System.Text.Encoding.UTF8, rented, 0, maxUtf16Bytes);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+                }
                 bomSkip = 0;
             }
             catch
@@ -281,7 +294,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             {
                 int keys = 0, tables = 0, dotted = 0;
                 bool hasArrayTables = false;
-                bool hasSemicolonComments = false; // strong INI/INF signal when not declared TOML
+                bool hasIniStyleComments = false; // strong INI/INF signal when not declared TOML
                 int scanned = 0; int startLine2 = 0;
                 for (int i = 0; i < head.Length && scanned < 20; i++)
                 {
@@ -290,7 +303,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                         var raw = head.Slice(startLine2, i - startLine2);
                         var line = TrimBytes(raw);
                         if (line.Length > 0 && line[0] == (byte)'#') { scanned++; startLine2 = i + 1; continue; } // TOML comment
-                        if (line.Length > 0 && line[0] == (byte)';') { hasSemicolonComments = true; scanned++; startLine2 = i + 1; continue; } // INI/INF-style comment
+                        if (line.Length > 0 && line[0] == (byte)';') { hasIniStyleComments = true; scanned++; startLine2 = i + 1; continue; } // INI/INF-style comment
                         if (line.Length >= 3 && line[0] == (byte)'[')
                         {
                             // [table] or [[array.of.tables]]
@@ -312,7 +325,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                     }
                 }
                 bool tomlStrong = hasArrayTables || dotted >= 1;
-                bool allowUndeclared = tomlStrong && !hasSemicolonComments;
+                bool allowUndeclared = tomlStrong && !hasIniStyleComments;
                 if ((declaredToml || allowUndeclared) && (tables >= 1 && keys >= 1))
                 {
                     result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" };

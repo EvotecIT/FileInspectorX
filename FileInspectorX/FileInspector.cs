@@ -238,6 +238,7 @@ public static partial class FileInspector {
                 }
             } catch { }
             det = ApplyDeclaredBias(det, extDeclared);
+            TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
         } catch { return null; }
     }
@@ -299,6 +300,7 @@ public static partial class FileInspector {
                     }
                 } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
             det = ApplyDeclaredBias(det, extDeclared);
+            TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
         } catch { return null; }
     }
@@ -422,6 +424,60 @@ public static partial class FileInspector {
 
     private static string AppendReason(string? reason, string tag)
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
+
+    private static void TryValidateAdmxAdmlXmlWellFormedness(Stream stream, string path, ContentTypeDetectionResult? det, string? declaredExt)
+    {
+        if (det is null) return;
+        if (!Settings.AdmxAdmlXmlWellFormednessValidationEnabled) return;
+
+        var detExt = (det.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        bool wantsAdmxAdml = detExt == "admx" || detExt == "adml" || decl == "admx" || decl == "adml";
+        if (!wantsAdmxAdml) return;
+
+        try
+        {
+            var max = Settings.AdmxAdmlXmlWellFormednessMaxBytes;
+            if (max > 0)
+            {
+                long len = -1;
+                try { if (stream.CanSeek) len = stream.Length; } catch { len = -1; }
+                if (len < 0)
+                {
+                    try { len = new FileInfo(path).Length; } catch { len = -1; }
+                }
+                if (len > 0 && len > max) return;
+            }
+
+            long pos = 0;
+            try { if (stream.CanSeek) pos = stream.Position; } catch { pos = 0; }
+            try
+            {
+                if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
+                var settings = new System.Xml.XmlReaderSettings
+                {
+                    DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    CloseInput = false
+                };
+                using var reader = System.Xml.XmlReader.Create(stream, settings);
+                while (reader.Read()) { }
+            }
+            finally
+            {
+                try { if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); } catch { /* ignore */ }
+            }
+        }
+        catch (System.Xml.XmlException)
+        {
+            det.Confidence = "Low";
+            det.Reason = AppendReason(det.Reason, "xml:malformed");
+        }
+        catch
+        {
+            // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
+        }
+    }
 
     [System.Runtime.InteropServices.DllImport("msi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true, EntryPoint = "MsiGetFileVersionW")]
     private static extern uint MsiGetFileVersionW(string szFilePath, System.Text.StringBuilder? lpVersionBuf, ref int pcchVersionBuf, System.Text.StringBuilder? lpLangBuf, ref int pcchLangBuf);
