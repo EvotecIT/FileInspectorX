@@ -209,7 +209,6 @@ internal static class SecurityHeuristics
         {
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
-            var lower = text.ToLowerInvariant();
             // Common cmdlets/verbs of interest
             string[] probes = new [] {
                 "start-process", "invoke-webrequest", "invoke-restmethod", "new-psdrive",
@@ -218,7 +217,7 @@ internal static class SecurityHeuristics
             var ordered = new List<string>(probes.Length);
             foreach (var p in probes)
             {
-                if (lower.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) ordered.Add(p);
+                if (text.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) ordered.Add(p);
             }
             return ordered;
         }
@@ -248,41 +247,43 @@ internal static class SecurityHeuristics
         try {
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return findings;
+            // Lowercasing is bounded by ReadTextHead (max 512 KB) to limit allocations.
             var lower = text.ToLowerInvariant();
+            var logCues = HasLogCues(text);
 
             // IIS W3C logs
-            if (lower.Contains("#fields:") && (lower.Contains("#software: microsoft internet information services") || lower.Contains("#version:")))
+            if (LooksLikeIisW3cLog(lower))
                 findings.Add("log:iis-w3c");
 
             // Windows DNS server log (text)
-            if (lower.Contains("dns server log") || lower.Contains("dns server log file"))
+            if (LogHeuristics.LooksLikeDnsLog(lower))
                 findings.Add("log:dns");
             // Windows Firewall log (pfirewall.log)
-            if ((lower.Contains("microsoft windows firewall") || lower.Contains("windows firewall")) && lower.Contains("fields:"))
+            if (LogHeuristics.LooksLikeFirewallLog(lower))
                 findings.Add("log:firewall");
             // DHCP audit log
-            if (lower.Contains("#software: microsoft dhcp server") && lower.Contains("#fields:"))
+            if (LogHeuristics.LooksLikeDhcpLog(lower))
                 findings.Add("log:dhcp");
             // Exchange message tracking
-            if (lower.Contains("message tracking log file") || lower.Contains("#software: microsoft exchange"))
+            if (LogHeuristics.LooksLikeExchangeMessageTrackingLog(lower))
                 findings.Add("exchange:msgtrack");
             // Windows Defender textual logs
-            if (lower.Contains("windows defender") || lower.Contains("microsoft defender") || lower.Contains("mpcmdrun"))
+            if (LogHeuristics.LooksLikeDefenderTextLog(lower, logCues))
                 findings.Add("defender:txt");
             // SQL Server ERRORLOG
-            if ((lower.Contains("sql server") || lower.Contains("errorlog")) && lower.Contains("spid"))
+            if (LogHeuristics.LooksLikeSqlErrorLog(lower, logCues))
                 findings.Add("sql:errorlog");
             // NPS / RADIUS logs
-            if ((lower.Contains("#software: microsoft internet authentication service") || lower.Contains("#software: microsoft network policy server")) && lower.Contains("#fields:"))
+            if (LogHeuristics.LooksLikeNpsRadiusLog(lower))
                 findings.Add("nps:radius");
             // SQL Server Agent logs
-            if (lower.Contains("sqlserveragent") || lower.Contains("sql server agent"))
+            if (LogHeuristics.LooksLikeSqlAgentLog(lower, logCues))
                 findings.Add("sql:agent");
             // Netlogon log
-            if (lower.Contains("netlogon") || lower.Contains("netrlogon") || lower.Contains("secure channel"))
+            if (LogHeuristics.LooksLikeNetlogonLog(lower, logCues))
                 findings.Add("log:netlogon");
             // Event Viewer text export
-            if ((lower.Contains("log name:") && lower.Contains("event id:")) || (lower.Contains("source:") && lower.Contains("task category:") && lower.Contains("level:")))
+            if (LogHeuristics.LooksLikeEventViewerTextExport(lower))
                 findings.Add("event:txt");
 
             // Windows Event XML
@@ -328,6 +329,58 @@ internal static class SecurityHeuristics
         return findings;
     }
 
+    private static bool LooksLikeIisW3cLog(string lower)
+    {
+        if (!lower.Contains("#fields:")) return false;
+        if (!lower.Contains("#software: microsoft internet information services")) return false;
+        return lower.Contains("#version:") || lower.Contains("#date:");
+    }
+
+    private static bool HasLogCues(string text)
+    {
+        const int MaxBytesToScan = 4096; // cap to first ~4 KB of text
+        var span = text.AsSpan(0, Math.Min(text.Length, MaxBytesToScan));
+        int lines = 0;
+        int i = 0;
+        while (i < span.Length && lines < 4)
+        {
+            int start = i;
+            int nl = span.Slice(i).IndexOf('\n');
+            int end = nl >= 0 ? i + nl : span.Length;
+            var line = span.Slice(start, Math.Max(0, end - start));
+            if (LooksLikeTimestamp(line) || StartsWithLevelToken(line)) return true;
+            i = end + 1;
+            lines++;
+        }
+        return false;
+    }
+
+    private static bool LooksLikeTimestamp(ReadOnlySpan<char> line)
+    {
+        if (line.Length < 10) return false;
+        bool y = char.IsDigit(line[0]) && char.IsDigit(line[1]) && char.IsDigit(line[2]) && char.IsDigit(line[3]);
+        bool sep1 = line[4] == '-' || line[4] == '/';
+        bool m = char.IsDigit(line[5]) && char.IsDigit(line[6]);
+        bool sep2 = line[7] == '-' || line[7] == '/';
+        bool d = char.IsDigit(line[8]) && char.IsDigit(line[9]);
+        return y && sep1 && m && sep2 && d;
+    }
+
+    private static bool StartsWithLevelToken(ReadOnlySpan<char> line)
+    {
+        return StartsWithToken(line, "INFO") || StartsWithToken(line, "WARN") || StartsWithToken(line, "ERROR") || StartsWithToken(line, "DEBUG") || StartsWithToken(line, "TRACE") || StartsWithToken(line, "FATAL") || StartsWithToken(line, "CRITICAL") || StartsWithToken(line, "ALERT") || StartsWithToken(line, "[INFO]") || StartsWithToken(line, "[WARN]") || StartsWithToken(line, "[ERROR]") || StartsWithToken(line, "[DEBUG]") || StartsWithToken(line, "[CRITICAL]") || StartsWithToken(line, "[ALERT]");
+    }
+
+    private static bool StartsWithToken(ReadOnlySpan<char> line, string token)
+    {
+        if (line.Length < token.Length) return false;
+        for (int i = 0; i < token.Length; i++)
+        {
+            if (char.ToUpperInvariant(line[i]) != char.ToUpperInvariant(token[i])) return false;
+        }
+        return true;
+    }
+
     internal static SecretsSummary CountSecrets(string path, int budgetBytes)
     {
         var s = new SecretsSummary();
@@ -335,8 +388,7 @@ internal static class SecurityHeuristics
             if (!Settings.SecretsScanEnabled) return s;
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return s;
-            var lower = text.ToLowerInvariant();
-            if (ContainsAny(lower, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"})) s.PrivateKeyCount++;
+            if (ContainsAnyIgnoreCase(text, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"})) s.PrivateKeyCount++;
             if (LooksLikeJwt(text) || LooksLikeJwtFallback(text)) s.JwtLikeCount++;
             if (LooksLikeKeyPattern(text)) s.KeyPatternCount++;
         } catch { }
@@ -345,6 +397,11 @@ internal static class SecurityHeuristics
 
     private static bool ContainsAny(string hay, IEnumerable<string> needles) {
         foreach (var n in needles) if (hay.IndexOf(n, StringComparison.Ordinal) >= 0) return true;
+        return false;
+    }
+
+    private static bool ContainsAnyIgnoreCase(string hay, IEnumerable<string> needles) {
+        foreach (var n in needles) if (hay.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return false;
     }
 

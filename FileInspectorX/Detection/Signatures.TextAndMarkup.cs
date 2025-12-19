@@ -4,7 +4,7 @@ namespace FileInspectorX;
 /// Text and markup format detection (JSON, XML/HTML, YAML, EML, CSV/TSV/INI/LOG) and Outlook MSG hints.
 /// </summary>
 internal static partial class Signatures {
-    private const int BINARY_SCAN_LIMIT = 1024;
+    private const int BINARY_SCAN_LIMIT = 2048; // 2 KB: doubled from 1024 to reduce UTF-16 false negatives
     private const int HEADER_BYTES = 2048;
     // see FileInspectorX.Settings for configurable thresholds
 
@@ -35,12 +35,12 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                 //
                 // For ASCII-heavy UTF-16, bytes roughly halve after transcoding to UTF-8 (2 bytes per char -> 1 byte).
                 // So, read 2x HEADER_BYTES of UTF-16 to yield ~HEADER_BYTES bytes of UTF-8 for the heuristics below.
+                // UTF-16 uses 2 bytes per code unit, so 2x is a safe budget for ASCII-heavy text.
                 const int UTF16_DECODE_BUDGET_BYTES = HEADER_BYTES * 2; // 4KB with HEADER_BYTES=2048
                 int remaining = src.Length - bomSkip;
                 int maxUtf16Bytes = Math.Min(remaining, UTF16_DECODE_BUDGET_BYTES);
-                if (maxUtf16Bytes <= 0) return false;
+                if (maxUtf16Bytes <= 1) return false;
                 if ((maxUtf16Bytes & 1) == 1) maxUtf16Bytes--; // UTF-16 code units are 2 bytes
-                if (maxUtf16Bytes <= 0) return false;
 
                 // Avoid allocating the UTF-16 input array; rent a buffer and convert only the initial segment.
                 var rented = ArrayPool<byte>.Shared.Rent(maxUtf16Bytes);
@@ -62,8 +62,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
 
         // Binary heuristic: NUL in head implies not text (quick bail-out)
-        for (int i = 0; i < data.Length && i < BINARY_SCAN_LIMIT; i++) if (data[i] == 0x00) return false;
-        int nulScan = Math.Min(2048, data.Length);
+        int nulScan = Math.Min(BINARY_SCAN_LIMIT, data.Length);
         for (int i = 0; i < nulScan; i++) { if (data[i] == 0x00) return false; }
 
         var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
@@ -365,7 +364,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         if (head.IndexOf("__substg1.0_"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "msg", MimeType = "application/vnd.ms-outlook", Confidence = "Low", Reason = "msg:marker" }; return true; }
 
         // Quick Windows DNS log check very early (before generic log heuristics)
-        if (head.IndexOf("DNS Server Log File"u8) >= 0 || head.IndexOf("DNS Server Log"u8) >= 0)
+        if (LogHeuristics.LooksLikeDnsLog(headLower))
         {
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" };
             return true;
@@ -525,33 +524,28 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         // PowerShell heuristic (uses cached headStr/headLower)
 
-        // Windows well-known text logs: DNS, Firewall, Netlogon, Event Viewer text export
-        if (headLower.Contains("dns server log") || headLower.Contains("dns server log file")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" }; return true; }
-        if ((headLower.Contains("microsoft windows firewall") || headLower.Contains("windows firewall")) && headLower.Contains("fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
-        // Netlogon logs often include repeated "netlogon" and secure channel messages
-        {
-            int netCount = 0; int idx = 0; while ((idx = headLower.IndexOf("netlogon", idx, System.StringComparison.Ordinal)) >= 0) { netCount++; idx += 8; if (netCount > 3) break; }
-            if (netCount >= 2 || headLower.Contains("secure channel") || headLower.Contains("netrlogon")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
-        }
-        if ((headLower.Contains("log name:") && headLower.Contains("event id:")) || (headLower.Contains("source:") && headLower.Contains("task category:") && headLower.Contains("level:"))) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
+        // Windows well-known text logs: Firewall, Netlogon, Event Viewer text export
+        if (LogHeuristics.LooksLikeFirewallLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
+        if (LogHeuristics.LooksLikeNetlogonLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
+        if (LogHeuristics.LooksLikeEventViewerTextExport(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
 
         // Microsoft DHCP Server audit logs (similar to IIS/Firewall headers)
-        if (headLower.Contains("#software: microsoft dhcp server") && headLower.Contains("#fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
+        if (LogHeuristics.LooksLikeDhcpLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
 
         // Microsoft Exchange Message Tracking logs
-        if (headLower.Contains("message tracking log file") || headLower.Contains("#software: microsoft exchange")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
+        if (LogHeuristics.LooksLikeExchangeMessageTrackingLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
 
         // Windows Defender textual logs (MpCmdRun outputs or Event Viewer text exports mentioning Defender)
-        if (headLower.Contains("windows defender") || headLower.Contains("microsoft defender") || headLower.Contains("mpcmdrun")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
+        if (LogHeuristics.LooksLikeDefenderTextLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
 
         // SQL Server ERRORLOG text
-        if ((headLower.Contains("sql server is starting") || headLower.Contains("sql server") || headLower.Contains("errorlog")) && headLower.Contains("spid")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
+        if (LogHeuristics.LooksLikeSqlErrorLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
 
         // NPS / RADIUS (IAS/NPS) text logs
-        if ((headLower.Contains("#software: microsoft internet authentication service") || headLower.Contains("#software: microsoft network policy server")) && headLower.Contains("#fields:")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
+        if (LogHeuristics.LooksLikeNpsRadiusLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
 
         // SQL Server Agent logs (SQLAgent.out / text snippets)
-        if (headLower.Contains("sqlserveragent") || headLower.Contains("sql server agent")) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
+        if (LogHeuristics.LooksLikeSqlAgentLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
 
         // PEM/PGP ASCII-armored blocks (detect before script heuristics)
         {
@@ -764,6 +758,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
         static bool LooksIniSectionLine(ReadOnlySpan<byte> line)
         {
+            const string DisallowedIniSectionChars = "()=@{}";
             // INI/INF sections are typically "[Section Name]" as the full (non-comment) line.
             // Avoid false positives from PowerShell type accelerators/attributes like "[int]$x" or "[ValidateSet(...)]".
             if (line.Length < 3) return false;
@@ -777,12 +772,12 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (close <= start + 1) return false;
 
             // Require the section token to be "simple": allow letters/digits/space/._- but not ()=@{} etc.
-            for (int i = start + 1; i < close; i++)
-            {
-                byte c = line[i];
-                if (c == (byte)'(' || c == (byte)')' || c == (byte)'=' || c == (byte)'@' || c == (byte)'{' || c == (byte)'}') return false;
-                if (!(char.IsLetterOrDigit((char)c) || c == (byte)' ' || c == (byte)'_' || c == (byte)'-' || c == (byte)'.')) return false;
-            }
+                for (int i = start + 1; i < close; i++)
+                {
+                    byte c = line[i];
+                    if (DisallowedIniSectionChars.IndexOf((char)c) >= 0) return false;
+                    if (!(char.IsLetterOrDigit((char)c) || c == (byte)' ' || c == (byte)'_' || c == (byte)'-' || c == (byte)'.')) return false;
+                }
 
             // After the closing bracket, allow only whitespace or a comment delimiter.
             int after = close + 1;
@@ -834,18 +829,24 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         static bool HasVerbNounCmdlet(string s)
         {
-            // quick token scan to avoid regex
-            var separators = new[] { ' ', '\t', '\r', '\n', ';', '(', '{' };
-            foreach (var part in s.Split(separators, StringSplitOptions.RemoveEmptyEntries))
-            {
-                int dash = part.IndexOf('-');
-                if (dash <= 1 || dash >= part.Length - 1) continue;
-                char a = part[0];
-                if (!char.IsUpper(a)) continue;
-                if (!char.IsLetter(part[dash + 1])) continue;
-                return true;
+            // quick token scan to avoid regex and allocations
+            int i = 0;
+            while (i < s.Length) {
+                while (i < s.Length && IsSep(s[i])) i++;
+                int start = i;
+                while (i < s.Length && !IsSep(s[i])) i++;
+                int len = i - start;
+                if (len > 2) {
+                    int dash = s.IndexOf('-', start, len);
+                    if (dash > start && dash < start + len - 1) {
+                        char a = s[start];
+                        if (char.IsUpper(a) && char.IsLetter(s[dash + 1])) return true;
+                    }
+                }
             }
             return false;
+
+            static bool IsSep(char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';' || c == '(' || c == '{';
         }
     }
 
