@@ -158,6 +158,29 @@ public class TextLogDetectionsTests
         finally { if (File.Exists(p)) File.Delete(p); }
     }
 
+    [Theory]
+    [InlineData("INFO Antivirus\nThreat detected", false)]
+    [InlineData("INFO Antivirus\nThreat detected\nWindows Defender", true)]
+    public void Detect_Defender_Cue_Boundary_ProviderOnly(string content, bool expected)
+    {
+        var p = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(p, content);
+            var r = FI.Detect(p);
+            if (expected)
+            {
+                Assert.NotNull(r);
+                Assert.Equal("text:log-defender", r!.Reason);
+            }
+            else
+            {
+                Assert.True(r == null || r.Reason != "text:log-defender");
+            }
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
     [Fact]
     public void Detect_Defender_Mention_Does_Not_Force_Defender_Log()
     {

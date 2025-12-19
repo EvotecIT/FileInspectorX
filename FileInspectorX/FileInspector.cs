@@ -246,7 +246,7 @@ public static partial class FileInspector {
             var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
             bool declaredEtl = string.Equals(ext, "etl", StringComparison.OrdinalIgnoreCase);
             bool magicOk = false;
-            try { magicOk = TryMatchEtlMagic(path); } catch { magicOk = false; }
+            try { magicOk = TryMatchEtlMagic(fs); } catch { magicOk = false; }
             if (magicOk || declaredEtl)
             {
                 try
@@ -446,13 +446,25 @@ public static partial class FileInspector {
     private static string AppendReason(string? reason, string tag)
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
-    private static readonly byte[] EtlMagicBytes = { 0x45, 0x6C, 0x66, 0x46 }; // "ElfF"
+    private static readonly byte[] EtlMagicBytes = { 0x45, 0x6C, 0x66, 0x46 }; // "ElfF" ASCII
 
     private static bool TryMatchEtlMagic(string path) {
         try {
             using var fs = File.OpenRead(path);
-            var buf = new byte[4];
-            int n = fs.Read(buf, 0, buf.Length);
+            return TryMatchEtlMagic(fs);
+        } catch { return false; }
+    }
+
+    private static bool TryMatchEtlMagic(Stream stream) {
+        try {
+            long pos = 0;
+            if (stream.CanSeek) {
+                pos = stream.Position;
+                stream.Seek(0, SeekOrigin.Begin);
+            }
+            var buf = new byte[EtlMagicBytes.Length];
+            int n = stream.Read(buf, 0, buf.Length);
+            if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
             return n == EtlMagicBytes.Length && buf.AsSpan(0, n).SequenceEqual(EtlMagicBytes);
         } catch { return false; }
     }
@@ -982,3 +994,4 @@ public static partial class FileInspector {
 
     private static char NibbleToHexLower(int v) => (char)(v < 10 ? ('0' + v) : ('a' + (v - 10)));
 }
+

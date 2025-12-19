@@ -18,6 +18,8 @@ internal static class LogHeuristics
         bool hasSecurityIntel = lower.Contains("security intelligence") || lower.Contains("signature version") || lower.Contains("engine version") || lower.Contains("platform version");
         bool eventExport = (lower.Contains("log name:") && lower.Contains("event id:")) ||
                            (lower.Contains("source:") && lower.Contains("task category:") && lower.Contains("level:"));
+        // Heuristic weights: MpCmdRun/provider are high-signal (weight 2). Others are weight 1.
+        // Thresholds tuned to avoid false positives from generic service logs.
         int cues = 0;
         if (hasMpcmd) cues += 2;
         if (hasProvider) cues += 2;
@@ -29,6 +31,7 @@ internal static class LogHeuristics
         if (hasSecurityIntel) cues++;
         if (eventExport && (hasProvider || hasDefenderName)) cues += 2;
 
+        // Require at least one strong marker to avoid "Defender service started" logs.
         bool strongMarker = hasProvider || hasAntivirus || hasAntimalware || hasSecurityIntel || eventExport;
         if (!strongMarker) return false;
         if (!logCues && !eventExport && !hasMpcmd && !hasProvider) return false;
