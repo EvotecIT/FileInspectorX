@@ -137,7 +137,7 @@ public class TextLogDetectionsTests
 
     [Theory]
     [InlineData("mpcmdrun.exe started", false)]
-    [InlineData("MpCmdRun.exe\nWindows Defender\nThreat detected", true)]
+    [InlineData("MpCmdRun.exe\nMicrosoft Defender Antivirus\nThreat detected", true)]
     public void Detect_Defender_Cue_Thresholds(string content, bool expected)
     {
         var p = Path.GetTempFileName();
@@ -165,6 +165,22 @@ public class TextLogDetectionsTests
         try
         {
             var text = "Windows Defender service started\nGeneral info only\n";
+            File.WriteAllText(p, text);
+            var r = FI.Detect(p);
+            Assert.True(r == null || r.Reason != "text:log-defender");
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Detect_Defender_MpCmdRun_Mention_Does_Not_Force_Defender_Log()
+    {
+        var p = Path.GetTempFileName();
+        try
+        {
+            var text = "MpCmdRun.exe located at C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\n" +
+                       "Windows Defender scanning enabled\n" +
+                       "Threats found: 0\n";
             File.WriteAllText(p, text);
             var r = FI.Detect(p);
             Assert.True(r == null || r.Reason != "text:log-defender");

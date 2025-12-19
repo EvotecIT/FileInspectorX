@@ -209,7 +209,6 @@ internal static class SecurityHeuristics
         {
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
-            var lower = text.ToLowerInvariant();
             // Common cmdlets/verbs of interest
             string[] probes = new [] {
                 "start-process", "invoke-webrequest", "invoke-restmethod", "new-psdrive",
@@ -218,7 +217,7 @@ internal static class SecurityHeuristics
             var ordered = new List<string>(probes.Length);
             foreach (var p in probes)
             {
-                if (lower.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) ordered.Add(p);
+                if (text.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) ordered.Add(p);
             }
             return ordered;
         }
@@ -389,8 +388,7 @@ internal static class SecurityHeuristics
             if (!Settings.SecretsScanEnabled) return s;
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return s;
-            var lower = text.ToLowerInvariant();
-            if (ContainsAny(lower, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"})) s.PrivateKeyCount++;
+            if (ContainsAnyIgnoreCase(text, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"})) s.PrivateKeyCount++;
             if (LooksLikeJwt(text) || LooksLikeJwtFallback(text)) s.JwtLikeCount++;
             if (LooksLikeKeyPattern(text)) s.KeyPatternCount++;
         } catch { }
@@ -399,6 +397,11 @@ internal static class SecurityHeuristics
 
     private static bool ContainsAny(string hay, IEnumerable<string> needles) {
         foreach (var n in needles) if (hay.IndexOf(n, StringComparison.Ordinal) >= 0) return true;
+        return false;
+    }
+
+    private static bool ContainsAnyIgnoreCase(string hay, IEnumerable<string> needles) {
+        foreach (var n in needles) if (hay.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return false;
     }
 

@@ -29,9 +29,9 @@ internal static class LogHeuristics
         if (hasSecurityIntel) cues++;
         if (eventExport && (hasProvider || hasDefenderName)) cues += 2;
 
-        bool highSignal = hasProvider || hasAntivirus || hasAntimalware || hasThreat || hasRemediation || hasSecurityIntel || eventExport;
+        bool strongMarker = hasProvider || hasAntivirus || hasAntimalware || hasSecurityIntel || eventExport;
+        if (!strongMarker) return false;
         if (!logCues && !eventExport && !hasMpcmd && !hasProvider) return false;
-        if (hasMpcmd && !highSignal) return false;
         if (hasMpcmd) return cues >= 4;
         return cues >= 3;
     }

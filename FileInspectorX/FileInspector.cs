@@ -446,17 +446,14 @@ public static partial class FileInspector {
     private static string AppendReason(string? reason, string tag)
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
-    private const byte EtlMagicByte0 = 0x45; // 'E'
-    private const byte EtlMagicByte1 = 0x6C; // 'l'
-    private const byte EtlMagicByte2 = 0x66; // 'f'
-    private const byte EtlMagicByte3 = 0x46; // 'F'
+    private static readonly byte[] EtlMagicBytes = { 0x45, 0x6C, 0x66, 0x46 }; // "ElfF"
 
     private static bool TryMatchEtlMagic(string path) {
         try {
             using var fs = File.OpenRead(path);
             var buf = new byte[4];
             int n = fs.Read(buf, 0, buf.Length);
-            return n == 4 && buf[0] == EtlMagicByte0 && buf[1] == EtlMagicByte1 && buf[2] == EtlMagicByte2 && buf[3] == EtlMagicByte3; // "ElfF"
+            return n == EtlMagicBytes.Length && buf.AsSpan(0, n).SequenceEqual(EtlMagicBytes);
         } catch { return false; }
     }
 
