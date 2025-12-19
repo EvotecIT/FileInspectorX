@@ -61,7 +61,7 @@ public class TextLogDetectionsTests
         var p = Path.GetTempFileName();
         try
         {
-            var text = "Log Name: System\nSource: Service Control Manager\nEvent ID: 7036\nLevel: Information\n";
+            var text = "Log Name: System\nSource: Service Control Manager\nEvent ID: 7036\nTask Category: None\nLevel: Information\n";
             File.WriteAllText(p, text);
             var r = FI.Detect(p);
             Assert.NotNull(r);
@@ -93,7 +93,7 @@ public class TextLogDetectionsTests
         var p = Path.GetTempFileName();
         try
         {
-            var text = "#Software: Microsoft Exchange Server\nMessage Tracking Log File\n";
+            var text = "#Software: Microsoft Exchange Server\n#Version: 15.2\n#Log-type: Message Tracking Log\n#Fields: date-time,client-ip,server-hostname\n";
             File.WriteAllText(p, text);
             var r = FI.Detect(p);
             Assert.NotNull(r);
@@ -136,12 +136,26 @@ public class TextLogDetectionsTests
     }
 
     [Fact]
+    public void Detect_Defender_Mention_Does_Not_Force_Defender_Log()
+    {
+        var p = Path.GetTempFileName();
+        try
+        {
+            var text = "Windows Defender service started\nGeneral info only\n";
+            File.WriteAllText(p, text);
+            var r = FI.Detect(p);
+            Assert.True(r == null || r.Reason != "text:log-defender");
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Detect_Nps_Radius_Log()
     {
         var p = Path.GetTempFileName();
         try
         {
-            var text = "#Software: Microsoft Internet Authentication Service\n#Fields: date time computername service requestid\n";
+            var text = "#Software: Microsoft Internet Authentication Service\n#Version: 1.0\n#Fields: date time computername service requestid\n";
             File.WriteAllText(p, text);
             var r = FI.Detect(p);
             Assert.NotNull(r);

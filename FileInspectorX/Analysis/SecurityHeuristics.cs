@@ -249,40 +249,41 @@ internal static class SecurityHeuristics
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return findings;
             var lower = text.ToLowerInvariant();
+            var logCues = HasLogCues(text);
 
             // IIS W3C logs
-            if (lower.Contains("#fields:") && (lower.Contains("#software: microsoft internet information services") || lower.Contains("#version:")))
+            if (LooksLikeIisW3cLog(lower))
                 findings.Add("log:iis-w3c");
 
             // Windows DNS server log (text)
-            if (lower.Contains("dns server log") || lower.Contains("dns server log file"))
+            if (LooksLikeDnsLog(lower))
                 findings.Add("log:dns");
             // Windows Firewall log (pfirewall.log)
-            if ((lower.Contains("microsoft windows firewall") || lower.Contains("windows firewall")) && lower.Contains("fields:"))
+            if (LooksLikeFirewallLog(lower))
                 findings.Add("log:firewall");
             // DHCP audit log
-            if (lower.Contains("#software: microsoft dhcp server") && lower.Contains("#fields:"))
+            if (LooksLikeDhcpLog(lower))
                 findings.Add("log:dhcp");
             // Exchange message tracking
-            if (lower.Contains("message tracking log file") || lower.Contains("#software: microsoft exchange"))
+            if (LooksLikeExchangeMessageTrackingLog(lower))
                 findings.Add("exchange:msgtrack");
             // Windows Defender textual logs
-            if (lower.Contains("windows defender") || lower.Contains("microsoft defender") || lower.Contains("mpcmdrun"))
+            if (LooksLikeDefenderTextLog(lower, logCues))
                 findings.Add("defender:txt");
             // SQL Server ERRORLOG
-            if ((lower.Contains("sql server") || lower.Contains("errorlog")) && lower.Contains("spid"))
+            if (LooksLikeSqlErrorLog(lower, logCues))
                 findings.Add("sql:errorlog");
             // NPS / RADIUS logs
-            if ((lower.Contains("#software: microsoft internet authentication service") || lower.Contains("#software: microsoft network policy server")) && lower.Contains("#fields:"))
+            if (LooksLikeNpsRadiusLog(lower))
                 findings.Add("nps:radius");
             // SQL Server Agent logs
-            if (lower.Contains("sqlserveragent") || lower.Contains("sql server agent"))
+            if (LooksLikeSqlAgentLog(lower, logCues))
                 findings.Add("sql:agent");
             // Netlogon log
-            if (lower.Contains("netlogon") || lower.Contains("netrlogon") || lower.Contains("secure channel"))
+            if (LooksLikeNetlogonLog(lower, logCues))
                 findings.Add("log:netlogon");
             // Event Viewer text export
-            if ((lower.Contains("log name:") && lower.Contains("event id:")) || (lower.Contains("source:") && lower.Contains("task category:") && lower.Contains("level:")))
+            if (LooksLikeEventViewerTextExport(lower))
                 findings.Add("event:txt");
 
             // Windows Event XML
@@ -326,6 +327,196 @@ internal static class SecurityHeuristics
             }
         } catch { }
         return findings;
+    }
+
+    private static bool LooksLikeDefenderTextLog(string lower, bool logCues)
+    {
+        bool hasMpcmd = lower.Contains("mpcmdrun");
+        bool hasDefenderName = lower.Contains("windows defender") || lower.Contains("microsoft defender");
+        bool hasProvider = lower.Contains("microsoft-windows-windows defender");
+        bool eventExport = (lower.Contains("log name:") && lower.Contains("event id:")) ||
+                           (lower.Contains("source:") && lower.Contains("task category:") && lower.Contains("level:"));
+        int cues = 0;
+        if (hasMpcmd) cues += 2;
+        if (hasProvider) cues += 2;
+        if (hasDefenderName) cues++;
+        if (lower.Contains("antimalware")) cues++;
+        if (lower.Contains("threat")) cues++;
+        if (lower.Contains("remediation") || lower.Contains("quarantine")) cues++;
+        if (lower.Contains("security intelligence") || lower.Contains("signature version") || lower.Contains("engine version") || lower.Contains("platform version")) cues++;
+        if (eventExport && (hasProvider || hasDefenderName)) cues += 2;
+
+        if (!logCues && !eventExport && !hasMpcmd) return false;
+        if (hasMpcmd) return cues >= 2;
+        return cues >= 3;
+    }
+
+    private static bool LooksLikeIisW3cLog(string lower)
+    {
+        if (!lower.Contains("#fields:")) return false;
+        if (!lower.Contains("#software: microsoft internet information services")) return false;
+        return lower.Contains("#version:") || lower.Contains("#date:");
+    }
+
+    private static bool LooksLikeDnsLog(string lower)
+    {
+        if (!lower.Contains("dns server log")) return false;
+        return lower.Contains("log file created at") || lower.Contains("packet");
+    }
+
+    private static bool LooksLikeFirewallLog(string lower)
+    {
+        bool hasSoftware = lower.Contains("#software: microsoft windows firewall") || lower.Contains("#software: windows firewall") || lower.Contains("microsoft windows firewall");
+        if (!hasSoftware) return false;
+        if (!lower.Contains("#fields:")) return false;
+        return lower.Contains("date") && lower.Contains("time");
+    }
+
+    private static bool LooksLikeDhcpLog(string lower)
+    {
+        if (!lower.Contains("#software: microsoft dhcp server")) return false;
+        if (!lower.Contains("#fields:")) return false;
+        return lower.Contains("#version:") || lower.Contains("#date:");
+    }
+
+    private static bool LooksLikeExchangeMessageTrackingLog(string lower)
+    {
+        bool hasSoftware = lower.Contains("#software: microsoft exchange");
+        bool hasLogType = lower.Contains("#log-type: message tracking log") || lower.Contains("message tracking log file");
+        bool hasFields = lower.Contains("#fields:");
+        if (!hasLogType || !hasFields) return false;
+        return hasSoftware || lower.Contains("#version:");
+    }
+
+    private static bool LooksLikeSqlErrorLog(string lower, bool logCues)
+    {
+        bool hasSql = lower.Contains("sql server");
+        bool hasStarting = lower.Contains("sql server is starting");
+        bool hasErrorlog = lower.Contains("errorlog");
+        bool hasSpid = lower.Contains("spid");
+        bool hasProcId = lower.Contains("server process id");
+        int cues = 0;
+        if (logCues) cues++;
+        if (hasSql) cues++;
+        if (hasStarting) cues++;
+        if (hasErrorlog) cues++;
+        if (hasSpid) cues++;
+        if (hasProcId) cues++;
+        if (!hasSql && !hasStarting) return false;
+        if (!(hasSpid || hasProcId)) return false;
+        return cues >= 2;
+    }
+
+    private static bool LooksLikeNpsRadiusLog(string lower)
+    {
+        bool hasSoftware = lower.Contains("#software: microsoft internet authentication service") || lower.Contains("#software: microsoft network policy server");
+        if (!hasSoftware) return false;
+        if (!lower.Contains("#fields:")) return false;
+        return lower.Contains("#version:") || lower.Contains("#date:");
+    }
+
+    private static bool LooksLikeSqlAgentLog(string lower, bool logCues)
+    {
+        bool hasAgent = lower.Contains("sqlserveragent") || lower.Contains("sql server agent");
+        if (!hasAgent) return false;
+        int cues = 0;
+        if (lower.Contains("sqlserveragent")) cues++;
+        if (lower.Contains("startup") || lower.Contains("started") || lower.Contains("starting")) cues++;
+        if (lower.Contains("version")) cues++;
+        if (lower.Contains("job")) cues++;
+        if (lower.Contains("service")) cues++;
+        if (logCues) cues++;
+        return cues >= 2;
+    }
+
+    private static bool LooksLikeNetlogonLog(string lower, bool logCues)
+    {
+        int netCount = CountOccurrences(lower, "netlogon");
+        bool hasNetr = lower.Contains("netrlogon");
+        bool hasSecure = lower.Contains("secure channel");
+        bool hasSam = lower.Contains("sam logon");
+        int cues = 0;
+        if (logCues) cues++;
+        if (netCount > 0) cues++;
+        if (netCount >= 2) cues++;
+        if (hasNetr) cues += 2;
+        if (hasSecure) cues++;
+        if (hasSam) cues++;
+        return cues >= 2 && (netCount > 0 || hasNetr);
+    }
+
+    private static bool LooksLikeEventViewerTextExport(string lower)
+    {
+        int labels = 0;
+        if (lower.Contains("log name:")) labels++;
+        if (lower.Contains("source:")) labels++;
+        if (lower.Contains("event id:")) labels++;
+        if (lower.Contains("task category:")) labels++;
+        if (lower.Contains("level:")) labels++;
+        if (lower.Contains("keywords:")) labels++;
+        if (lower.Contains("user:")) labels++;
+        if (lower.Contains("computer:")) labels++;
+        if (lower.Contains("description:")) labels++;
+        if (lower.Contains("date:")) labels++;
+        return labels >= 3 && (lower.Contains("event id:") || lower.Contains("log name:"));
+    }
+
+    private static bool HasLogCues(string text)
+    {
+        var span = text.AsSpan();
+        int lines = 0;
+        int i = 0;
+        while (i < span.Length && lines < 4)
+        {
+            int start = i;
+            int nl = span.Slice(i).IndexOf('\n');
+            int end = nl >= 0 ? i + nl : span.Length;
+            var line = span.Slice(start, Math.Max(0, end - start));
+            if (LooksLikeTimestamp(line) || StartsWithLevelToken(line)) return true;
+            i = end + 1;
+            lines++;
+        }
+        return false;
+    }
+
+    private static bool LooksLikeTimestamp(ReadOnlySpan<char> line)
+    {
+        if (line.Length < 10) return false;
+        bool y = char.IsDigit(line[0]) && char.IsDigit(line[1]) && char.IsDigit(line[2]) && char.IsDigit(line[3]);
+        bool sep1 = line[4] == '-' || line[4] == '/';
+        bool m = char.IsDigit(line[5]) && char.IsDigit(line[6]);
+        bool sep2 = line[7] == '-' || line[7] == '/';
+        bool d = char.IsDigit(line[8]) && char.IsDigit(line[9]);
+        return y && sep1 && m && sep2 && d;
+    }
+
+    private static bool StartsWithLevelToken(ReadOnlySpan<char> line)
+    {
+        return StartsWithToken(line, "INFO") || StartsWithToken(line, "WARN") || StartsWithToken(line, "ERROR") || StartsWithToken(line, "DEBUG") || StartsWithToken(line, "TRACE") || StartsWithToken(line, "FATAL") || StartsWithToken(line, "CRITICAL") || StartsWithToken(line, "ALERT") || StartsWithToken(line, "[INFO]") || StartsWithToken(line, "[WARN]") || StartsWithToken(line, "[ERROR]") || StartsWithToken(line, "[DEBUG]") || StartsWithToken(line, "[CRITICAL]") || StartsWithToken(line, "[ALERT]");
+    }
+
+    private static bool StartsWithToken(ReadOnlySpan<char> line, string token)
+    {
+        if (line.Length < token.Length) return false;
+        for (int i = 0; i < token.Length; i++)
+        {
+            if (char.ToUpperInvariant(line[i]) != char.ToUpperInvariant(token[i])) return false;
+        }
+        return true;
+    }
+
+    private static int CountOccurrences(string hay, string needle)
+    {
+        int count = 0;
+        int idx = 0;
+        while (idx < hay.Length)
+        {
+            idx = hay.IndexOf(needle, idx, StringComparison.Ordinal);
+            if (idx < 0) break;
+            count++;
+            idx += needle.Length;
+        }
+        return count;
     }
 
     internal static SecretsSummary CountSecrets(string path, int budgetBytes)
