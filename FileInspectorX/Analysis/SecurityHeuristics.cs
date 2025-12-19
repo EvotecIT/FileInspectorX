@@ -249,8 +249,6 @@ internal static class SecurityHeuristics
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return findings;
             // Lowercasing is bounded by ReadTextHead (max 512 KB) to limit allocations.
-            // Lowercasing is bounded by ReadTextHead (max 512 KB) to limit allocations.
-            // Lowercasing is bounded by ReadTextHead (max 512 KB) to limit allocations.
             var lower = text.ToLowerInvariant();
             var logCues = HasLogCues(text);
 

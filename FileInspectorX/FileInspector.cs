@@ -242,16 +242,17 @@ public static partial class FileInspector {
                     else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
                 }
             } catch { }
-            // Special-case ETL: when the declared extension is .etl and feature enabled,
-            // validate using magic (default) and optionally tracerpt/native per mode.
+            // Special-case ETL: detect by magic (preferred) and optionally validate.
             var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
+            bool declaredEtl = string.Equals(ext, "etl", StringComparison.OrdinalIgnoreCase);
+            bool magicOk = false;
+            try { magicOk = TryMatchEtlMagic(path); } catch { magicOk = false; }
+            if (magicOk || declaredEtl)
             {
                 try
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_BEGIN", path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                    bool magicOk = TryMatchEtlMagic(path);
                     if (!magicOk)
                     {
                         Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-mismatch", path: path);
@@ -265,7 +266,7 @@ public static partial class FileInspector {
                         detEtl.Reason = "etl:magic";
 
                         var mode = Settings.EtlValidation;
-                        if (mode == Settings.EtlValidationMode.MagicOnly)
+                        if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                         {
                             Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-ok", path: path);
                             return detEtl;
@@ -585,14 +586,13 @@ public static partial class FileInspector {
             // Fast-path ETL: avoid full analysis (which can be expensive/fragile on multi‑GB traces).
             try
             {
-                var extQuick = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-                if (extQuick == "etl" && !options.DetectOnly)
+                if (!options.DetectOnly)
                 {
                     long len = -1;
                     try { len = new FileInfo(path).Length; } catch { len = -1; }
                     var threshold = Settings.EtlLargeFileQuickScanBytes;
                     var mode = Settings.EtlValidation;
-                    bool allowQuick = mode != Settings.EtlValidationMode.Off && threshold > 0 && len >= threshold;
+                    bool allowQuick = threshold > 0 && len >= threshold;
                     if (allowQuick && TryMatchEtlMagic(path))
                     {
                         Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);

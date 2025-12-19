@@ -308,9 +308,6 @@ public class Settings {
 /// <summary>
 /// Controls how vendor names in AllowedVendors are matched.
 /// </summary>
-/// <summary>
-/// Controls how vendor names in AllowedVendors are matched.
-/// </summary>
 public enum VendorMatchMode
 {
     /// <summary>Case-insensitive substring match (default).</summary>

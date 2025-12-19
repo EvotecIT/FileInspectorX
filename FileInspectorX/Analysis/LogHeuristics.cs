@@ -11,20 +11,28 @@ internal static class LogHeuristics
         bool hasMpcmd = lower.Contains("mpcmdrun");
         bool hasDefenderName = lower.Contains("windows defender") || lower.Contains("microsoft defender");
         bool hasProvider = lower.Contains("microsoft-windows-windows defender");
+        bool hasAntivirus = lower.Contains("antivirus");
+        bool hasAntimalware = lower.Contains("antimalware");
+        bool hasThreat = lower.Contains("threat");
+        bool hasRemediation = lower.Contains("remediation") || lower.Contains("quarantine");
+        bool hasSecurityIntel = lower.Contains("security intelligence") || lower.Contains("signature version") || lower.Contains("engine version") || lower.Contains("platform version");
         bool eventExport = (lower.Contains("log name:") && lower.Contains("event id:")) ||
                            (lower.Contains("source:") && lower.Contains("task category:") && lower.Contains("level:"));
         int cues = 0;
         if (hasMpcmd) cues += 2;
         if (hasProvider) cues += 2;
         if (hasDefenderName) cues++;
-        if (lower.Contains("antimalware")) cues++;
-        if (lower.Contains("threat")) cues++;
-        if (lower.Contains("remediation") || lower.Contains("quarantine")) cues++;
-        if (lower.Contains("security intelligence") || lower.Contains("signature version") || lower.Contains("engine version") || lower.Contains("platform version")) cues++;
+        if (hasAntivirus) cues++;
+        if (hasAntimalware) cues++;
+        if (hasThreat) cues++;
+        if (hasRemediation) cues++;
+        if (hasSecurityIntel) cues++;
         if (eventExport && (hasProvider || hasDefenderName)) cues += 2;
 
-        if (!logCues && !eventExport && !hasMpcmd) return false;
-        if (hasMpcmd) return cues >= 3;
+        bool highSignal = hasProvider || hasAntivirus || hasAntimalware || hasThreat || hasRemediation || hasSecurityIntel || eventExport;
+        if (!logCues && !eventExport && !hasMpcmd && !hasProvider) return false;
+        if (hasMpcmd && !highSignal) return false;
+        if (hasMpcmd) return cues >= 4;
         return cues >= 3;
     }
 
@@ -44,7 +52,7 @@ internal static class LogHeuristics
 
     internal static bool LooksLikeNetlogonLog(string lower, bool logCues)
     {
-        int netCount = CountOccurrences(lower, "netlogon");
+        int netCount = CountOccurrences(lower, "netlogon", maxCount: 2);
         bool hasNetr = lower.Contains("netrlogon");
         bool hasSecure = lower.Contains("secure channel");
         bool hasSam = lower.Contains("sam logon");
@@ -131,11 +139,11 @@ internal static class LogHeuristics
         return cues >= 2;
     }
 
-    private static int CountOccurrences(string hay, string needle)
+    private static int CountOccurrences(string hay, string needle, int maxCount)
     {
         int count = 0;
         int idx = 0;
-        while (idx < hay.Length)
+        while (idx < hay.Length && count < maxCount)
         {
             idx = hay.IndexOf(needle, idx, StringComparison.Ordinal);
             if (idx < 0) break;
