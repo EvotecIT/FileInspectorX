@@ -4,7 +4,7 @@ namespace FileInspectorX;
 /// Text and markup format detection (JSON, XML/HTML, YAML, EML, CSV/TSV/INI/LOG) and Outlook MSG hints.
 /// </summary>
 internal static partial class Signatures {
-    private const int BINARY_SCAN_LIMIT = 2048;
+    private const int BINARY_SCAN_LIMIT = 2048; // 2 KB: doubled from 1024 to reduce UTF-16 false negatives
     private const int HEADER_BYTES = 2048;
     // see FileInspectorX.Settings for configurable thresholds
 
@@ -364,7 +364,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         if (head.IndexOf("__substg1.0_"u8) >= 0) { result = new ContentTypeDetectionResult { Extension = "msg", MimeType = "application/vnd.ms-outlook", Confidence = "Low", Reason = "msg:marker" }; return true; }
 
         // Quick Windows DNS log check very early (before generic log heuristics)
-        if (LooksLikeDnsLog(headLower))
+        if (LogHeuristics.LooksLikeDnsLog(headLower))
         {
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" };
             return true;
@@ -524,29 +524,28 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         // PowerShell heuristic (uses cached headStr/headLower)
 
-        // Windows well-known text logs: DNS, Firewall, Netlogon, Event Viewer text export
-        if (LooksLikeDnsLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns" }; return true; }
-        if (LooksLikeFirewallLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
-        if (LooksLikeNetlogonLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
-        if (LooksLikeEventViewerTextExport(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
+        // Windows well-known text logs: Firewall, Netlogon, Event Viewer text export
+        if (LogHeuristics.LooksLikeFirewallLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
+        if (LogHeuristics.LooksLikeNetlogonLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
+        if (LogHeuristics.LooksLikeEventViewerTextExport(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
 
         // Microsoft DHCP Server audit logs (similar to IIS/Firewall headers)
-        if (LooksLikeDhcpLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
+        if (LogHeuristics.LooksLikeDhcpLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
 
         // Microsoft Exchange Message Tracking logs
-        if (LooksLikeExchangeMessageTrackingLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
+        if (LogHeuristics.LooksLikeExchangeMessageTrackingLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
 
         // Windows Defender textual logs (MpCmdRun outputs or Event Viewer text exports mentioning Defender)
-        if (LooksLikeDefenderTextLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
+        if (LogHeuristics.LooksLikeDefenderTextLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
 
         // SQL Server ERRORLOG text
-        if (LooksLikeSqlErrorLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
+        if (LogHeuristics.LooksLikeSqlErrorLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
 
         // NPS / RADIUS (IAS/NPS) text logs
-        if (LooksLikeNpsRadiusLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
+        if (LogHeuristics.LooksLikeNpsRadiusLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
 
         // SQL Server Agent logs (SQLAgent.out / text snippets)
-        if (LooksLikeSqlAgentLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
+        if (LogHeuristics.LooksLikeSqlAgentLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
 
         // PEM/PGP ASCII-armored blocks (detect before script heuristics)
         {
@@ -818,122 +817,6 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
         static bool StartsWithLevelToken(ReadOnlySpan<byte> l) {
             return StartsWithToken(l, "INFO") || StartsWithToken(l, "WARN") || StartsWithToken(l, "ERROR") || StartsWithToken(l, "DEBUG") || StartsWithToken(l, "TRACE") || StartsWithToken(l, "FATAL") || StartsWithToken(l, "CRITICAL") || StartsWithToken(l, "ALERT") || StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]") || StartsWithToken(l, "[CRITICAL]") || StartsWithToken(l, "[ALERT]");
-        }
-        static bool LooksLikeDefenderTextLog(string headLower, bool logCues) {
-            bool hasMpcmd = headLower.Contains("mpcmdrun");
-            bool hasDefenderName = headLower.Contains("windows defender") || headLower.Contains("microsoft defender");
-            bool hasProvider = headLower.Contains("microsoft-windows-windows defender");
-            bool eventExport = (headLower.Contains("log name:") && headLower.Contains("event id:")) ||
-                               (headLower.Contains("source:") && headLower.Contains("task category:") && headLower.Contains("level:"));
-            int cues = 0;
-            if (hasMpcmd) cues += 2;
-            if (hasProvider) cues += 2;
-            if (hasDefenderName) cues++;
-            if (headLower.Contains("antimalware")) cues++;
-            if (headLower.Contains("threat")) cues++;
-            if (headLower.Contains("remediation") || headLower.Contains("quarantine")) cues++;
-            if (headLower.Contains("security intelligence") || headLower.Contains("signature version") || headLower.Contains("engine version") || headLower.Contains("platform version")) cues++;
-            if (eventExport && (hasProvider || hasDefenderName)) cues += 2;
-
-            if (!logCues && !eventExport && !hasMpcmd) return false;
-            if (hasMpcmd) return cues >= 2;
-            return cues >= 3;
-        }
-        static bool LooksLikeDnsLog(string headLower) {
-            if (!headLower.Contains("dns server log")) return false;
-            return headLower.Contains("log file created at") || headLower.Contains("packet");
-        }
-        static bool LooksLikeFirewallLog(string headLower) {
-            bool hasSoftware = headLower.Contains("#software: microsoft windows firewall") || headLower.Contains("#software: windows firewall") || headLower.Contains("microsoft windows firewall");
-            if (!hasSoftware) return false;
-            if (!headLower.Contains("#fields:")) return false;
-            return headLower.Contains("date") && headLower.Contains("time");
-        }
-        static bool LooksLikeNetlogonLog(string headLower, bool logCues) {
-            int netCount = CountOccurrences(headLower, "netlogon");
-            bool hasNetr = headLower.Contains("netrlogon");
-            bool hasSecure = headLower.Contains("secure channel");
-            bool hasSam = headLower.Contains("sam logon");
-            int cues = 0;
-            if (logCues) cues++;
-            if (netCount > 0) cues++;
-            if (netCount >= 2) cues++;
-            if (hasNetr) cues += 2;
-            if (hasSecure) cues++;
-            if (hasSam) cues++;
-            return cues >= 2 && (netCount > 0 || hasNetr);
-        }
-        static bool LooksLikeEventViewerTextExport(string headLower) {
-            int labels = 0;
-            if (headLower.Contains("log name:")) labels++;
-            if (headLower.Contains("source:")) labels++;
-            if (headLower.Contains("event id:")) labels++;
-            if (headLower.Contains("task category:")) labels++;
-            if (headLower.Contains("level:")) labels++;
-            if (headLower.Contains("keywords:")) labels++;
-            if (headLower.Contains("user:")) labels++;
-            if (headLower.Contains("computer:")) labels++;
-            if (headLower.Contains("description:")) labels++;
-            if (headLower.Contains("date:")) labels++;
-            return labels >= 3 && (headLower.Contains("event id:") || headLower.Contains("log name:"));
-        }
-        static bool LooksLikeDhcpLog(string headLower) {
-            if (!headLower.Contains("#software: microsoft dhcp server")) return false;
-            if (!headLower.Contains("#fields:")) return false;
-            return headLower.Contains("#version:") || headLower.Contains("#date:");
-        }
-        static bool LooksLikeExchangeMessageTrackingLog(string headLower) {
-            bool hasSoftware = headLower.Contains("#software: microsoft exchange");
-            bool hasLogType = headLower.Contains("#log-type: message tracking log") || headLower.Contains("message tracking log file");
-            bool hasFields = headLower.Contains("#fields:");
-            if (!hasLogType || !hasFields) return false;
-            return hasSoftware || headLower.Contains("#version:");
-        }
-        static bool LooksLikeSqlErrorLog(string headLower, bool logCues) {
-            bool hasSql = headLower.Contains("sql server");
-            bool hasStarting = headLower.Contains("sql server is starting");
-            bool hasErrorlog = headLower.Contains("errorlog");
-            bool hasSpid = headLower.Contains("spid");
-            bool hasProcId = headLower.Contains("server process id");
-            int cues = 0;
-            if (logCues) cues++;
-            if (hasSql) cues++;
-            if (hasStarting) cues++;
-            if (hasErrorlog) cues++;
-            if (hasSpid) cues++;
-            if (hasProcId) cues++;
-            if (!hasSql && !hasStarting) return false;
-            if (!(hasSpid || hasProcId)) return false;
-            return cues >= 2;
-        }
-        static bool LooksLikeNpsRadiusLog(string headLower) {
-            bool hasSoftware = headLower.Contains("#software: microsoft internet authentication service") || headLower.Contains("#software: microsoft network policy server");
-            if (!hasSoftware) return false;
-            if (!headLower.Contains("#fields:")) return false;
-            return headLower.Contains("#version:") || headLower.Contains("#date:");
-        }
-        static bool LooksLikeSqlAgentLog(string headLower, bool logCues) {
-            bool hasAgent = headLower.Contains("sqlserveragent") || headLower.Contains("sql server agent");
-            if (!hasAgent) return false;
-            int cues = 0;
-            if (headLower.Contains("sqlserveragent")) cues++;
-            if (headLower.Contains("startup") || headLower.Contains("started") || headLower.Contains("starting")) cues++;
-            if (headLower.Contains("version")) cues++;
-            if (headLower.Contains("job")) cues++;
-            if (headLower.Contains("service")) cues++;
-            if (logCues) cues++;
-            return cues >= 2;
-        }
-        static int CountOccurrences(string hay, string needle) {
-            int count = 0;
-            int idx = 0;
-            while (idx < hay.Length) {
-                idx = hay.IndexOf(needle, idx, StringComparison.Ordinal);
-                if (idx < 0) break;
-                count++;
-                idx += needle.Length;
-            }
-            return count;
         }
         static int IndexOfToken(ReadOnlySpan<byte> hay, string token) {
             var tb = System.Text.Encoding.ASCII.GetBytes(token);

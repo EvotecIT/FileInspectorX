@@ -244,10 +244,10 @@ public static partial class FileInspector {
             } catch { }
             // Special-case ETL: when the declared extension is .etl and feature enabled,
             // validate using magic (default) and optionally tracerpt/native per mode.
-            try
+            var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+            if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
             {
-                var ext = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-                if (ext == "etl" && Settings.EtlValidation != Settings.EtlValidationMode.Off)
+                try
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_BEGIN", path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
@@ -305,11 +305,24 @@ public static partial class FileInspector {
                         return detEtl;
                     }
                 }
-            } catch (Exception ex) { Breadcrumbs.Write("ETL_VALIDATE_EXCEPTION", message: ex.GetType().Name + ":" + ex.Message, path: path); }
+                catch (IOException ex)
+                {
+                    Breadcrumbs.Write("ETL_VALIDATE_IO_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                    var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" };
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Breadcrumbs.Write("ETL_VALIDATE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                    var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" };
+                }
+            }
             det = ApplyDeclaredBias(det, extDeclared);
             TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
-        } catch { return null; }
+        } catch (OutOfMemoryException) { throw; }
+        catch { return null; }
     }
 
     /// <summary>
@@ -432,12 +445,17 @@ public static partial class FileInspector {
     private static string AppendReason(string? reason, string tag)
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
+    private const byte EtlMagicByte0 = 0x45; // 'E'
+    private const byte EtlMagicByte1 = 0x6C; // 'l'
+    private const byte EtlMagicByte2 = 0x66; // 'f'
+    private const byte EtlMagicByte3 = 0x46; // 'F'
+
     private static bool TryMatchEtlMagic(string path) {
         try {
             using var fs = File.OpenRead(path);
             var buf = new byte[4];
             int n = fs.Read(buf, 0, buf.Length);
-            return n == 4 && buf[0] == 0x45 && buf[1] == 0x6C && buf[2] == 0x66 && buf[3] == 0x46; // "ElfF"
+            return n == 4 && buf[0] == EtlMagicByte0 && buf[1] == EtlMagicByte1 && buf[2] == EtlMagicByte2 && buf[3] == EtlMagicByte3; // "ElfF"
         } catch { return false; }
     }
 
