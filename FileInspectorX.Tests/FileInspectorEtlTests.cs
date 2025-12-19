@@ -25,8 +25,8 @@ public class FileInspectorEtlTests
         finally
         {
             Settings.EtlValidation = prevMode;
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(etl)) File.Delete(etl);
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 
@@ -34,7 +34,6 @@ public class FileInspectorEtlTests
     public void Detect_EtlMagicMismatch_DoesNotReturnEtl()
     {
         var prevMode = Settings.EtlValidation;
-        var prevQuickBytes = Settings.EtlLargeFileQuickScanBytes;
         Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
         var temp = Path.GetTempFileName();
         var etl = temp + ".etl";
@@ -49,9 +48,8 @@ public class FileInspectorEtlTests
         finally
         {
             Settings.EtlValidation = prevMode;
-            Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(etl)) File.Delete(etl);
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 
@@ -72,8 +70,8 @@ public class FileInspectorEtlTests
         finally
         {
             Settings.EtlValidation = prevMode;
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(etl)) File.Delete(etl);
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 
@@ -100,8 +98,8 @@ public class FileInspectorEtlTests
         {
             Settings.EtlValidation = prevMode;
             Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(etl)) File.Delete(etl);
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 
@@ -129,8 +127,8 @@ public class FileInspectorEtlTests
         {
             Settings.EtlValidation = prevMode;
             Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(etl)) File.Delete(etl);
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 
@@ -157,8 +155,8 @@ public class FileInspectorEtlTests
         {
             Settings.EtlValidation = prevMode;
             Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(etl)) File.Delete(etl);
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 
@@ -178,7 +176,7 @@ public class FileInspectorEtlTests
         finally
         {
             Settings.EtlValidation = prevMode;
-            if (File.Exists(temp)) File.Delete(temp);
+            TestHelpers.SafeDelete(temp);
         }
     }
 
@@ -202,7 +200,7 @@ public class FileInspectorEtlTests
         {
             Settings.EtlValidation = prevMode;
             Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
-            if (File.Exists(temp)) File.Delete(temp);
+            TestHelpers.SafeDelete(temp);
         }
     }
 }

@@ -7,6 +7,8 @@ namespace FileInspectorX.Tests;
 
 public class WinTrustHelperTests
 {
+    private const int VerificationIterations = 200; // stress repeated calls to cover caching/interop stability
+
     [Fact]
     public void VerifyFileSignature_UnsignedFile_NotTrusted_And_DoesNotThrow()
     {
@@ -18,7 +20,7 @@ public class WinTrustHelperTests
         {
             // Write a small random file to ensure it's not signed
             File.WriteAllBytes(temp, new byte[] { 0x01, 0x02, 0x03, 0x04 });
-            for (int i = 0; i < 200; i++)
+            for (int i = 0; i < VerificationIterations; i++)
             {
                 bool? trusted = FileInspector.VerifyAuthenticodePolicy(temp);
                 // Unsigned files should not be trusted; API may return null (no signature) or false.
@@ -27,7 +29,8 @@ public class WinTrustHelperTests
         }
         finally
         {
-            try { File.Delete(temp); } catch { }
+            TestHelpers.SafeDelete(temp);
         }
     }
 }
+

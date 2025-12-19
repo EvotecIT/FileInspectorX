@@ -20,7 +20,7 @@ public class TextLogDetectionsTests
             var rv = FileInspectorX.ReportView.From(FI.Analyze(p));
             Assert.Equal("Windows DNS Server log", FileInspectorX.FriendlyNames.GetTypeLabel(r, FI.Analyze(p)) ?? string.Empty);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-firewall", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-netlogon", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:event-txt", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-dhcp", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-exchange", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-sql-errorlog", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-defender", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Theory]
@@ -155,7 +155,7 @@ public class TextLogDetectionsTests
                 Assert.True(r == null || r.Reason != "text:log-defender");
             }
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Theory]
@@ -178,7 +178,7 @@ public class TextLogDetectionsTests
                 Assert.True(r == null || r.Reason != "text:log-defender");
             }
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public class TextLogDetectionsTests
             var r = FI.Detect(p);
             Assert.True(r == null || r.Reason != "text:log-defender");
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -208,7 +208,7 @@ public class TextLogDetectionsTests
             var r = FI.Detect(p);
             Assert.True(r == null || r.Reason != "text:log-defender");
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-nps", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 
     [Fact]
@@ -240,6 +240,7 @@ public class TextLogDetectionsTests
             Assert.Equal("log", r!.Extension);
             Assert.Equal("text:log-sqlagent", r.Reason);
         }
-        finally { if (File.Exists(p)) File.Delete(p); }
+        finally { TestHelpers.SafeDelete(p); }
     }
 }
+
