@@ -74,6 +74,21 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void JavaScript_Object_Call_Not_Csv()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".js");
+        try
+        {
+            var txt = "jsVectorMap.addMap('x',{ \"paths\": { \"A\": { \"path\": \"M0,0\", \"name\": \"A\" }, \"B\": { \"path\": \"M1,1\", \"name\": \"B\" } }, \"insets\": [ { \"width\": 900, \"height\": 500, \"bbox\": [ { \"x\": 1, \"y\": 2 }, { \"x\": 3, \"y\": 4 } ] } ] });";
+            File.WriteAllText(p, txt);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("js", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Python_Heuristic_Detected() {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
@@ -121,6 +136,20 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Bracketed_Timestamp_Log_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            File.WriteAllText(p, "[2023-11-27 12:29:40] [i] Started\n[2023-11-27 12:29:41] [i] Done\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Colon_Heavy_Logs_Not_Yaml() {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
@@ -151,6 +180,21 @@ public class TextDetectionsTests {
             Assert.NotNull(r);
             Assert.Equal("ps1", r!.Extension);
         } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void PowerShell_With_Base64_Blob_Remains_Ps1()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            var b64 = System.Convert.ToBase64String(new byte[512]);
+            File.WriteAllText(p, $"param()\n$blob = '{b64}'\nWrite-Host 'Hello'\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ps1", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
     }
 
     [Fact]
@@ -282,6 +326,23 @@ public class TextDetectionsTests {
             Assert.NotNull(r);
             Assert.Equal("vbs", r!.Extension);
         } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void VBScript_With_Long_Header_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".vbs");
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 40; i++) sb.AppendLine("'" + new string('*', 70));
+            sb.AppendLine("Set o = CreateObject(\"WScript.Shell\")");
+            File.WriteAllText(p, sb.ToString());
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("vbs", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
     }
 
     [Fact]

@@ -97,6 +97,23 @@ public class GroupPolicyDetectionsTests
     }
 
     [Fact]
+    public void Adml_Utf16_Detected_As_Adml()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".adml");
+        try
+        {
+            var content = "<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n<policyDefinitionResources>\r\n  <displayName>Sample</displayName>\r\n</policyDefinitionResources>\r\n";
+            var bytes = System.Text.Encoding.Unicode.GetPreamble().Concat(System.Text.Encoding.Unicode.GetBytes(content)).ToArray();
+            File.WriteAllBytes(p, bytes);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("adml", r!.Extension);
+            Assert.Equal("High", r.Confidence);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Admx_MalformedXml_Flagged()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".admx");

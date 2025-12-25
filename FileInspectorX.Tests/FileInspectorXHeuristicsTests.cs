@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using FileInspectorX;
 
 namespace FileInspectorX.Tests;
@@ -120,6 +121,64 @@ $data | Export-OfficeExcel -FilePath $path -WorksheetName 'Data' -AutoSize
         finally { TryDelete(p); }
     }
 
+    [Xunit.Fact]
+    public void CompareDeclared_Normalizes_DetectedLeadingDot()
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = ".png",
+            MimeType = "image/png",
+            Confidence = "High",
+            Reason = "magic:png"
+        };
+
+        var cmp = FileInspector.CompareDeclared("png", det);
+        Xunit.Assert.False(cmp.Mismatch);
+    }
+
+    [Xunit.Fact]
+    public void CompareDeclared_Uses_GuessedExtension_When_Missing()
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = "",
+            GuessedExtension = "docx",
+            MimeType = "application/zip",
+            Confidence = "Low",
+            Reason = "magic:zip"
+        };
+
+        var cmp = FileInspector.CompareDeclared("docx", det);
+        Xunit.Assert.False(cmp.Mismatch);
+    }
+
+    [Xunit.Fact]
+    public void Detect_Span_Respects_DeclaredExtension_Bias()
+    {
+        var xml = "<?xml version=\"1.0\"?><policyDefinitions></policyDefinitions>";
+        var data = System.Text.Encoding.UTF8.GetBytes(xml);
+        var det = FileInspector.Detect(data, null, "admx");
+        Xunit.Assert.NotNull(det);
+        Xunit.Assert.Equal("admx", det!.Extension);
+    }
+
+    [Xunit.Theory]
+    [Xunit.InlineData("log", "Just a plain line.\nStill plain.")]
+    [Xunit.InlineData("ps1", "Just a plain line.\nStill plain.")]
+    public void Detect_Uses_Declared_Bias_For_Generic_Text_Across_Inputs(string declaredExt, string content)
+    {
+        AssertAcrossInputs(declaredExt, content, declaredExt);
+    }
+
+    [Xunit.Theory]
+    [Xunit.InlineData("cmd", "@echo off\r\nsetlocal\r\necho hi\r\n")]
+    [Xunit.InlineData("admx", "<?xml version=\"1.0\"?><policyDefinitions></policyDefinitions>")]
+    [Xunit.InlineData("inf", "[Version]\nSignature=\"$Windows NT$\"\n")]
+    public void Detect_Uses_Declared_Heuristics_Across_Inputs(string declaredExt, string content)
+    {
+        AssertAcrossInputs(declaredExt, content, declaredExt);
+    }
+
     private static string WriteTemp(string ext, string content)
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ext);
@@ -130,5 +189,27 @@ $data | Export-OfficeExcel -FilePath $path -WorksheetName 'Data' -AutoSize
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { }
+    }
+
+    private static void AssertAcrossInputs(string declaredExt, string content, string expectedExt)
+    {
+        var data = Encoding.UTF8.GetBytes(content);
+        var path = WriteTemp("." + declaredExt, content);
+        try
+        {
+            var detPath = FileInspector.Detect(path);
+            Xunit.Assert.NotNull(detPath);
+            Xunit.Assert.Equal(expectedExt, detPath!.Extension);
+
+            using var ms = new MemoryStream(data, writable: false);
+            var detStream = FileInspector.Detect(ms, null, declaredExt);
+            Xunit.Assert.NotNull(detStream);
+            Xunit.Assert.Equal(expectedExt, detStream!.Extension);
+
+            var detSpan = FileInspector.Detect(data, null, declaredExt);
+            Xunit.Assert.NotNull(detSpan);
+            Xunit.Assert.Equal(expectedExt, detSpan!.Extension);
+        }
+        finally { TryDelete(path); }
     }
 }
