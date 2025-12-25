@@ -507,6 +507,8 @@ public class TextDetectionsTests {
             Assert.NotNull(r);
             Assert.Equal("md", r!.Extension);
             Assert.Equal("text/markdown", r.MimeType);
+            Assert.NotNull(r.Alternatives);
+            Assert.Contains(r.Alternatives!, a => string.Equals(a.Extension, "ps1", StringComparison.OrdinalIgnoreCase));
         }
         finally { if (File.Exists(p)) File.Delete(p); }
     }
