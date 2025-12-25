@@ -52,6 +52,13 @@ var drivers = map.GetValueOrDefault("AssessmentCodesHuman")?.ToString() ??
 var md = FileInspectorX.MarkdownRenderer.From(fa);
 ```
 
+## Detection Ordering & Declared Extension Bias
+
+- Detection runs magic signatures first, then container refinements, then text/markup heuristics, with plain-text fallback last.
+- `Detect(path)` uses the path extension as the declared type.
+- `Detect(stream, options, declaredExtension)` and `Detect(ReadOnlySpan<byte>, options, declaredExtension)` let you pass a declared extension to mirror path-based behavior.
+- Declared extension bias applies only for ambiguous/low-confidence text cases (e.g., cmd vs bat, admx/adml vs xml, inf vs ini, ini vs toml, log/txt/md/ps1/psm1/psd1). Strong magic-byte matches are not overridden.
+
 ## Include/Exclude Sections
 
 ```csharp

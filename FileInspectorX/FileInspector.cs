@@ -48,9 +48,13 @@ public static partial class FileInspector {
     /// describes the comparison (e.g., "match" or "decl:txt vs det:pdf").
     /// </returns>
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
-        var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.');
+        var decl = NormalizeExtension(declaredExtension) ?? string.Empty;
         if (detected is null || string.IsNullOrEmpty(decl)) return (false, "no-detection-or-declared");
-        var det = (detected.Extension ?? string.Empty).Trim();
+        var detRaw = NormalizeExtension(detected.Extension);
+        var detGuess = NormalizeExtension(detected.GuessedExtension);
+        if (string.IsNullOrEmpty(detRaw) && string.IsNullOrEmpty(detGuess)) return (false, "no-detection-or-declared");
+        string det = detRaw ?? detGuess!;
+        var detLabel = detRaw != null ? det : detGuess! + "(guess)";
 
         // Treat common synonyms as equivalent (avoid false mismatches)
         static bool Equivalent(string a, string b) {
@@ -177,14 +181,17 @@ public static partial class FileInspector {
         }
 
         var mismatch = !(Equivalent(decl, det) || familyMatch);
-        // Special-case: If detection is low-confidence PowerShell but the declared is plain-text family, treat as match to avoid noise
-        if (mismatch && InPlainTextFamily(decl) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
-        {
-            var conf = detected.Confidence ?? string.Empty;
-            if (conf.Equals("Low", StringComparison.OrdinalIgnoreCase)) mismatch = false;
-        }
-        var reason = mismatch ? $"decl:{decl} vs det:{detected.Extension}" : "match";
+        var reason = mismatch ? $"decl:{decl} vs det:{detLabel}" : "match";
         return (mismatch, reason);
+    }
+
+    /// <summary>
+    /// Normalizes an extension by trimming whitespace and a leading dot. Returns null when empty.
+    /// </summary>
+    public static string? NormalizeExtension(string? extension)
+    {
+        var normalized = (extension ?? string.Empty).Trim().TrimStart('.');
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;       
     }
 
     /// <summary>
@@ -337,34 +344,35 @@ public static partial class FileInspector {
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
-        if (Signatures.TryMatchTar(src, out var tar)) return Enrich(tar, src, stream, options);
-        if (Signatures.TryMatchRiff(src, out var riff)) return Enrich(riff, src, stream, options);
-        if (Signatures.TryMatchEvtx(src, out var evtx)) return Enrich(evtx, src, stream, options);
-        if (Signatures.TryMatchEse(src, out var ese)) return Enrich(ese, src, stream, options);
-        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Enrich(hive, src, stream, options);
-        if (Signatures.TryMatchRegistryPol(src, out var pol)) return Enrich(pol, src, stream, options);
-        if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
-        if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
-        if (Signatures.TryMatchPkcs12(src, out var p12)) return Enrich(p12, src, stream, options);
-        if (Signatures.TryMatchDerCertificate(src, out var der)) return Enrich(der, src, stream, options);
-        if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Enrich(pgpbin, src, stream, options);
-        if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Enrich(kdbx, src, stream, options);
-        if (Signatures.TryMatch7z(src, out var _7z)) return Enrich(_7z, src, stream, options);
-        if (Signatures.TryMatchRar(src, out var rar)) return Enrich(rar, src, stream, options);
-        if (Signatures.TryMatchElf(src, out var elf)) return Enrich(elf, src, stream, options);
-        if (Signatures.TryMatchMachO(src, out var macho)) return Enrich(macho, src, stream, options);
-        if (Signatures.TryMatchCab(src, out var cab)) return Enrich(cab, src, stream, options);
-        if (Signatures.TryMatchGlb(src, out var glb)) return Enrich(glb, src, stream, options);
-        if (Signatures.TryMatchTiff(src, out var tiff)) return Enrich(tiff, src, stream, options);
+        if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
+        if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
+        if (Signatures.TryMatchEvtx(src, out var evtx)) return Finish(Enrich(evtx, src, stream, options));
+        if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
+        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
+        if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
+        if (Signatures.TryMatchFtyp(src, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
+        if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
+        if (Signatures.TryMatchPkcs12(src, out var p12)) return Finish(Enrich(p12, src, stream, options));
+        if (Signatures.TryMatchDerCertificate(src, out var der)) return Finish(Enrich(der, src, stream, options));
+        if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Finish(Enrich(pgpbin, src, stream, options));
+        if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
+        if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
+        if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
+        if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
+        if (Signatures.TryMatchMachO(src, out var macho)) return Finish(Enrich(macho, src, stream, options));
+        if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
+        if (Signatures.TryMatchGlb(src, out var glb)) return Finish(Enrich(glb, src, stream, options));
+        if (Signatures.TryMatchTiff(src, out var tiff)) return Finish(Enrich(tiff, src, stream, options));
         // ISO requires file path offsets; skip here
 
         foreach (var sig in Signatures.All()) {
             if (Signatures.Match(src, sig)) {
                 if (sig.Extension == "zip") {
                     var refined = TryRefineZipOOxml(stream);
-                    if (refined != null) return Enrich(refined, src, stream, options);
+                    if (refined != null) return Finish(Enrich(refined, src, stream, options));
                     var confZip = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                     var guess = TryGuessZipSubtype(stream, out var guessMime);
                     var basicZip = new ContentTypeDetectionResult {
@@ -374,11 +382,11 @@ public static partial class FileInspector {
                         Reason = $"magic:{sig.Extension}",
                         GuessedExtension = guess
                     };
-                    return Enrich(basicZip, src, stream, options);
+                    return Finish(Enrich(basicZip, src, stream, options));
                 }
                 if (sig.Extension == "ole2" && stream is not null) {
                     var refinedOle = TryRefineOle2Subtype(stream);
-                    if (refinedOle != null) return Enrich(refinedOle, src, stream, options);
+                    if (refinedOle != null) return Finish(Enrich(refinedOle, src, stream, options));
                 }
                 var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                 var basic = new ContentTypeDetectionResult {
@@ -391,20 +399,20 @@ public static partial class FileInspector {
                 // Promote generic OLE2 to MSI when directory hints indicate MSI tables (extra safeguard for detection-only callers)
                 if (sig.Extension == "ole2" && stream is not null)
                 {
-                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Enrich(refine, src, stream, options); } catch { }
+                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Finish(Enrich(refine, src, stream, options)); } catch { }
                 }
-                return enriched;
+                return Finish(enriched);
             }
         }
 
         if (Signatures.TryMatchText(src, out var text, declaredExtension)) {
             if (text is not null && text.Extension == "json") {
                 var refined = TryRefineGltfJson(stream);
-                if (refined != null) return Enrich(refined, src, stream, options);
+                if (refined != null) return Finish(Enrich(refined, src, stream, options));
             }
-            return Enrich(text, src, stream, options);
+            return Finish(Enrich(text, src, stream, options));
         }
-        return Enrich(null, src, stream, options);
+        return Finish(Enrich(null, src, stream, options));
     }
 
     private static ContentTypeDetectionResult? TryRefineGltfJson(Stream stream) {
@@ -762,27 +770,28 @@ public static partial class FileInspector {
     /// <summary>
     /// Detects content type from an in-memory span of bytes.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null) {
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null) {
         options ??= new DetectionOptions();
-        if (Signatures.TryMatchTar(data, out var tar)) return Enrich(tar, data, null, options);
-        if (Signatures.TryMatchRiff(data, out var riff)) return Enrich(riff, data, null, options);
-        if (Signatures.TryMatchEvtx(data, out var evtx2)) return Enrich(evtx2, data, null, options);
-        if (Signatures.TryMatchEse(data, out var ese2)) return Enrich(ese2, data, null, options);
-        if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Enrich(hive2, data, null, options);
-        if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Enrich(pol2, data, null, options);
-        if (Signatures.TryMatchFtyp(data, out var ftyp)) return Enrich(ftyp, data, null, options);
-        if (Signatures.TryMatchSqlite(data, out var sqlite)) return Enrich(sqlite, data, null, options);
-        if (Signatures.TryMatchPkcs12(data, out var p12)) return Enrich(p12, data, null, options);
-        if (Signatures.TryMatchDerCertificate(data, out var der)) return Enrich(der, data, null, options);
-        if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Enrich(pgpbin, data, null, options);
-        if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Enrich(kdbx, data, null, options);
-        if (Signatures.TryMatch7z(data, out var _7z)) return Enrich(_7z, data, null, options);
-        if (Signatures.TryMatchRar(data, out var rar)) return Enrich(rar, data, null, options);
-        if (Signatures.TryMatchElf(data, out var elf)) return Enrich(elf, data, null, options);
-        if (Signatures.TryMatchMachO(data, out var macho)) return Enrich(macho, data, null, options);
-        if (Signatures.TryMatchCab(data, out var cab)) return Enrich(cab, data, null, options);
-        if (Signatures.TryMatchGlb(data, out var glb)) return Enrich(glb, data, null, options);
-        if (Signatures.TryMatchTiff(data, out var tiff)) return Enrich(tiff, data, null, options);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
+        if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
+        if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
+        if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));
+        if (Signatures.TryMatchEse(data, out var ese2)) return Finish(Enrich(ese2, data, null, options));
+        if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Finish(Enrich(hive2, data, null, options));
+        if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
+        if (Signatures.TryMatchFtyp(data, out var ftyp)) return Finish(Enrich(ftyp, data, null, options));
+        if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
+        if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
+        if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+        if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Finish(Enrich(pgpbin, data, null, options));
+        if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));
+        if (Signatures.TryMatch7z(data, out var _7z)) return Finish(Enrich(_7z, data, null, options));
+        if (Signatures.TryMatchRar(data, out var rar)) return Finish(Enrich(rar, data, null, options));
+        if (Signatures.TryMatchElf(data, out var elf)) return Finish(Enrich(elf, data, null, options));
+        if (Signatures.TryMatchMachO(data, out var macho)) return Finish(Enrich(macho, data, null, options));
+        if (Signatures.TryMatchCab(data, out var cab)) return Finish(Enrich(cab, data, null, options));
+        if (Signatures.TryMatchGlb(data, out var glb)) return Finish(Enrich(glb, data, null, options));
+        if (Signatures.TryMatchTiff(data, out var tiff)) return Finish(Enrich(tiff, data, null, options));
         foreach (var sig in Signatures.All()) if (Signatures.Match(data, sig)) {
                 var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                 var basic = new ContentTypeDetectionResult {
@@ -791,10 +800,10 @@ public static partial class FileInspector {
                     Confidence = conf,
                     Reason = $"magic:{sig.Extension}"
                 };
-                return Enrich(basic, data, null, options);
+                return Finish(Enrich(basic, data, null, options));
             }
-        if (Signatures.TryMatchText(data, out var text)) return Enrich(text, data, null, options);
-        return Enrich(null, data, null, options);
+        if (Signatures.TryMatchText(data, out var text, declaredExtension)) return Finish(Enrich(text, data, null, options));
+        return Finish(Enrich(null, data, null, options));
     }
 
     private static ContentTypeDetectionResult? TryRefineZipOOxml(string path) {
