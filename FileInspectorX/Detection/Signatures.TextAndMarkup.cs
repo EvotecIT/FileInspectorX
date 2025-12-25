@@ -5,7 +5,7 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures {
     private const int BINARY_SCAN_LIMIT = 2048; // 2 KB: doubled from 1024 to reduce UTF-16 false negatives
-    private const int HEADER_BYTES = 2048;
+    private const int HEADER_BYTES = 4096; // align with default Settings.HeaderReadBytes for deeper text heuristics
     // see FileInspectorX.Settings for configurable thresholds
 
 internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result, string? declaredExtension = null) {
@@ -82,6 +82,37 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         static string Utf8(ReadOnlySpan<byte> s) { if (s.Length == 0) return string.Empty; var a = s.ToArray(); return System.Text.Encoding.UTF8.GetString(a); }
         var headStr = Utf8(head);
         var headLower = headStr.ToLowerInvariant();
+        bool looksMarkup = head.IndexOf((byte)'<') >= 0 && head.IndexOf((byte)'>') >= 0;
+        static bool LooksLikeTimestamp(ReadOnlySpan<byte> l) {
+            int i = 0;
+            while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+            if (i < l.Length && l[i] == (byte)'[') {
+                i++;
+                while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+            }
+            if (l.Length - i < 10) return false;
+            bool y = IsDigit(l[i + 0]) && IsDigit(l[i + 1]) && IsDigit(l[i + 2]) && IsDigit(l[i + 3]);
+            bool sep1 = l[i + 4] == (byte)'-' || l[i + 4] == (byte)'/';
+            bool m = IsDigit(l[i + 5]) && IsDigit(l[i + 6]);
+            bool sep2 = l[i + 7] == (byte)'-' || l[i + 7] == (byte)'/';
+            bool d = IsDigit(l[i + 8]) && IsDigit(l[i + 9]);
+            return y && sep1 && m && sep2 && d;
+        }
+        static bool StartsWithToken(ReadOnlySpan<byte> l, string token) {
+            var tb = System.Text.Encoding.ASCII.GetBytes(token);
+            if (l.Length < tb.Length) return false;
+            for (int i = 0; i < tb.Length; i++) if (char.ToUpperInvariant((char)l[i]) != char.ToUpperInvariant((char)tb[i])) return false;
+            return true;
+        }
+
+        bool psCues = HasPowerShellCues(head, headStr, headLower) || HasVerbNounCmdlet(headStr);
+        bool vbsCues = LooksLikeVbsScript(headLower);
+        bool jsCues = LooksLikeJavaScript(headStr, headLower);
+        bool shShebang = headLower.Contains("#!/bin/sh") || headLower.Contains("#!/usr/bin/env sh") || headLower.Contains("#!/usr/bin/env bash") || headLower.Contains("#!/bin/bash") || headLower.Contains("#!/usr/bin/env zsh") || headLower.Contains("#!/bin/zsh");
+        bool batCues = headLower.Contains("@echo off") || headLower.Contains("setlocal") || headLower.Contains("endlocal") ||
+                       headLower.Contains("\ngoto ") || headLower.Contains("\r\ngoto ") || headLower.Contains(" goto ") ||
+                       headLower.StartsWith("rem ") || headLower.Contains("\nrem ") || headLower.Contains("\r\nrem ") || headLower.Contains(":end");
+        bool scriptCues = psCues || vbsCues || jsCues || shShebang || batCues;
 
         // RTF (respect BOM/whitespace trimming)
         if (head.Length >= 5 && head[0] == '{' && head[1] == '\\' && head[2] == 'r' && head[3] == 't' && head[4] == 'f') { result = new ContentTypeDetectionResult { Extension = "rtf", MimeType = "application/rtf", Confidence = "Medium", Reason = "text:rtf" }; return true; }
@@ -120,7 +151,9 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         // Raw/Base64-heavy text (no explicit armor) — look for long runs of base64 charset
         {
             // Skip when PEM/PGP armor headers are present; those are handled later with specific types.
-            if (headLower.Contains("-----begin ")) { }
+            if (scriptCues) { }
+            else if (looksMarkup) { }
+            else if (headLower.Contains("-----begin ")) { }
             else {
             int allowed = 0, total = 0, eq = 0, contig = 0, maxContig = 0, urlSafe = 0, hexish = 0;
             int limit = Math.Min(head.Length, Settings.EncodedBase64ProbeChars);
@@ -151,20 +184,23 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         // Large hex dump (continuous hex digits possibly with spaces/newlines)
         {
-            int hex = 0, other = 0, contigHex = 0, maxContigHex = 0;
-            int limit = Math.Min(head.Length, Settings.EncodedBase64ProbeChars);
-            for (int i = 0; i < limit; i++)
+            if (!scriptCues)
             {
-                byte c = head[i];
-                bool ws = c == (byte)'\r' || c == (byte)'\n' || c == (byte)'\t' || c == (byte)' ';
-                bool hx = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
-                if (!ws) { if (hx) { hex++; contigHex++; } else { other++; if (contigHex > maxContigHex) maxContigHex = contigHex; contigHex = 0; } }
-            }
-            if (contigHex > maxContigHex) maxContigHex = contigHex;
-            if (hex >= Settings.EncodedHexMinChars && maxContigHex >= Settings.EncodedHexMinChars && hex > other * 4)
-            {
-                result = new ContentTypeDetectionResult { Extension = "hex", MimeType = "text/plain", Confidence = "Low", Reason = "text:hex" };
-                return true;
+                int hex = 0, other = 0, contigHex = 0, maxContigHex = 0;
+                int limit = Math.Min(head.Length, Settings.EncodedBase64ProbeChars);
+                for (int i = 0; i < limit; i++)
+                {
+                    byte c = head[i];
+                    bool ws = c == (byte)'\r' || c == (byte)'\n' || c == (byte)'\t' || c == (byte)' ';
+                    bool hx = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+                    if (!ws) { if (hx) { hex++; contigHex++; } else { other++; if (contigHex > maxContigHex) maxContigHex = contigHex; contigHex = 0; } }
+                }
+                if (contigHex > maxContigHex) maxContigHex = contigHex;
+                if (hex >= Settings.EncodedHexMinChars && maxContigHex >= Settings.EncodedHexMinChars && hex > other * 4)
+                {
+                    result = new ContentTypeDetectionResult { Extension = "hex", MimeType = "text/plain", Confidence = "Low", Reason = "text:hex" };
+                    return true;
+                }
             }
         }
 
@@ -196,6 +232,11 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         // JSON (tighter heuristics)
         if (head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')) {
+            int jln1 = head.IndexOf((byte)'\n'); if (jln1 < 0) jln1 = head.Length;
+            var jsonLine1 = TrimBytes(head.Slice(0, jln1));
+            bool jsonLooksLikeLog = LooksLikeTimestamp(jsonLine1) || StartsWithLevelToken(jsonLine1);
+            if (jsonLooksLikeLog) { }
+            else {
             int len = Math.Min(2048, head.Length);
             var slice = head.Slice(0, len);
             bool looksObject = slice[0] == (byte)'{';
@@ -218,9 +259,34 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                 bool hasClose = slice.IndexOf((byte)'}') >= 0;
                 if (hasQuotedColon && hasClose) { result = new ContentTypeDetectionResult { Extension = "json", MimeType = "application/json", Confidence = "Medium", Reason = "text:json", ReasonDetails = "json:object-key-colon" }; return true; }
             }
+            }
         }
         // XML / HTML
         if (head.Length >= 5 && head[0] == (byte)'<') {
+            var root = TryGetXmlRootName(headStr);
+            if (root != null && root.Length > 0)
+            {
+                var rootLower = root.ToLowerInvariant();
+                int colon = rootLower.IndexOf(':');
+                if (colon >= 0 && colon < rootLower.Length - 1)
+                    rootLower = rootLower.Substring(colon + 1);
+                if (rootLower == "policydefinitions")
+                {
+                    bool admxCues = LooksLikeAdmxXml(headLower);
+                    bool admxStrong = admxCues || declaredAdmx;
+                    var details = admxCues ? "xml:policydefinitions+schema" : (declaredAdmx ? "xml:policydefinitions+decl" : "xml:policydefinitions");
+                    result = new ContentTypeDetectionResult { Extension = "admx", MimeType = "application/xml", Confidence = admxStrong ? "High" : "Medium", Reason = "text:admx", ReasonDetails = details };
+                    return true;
+                }
+                if (rootLower == "policydefinitionresources")
+                {
+                    bool admlCues = LooksLikeAdmlXml(headLower);
+                    bool admlStrong = admlCues || declaredAdml;
+                    var details = admlCues ? "xml:policydefinitionresources+schema" : (declaredAdml ? "xml:policydefinitionresources+decl" : "xml:policydefinitionresources");
+                    result = new ContentTypeDetectionResult { Extension = "adml", MimeType = "application/xml", Confidence = admlStrong ? "High" : "Medium", Reason = "text:adml", ReasonDetails = details };
+                    return true;
+                }
+            }
             if (head.Length >= 5 && head.Slice(0, 5).SequenceEqual("<?xml"u8)) {
                 var ext = declaredAdmx ? "admx" : (declaredAdml ? "adml" : "xml");
                 result = new ContentTypeDetectionResult { Extension = ext, MimeType = "application/xml", Confidence = "Medium", Reason = "text:xml", ReasonDetails = ext == "xml" ? null : $"xml:decl-{ext}" };
@@ -379,47 +445,33 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         var line2 = rest.Slice(0, nl2);
 
         // LOG heuristic (timestamps/levels) promoted ahead of CSV/Markdown to avoid mislabels
-        static bool LooksLikeTimestamp(ReadOnlySpan<byte> l) {
-            if (l.Length < 10) return false;
-            bool y = IsDigit(l[0]) && IsDigit(l[1]) && IsDigit(l[2]) && IsDigit(l[3]);
-            bool sep1 = l[4] == (byte)'-' || l[4] == (byte)'/';
-            bool m = IsDigit(l[5]) && IsDigit(l[6]);
-            bool sep2 = l[7] == (byte)'-' || l[7] == (byte)'/';
-            bool d = IsDigit(l[8]) && IsDigit(l[9]);
-            return y && sep1 && m && sep2 && d;
-        }
-        static bool StartsWithToken(ReadOnlySpan<byte> l, string token) {
-            var tb = System.Text.Encoding.ASCII.GetBytes(token);
-            if (l.Length < tb.Length) return false;
-            for (int i = 0; i < tb.Length; i++) if (char.ToUpperInvariant((char)l[i]) != char.ToUpperInvariant((char)tb[i])) return false;
-            return true;
-        }
-
         bool logCues = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2);
+        if (!scriptCues)
+        {
+            if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-2" }; return true; }
 
-        if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-2" }; return true; }
-
-        int levelCount = 0;
-        if (StartsWithLevelToken(line1)) levelCount++;
-        if (StartsWithLevelToken(line2)) levelCount++;
-        // include up to two more lines
-        var rest2 = rest.Slice(Math.Min(nl2 + 1, rest.Length));
-        int nl3 = rest2.IndexOf((byte)'\n'); if (nl3 < 0) nl3 = rest2.Length; var line3 = rest2.Slice(0, nl3);
-        var rest3 = rest2.Slice(Math.Min(nl3 + 1, rest2.Length));
-        int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
-        if (StartsWithLevelToken(line3)) levelCount++;
-        if (StartsWithLevelToken(line4)) levelCount++;
-        int tsCount = 0; if (LooksLikeTimestamp(line1)) tsCount++; if (LooksLikeTimestamp(line2)) tsCount++; if (LooksLikeTimestamp(line3)) tsCount++; if (LooksLikeTimestamp(line4)) tsCount++;
-        if (tsCount >= 2) {
-            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-multi" }; return true;
+            int levelCount = 0;
+            if (StartsWithLevelToken(line1)) levelCount++;
+            if (StartsWithLevelToken(line2)) levelCount++;
+            // include up to two more lines
+            var rest2 = rest.Slice(Math.Min(nl2 + 1, rest.Length));
+            int nl3 = rest2.IndexOf((byte)'\n'); if (nl3 < 0) nl3 = rest2.Length; var line3 = rest2.Slice(0, nl3);
+            var rest3 = rest2.Slice(Math.Min(nl3 + 1, rest2.Length));
+            int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
+            if (StartsWithLevelToken(line3)) levelCount++;
+            if (StartsWithLevelToken(line4)) levelCount++;
+            int tsCount = 0; if (LooksLikeTimestamp(line1)) tsCount++; if (LooksLikeTimestamp(line2)) tsCount++; if (LooksLikeTimestamp(line3)) tsCount++; if (LooksLikeTimestamp(line4)) tsCount++;
+            if (tsCount >= 2) {
+                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-multi" }; return true;
+            }
+            if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) {
+                // Boost confidence when we have both timestamps and levels across lines
+                var conf = levelCount >= 2 && (LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) ? "Medium" : "Low";
+                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = conf, Reason = "text:log-levels", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true;
+            }
+            if (levelCount > 0) logCues = true;
+            if (declaredLog && logCues) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:declared" }; return true; }
         }
-        if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1)) {
-            // Boost confidence when we have both timestamps and levels across lines
-            var conf = levelCount >= 2 && (LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) ? "Medium" : "Low";
-            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = conf, Reason = "text:log-levels", ReasonDetails = levelCount >= 2 ? $"log:levels-{levelCount}" : "log:timestamp+level" }; return true;
-        }
-        if (levelCount > 0) logCues = true;
-        if (declaredLog && logCues) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:declared" }; return true; }
 
         // CSV/TSV/Delimited heuristics (look at first two lines) — also handle Excel 'sep=' directive and single-line CSV/TSV
         // Excel separator directive (first non-whitespace line like `sep=,` or `sep=;` or `sep=\t`)
@@ -427,7 +479,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             string s = headStr.TrimStart('\ufeff', ' ', '\t', '\r', '\n');
             if (s.StartsWith("sep=", System.StringComparison.OrdinalIgnoreCase))
             {
-                if (!logCues)
+                if (!logCues && !scriptCues)
                 {
                     bool isTab = s.StartsWith("sep=\\t", System.StringComparison.OrdinalIgnoreCase) || (s.Length > 4 && s[4] == '\t');
                     if (isTab) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:sep-directive" }; return true; }
@@ -440,7 +492,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         int semis1 = Count(line1, (byte)';'); int semis2 = Count(line2, (byte)';');
         int pipes1 = Count(line1, (byte)'|'); int pipes2 = Count(line2, (byte)'|');
         int tabs1 = Count(line1, (byte)'\t'); int tabs2 = Count(line2, (byte)'\t');
-        if (!logCues) {
+        if (!logCues && !scriptCues) {
             if ((commas1 >= 1 && commas2 >= 1 && Math.Abs(commas1 - commas2) <= 2) || (semis1 >= 1 && semis2 >= 1 && Math.Abs(semis1 - semis2) <= 2) || (pipes1 >= 1 && pipes2 >= 1 && Math.Abs(pipes1 - pipes2) <= 2)) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:delimiter-repeat-2lines" }; return true; }
             if (tabs1 >= 1 && tabs2 >= 1 && Math.Abs(tabs1 - tabs2) <= 2) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:tabs-2lines" }; return true; }
             if (line2.Length == 0 || (line2.Length == 0 && rest.Length == 0)) {
@@ -457,7 +509,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         // INI/INF heuristic (guarded against PowerShell/type-accelerator patterns)
         {
             bool hasPsCues = HasPowerShellCues(head, headStr, headLower) || HasVerbNounCmdlet(headStr);
-            if (!hasPsCues)
+            if (!hasPsCues && !jsCues && !shShebang && !batCues)
             {
                 bool hasSection = false;
                 bool hasEquals = false;
@@ -518,34 +570,40 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             {
                 // Do not classify as Markdown if strong PowerShell cues or log cues are present
                 var okByCues = declaredMd ? mdCues >= 1 : mdCues >= 2;
-                if (okByCues && (!HasPowerShellCues(head, headStr, headLower) && !logCues)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
+                bool hasFence = sl.Contains("```");
+                bool hasHeading = sl.StartsWith("# ") || sl.Contains("\n# ");
+                bool mdStructural = hasFence || hasHeading;
+                if (okByCues && !logCues && (!scriptCues || declaredMd || mdStructural)) { result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" }; return true; }
             }
         }
 
         // PowerShell heuristic (uses cached headStr/headLower)
 
         // Windows well-known text logs: Firewall, Netlogon, Event Viewer text export
-        if (LogHeuristics.LooksLikeFirewallLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
-        if (LogHeuristics.LooksLikeNetlogonLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
-        if (LogHeuristics.LooksLikeEventViewerTextExport(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
+        if (!scriptCues)
+        {
+            if (LogHeuristics.LooksLikeFirewallLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-firewall" }; return true; }
+            if (LogHeuristics.LooksLikeNetlogonLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-netlogon" }; return true; }
+            if (LogHeuristics.LooksLikeEventViewerTextExport(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:event-txt" }; return true; }
 
-        // Microsoft DHCP Server audit logs (similar to IIS/Firewall headers)
-        if (LogHeuristics.LooksLikeDhcpLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
+            // Microsoft DHCP Server audit logs (similar to IIS/Firewall headers)
+            if (LogHeuristics.LooksLikeDhcpLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dhcp" }; return true; }
 
-        // Microsoft Exchange Message Tracking logs
-        if (LogHeuristics.LooksLikeExchangeMessageTrackingLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
+            // Microsoft Exchange Message Tracking logs
+            if (LogHeuristics.LooksLikeExchangeMessageTrackingLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-exchange" }; return true; }
 
-        // Windows Defender textual logs (MpCmdRun outputs or Event Viewer text exports mentioning Defender)
-        if (LogHeuristics.LooksLikeDefenderTextLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
+            // Windows Defender textual logs (MpCmdRun outputs or Event Viewer text exports mentioning Defender)
+            if (LogHeuristics.LooksLikeDefenderTextLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-defender" }; return true; }
 
-        // SQL Server ERRORLOG text
-        if (LogHeuristics.LooksLikeSqlErrorLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
+            // SQL Server ERRORLOG text
+            if (LogHeuristics.LooksLikeSqlErrorLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-sql-errorlog" }; return true; }
 
-        // NPS / RADIUS (IAS/NPS) text logs
-        if (LogHeuristics.LooksLikeNpsRadiusLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
+            // NPS / RADIUS (IAS/NPS) text logs
+            if (LogHeuristics.LooksLikeNpsRadiusLog(headLower)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-nps" }; return true; }
 
-        // SQL Server Agent logs (SQLAgent.out / text snippets)
-        if (LogHeuristics.LooksLikeSqlAgentLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
+            // SQL Server Agent logs (SQLAgent.out / text snippets)
+            if (LogHeuristics.LooksLikeSqlAgentLog(headLower, logCues)) { result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-sqlagent" }; return true; }
+        }
 
         // PEM/PGP ASCII-armored blocks (detect before script heuristics)
         {
@@ -596,7 +654,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
             // Count Get-/Set- as a mild cue only when combined with another cue
-            bool hasGetSet = headStr.IndexOf("Get-", System.StringComparison.Ordinal) >= 0 || headStr.IndexOf("Set-", System.StringComparison.Ordinal) >= 0;
+            bool hasGetSet = headStr.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || headStr.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0;
             if (hasGetSet) cues++;
             if (hasVerbNoun) { cues++; strong++; }
             if (hasPipeline) { cues++; strong++; }
@@ -637,6 +695,9 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (sl.Contains("]$") || sl.Contains("] $")) { cues++; strong++; }
             // Common PowerShell literals / constructs
             if (sl.Contains("$true") || sl.Contains("$false") || sl.Contains("$null")) { cues++; strong++; }
+            if (sl.Contains("$env:")) { cues++; strong++; }
+            if (sl.Contains("$psscriptroot") || sl.Contains("$pscommandpath") || sl.Contains("$pshome")) { cues++; strong++; }
+            if (sl.Contains("$_")) { cues++; }
             if (sl.Contains("@{") || sl.Contains("@(") || sl.Contains("$(") || sl.Contains("${")) { cues++; }
             if (sl.Contains("[pscustomobject]@{")) { cues++; strong++; }
 
@@ -671,9 +732,9 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         }
 
         // VBScript heuristic
-        if (headLower.Contains("wscript.") || headLower.Contains("createobject(") || headLower.Contains("vbscript") || headLower.Contains("dim ") || headLower.Contains("end sub") || headLower.Contains("option explicit") || headLower.Contains("on error resume next")) {
-            var conf = (headLower.Contains("option explicit") || headLower.Contains("on error resume next") || headLower.Contains("createobject(")) ? "Medium" : "Low";
-            result = new ContentTypeDetectionResult { Extension = "vbs", MimeType = "text/vbscript", Confidence = conf, Reason = "text:vbs", ReasonDetails = conf=="Medium"?"vbs:explicit+error|createobject":"vbs:wscript+dim" }; return true;
+        if (LooksLikeVbsScript(headLower)) {
+            var conf = (headLower.Contains("option explicit") || headLower.Contains("on error resume next") || headLower.Contains("createobject(") || headLower.Contains("wscript.")) ? "Medium" : "Low";
+            result = new ContentTypeDetectionResult { Extension = "vbs", MimeType = "text/vbscript", Confidence = conf, Reason = "text:vbs", ReasonDetails = conf=="Medium"?"vbs:explicit+error|createobject":"vbs:wscript+dim|msgbox" }; return true;
         }
 
         // Shell script heuristic
@@ -683,8 +744,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         // Node.js shebang
         if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shebang", ReasonDetails = "js:shebang" }; return true; }
         // JavaScript heuristic (non-minified). Avoid misclassifying Lua where "local function" is common.
-        if ((headLower.Contains("const ") || headLower.Contains("let ") || headLower.Contains("var ") || headLower.Contains("=>")) ||
-            (headLower.Contains("function ") && !headLower.Contains("local function"))) {
+        if (LooksLikeJavaScript(headStr, headLower)) {
             if (!(head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')))
                 { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Low", Reason = "text:js-heur" }; return true; }
         }
@@ -815,8 +875,133 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (!(char.IsLetter((char)l[p]) || l[p] == (byte)'_')) return false;
             return true;
         }
+        static bool LooksLikeVbsScript(string lower)
+        {
+            return lower.Contains("wscript.") || lower.Contains("wscript.echo") ||
+                   lower.Contains("createobject(") || lower.Contains("vbscript") ||
+                   lower.Contains("dim ") || lower.Contains("end sub") ||
+                   lower.Contains("option explicit") || lower.Contains("on error resume next") ||
+                   lower.Contains("msgbox");
+        }
+        static bool LooksLikeJavaScript(string s, string sl)
+        {
+            // Strong cues: shebang, function/arrow, module exports, or call-pattern like obj.method(
+            if (sl.Contains("#!/usr/bin/env node") || sl.Contains("#!/usr/bin/node")) return true;
+            if (sl.Contains("local function")) return false; // Lua-specific guard
+            int cues = 0;
+            bool strong = false;
+            if (sl.Contains("function(") || sl.Contains("function ")) { cues++; strong = true; }
+            if (sl.Contains("=>")) { cues++; strong = true; }
+            if (sl.Contains("module.exports") || sl.Contains("exports.")) { cues++; strong = true; }
+            if (sl.Contains("import ") || sl.Contains("export ")) cues++;
+            if (sl.Contains("require(")) cues++;
+            if (sl.Contains("document.") || sl.Contains("window.")) cues++;
+            if (sl.Contains("class ")) cues++;
+            if (sl.Contains("const ") || sl.Contains("let ") || sl.Contains("var "))
+            {
+                cues++;
+                if (sl.Contains("=")) strong = true;
+            }
+            if (LooksLikeJsCallPrefix(s)) { cues++; strong = true; }
+            return (strong && cues >= 1) || cues >= 2;
+        }
+        static bool LooksLikeJsCallPrefix(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            int i = 0;
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            if (i < s.Length && s[i] == '(') i++; // IIFE or grouped expression
+            if (i >= s.Length || !IsIdentStart(s[i])) return false;
+            i++;
+            while (i < s.Length && IsIdentPart(s[i])) i++;
+            if (i >= s.Length || s[i] != '.') return false;
+            i++;
+            if (i >= s.Length || !IsIdentStart(s[i])) return false;
+            i++;
+            while (i < s.Length && IsIdentPart(s[i])) i++;
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            return i < s.Length && s[i] == '(';
+        }
+        static bool IsIdentStart(char c) => char.IsLetter(c) || c == '_' || c == '$';
+        static bool IsIdentPart(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '$';
+        static bool LooksLikeAdmxXml(string lower)
+        {
+            int cues = 0;
+            if (lower.Contains("schemas.microsoft.com/grouppolicy/2006/07/policydefinitions")) cues++;
+            if (lower.Contains("<policynamespaces")) cues++;
+            if (lower.Contains("<policies")) cues++;
+            if (lower.Contains("<categories")) cues++;
+            if (lower.Contains("<resources")) cues++;
+            if (lower.Contains("schemaversion")) cues++;
+            if (lower.Contains("revision=\"")) cues++;
+            return cues >= 2;
+        }
+        static bool LooksLikeAdmlXml(string lower)
+        {
+            int cues = 0;
+            if (lower.Contains("schemas.microsoft.com/grouppolicy/2006/07/policydefinitions")) cues++;
+            if (lower.Contains("<resources")) cues++;
+            if (lower.Contains("<stringtable")) cues++;
+            if (lower.Contains("<presentationtable")) cues++;
+            if (lower.Contains("schemaversion")) cues++;
+            if (lower.Contains("revision=\"")) cues++;
+            return cues >= 2;
+        }
+        static string? TryGetXmlRootName(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return null;
+            int i = 0;
+            while (i < s.Length)
+            {
+                int lt = s.IndexOf('<', i);
+                if (lt < 0 || lt + 1 >= s.Length) return null;
+                char next = s[lt + 1];
+                if (next == '?' || next == '!')
+                {
+                    int gt = s.IndexOf('>', lt + 2);
+                    if (gt < 0) return null;
+                    i = gt + 1;
+                    continue;
+                }
+                int start = lt + 1;
+                while (start < s.Length && char.IsWhiteSpace(s[start])) start++;
+                int end = start;
+                while (end < s.Length && (char.IsLetterOrDigit(s[end]) || s[end] == ':' || s[end] == '_' || s[end] == '-')) end++;
+                if (end > start) return s.Substring(start, end - start);
+                i = lt + 1;
+            }
+            return null;
+        }
         static bool StartsWithLevelToken(ReadOnlySpan<byte> l) {
-            return StartsWithToken(l, "INFO") || StartsWithToken(l, "WARN") || StartsWithToken(l, "ERROR") || StartsWithToken(l, "DEBUG") || StartsWithToken(l, "TRACE") || StartsWithToken(l, "FATAL") || StartsWithToken(l, "CRITICAL") || StartsWithToken(l, "ALERT") || StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]") || StartsWithToken(l, "[CRITICAL]") || StartsWithToken(l, "[ALERT]");
+            if (StartsWithToken(l, "INFO") || StartsWithToken(l, "WARN") || StartsWithToken(l, "ERROR") || StartsWithToken(l, "DEBUG") || StartsWithToken(l, "TRACE") || StartsWithToken(l, "FATAL") || StartsWithToken(l, "CRITICAL") || StartsWithToken(l, "ALERT") || StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]") || StartsWithToken(l, "[CRITICAL]") || StartsWithToken(l, "[ALERT]"))
+                return true;
+            // Allow bracketed levels like "[Info -", "[ERROR  -", "[Warn ]"
+            if (l.Length > 2 && l[0] == (byte)'[')
+            {
+                int i = 1;
+                while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+                int start = i;
+                while (i < l.Length && char.IsLetter((char)l[i])) i++;
+                int len = i - start;
+                if (len >= 3 && IsLevelToken(l.Slice(start, len)))
+                {
+                    if (i >= l.Length) return true;
+                    byte next = l[i];
+                    if (next == (byte)']' || next == (byte)'-' || next == (byte)' ' || next == (byte)'\t') return true;
+                }
+            }
+            return false;
+        }
+        static bool IsLevelToken(ReadOnlySpan<byte> token)
+        {
+            return (token.Length == 4 && StartsWithToken(token, "INFO")) ||
+                   (token.Length == 4 && StartsWithToken(token, "WARN")) ||
+                   (token.Length == 5 && StartsWithToken(token, "ERROR")) ||
+                   (token.Length == 5 && StartsWithToken(token, "DEBUG")) ||
+                   (token.Length == 5 && StartsWithToken(token, "TRACE")) ||
+                   (token.Length == 5 && StartsWithToken(token, "FATAL")) ||
+                   (token.Length == 5 && StartsWithToken(token, "ALERT")) ||
+                   (token.Length == 8 && StartsWithToken(token, "CRITICAL"));
         }
         static int IndexOfToken(ReadOnlySpan<byte> hay, string token) {
             var tb = System.Text.Encoding.ASCII.GetBytes(token);
@@ -830,21 +1015,58 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
         static bool HasVerbNounCmdlet(string s)
         {
             // quick token scan to avoid regex and allocations
+            var span = s.AsSpan();
             int i = 0;
-            while (i < s.Length) {
-                while (i < s.Length && IsSep(s[i])) i++;
+            while (i < span.Length) {
+                while (i < span.Length && IsSep(span[i])) i++;
                 int start = i;
-                while (i < s.Length && !IsSep(s[i])) i++;
+                while (i < span.Length && !IsSep(span[i])) i++;
                 int len = i - start;
-                if (len > 2) {
-                    int dash = s.IndexOf('-', start, len);
-                    if (dash > start && dash < start + len - 1) {
-                        char a = s[start];
-                        if (char.IsUpper(a) && char.IsLetter(s[dash + 1])) return true;
+                if (len > 3) {
+                    var token = span.Slice(start, len);
+                    int dash = token.IndexOf('-');
+                    if (dash > 0 && dash < token.Length - 1) {
+                        var verb = token.Slice(0, dash);
+                        var noun = token.Slice(dash + 1);
+                        if (noun.Length >= 2 && IsCommonPsVerb(verb)) return true;
                     }
                 }
             }
             return false;
+
+            static bool IsCommonPsVerb(ReadOnlySpan<char> verb)
+            {
+                if (verb.Length < 3 || verb.Length > 12) return false;
+                return verb.Equals("get", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("set", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("new", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("add", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("remove", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("copy", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("move", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("rename", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("test", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("invoke", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("start", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("stop", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("enable", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("disable", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("import", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("export", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("select", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("convert", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("write", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("read", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("update", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("connect", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("disconnect", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("format", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("register", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("unregister", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("resolve", StringComparison.OrdinalIgnoreCase) ||
+                       verb.Equals("find", StringComparison.OrdinalIgnoreCase);
+            }
 
             static bool IsSep(char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';' || c == '(' || c == '{';
         }
