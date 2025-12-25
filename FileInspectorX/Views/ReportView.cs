@@ -19,8 +19,14 @@ public sealed class ReportView
     public string? DetectionConfidence { get; set; }
     /// <summary>Short textual reason describing the detection.</summary>
     public string? DetectionReason { get; set; }
+    /// <summary>Detection score (0-100) used to rank candidates.</summary>
+    public int? DetectionScore { get; set; }
+    /// <summary>True when the detected type is commonly considered risky/dangerous.</summary>
+    public bool? DetectionIsDangerous { get; set; }
     /// <summary>Best-guess extension when ambiguous.</summary>
     public string? GuessedExtension { get; set; }
+    /// <summary>Alternative detection candidates when multiple formats are plausible.</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionAlternatives { get; set; }
 
     // Encoded payload summary (base64/hex) with inner detection
     /// <summary>When the content appears encoded, indicates the encoding kind (e.g., "base64" or "hex").</summary>
@@ -253,6 +259,9 @@ public sealed class ReportView
             r.DetectedTypeName = a.Detection.MimeType;
             r.DetectionConfidence = a.Detection.Confidence;
             r.DetectionReason = a.Detection.Reason;
+            if (a.Detection.Score.HasValue) r.DetectionScore = a.Detection.Score;
+            r.DetectionIsDangerous = a.Detection.IsDangerous;
+            if (a.Detection.Alternatives != null && a.Detection.Alternatives.Count > 0) r.DetectionAlternatives = a.Detection.Alternatives;
             // Additional friendliness for PE is handled in detection; nothing to do here
             if (!string.IsNullOrEmpty(a.Detection.GuessedExtension)) r.GuessedExtension = a.Detection.GuessedExtension;
         }
@@ -593,7 +602,10 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
+        if (DetectionScore.HasValue) d["DetectionScore"] = DetectionScore.Value;
+        if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;
+        if (DetectionAlternatives != null && DetectionAlternatives.Count > 0) d["DetectionAlternatives"] = DetectionAlternatives;
         if (!string.IsNullOrEmpty(EncodedKind)) d["EncodedKind"] = EncodedKind;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedExtension)) d["EncodedInnerDetectedExtension"] = EncodedInnerDetectedExtension;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
