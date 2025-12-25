@@ -514,6 +514,10 @@ public static partial class FileInspector {
                 {
                     DtdProcessing = System.Xml.DtdProcessing.Prohibit,
                     XmlResolver = null,
+                    MaxCharactersInDocument = Math.Min(Settings.AdmxAdmlXmlWellFormednessMaxBytes > 0
+                        ? Settings.AdmxAdmlXmlWellFormednessMaxBytes
+                        : 100L * 1024L * 1024L, 100L * 1024L * 1024L),
+                    MaxCharactersFromEntities = 1024,
                     CloseInput = false
                 };
                 using var reader = System.Xml.XmlReader.Create(stream, settings);
@@ -552,8 +556,10 @@ public static partial class FileInspector {
             return;
         }
 
+        const long MaxStructuredValidationBytes = 100L * 1024L * 1024L;
         long budget = Settings.DetectionReadBudgetBytes;
         if (budget <= 0) return;
+        if (budget > MaxStructuredValidationBytes) budget = MaxStructuredValidationBytes;
 
         long len = -1;
         try { len = stream.Length; } catch { len = -1; }
@@ -660,7 +666,8 @@ public static partial class FileInspector {
             }
         }
 
-        int len = Math.Max(0, count - bomSkip);
+        if (bomSkip >= count) return string.Empty;
+        int len = count - bomSkip;
         if (len == 0) return string.Empty;
         return enc.GetString(buffer, bomSkip, len);
     }
@@ -763,7 +770,9 @@ public static partial class FileInspector {
             var settings = new System.Xml.XmlReaderSettings
             {
                 DtdProcessing = System.Xml.DtdProcessing.Prohibit,
-                XmlResolver = null
+                XmlResolver = null,
+                MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
+                MaxCharactersFromEntities = 1024
             };
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
             while (reader.Read())

@@ -5,12 +5,17 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures {
     private const int BINARY_SCAN_LIMIT = 2048; // 2 KB: doubled from 1024 to reduce UTF-16 false negatives
-    private const int HEADER_BYTES = 4096; // align with default Settings.HeaderReadBytes for deeper text heuristics
+    private const int HEADER_BYTES_FALLBACK = 4096; // align with default Settings.HeaderReadBytes for deeper text heuristics
+    private const double UTF_NUL_RATIO_MIN = 0.2;
+    private const double UTF32_NUL_RATIO_MIN = 0.6;
+    private const double UTF32_NONNULL_POS_DOMINANCE = 0.7;
+    private const int UTF16_NUL_DOMINANCE_FACTOR = 4;
     // see FileInspectorX.Settings for configurable thresholds
 
-internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result, string? declaredExtension = null) {
+    internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result, string? declaredExtension = null) {
         result = null;
         if (src.Length == 0) return false;
+        int headerBytes = GetHeaderBytes();
 
         // Note: we may transcode UTF-16/UTF-32 text to UTF-8 bytes for downstream heuristics.
         // Keep the original BOM charset for MIME/Reason hints.
@@ -61,26 +66,26 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             if (nulTotal > 0)
             {
                 double nulRatio = (double)nulTotal / Math.Max(1, scan);
-                if (nulRatio >= 0.2)
+                if (nulRatio >= UTF_NUL_RATIO_MIN)
                 {
-                    if (nulOdd > nulEven * 4)
+                    if (nulOdd > nulEven * UTF16_NUL_DOMINANCE_FACTOR)
                     {
                         transcodeEnc = System.Text.Encoding.Unicode;
                         transcodeBytesPerChar = 2;
                         textCharset = "utf-16le";
                     }
-                    else if (nulEven > nulOdd * 4)
+                    else if (nulEven > nulOdd * UTF16_NUL_DOMINANCE_FACTOR)
                     {
-                        transcodeEnc = System.Text.Encoding.BigEndianUnicode;
+                        transcodeEnc = System.Text.Encoding.BigEndianUnicode;   
                         transcodeBytesPerChar = 2;
                         textCharset = "utf-16be";
                     }
-                    else if (nulRatio >= 0.6)
+                    else if (nulRatio >= UTF32_NUL_RATIO_MIN)
                     {
                         int nonNullTotal = nonNullPos4[0] + nonNullPos4[1] + nonNullPos4[2] + nonNullPos4[3];
                         int maxPos = 0;
                         for (int i = 1; i < 4; i++) if (nonNullPos4[i] > nonNullPos4[maxPos]) maxPos = i;
-                        if (nonNullTotal > 0 && nonNullPos4[maxPos] >= (int)(nonNullTotal * 0.7))
+                        if (nonNullTotal > 0 && nonNullPos4[maxPos] >= (int)(nonNullTotal * UTF32_NONNULL_POS_DOMINANCE))
                         {
                             if (maxPos == 0)
                             {
@@ -115,7 +120,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                 else if (bomCharset == "utf-32be") { enc = new System.Text.UTF32Encoding(true, true); bytesPerChar = 4; }
                 else { enc = transcodeEnc!; bytesPerChar = transcodeBytesPerChar; }
 
-                int decodeBudget = HEADER_BYTES * bytesPerChar;
+                int decodeBudget = headerBytes * bytesPerChar;
                 int remaining = src.Length - bomSkip;
                 int maxBytes = Math.Min(remaining, decodeBudget);
                 if (maxBytes <= bytesPerChar) return false;
@@ -156,7 +161,7 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
 
         // Trim leading whitespace for structure checks
         int start = bomSkip; while (start < data.Length && char.IsWhiteSpace((char)data[start])) start++;
-        var head = data.Slice(start, Math.Min(HEADER_BYTES, data.Length - start));
+        var head = data.Slice(start, Math.Min(headerBytes, data.Length - start));
         // Cache string conversions (single pass) for heuristics that need them
         static string Utf8(ReadOnlySpan<byte> s) { if (s.Length == 0) return string.Empty; var a = s.ToArray(); return System.Text.Encoding.UTF8.GetString(a); }
         var headStr = Utf8(head);
@@ -1631,7 +1636,9 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
                 var settings = new System.Xml.XmlReaderSettings
                 {
                     DtdProcessing = System.Xml.DtdProcessing.Prohibit,
-                    XmlResolver = null
+                    XmlResolver = null,
+                    MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
+                    MaxCharactersFromEntities = 1024
                 };
                 using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
                 while (reader.Read())
@@ -1691,6 +1698,12 @@ internal static bool TryMatchText(ReadOnlySpan<byte> src, out ContentTypeDetecti
             }
         }
 
+        static int GetHeaderBytes()
+        {
+            int hb = Settings.HeaderReadBytes;
+            if (hb <= 0) hb = HEADER_BYTES_FALLBACK;
+            return Math.Max(256, Math.Min(hb, 1 << 20));
+        }
         static int Count(ReadOnlySpan<byte> l, byte ch) { int c = 0; for (int i = 0; i < l.Length; i++) if (l[i] == ch) c++; return c; }
         static bool IsDigit(byte b) => b >= (byte)'0' && b <= (byte)'9';
         static ReadOnlySpan<byte> TrimBytes(ReadOnlySpan<byte> s) {
