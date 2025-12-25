@@ -327,6 +327,7 @@ public static partial class FileInspector {
                 }
             }
             det = ApplyDeclaredBias(det, extDeclared);
+            TryValidateStructuredTextWithBudget(fs, det, skipAdmxAdml: true);
             TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
         } catch (OutOfMemoryException) { throw; }
@@ -410,7 +411,10 @@ public static partial class FileInspector {
                 var refined = TryRefineGltfJson(stream);
                 if (refined != null) return Finish(Enrich(refined, src, stream, options));
             }
-            return Finish(Enrich(text, src, stream, options));
+            var enriched = Enrich(text, src, stream, options);
+            var finished = Finish(enriched);
+            TryValidateStructuredTextWithBudget(stream, finished, skipAdmxAdml: false);
+            return finished;
         }
         return Finish(Enrich(null, src, stream, options));
     }
@@ -529,6 +533,252 @@ public static partial class FileInspector {
         catch
         {
             // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
+        }
+    }
+
+    private static void TryValidateStructuredTextWithBudget(Stream? stream, ContentTypeDetectionResult? det, bool skipAdmxAdml)
+    {
+        if (stream == null || det == null) return;
+        if (!stream.CanSeek) return;
+
+        var ext = (det.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext)) return;
+        if (ext == "admx" || ext == "adml")
+        {
+            if (skipAdmxAdml) return;
+        }
+        else if (ext != "json" && ext != "xml")
+        {
+            return;
+        }
+
+        long budget = Settings.DetectionReadBudgetBytes;
+        if (budget <= 0) return;
+
+        long len = -1;
+        try { len = stream.Length; } catch { len = -1; }
+        long readBytes = budget;
+        if (len > 0) readBytes = Math.Min(len, budget);
+        if (readBytes <= 0) return;
+
+        long pos = 0;
+        try { pos = stream.Position; } catch { pos = 0; }
+        byte[] buffer = new byte[(int)Math.Min(readBytes, int.MaxValue)];
+        int n = 0;
+        try
+        {
+            stream.Seek(0, SeekOrigin.Begin);
+            n = stream.Read(buffer, 0, buffer.Length);
+        }
+        catch
+        {
+            return;
+        }
+        finally
+        {
+            try { stream.Seek(pos, SeekOrigin.Begin); } catch { /* ignore */ }
+        }
+
+        if (n <= 0) return;
+        string sample = DecodeTextSample(buffer, n);
+        if (string.IsNullOrWhiteSpace(sample)) return;
+
+        bool complete = false;
+        if (len > 0 && n >= len) complete = true;
+
+        if (ext == "json")
+        {
+            bool looksComplete = complete || LooksLikeCompleteJson(sample);
+            if (looksComplete && !TryValidateJsonStructure(sample))
+            {
+                det.Confidence = "Low";
+                det.Reason = AppendReason(det.Reason, "json:validation-error");
+                if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
+            }
+            return;
+        }
+
+        // xml/admx/adml
+        string? root = TryGetXmlRootName(sample);
+        bool xmlComplete = complete || LooksLikeCompleteXml(sample, root);
+        if (xmlComplete && !TryXmlWellFormed(sample, out _))
+        {
+            det.Confidence = "Low";
+            det.Reason = AppendReason(det.Reason, "xml:validation-error");
+            if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
+        }
+    }
+
+    private static string DecodeTextSample(byte[] buffer, int count)
+    {
+        if (buffer == null || count <= 0) return string.Empty;
+        int bomSkip = 0;
+        System.Text.Encoding enc = System.Text.Encoding.UTF8;
+        if (count >= 4 && buffer[0] == 0xFF && buffer[1] == 0xFE && buffer[2] == 0x00 && buffer[3] == 0x00)
+        {
+            enc = new System.Text.UTF32Encoding(false, true);
+            bomSkip = 4;
+        }
+        else if (count >= 4 && buffer[0] == 0x00 && buffer[1] == 0x00 && buffer[2] == 0xFE && buffer[3] == 0xFF)
+        {
+            enc = new System.Text.UTF32Encoding(true, true);
+            bomSkip = 4;
+        }
+        else if (count >= 2 && buffer[0] == 0xFF && buffer[1] == 0xFE)
+        {
+            enc = System.Text.Encoding.Unicode;
+            bomSkip = 2;
+        }
+        else if (count >= 2 && buffer[0] == 0xFE && buffer[1] == 0xFF)
+        {
+            enc = System.Text.Encoding.BigEndianUnicode;
+            bomSkip = 2;
+        }
+        else if (count >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF)
+        {
+            enc = System.Text.Encoding.UTF8;
+            bomSkip = 3;
+        }
+        else
+        {
+            int scan = Math.Min(count, 2048);
+            int nulTotal = 0;
+            int nulEven = 0;
+            int nulOdd = 0;
+            for (int i = 0; i < scan; i++)
+            {
+                if (buffer[i] == 0x00)
+                {
+                    nulTotal++;
+                    if ((i & 1) == 0) nulEven++; else nulOdd++;
+                }
+            }
+            if (nulTotal > 0 && ((double)nulTotal / scan) >= 0.2)
+            {
+                if (nulOdd > nulEven * 4) enc = System.Text.Encoding.Unicode;
+                else if (nulEven > nulOdd * 4) enc = System.Text.Encoding.BigEndianUnicode;
+            }
+        }
+
+        int len = Math.Max(0, count - bomSkip);
+        if (len == 0) return string.Empty;
+        return enc.GetString(buffer, bomSkip, len);
+    }
+
+    private static int ScoreFromConfidence(string? confidence)
+    {
+        if (string.Equals(confidence, "High", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (string.Equals(confidence, "Medium", StringComparison.OrdinalIgnoreCase)) return 70;
+        if (string.Equals(confidence, "Low", StringComparison.OrdinalIgnoreCase)) return 50;
+        return 40;
+    }
+
+    private static bool LooksLikeCompleteJson(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var t = s.Trim();
+        if (t.Length < 2) return false;
+        char first = t[0];
+        char last = t[t.Length - 1];
+        return (first == '{' || first == '[') && (last == '}' || last == ']');
+    }
+
+    private static bool TryValidateJsonStructure(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var span = s.AsSpan().Trim();
+        if (span.Length < 2) return false;
+        char first = span[0];
+        char last = span[span.Length - 1];
+        if (!((first == '{' || first == '[') && (last == '}' || last == ']'))) return false;
+        int depthObj = 0;
+        int depthArr = 0;
+        bool inString = false;
+        bool escape = false;
+        for (int i = 0; i < span.Length; i++)
+        {
+            char c = span[i];
+            if (inString)
+            {
+                if (escape) { escape = false; continue; }
+                if (c == '\\') { escape = true; continue; }
+                if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') { inString = true; continue; }
+            if (c == '{') depthObj++;
+            else if (c == '}') { depthObj--; if (depthObj < 0) return false; }
+            else if (c == '[') depthArr++;
+            else if (c == ']') { depthArr--; if (depthArr < 0) return false; }
+        }
+        return !inString && depthObj == 0 && depthArr == 0;
+    }
+
+    private static bool LooksLikeCompleteXml(string s, string? rootName)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var lower = s.ToLowerInvariant();
+        if (!lower.Contains("</")) return false;
+        if (!lower.TrimEnd().EndsWith(">")) return false;
+        if (!string.IsNullOrEmpty(rootName))
+        {
+            var rootLower = rootName!.ToLowerInvariant();
+            return lower.Contains("</" + rootLower);
+        }
+        return true;
+    }
+
+    private static string? TryGetXmlRootName(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return null;
+        int i = 0;
+        while (i < s.Length)
+        {
+            int lt = s.IndexOf('<', i);
+            if (lt < 0 || lt + 1 >= s.Length) return null;
+            char next = s[lt + 1];
+            if (next == '?' || next == '!')
+            {
+                int gt = s.IndexOf('>', lt + 2);
+                if (gt < 0) return null;
+                i = gt + 1;
+                continue;
+            }
+            int start = lt + 1;
+            while (start < s.Length && char.IsWhiteSpace(s[start])) start++;
+            int end = start;
+            while (end < s.Length && (char.IsLetterOrDigit(s[end]) || s[end] == ':' || s[end] == '_' || s[end] == '-')) end++;
+            if (end > start) return s.Substring(start, end - start);
+            i = lt + 1;
+        }
+        return null;
+    }
+
+    private static bool TryXmlWellFormed(string xml, out string? rootName)
+    {
+        rootName = null;
+        if (string.IsNullOrWhiteSpace(xml)) return false;
+        try
+        {
+            var settings = new System.Xml.XmlReaderSettings
+            {
+                DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                XmlResolver = null
+            };
+            using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
+            while (reader.Read())
+            {
+                if (reader.NodeType == System.Xml.XmlNodeType.Element)
+                {
+                    rootName = reader.Name;
+                    break;
+                }
+            }
+            return !string.IsNullOrEmpty(rootName);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -895,7 +1145,7 @@ public static partial class FileInspector {
             if (result is null) {
                 result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
             } else {
-                result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension };
+                result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
             }
         }
         if (options.ComputeSha256 && stream != null) {
@@ -907,11 +1157,15 @@ public static partial class FileInspector {
                 if (result is null) {
                     result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", Sha256Hex = hex };
                 } else {
-                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension };
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
                 }
             } catch { /* ignore */ } finally { if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin); }
         }
-        if (result != null) result.BytesInspected = inspected;
+        if (result != null)
+        {
+            result.BytesInspected = inspected;
+            result.IsDangerous = result.IsDangerous || DangerousExtensions.IsDangerous(result.Extension);
+        }
         return result;
     }
 
@@ -938,6 +1192,7 @@ public static partial class FileInspector {
             det.Extension = "cmd";
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, "bias:decl:cmd");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }
 
@@ -947,6 +1202,7 @@ public static partial class FileInspector {
             det.Extension = decl;
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }
 
@@ -956,6 +1212,7 @@ public static partial class FileInspector {
             det.Extension = "inf";
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, "bias:decl:inf");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }
 
@@ -986,6 +1243,7 @@ public static partial class FileInspector {
                 det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
             }
         }
+        det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
         return det;
     }
 

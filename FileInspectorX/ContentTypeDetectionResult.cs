@@ -34,4 +34,13 @@ public class ContentTypeDetectionResult {
 
     /// <summary>Best-guess extension when MIME/heuristic is ambiguous. Null when not applicable.</summary>
     public string? GuessedExtension { get; set; }
+
+    /// <summary>Score (0-100) used to rank candidates; higher is stronger.</summary>
+    public int? Score { get; set; }
+
+    /// <summary>True when the detected type is commonly considered risky/dangerous.</summary>
+    public bool IsDangerous { get; set; }
+
+    /// <summary>Optional ranked alternative candidates (excluding the primary).</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? Alternatives { get; set; }
 }
