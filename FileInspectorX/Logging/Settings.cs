@@ -75,6 +75,34 @@ public class Settings {
     public static int HeaderReadBytes { get; set; } = 4096;
 
     /// <summary>
+    /// When true, detection emits debug logs with candidate scores and alternatives.
+    /// </summary>
+    public static bool DetectionLogCandidates { get; set; } = false;
+
+    /// <summary>
+    /// Maximum number of alternative detection candidates to keep. Default 5.  
+    /// </summary>
+    public static int DetectionMaxAlternatives { get; set; } = 5;
+
+    /// <summary>
+    /// Minimum score gap required to replace the primary detection with a higher-scoring alternative.
+    /// Default 6.
+    /// </summary>
+    public static int DetectionPrimaryScoreMargin { get; set; } = 6;
+
+    /// <summary>
+    /// Score gap within which a declared extension can act as a tie-breaker.
+    /// Default 2.
+    /// </summary>
+    public static int DetectionDeclaredTieBreakerMargin { get; set; } = 2;
+
+    /// <summary>
+    /// Optional score adjustments for detection candidates keyed by extension or reason.
+    /// Keys can be plain (e.g., "ps1") or prefixed (e.g., "ext:ps1", "reason:text:ps1").
+    /// </summary>
+    public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// When true, <see cref="FileInspector.Detect(string)"/> performs a best-effort XML well-formedness check for
     /// Group Policy ADMX/ADML files (declared or detected) using a secure XmlReader (DTD prohibited).
     /// Default true to reduce false positives and surface malformed GPO templates explicitly.
