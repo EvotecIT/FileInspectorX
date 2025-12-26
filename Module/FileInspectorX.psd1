@@ -8,7 +8,7 @@
     Description          = 'FileInspectorX is PowerShell module that allows you to query files and folders for information. It supports multiple types of file queries and can be used to query local file systems, network shares.'
     FunctionsToExport    = @()
     GUID                 = 'bb5de776-1f68-4af0-8d68-5c0fa2ab3cf9'
-    ModuleVersion        = '1.0.4'
+    ModuleVersion        = '1.0.5'
     PowerShellVersion    = '5.1'
     PrivateData          = @{
         PSData = @{
