@@ -39,7 +39,7 @@ public class FileAnalysis {
     public SignatureSummary? Signature { get; set; }
 
     // Text-specific hints
-    /// <summary>Estimated number of lines for delimited text (CSV/TSV) based on sample.</summary>
+    /// <summary>Estimated number of lines for text-like files based on sample.</summary>
     public int? EstimatedLineCount { get; set; }
     /// <summary>Text subtype such as json, yaml, markdown, log.</summary>
     public string? TextSubtype { get; set; }
@@ -55,6 +55,12 @@ public class FileAnalysis {
     /// For scripts, best-effort list of notable cmdlets/verbs seen (e.g., Start-Process, Invoke-WebRequest).
     /// </summary>
     public IReadOnlyList<string>? ScriptCmdlets { get; set; }
+
+    /// <summary>
+    /// Top tokens extracted from script/log content when enabled (bounded).
+    /// Values are formatted as "token:count".
+    /// </summary>
+    public IReadOnlyList<string>? TopTokens { get; set; }
 
     /// <summary>
     /// Normalized file permission/ownership snapshot (best-effort cross-platform).

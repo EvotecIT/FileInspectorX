@@ -50,6 +50,22 @@ var drivers = map.GetValueOrDefault("AssessmentCodesHuman")?.ToString() ??
 
 // Render a Markdown report (dependency-free)
 var md = FileInspectorX.MarkdownRenderer.From(fa);
+
+// Include file system metadata + a flattened dictionary
+var summary2 = FileInspector.InspectWithMetadata(path, new FileInspector.DetectionOptions {
+    MagicHeaderBytes = 64
+});
+var metadata = summary2.Metadata;
+
+// Optional: top tokens for scripts/logs (disabled by default)
+FileInspectorX.Settings.TopTokensEnabled = true;
+FileInspectorX.Settings.TopTokensMax = 8;
+FileInspectorX.Settings.TopTokensMinLength = 4;
+FileInspectorX.Settings.TopTokensMinCount = 2;
+
+// Compare declared vs detected (with alternatives)
+var cmp = FileInspector.CompareDeclaredDetailed(".log", summary2.Analysis.Detection);
+Console.WriteLine($"Mismatch? {cmp.Mismatch} Reason={cmp.Reason}");
 ```
 
 ## Detection Ordering & Declared Extension Bias

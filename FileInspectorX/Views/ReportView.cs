@@ -146,6 +146,8 @@ public sealed class ReportView
     public string? SecurityFindingsHumanShort { get; set; }
     /// <summary>Humanized security findings (long form).</summary>
     public string? SecurityFindingsHumanLong { get; set; }
+    /// <summary>Top tokens extracted from script/log content when enabled.</summary>
+    public IReadOnlyList<string>? TopTokens { get; set; }
     /// <summary>Per-entry findings collected during deep scan (bounded).</summary>
     public IReadOnlyList<string>? InnerFindings { get; set; }
     /// <summary>Humanized inner findings (short form).</summary>
@@ -408,6 +410,7 @@ public sealed class ReportView
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
         r.SecurityFindings = a.SecurityFindings;
+        r.TopTokens = a.TopTokens;
         r.InnerFindings = a.InnerFindings;
         r.InnerExecutablesSampled = a.InnerExecutablesSampled;
         r.InnerSignedExecutables = a.InnerSignedExecutables;
@@ -580,7 +583,9 @@ public sealed class ReportView
         if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
         if (a.ContainerEntryCount.HasValue) AddField("Archive", "EntryCount", a.ContainerEntryCount.Value.ToString());
         if (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) AddField("Archive", "TopExtensions", string.Join(", ", a.ContainerTopExtensions));
-        if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 }) AddField("Heuristics", "Findings", "1");
+        if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 } || r.TopTokens is { Count: > 0 })
+            AddField("Heuristics", "Findings", "1");
+        if (r.TopTokens is { Count: > 0 }) AddField("Heuristics", "TopTokens", "1");
         r.CompactFields = groups.ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value);
         r.Advice = new PresentationAdvice
         {
@@ -589,7 +594,9 @@ public sealed class ReportView
             ShowSignature = (!string.IsNullOrEmpty(r.CertificateBlobSha256)) || r.WinTrustStatusCode.HasValue || (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) || !string.IsNullOrEmpty(r.CertSubject),
             ShowScript = !string.IsNullOrEmpty(r.ScriptLanguageHuman),
             ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
-            ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) || (r.InnerFindings != null && r.InnerFindings.Count > 0),
+            ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) ||
+                             (r.InnerFindings != null && r.InnerFindings.Count > 0) ||
+                             (r.TopTokens != null && r.TopTokens.Count > 0),
             ShowArchiveDetails = r.EncryptedEntryCount.HasValue || a.ContainerEntryCount.HasValue || (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0)
         };
 
@@ -683,6 +690,7 @@ public sealed class ReportView
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanShort)) d["SecurityFindingsHuman"] = SecurityFindingsHumanShort;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanLong))  d["SecurityFindingsHumanLong"] = SecurityFindingsHumanLong;
+        if (TopTokens != null && TopTokens.Count > 0) d["TopTokens"] = TopTokens;
         if (InnerFindings != null && InnerFindings.Count > 0) d["InnerFindings"] = InnerFindings;
         if (!string.IsNullOrEmpty(InnerFindingsHumanShort)) d["InnerFindingsHuman"] = InnerFindingsHumanShort;
         if (!string.IsNullOrEmpty(InnerFindingsHumanLong))  d["InnerFindingsHumanLong"] = InnerFindingsHumanLong;

@@ -320,6 +320,21 @@ public class Settings {
     public static bool SecretsScanEnabled { get; set; } = true;
 
     /// <summary>
+    /// When true, computes top tokens for script/log text and attaches them to <see cref="FileAnalysis.TopTokens"/>.
+    /// Default false.
+    /// </summary>
+    public static bool TopTokensEnabled { get; set; } = false;
+
+    /// <summary>Maximum number of top tokens to return. Default 8.</summary>
+    public static int TopTokensMax { get; set; } = 8;
+
+    /// <summary>Minimum token length to consider. Default 4.</summary>
+    public static int TopTokensMinLength { get; set; } = 4;
+
+    /// <summary>Minimum occurrence count to include a token. Default 2.</summary>
+    public static int TopTokensMinCount { get; set; } = 2;
+
+    /// <summary>
     /// When true, the References extractor will attempt to check existence for network paths (UNC/file URLs) it discovers.
     /// Defaults to false to avoid latency or network dependencies.
     /// </summary>

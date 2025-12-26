@@ -592,6 +592,43 @@ public static partial class FileInspector {
                     _ => res.TextSubtype
                 } : res.TextSubtype;
 
+                // Fallback to detected extension when no declared type is available
+                if (string.IsNullOrEmpty(res.TextSubtype))
+                {
+                    res.TextSubtype = detectedExt switch
+                    {
+                        "md" or "markdown" => "markdown",
+                        "yml" or "yaml" => "yaml",
+                        "json" or "ndjson" or "jsonl" => "json",
+                        "xml" or "admx" or "adml" => "xml",
+                        "csv" => "csv",
+                        "tsv" => "tsv",
+                        "log" => "log",
+                        "ps1" or "psm1" or "psd1" => "powershell",
+                        "py" or "pyw" => "python",
+                        "rb" => "ruby",
+                        "lua" => "lua",
+                        "vbs" or "vbe" or "wsf" or "wsh" => "vbscript",
+                        "js" or "jse" or "mjs" or "cjs" => "javascript",
+                        "sh" or "bash" or "zsh" => "shell",
+                        "bat" or "cmd" => "batch",
+                        _ => res.TextSubtype
+                    };
+                }
+
+                // Ensure ScriptLanguage is filled when TextSubtype implies a script
+                if (string.IsNullOrEmpty(res.ScriptLanguage) && !string.IsNullOrEmpty(res.TextSubtype))
+                {
+                    var scriptSubtype = res.TextSubtype;
+                    if (scriptSubtype is "powershell" or "javascript" or "vbscript" or "shell" or "batch" or "python" or "ruby" or "perl" or "lua")
+                    {
+                        res.ScriptLanguage = scriptSubtype;
+                        res.Flags |= ContentFlags.IsScript;
+                        if (scriptSubtype is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
+                            res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+                    }
+                }
+
                 // Citrix ICA (INI-like) and ReceiverConfig.cr (XML) detection
                 try {
                     var headTxt = ReadHeadText(path, 8192);
@@ -757,13 +794,10 @@ public static partial class FileInspector {
                 if (list.Count > (res.SecurityFindings?.Count ?? 0)) res.SecurityFindings = list;
             } catch { }
 
-            // CSV/TSV row estimate (lightweight)
-            if ((det!.Extension is "csv" or "tsv") || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
-                res.EstimatedLineCount = EstimateLines(path, Settings.DetectionReadBudgetBytes);
-            }
+            TryPopulateTextMetrics(res, det, path);
 
             // PDF heuristics
-            if (det.Extension == "pdf") {
+            if (det != null && det.Extension == "pdf") {
                 var txt = ReadHeadText(path, 1 << 20); // cap 1MB
                 if (ContainsIgnoreCase(txt, "/JavaScript") || ContainsIgnoreCase(txt, "/JS")) res.Flags |= ContentFlags.PdfHasJavaScript;
                 if (ContainsIgnoreCase(txt, "/OpenAction")) res.Flags |= ContentFlags.PdfHasOpenAction;
@@ -791,7 +825,7 @@ public static partial class FileInspector {
             }
 
             // OLE2 Office macros (VBA) check for legacy formats (.doc/.xls/.ppt)
-            if (det.Extension is "doc" or "xls" or "ppt")
+            if (det != null && det.Extension is "doc" or "xls" or "ppt")
             {
                 try
                 {
@@ -2057,6 +2091,17 @@ public static partial class FileInspector {
             int len = (int)Math.Min(fs.Length, cap);
             var buf = new byte[len];
             var n = fs.Read(buf, 0, buf.Length);
+            if (n <= 0) return string.Empty;
+            if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
+                return System.Text.Encoding.UTF8.GetString(buf, 3, n - 3);
+            if (n >= 4 && buf[0] == 0xFF && buf[1] == 0xFE && buf[2] == 0x00 && buf[3] == 0x00)
+                return new System.Text.UTF32Encoding(false, true, true).GetString(buf, 4, n - 4);
+            if (n >= 4 && buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0xFE && buf[3] == 0xFF)
+                return new System.Text.UTF32Encoding(true, true, true).GetString(buf, 4, n - 4);
+            if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)
+                return System.Text.Encoding.Unicode.GetString(buf, 2, n - 2);
+            if (n >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)
+                return System.Text.Encoding.BigEndianUnicode.GetString(buf, 2, n - 2);
             return System.Text.Encoding.UTF8.GetString(buf, 0, n);
         } catch { return string.Empty; }
     }

@@ -29,12 +29,14 @@ public sealed class AnalysisView
     // Text
     /// <summary>Subtype for text-like files (e.g., json,yaml,markdown).</summary>
     public string? TextSubtype { get; set; }
-    /// <summary>Estimated line count for CSV/TSV.</summary>
+    /// <summary>Estimated line count for text-like files.</summary>
     public int? EstimatedLineCount { get; set; }
     /// <summary>Script language from shebang.</summary>
     public string? ScriptLanguage { get; set; }
     /// <summary>Neutral security finding codes for scripts.</summary>
     public IReadOnlyList<string>? SecurityFindings { get; set; }
+    /// <summary>Top tokens extracted from script/log content when enabled.</summary>
+    public IReadOnlyList<string>? TopTokens { get; set; }
 
     // PE quick
     /// <summary>PE machine (x86/x64/etc.).</summary>
@@ -69,6 +71,7 @@ public sealed class AnalysisView
         EstimatedLineCount = a.EstimatedLineCount,
         ScriptLanguage = a.ScriptLanguage,
         SecurityFindings = a.SecurityFindings,
+        TopTokens = a.TopTokens,
         PeMachine = a.PeMachine,
         PeSubsystem = a.PeSubsystem,
         Authenticode = a.Authenticode?.Present,

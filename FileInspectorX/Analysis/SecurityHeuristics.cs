@@ -3,7 +3,7 @@ namespace FileInspectorX;
 /// <summary>
 /// Lightweight, dependency-free content heuristics used to emit neutral security signals and detect simple secret categories.
 /// </summary>
-internal static class SecurityHeuristics
+internal static partial class SecurityHeuristics
 {
     // ACTIVE (default): Base64-encoded indicators decoded at runtime to avoid static signatures
     private static readonly string[] SensitiveIndicators = DecodeB64(new[]
@@ -212,8 +212,11 @@ internal static class SecurityHeuristics
             const int MaxCmdlets = 12;
             // Common cmdlets/verbs of interest
             string[] probes = new [] {
-                "start-process", "invoke-webrequest", "invoke-restmethod", "new-psdrive",
-                "set-itemproperty", "copy-item", "remove-item", "add-type", "import-module", "set-executionpolicy"
+                "start-process", "invoke-command", "invoke-webrequest", "invoke-restmethod", "invoke-expression",
+                "start-bitstransfer", "new-psdrive", "set-itemproperty", "get-itemproperty",
+                "copy-item", "remove-item", "add-type", "import-module", "set-executionpolicy",
+                "register-scheduledtask", "new-scheduledtask", "schtasks", "set-alias",
+                "get-content", "set-content", "add-content"
             };
             var ordered = new List<string>(MaxCmdlets);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -227,6 +230,9 @@ internal static class SecurityHeuristics
             {
                 if (text.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) AddCmdlet(p);
             }
+            if (ordered.Count >= MaxCmdlets) return ordered;
+
+            TryAddScriptHints(text, AddCmdlet, () => ordered.Count < MaxCmdlets);
             if (ordered.Count >= MaxCmdlets) return ordered;
 
             int i = 0;
@@ -482,6 +488,16 @@ internal static class SecurityHeuristics
             var buf = new byte[Math.Min(cap, (int)Math.Min(fs.Length, cap))];
             int n = fs.Read(buf, 0, buf.Length);
             if (n <= 0) return string.Empty;
+            if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
+                return System.Text.Encoding.UTF8.GetString(buf, 3, n - 3);
+            if (n >= 4 && buf[0] == 0xFF && buf[1] == 0xFE && buf[2] == 0x00 && buf[3] == 0x00)
+                return new System.Text.UTF32Encoding(false, true, true).GetString(buf, 4, n - 4);
+            if (n >= 4 && buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0xFE && buf[3] == 0xFF)
+                return new System.Text.UTF32Encoding(true, true, true).GetString(buf, 4, n - 4);
+            if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)
+                return System.Text.Encoding.Unicode.GetString(buf, 2, n - 2);
+            if (n >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)
+                return System.Text.Encoding.BigEndianUnicode.GetString(buf, 2, n - 2);
             return System.Text.Encoding.UTF8.GetString(buf, 0, n);
         } catch { return string.Empty; }
     }

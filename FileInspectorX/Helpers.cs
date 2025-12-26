@@ -39,6 +39,7 @@ public static class InspectHelpers {
         var mime = r.MimeType ?? string.Empty;
         if (mime.StartsWith("text/", StringComparison.OrdinalIgnoreCase)) return true;
         var ext = (r.Extension ?? string.Empty).ToLowerInvariant();
-        return ext is "txt" or "json" or "xml" or "html" or "csv" or "tsv" or "yml" or "yaml" or "ini" or "inf" or "admx" or "adml" or "log" or "rtf" or "eml" or "ndjson" or "jsonl" or "toml";
+        return ext is "txt" or "json" or "xml" or "html" or "csv" or "tsv" or "yml" or "yaml" or "ini" or "inf" or "admx" or "adml" or "log" or "rtf" or "eml" or "ndjson" or "jsonl" or "toml" or
+               "ps1" or "psm1" or "psd1" or "vbs" or "vbe" or "wsf" or "wsh" or "js" or "jse" or "mjs" or "cjs" or "sh" or "bash" or "zsh" or "bat" or "cmd" or "py" or "pyw" or "rb" or "pl" or "lua";
     }
 }
