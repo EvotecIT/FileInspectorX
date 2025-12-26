@@ -59,6 +59,7 @@ var md = FileInspectorX.MarkdownRenderer.From(fa);
 - `Detect(stream, options, declaredExtension)` and `Detect(ReadOnlySpan<byte>, options, declaredExtension)` let you pass a declared extension to mirror path-based behavior.
 - Declared extension bias applies only for ambiguous/low-confidence text cases (e.g., cmd vs bat, admx/adml vs xml, inf vs ini, ini vs toml, log/txt/md/ps1/psm1/psd1). Strong magic-byte matches are not overridden.
 - NDJSON detection requires at least two consecutive JSON-looking lines; single-line files are detected as JSON.
+- When `DetectionMaxAlternatives` > 0, `Detection.Alternatives` includes ranked candidates (excluding the primary) with `Score` values; treat scores as relative within the same file and influenced by `DetectionScoreAdjustments`, `DetectionPrimaryScoreMargin`, and `DetectionDeclaredTieBreakerMargin`.
 
 ## Include/Exclude Sections
 

@@ -19,6 +19,8 @@ public sealed class ReportView
     public string? DetectionConfidence { get; set; }
     /// <summary>Short textual reason describing the detection.</summary>
     public string? DetectionReason { get; set; }
+    /// <summary>Structured validation status when applicable (passed/failed/timeout/skipped).</summary>
+    public string? DetectionValidationStatus { get; set; }
     /// <summary>Detection score (0-100) used to rank candidates.</summary>
     public int? DetectionScore { get; set; }
     /// <summary>True when the detected type is commonly considered risky/dangerous.</summary>
@@ -259,6 +261,7 @@ public sealed class ReportView
             r.DetectedTypeName = a.Detection.MimeType;
             r.DetectionConfidence = a.Detection.Confidence;
             r.DetectionReason = a.Detection.Reason;
+            r.DetectionValidationStatus = a.Detection.ValidationStatus;
             if (a.Detection.Score.HasValue) r.DetectionScore = a.Detection.Score;
             r.DetectionIsDangerous = a.Detection.IsDangerous;
             if (a.Detection.Alternatives != null && a.Detection.Alternatives.Count > 0) r.DetectionAlternatives = a.Detection.Alternatives;
@@ -602,6 +605,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
+        if (!string.IsNullOrEmpty(DetectionValidationStatus)) d["DetectionValidationStatus"] = DetectionValidationStatus;
         if (DetectionScore.HasValue) d["DetectionScore"] = DetectionScore.Value;
         if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;

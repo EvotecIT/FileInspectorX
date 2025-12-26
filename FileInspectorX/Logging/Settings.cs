@@ -103,6 +103,12 @@ public class Settings {
     public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Maximum number of ZIP entries to enumerate when guessing ZIP subtypes (apk/jar/ipa/nupkg/od*).
+    /// Default 100000. Set to 0 to skip subtype guessing for large or adversarial archives.
+    /// </summary>
+    public static int ZipSubtypeMaxEntries { get; set; } = 100_000;
+
+    /// <summary>
     /// When true, <see cref="FileInspector.Detect(string)"/> performs a best-effort XML well-formedness check for
     /// Group Policy ADMX/ADML files (declared or detected) using a secure XmlReader (DTD prohibited).
     /// Default true to reduce false positives and surface malformed GPO templates explicitly.

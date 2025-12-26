@@ -473,7 +473,6 @@ public static partial class FileInspector {
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
     private static readonly byte[] EtlMagicBytes = { 0x45, 0x6C, 0x66, 0x46 }; // "ElfF" ASCII
-    private const int ZipEntryLimit = 100_000;
 
     private static bool TryMatchEtlMagic(string path) {
         try {
@@ -1174,6 +1173,12 @@ public static partial class FileInspector {
             long pos = stream.CanSeek ? stream.Position : 0;
             if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
             using var za = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            int entryLimit = Math.Max(0, Settings.ZipSubtypeMaxEntries);
+            if (entryLimit == 0)
+            {
+                if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                return null;
+            }
             bool hasManifest = za.GetEntry("META-INF/MANIFEST.MF") != null;
             bool hasDex = za.GetEntry("classes.dex") != null;
             bool hasAndroidMan = za.GetEntry("AndroidManifest.xml") != null;
@@ -1186,7 +1191,7 @@ public static partial class FileInspector {
             foreach (var entry in za.Entries)
             {
                 entriesSeen++;
-                if (entriesSeen > ZipEntryLimit)
+                if (entriesSeen > entryLimit)
                 {
                     if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
                     return null;
