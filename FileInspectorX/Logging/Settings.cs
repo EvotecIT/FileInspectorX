@@ -116,6 +116,12 @@ public class Settings {
     public static long AdmxAdmlXmlWellFormednessMaxBytes { get; set; } = 5_000_000;
 
     /// <summary>
+    /// Maximum time in milliseconds for XML well-formedness checks (including ADMX/ADML).
+    /// Defaults to 4000 ms. Set to 0 to disable timeouts.
+    /// </summary>
+    public static int XmlWellFormednessTimeoutMs { get; set; } = 4000;
+
+    /// <summary>
     /// JS minified heuristic: minimum total characters to consider the heuristic.
     /// </summary>
     public static int JsMinifiedMinLength { get; set; } = 1024;

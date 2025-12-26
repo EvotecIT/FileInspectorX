@@ -520,8 +520,14 @@ public static partial class FileInspector {
                     MaxCharactersFromEntities = 1024,
                     CloseInput = false
                 };
+                int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+                var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
                 using var reader = System.Xml.XmlReader.Create(stream, settings);
-                while (reader.Read()) { }
+                while (reader.Read())
+                {
+                    if (sw != null && sw.ElapsedMilliseconds > timeoutMs)
+                        throw new TimeoutException("XML well-formedness validation timed out.");
+                }
             }
             finally
             {
@@ -534,6 +540,12 @@ public static partial class FileInspector {
                 det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "xml:malformed");
             }
+        catch (TimeoutException ex)
+        {
+            Breadcrumbs.Write("XML_TIMEOUT", message: ex.Message, path: path);
+            det.Confidence = "Low";
+            det.Reason = AppendReason(det.Reason, "xml:validation-timeout");
+        }
         catch
         {
             // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
@@ -774,9 +786,12 @@ public static partial class FileInspector {
                 MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
                 MaxCharactersFromEntities = 1024
             };
+            int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+            var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
             while (reader.Read())
             {
+                if (sw != null && sw.ElapsedMilliseconds > timeoutMs) return false;
                 if (reader.NodeType == System.Xml.XmlNodeType.Element)
                 {
                     rootName = reader.Name;
