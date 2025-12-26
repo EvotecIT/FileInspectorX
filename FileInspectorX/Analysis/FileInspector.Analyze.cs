@@ -574,53 +574,30 @@ public static partial class FileInspector {
                     res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 // Set TextSubtype for common text families
-                res.TextSubtype = string.IsNullOrEmpty(res.TextSubtype) ? declaredExt switch {
-                    "md" => "markdown",
-                    "yml" or "yaml" => "yaml",
-                    "json" => "json",
-                    "xml" => "xml",
-                    "csv" => "csv",
-                    "tsv" => "tsv",
-                    "log" => "log",
-                    "ps1" or "psm1" or "psd1" => "powershell",
-                    "py" or "pyw" => "python",
-                    "rb" => "ruby",
-                    "lua" => "lua",
-                    "vbs" => "vbscript",
-                    "sh" or "bash" or "zsh" => "shell",
-                    "bat" or "cmd" => "batch",
-                    _ => res.TextSubtype
-                } : res.TextSubtype;
+                if (string.IsNullOrEmpty(res.TextSubtype))
+                {
+                    var mappedDecl = MapTextSubtypeFromExtension(declaredExt);
+                    if (!string.IsNullOrEmpty(mappedDecl)) res.TextSubtype = mappedDecl;
+                }
 
                 // Fallback to detected extension when no declared type is available
                 if (string.IsNullOrEmpty(res.TextSubtype))
                 {
-                    res.TextSubtype = detectedExt switch
-                    {
-                        "md" or "markdown" => "markdown",
-                        "yml" or "yaml" => "yaml",
-                        "json" or "ndjson" or "jsonl" => "json",
-                        "xml" or "admx" or "adml" => "xml",
-                        "csv" => "csv",
-                        "tsv" => "tsv",
-                        "log" => "log",
-                        "ps1" or "psm1" or "psd1" => "powershell",
-                        "py" or "pyw" => "python",
-                        "rb" => "ruby",
-                        "lua" => "lua",
-                        "vbs" or "vbe" or "wsf" or "wsh" => "vbscript",
-                        "js" or "jse" or "mjs" or "cjs" => "javascript",
-                        "sh" or "bash" or "zsh" => "shell",
-                        "bat" or "cmd" => "batch",
-                        _ => res.TextSubtype
-                    };
+                    var mappedDet = MapTextSubtypeFromExtension(detectedExt);
+                    if (!string.IsNullOrEmpty(mappedDet)) res.TextSubtype = mappedDet;
+                }
+
+                // Backfill TextSubtype from ScriptLanguage if needed
+                if (string.IsNullOrEmpty(res.TextSubtype) && IsScriptTextSubtype(res.ScriptLanguage))
+                {
+                    res.TextSubtype = res.ScriptLanguage;
                 }
 
                 // Ensure ScriptLanguage is filled when TextSubtype implies a script
                 if (string.IsNullOrEmpty(res.ScriptLanguage) && !string.IsNullOrEmpty(res.TextSubtype))
                 {
                     var scriptSubtype = res.TextSubtype;
-                    if (scriptSubtype is "powershell" or "javascript" or "vbscript" or "shell" or "batch" or "python" or "ruby" or "perl" or "lua")
+                    if (IsScriptTextSubtype(scriptSubtype))
                     {
                         res.ScriptLanguage = scriptSubtype;
                         res.Flags |= ContentFlags.IsScript;
@@ -2093,15 +2070,15 @@ public static partial class FileInspector {
             var n = fs.Read(buf, 0, buf.Length);
             if (n <= 0) return string.Empty;
             if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
-                return System.Text.Encoding.UTF8.GetString(buf, 3, n - 3);
+                return n > 3 ? System.Text.Encoding.UTF8.GetString(buf, 3, n - 3) : string.Empty;
             if (n >= 4 && buf[0] == 0xFF && buf[1] == 0xFE && buf[2] == 0x00 && buf[3] == 0x00)
-                return new System.Text.UTF32Encoding(false, true, true).GetString(buf, 4, n - 4);
+                return n > 4 ? new System.Text.UTF32Encoding(false, true, true).GetString(buf, 4, n - 4) : string.Empty;
             if (n >= 4 && buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0xFE && buf[3] == 0xFF)
-                return new System.Text.UTF32Encoding(true, true, true).GetString(buf, 4, n - 4);
+                return n > 4 ? new System.Text.UTF32Encoding(true, true, true).GetString(buf, 4, n - 4) : string.Empty;
             if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)
-                return System.Text.Encoding.Unicode.GetString(buf, 2, n - 2);
+                return n > 2 ? System.Text.Encoding.Unicode.GetString(buf, 2, n - 2) : string.Empty;
             if (n >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)
-                return System.Text.Encoding.BigEndianUnicode.GetString(buf, 2, n - 2);
+                return n > 2 ? System.Text.Encoding.BigEndianUnicode.GetString(buf, 2, n - 2) : string.Empty;
             return System.Text.Encoding.UTF8.GetString(buf, 0, n);
         } catch { return string.Empty; }
     }

@@ -20,6 +20,7 @@ internal static partial class SecurityHeuristics
             {
                 lines++;
                 if (!canAdd()) break;
+                if (line.Length > Settings.ScriptHintMaxLineLength) continue;
                 var trimmed = line.TrimStart();
                 if (trimmed.Length == 0 || trimmed[0] == '#') continue;
 
@@ -63,7 +64,7 @@ internal static partial class SecurityHeuristics
         {
             var span = line.AsSpan();
             int start = keyword.Length;
-            if (start < span.Length && char.IsWhiteSpace(span[start]) == false)
+            if (start < span.Length && !char.IsWhiteSpace(span[start]))
                 start = IndexOfToken(span, keyword);
             if (start < 0) return null;
             start += keyword.Length;
