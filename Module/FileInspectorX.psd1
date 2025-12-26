@@ -1,4 +1,4 @@
-@{
+﻿@{
     AliasesToExport      = @()
     Author               = 'Przemyslaw Klys'
     CmdletsToExport      = @('Get-FileInsight')
@@ -12,8 +12,9 @@
     PowerShellVersion    = '5.1'
     PrivateData          = @{
         PSData = @{
-            ProjectUri = 'https://github.com/EvotecIT/FileInspectorX'
-            Tags       = @('Windows', 'MacOS', 'Linux')
+            ProjectUri               = 'https://github.com/EvotecIT/FileInspectorX'
+            RequireLicenseAcceptance = $false
+            Tags                     = @('Windows', 'MacOS', 'Linux')
         }
     }
     RootModule           = 'FileInspectorX.psm1'

@@ -505,6 +505,16 @@ public static partial class FileInspector {
                 }
                 // JS minified heuristic if file extension is .js
                 var declaredExt = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
+                var detectedExt = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+                var mappedScript = MapScriptLanguageFromExtension(detectedExt) ?? MapScriptLanguageFromExtension(declaredExt);
+                if (!string.IsNullOrEmpty(mappedScript))
+                {
+                    if (string.IsNullOrEmpty(res.ScriptLanguage)) res.ScriptLanguage = mappedScript;
+                    res.Flags |= ContentFlags.IsScript;
+                    if (string.IsNullOrEmpty(res.TextSubtype)) res.TextSubtype = mappedScript;
+                    if (detectedExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd" or "vbs" or "js")
+                        res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+                }
                 if (declaredExt == "js") {
                     if (LooksMinifiedJs(path, Settings.DetectionReadBudgetBytes,
                         Settings.JsMinifiedMinLength,
@@ -601,9 +611,13 @@ public static partial class FileInspector {
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (sf.Count > 0) res.SecurityFindings = sf;
-                // Cmdlets: best-effort extraction for presentation
-                var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
-                if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
+                // Cmdlets: best-effort extraction for presentation (PowerShell only)
+                if (string.Equals(res.ScriptLanguage, "powershell", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(res.TextSubtype, "powershell", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
+                    if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
+                }
                 // Generic text/log/schema cues
                 var tf = SecurityHeuristics.AssessTextGeneric(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (tf.Count > 0)
@@ -2011,11 +2025,30 @@ public static partial class FileInspector {
         if (l.Contains("bash")) return "bash";
         if (l.Contains("sh")) return "sh";
         if (l.Contains("python")) return "python";
-        if (l.Contains("node")) return "node";
+        if (l.Contains("node")) return "javascript";
         if (l.Contains("pwsh") || l.Contains("powershell")) return "powershell";
         if (l.Contains("perl")) return "perl";
         if (l.Contains("ruby")) return "ruby";
         return "unknown";
+    }
+
+    private static string? MapScriptLanguageFromExtension(string? ext)
+    {
+        if (string.IsNullOrWhiteSpace(ext)) return null;
+        var e = ext!.Trim().TrimStart('.').ToLowerInvariant();
+        return e switch
+        {
+            "ps1" or "psm1" or "psd1" => "powershell",
+            "js" or "jse" or "mjs" or "cjs" => "javascript",
+            "vbs" or "vbe" or "wsf" or "wsh" => "vbscript",
+            "py" or "pyw" => "python",
+            "rb" => "ruby",
+            "lua" => "lua",
+            "sh" or "bash" or "zsh" => "shell",
+            "bat" or "cmd" => "batch",
+            "pl" => "perl",
+            _ => null
+        };
     }
 
     private static string ReadHeadText(string path, int cap) {

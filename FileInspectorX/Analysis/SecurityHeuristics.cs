@@ -209,19 +209,88 @@ internal static class SecurityHeuristics
         {
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
+            const int MaxCmdlets = 12;
             // Common cmdlets/verbs of interest
             string[] probes = new [] {
                 "start-process", "invoke-webrequest", "invoke-restmethod", "new-psdrive",
                 "set-itemproperty", "copy-item", "remove-item", "add-type", "import-module", "set-executionpolicy"
             };
-            var ordered = new List<string>(probes.Length);
+            var ordered = new List<string>(MaxCmdlets);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void AddCmdlet(string value)
+            {
+                if (ordered.Count >= MaxCmdlets) return;
+                if (string.IsNullOrWhiteSpace(value)) return;
+                if (seen.Add(value)) ordered.Add(value);
+            }
             foreach (var p in probes)
             {
-                if (text.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) ordered.Add(p);
+                if (text.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) AddCmdlet(p);
+            }
+            if (ordered.Count >= MaxCmdlets) return ordered;
+
+            int i = 0;
+            while (i < text.Length && ordered.Count < MaxCmdlets)
+            {
+                while (i < text.Length && !IsCmdletStart(text[i])) i++;
+                int start = i;
+                while (i < text.Length && IsCmdletChar(text[i])) i++;
+                int len = i - start;
+                if (len >= 4)
+                {
+                    var token = text.Substring(start, len);
+                    int dash = token.IndexOf('-');
+                    if (dash > 0 && dash < token.Length - 1)
+                    {
+                        var verb = token.AsSpan(0, dash);
+                        if (IsCommonPsVerb(verb))
+                        {
+                            AddCmdlet(token.ToLowerInvariant());
+                        }
+                    }
+                }
+                if (i == start) i++;
             }
             return ordered;
         }
         catch { return Array.Empty<string>(); }
+    }
+
+    private static bool IsCmdletStart(char c) => char.IsLetter(c);
+    private static bool IsCmdletChar(char c) => char.IsLetterOrDigit(c) || c == '-';
+    private static bool IsCommonPsVerb(ReadOnlySpan<char> verb)
+    {
+        if (verb.Length < 2 || verb.Length > 16) return false;
+        return verb.Equals("get", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("set", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("new", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("add", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("remove", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("copy", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("move", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("rename", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("test", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("invoke", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("start", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("stop", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("enable", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("disable", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("import", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("export", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("select", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("convert", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("write", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("read", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("update", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("connect", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("disconnect", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("format", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("register", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("unregister", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("resolve", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("find", StringComparison.OrdinalIgnoreCase) ||
+               verb.Equals("build", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsAllowedHost(string host)
