@@ -29,6 +29,8 @@ public sealed class ReportView
     public string? GuessedExtension { get; set; }
     /// <summary>Alternative detection candidates when multiple formats are plausible.</summary>
     public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionAlternatives { get; set; }
+    /// <summary>Ranked detection candidates including the primary, when available.</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionCandidates { get; set; }
 
     // Encoded payload summary (base64/hex) with inner detection
     /// <summary>When the content appears encoded, indicates the encoding kind (e.g., "base64" or "hex").</summary>
@@ -265,6 +267,7 @@ public sealed class ReportView
             if (a.Detection.Score.HasValue) r.DetectionScore = a.Detection.Score;
             r.DetectionIsDangerous = a.Detection.IsDangerous;
             if (a.Detection.Alternatives != null && a.Detection.Alternatives.Count > 0) r.DetectionAlternatives = a.Detection.Alternatives;
+            if (a.Detection.Candidates != null && a.Detection.Candidates.Count > 0) r.DetectionCandidates = a.Detection.Candidates;
             // Additional friendliness for PE is handled in detection; nothing to do here
             if (!string.IsNullOrEmpty(a.Detection.GuessedExtension)) r.GuessedExtension = a.Detection.GuessedExtension;
         }
@@ -610,6 +613,7 @@ public sealed class ReportView
         if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;
         if (DetectionAlternatives != null && DetectionAlternatives.Count > 0) d["DetectionAlternatives"] = DetectionAlternatives;
+        if (DetectionCandidates != null && DetectionCandidates.Count > 0) d["DetectionCandidates"] = DetectionCandidates;
         if (!string.IsNullOrEmpty(EncodedKind)) d["EncodedKind"] = EncodedKind;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedExtension)) d["EncodedInnerDetectedExtension"] = EncodedInnerDetectedExtension;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;

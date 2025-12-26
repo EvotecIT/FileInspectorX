@@ -4,13 +4,16 @@ internal static partial class Signatures
 {
     static List<ContentTypeDetectionCandidate> CollectCandidates(ReadOnlySpan<byte> head, string headStr, string headLower, string decl)
     {
+        const int DeclaredExtensionBoost = 3;
+        const int JsonValidBoost = 6;
+        const int XmlWellFormedBoost = 6;
         var byExt = new Dictionary<string, ContentTypeDetectionCandidate>(StringComparer.OrdinalIgnoreCase);
         void AddCandidate(string ext, string mime, string confidence, string reason, string? details = null, int scoreAdjust = 0, bool? dangerousOverride = null)
         {
             if (string.IsNullOrWhiteSpace(ext)) return;
             int adjust = scoreAdjust + GetScoreAdjustment(ext, reason, details);
             if (!string.IsNullOrWhiteSpace(decl) && string.Equals(ext, decl, StringComparison.OrdinalIgnoreCase))
-                adjust += 3;
+                adjust += DeclaredExtensionBoost;
             int score = ClampScore(ScoreFromConfidence(confidence) + adjust, confidence);
             bool dangerous = dangerousOverride ?? DangerousExtensions.IsDangerous(ext);
             var c = new ContentTypeDetectionCandidate { Extension = ext, MimeType = mime, Confidence = confidence, Reason = reason, ReasonDetails = details, Score = score, IsDangerous = dangerous };
@@ -103,7 +106,9 @@ internal static partial class Signatures
         if (headLower.Contains("](")) mdCuesLocal++;
         if (headLower.Contains("\n- ") || headLower.Contains("\n* ") || headLower.Contains("\n1. ")) mdCuesLocal++;
         bool mdLikely = mdStructuralLocal || mdCuesLocal >= 2 || (declaredMd && mdCuesLocal >= 1);
-        int scriptPenaltyFromMarkdown = mdLikely ? (declaredMd ? -8 : -6) : 0;
+        int scriptPenaltyFromMarkdown = 0;
+        if (mdLikely)
+            scriptPenaltyFromMarkdown = declaredMd ? -10 : (mdStructuralLocal ? -8 : -6);
 
         var span = head;
         if (span.Length == 0) return new List<ContentTypeDetectionCandidate>();
@@ -120,8 +125,6 @@ internal static partial class Signatures
         int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length;
         var line4 = rest3.Slice(0, nl4);
 
-        bool jsonComplete = LooksLikeCompleteJson(headStr);
-        bool jsonValid = jsonComplete && TryValidateJsonStructure(headStr);
         bool htmlHasScript = headLower.Contains("<script") || headLower.Contains("javascript:") || headLower.Contains("onerror=") || headLower.Contains("onload=");
 
         bool logCuesLocal = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2);
@@ -130,6 +133,7 @@ internal static partial class Signatures
         int scriptPenalty = scriptPenaltyFromLog + scriptPenaltyFromMarkdown;
         int logPenalty = logPenaltyFromScript + (mdLikely ? -4 : 0);
         int jsonPenalty = (scriptCues ? -4 : 0) + (logCuesLocal ? -4 : 0);
+        bool iniStrong = false;
         if (!scriptCues)
         {
             if (LogHeuristics.LooksLikeDnsLog(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-dns", "log:dns", scoreAdjust: logPenalty);
@@ -164,114 +168,11 @@ internal static partial class Signatures
                 AddCandidate("log", "text/plain", "Low", "text:log", "log:declared", scoreAdjust: logPenalty);
         }
 
-        {
-            static bool LooksJsonLine(ReadOnlySpan<byte> l)
-            {
-                if (l.Length < 2) return false;
-                int i = 0; while (i < l.Length && (l[i] == (byte)' ' || l[i] == (byte)'\t')) i++;
-                if (i >= l.Length || l[i] != (byte)'{') return false;
-                int q = l.IndexOf((byte)'"'); if (q < 0) return false;
-                int colon = l.IndexOf((byte)':'); if (colon < 0) return false;
-                int end = l.LastIndexOf((byte)'}'); if (end < 0) return false;
-                int depth = 0; bool inQ = false; bool colonOut = false;
-                for (int k = 0; k < l.Length; k++)
-                {
-                    byte c = l[k];
-                    if (c == (byte)'"') inQ = !inQ;
-                    else if (!inQ)
-                    {
-                        if (c == (byte)'{') depth++;
-                        else if (c == (byte)'}') depth--;
-                        else if (c == (byte)':') colonOut = true;
-                    }
-                }
-                if (depth != 0) return false;
-                return colonOut && colon > q && end > colon;
-            }
+        TryAddNdjsonCandidate(line1, line2, line3, AddCandidate);
 
-            var l1 = TrimBytes(line1);
-            var l2 = TrimBytes(line2);
-            bool j1 = LooksJsonLine(l1);
-            bool j2 = LooksJsonLine(l2);
-            if (j1 && j2)
-            {
-                var l3 = TrimBytes(line3);
-                bool j3 = LooksJsonLine(l3);
-                string conf = j3 ? "High" : "Medium";
-                int boost = j3 ? 10 : 8;
-                AddCandidate("ndjson", "application/x-ndjson", conf, "text:ndjson", j3 ? "ndjson:lines-3" : "ndjson:lines-2", scoreAdjust: boost);
-            }
-        }
+        TryAddJsonCandidates(head, line1, headStr, jsonPenalty, AddCandidate, JsonValidBoost);
 
-        if (head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'['))
-        {
-            bool jsonLooksLikeLog = LooksLikeTimestamp(TrimBytes(line1)) || StartsWithLevelToken(TrimBytes(line1));
-            if (!jsonLooksLikeLog)
-            {
-                int len = Math.Min(JSON_DETECTION_SCAN_LIMIT, head.Length);
-                var slice = head.Slice(0, len);
-                bool looksObject = slice[0] == (byte)'{';
-                bool looksArray = slice[0] == (byte)'[';
-                if (looksArray)
-                {
-                    bool hasClose = slice.IndexOf((byte)']') >= 0;
-                    int commaCount = Count(slice, (byte)',');
-                    bool hasObjectItem = slice.IndexOf((byte)'{') >= 0;
-                    if ((commaCount >= 1 && hasClose) || hasObjectItem)
-                    {
-                        bool hasQuotedColon = HasQuotedKeyColon(slice);
-                        if (hasObjectItem ? hasQuotedColon : true)
-                        {
-                            AddCandidate("json", "application/json", hasObjectItem ? "Medium" : "Low", "text:json", hasObjectItem ? "json:array-of-objects" : "json:array-of-primitives", scoreAdjust: (jsonValid ? 6 : 0) + jsonPenalty);
-                        }
-                    }
-                }
-                if (looksObject)
-                {
-                    bool hasQuotedColon = HasQuotedKeyColon(slice);
-                    bool hasClose = slice.IndexOf((byte)'}') >= 0;
-                    if (hasQuotedColon && hasClose)
-                        AddCandidate("json", "application/json", "Medium", "text:json", "json:object-key-colon", scoreAdjust: (jsonValid ? 6 : 0) + jsonPenalty);
-                }
-            }
-        }
-
-        if (head.Length >= 1 && head[0] == (byte)'<')
-        {
-            var root = TryGetXmlRootName(headStr);
-            if (root != null && root.Length > 0)
-            {
-                var rootLower = root.ToLowerInvariant();
-                int colon = rootLower.IndexOf(':');
-                if (colon >= 0 && colon < rootLower.Length - 1)
-                    rootLower = rootLower.Substring(colon + 1);
-                bool xmlComplete = LooksLikeCompleteXml(headLower, rootLower);
-                bool xmlWellFormed = xmlComplete && TryXmlWellFormed(headStr, out _);
-                if (rootLower == "policydefinitions")
-                {
-                    bool admxCues = LooksLikeAdmxXml(headLower);
-                    bool admxStrong = admxCues || declaredAdmx;
-                    var details = admxCues ? "xml:policydefinitions+schema" : (declaredAdmx ? "xml:policydefinitions+decl" : "xml:policydefinitions");
-                    AddCandidate("admx", "application/xml", admxStrong ? "High" : "Medium", "text:admx", details, scoreAdjust: xmlWellFormed ? 6 : 0);
-                }
-                else if (rootLower == "policydefinitionresources")
-                {
-                    bool admlCues = LooksLikeAdmlXml(headLower);
-                    bool admlStrong = admlCues || declaredAdml;
-                    var details = admlCues ? "xml:policydefinitionresources+schema" : (declaredAdml ? "xml:policydefinitionresources+decl" : "xml:policydefinitionresources");
-                    AddCandidate("adml", "application/xml", admlStrong ? "High" : "Medium", "text:adml", details, scoreAdjust: xmlWellFormed ? 6 : 0);
-                }
-            }
-            if (head.Length >= 5 && head.Slice(0, 5).SequenceEqual("<?xml"u8))
-            {
-                var ext = declaredAdmx ? "admx" : (declaredAdml ? "adml" : "xml");
-                bool xmlComplete = LooksLikeCompleteXml(headLower, null);
-                bool xmlWellFormed = xmlComplete && TryXmlWellFormed(headStr, out _);
-                AddCandidate(ext, "application/xml", "Medium", "text:xml", ext == "xml" ? null : $"xml:decl-{ext}", scoreAdjust: xmlWellFormed ? 6 : 0);
-            }
-            if (head.IndexOf("<!DOCTYPE html"u8) >= 0 || head.IndexOf("<html"u8) >= 0)
-                AddCandidate("html", "text/html", "Medium", "text:html", scoreAdjust: 0, dangerousOverride: htmlHasScript);
-        }
+        TryAddXmlCandidates(head, headStr, headLower, declaredAdmx, declaredAdml, htmlHasScript, AddCandidate, XmlWellFormedBoost);
 
         if (!logCuesLocal)
         {
@@ -284,10 +185,11 @@ internal static partial class Signatures
             }
             CountYamlStructure(head, 8, out int yamlKeys, out int yamlLists);
             bool yamlStrong = yamlKeys >= 2 || (yamlKeys >= 1 && yamlLists >= 1) || yamlLists >= 3;
+            bool yamlFrontHasStructure = yamlKeys > 0 || yamlLists > 0;
             int yamlPenalty = (logCuesLocal ? -6 : 0) + ((scriptCues && !yamlStrong) ? -4 : 0);
             if (yamlFront)
             {
-                if (!scriptCues || yamlStrong)
+                if (yamlFrontHasStructure && (!scriptCues || yamlStrong))
                     AddCandidate("yml", "application/x-yaml", "Low", "text:yaml", "yaml:front-matter", scoreAdjust: yamlPenalty);
             }
             else if (yamlKeys >= 2 || yamlLists >= 2)
@@ -357,6 +259,7 @@ internal static partial class Signatures
                 }
                 if (hasSection && hasEquals)
                 {
+                    iniStrong = true;
                     var ext = declaredInf ? "inf" : "ini";
                     int iniAdjust = 4;
                     AddCandidate(ext, "text/plain", "Low", "text:ini", ext == "inf" ? "inf:section+equals" : "ini:section+equals", scoreAdjust: iniAdjust);
@@ -405,7 +308,16 @@ internal static partial class Signatures
                 bool hasHeading = sl.StartsWith("# ") || sl.Contains("\n# ");
                 bool mdStructural = hasFence || hasHeading;
                 if (okByCues && !logCuesLocal && (!scriptCues || declaredMd || mdStructural))
-                    AddCandidate("md", "text/markdown", "Low", "text:md", null, mdStructural ? 4 : 0);
+                {
+                    var mdConf = mdStructural ? "Medium" : "Low";
+                    int mdAdjust = mdStructural ? 4 : 0;
+                    if (iniStrong && !declaredMd)
+                    {
+                        mdConf = "Low";
+                        mdAdjust -= 6;
+                    }
+                    AddCandidate("md", "text/markdown", mdConf, "text:md", null, mdAdjust);
+                }
             }
         }
 
@@ -441,17 +353,24 @@ internal static partial class Signatures
             if (hasVerbNoun) { cues++; strong++; }
             if (hasPipeline) { cues++; strong++; }
 
+            int psBoost = 0;
+            if (psShebang) psBoost += 6;
+            if (hasVerbNoun) psBoost += 4;
+            if (hasPipeline) psBoost += 2;
+            if (hasModuleExport) psBoost += 2;
+            if (hasGetSet) psBoost += 1;
+
             if (declaredPsm1 && (hasModuleExport || hasVerbNoun))
-                AddCandidate("psm1", "text/x-powershell", "Medium", "text:psm1", "psm1:module-cues", scriptPenalty);
+                AddCandidate("psm1", "text/x-powershell", "Medium", "text:psm1", "psm1:module-cues", scriptPenalty + psBoost);
 
             if (declaredPsd1 && (psd1Hashtable || hasModuleExport))
-                AddCandidate("psd1", "text/x-powershell", "Low", "text:psd1", psd1Hashtable ? "psd1:hashtable" : "psd1:module-keys", scriptPenalty);
+                AddCandidate("psd1", "text/x-powershell", "Low", "text:psd1", psd1Hashtable ? "psd1:hashtable" : "psd1:module-keys", scriptPenalty + psBoost);
 
             if (psShebang || cues >= 2 || (cues >= 1 && strong >= 1))
             {
                 string conf = psShebang || cues >= 3 || strong >= 2 ? "High" : "Medium";
                 string details = psShebang ? "ps1:shebang" : (cues >= 3 ? "ps1:multi-cues" : (strong >= 1 && cues == 1 ? "ps1:single-strong-cue" : "ps1:common-cmdlets"));
-                AddCandidate("ps1", "text/x-powershell", conf, psShebang ? "text:ps1-shebang" : "text:ps1", details, scriptPenalty);
+                AddCandidate("ps1", "text/x-powershell", conf, psShebang ? "text:ps1-shebang" : "text:ps1", details, scriptPenalty + psBoost);
             }
         }
 

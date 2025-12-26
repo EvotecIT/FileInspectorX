@@ -112,18 +112,22 @@ internal static partial class Signatures
                     rootLower = rootLower.Substring(colon + 1);
                 if (rootLower == "policydefinitions")
                 {
-                    bool admxCues = LooksLikeAdmxXml(headLower);
-                    bool admxStrong = admxCues || declaredAdmx;
-                    var details = admxCues ? "xml:policydefinitions+schema" : (declaredAdmx ? "xml:policydefinitions+decl" : "xml:policydefinitions");
-                    result = new ContentTypeDetectionResult { Extension = "admx", MimeType = "application/xml", Confidence = admxStrong ? "High" : "Medium", Reason = "text:admx", ReasonDetails = details };
+                    int admxCues = CountAdmxCues(headLower, out bool admxStrong);
+                    bool admxHigh = admxStrong || declaredAdmx || admxCues >= 5;
+                    string details = admxStrong ? "xml:policydefinitions+strong" :
+                        (admxCues >= 3 ? $"xml:policydefinitions+cues-{admxCues}" :
+                        (declaredAdmx ? "xml:policydefinitions+decl" : "xml:policydefinitions"));
+                    result = new ContentTypeDetectionResult { Extension = "admx", MimeType = "application/xml", Confidence = admxHigh ? "High" : "Medium", Reason = "text:admx", ReasonDetails = details };
                     return true;
                 }
                 if (rootLower == "policydefinitionresources")
                 {
-                    bool admlCues = LooksLikeAdmlXml(headLower);
-                    bool admlStrong = admlCues || declaredAdml;
-                    var details = admlCues ? "xml:policydefinitionresources+schema" : (declaredAdml ? "xml:policydefinitionresources+decl" : "xml:policydefinitionresources");
-                    result = new ContentTypeDetectionResult { Extension = "adml", MimeType = "application/xml", Confidence = admlStrong ? "High" : "Medium", Reason = "text:adml", ReasonDetails = details };
+                    int admlCues = CountAdmlCues(headLower, out bool admlStrong);
+                    bool admlHigh = admlStrong || declaredAdml || admlCues >= 4;
+                    string details = admlStrong ? "xml:policydefinitionresources+strong" :
+                        (admlCues >= 3 ? $"xml:policydefinitionresources+cues-{admlCues}" :
+                        (declaredAdml ? "xml:policydefinitionresources+decl" : "xml:policydefinitionresources"));
+                    result = new ContentTypeDetectionResult { Extension = "adml", MimeType = "application/xml", Confidence = admlHigh ? "High" : "Medium", Reason = "text:adml", ReasonDetails = details };
                     return true;
                 }
             }
@@ -165,11 +169,12 @@ internal static partial class Signatures
             CountYamlStructure(head, 8, out int yamlKeys, out int yamlLists);
             bool yamlStrong = yamlKeys >= 2 || (yamlKeys >= 1 && yamlLists >= 1) || yamlLists >= 3;
             bool allowYaml = yamlStrong || !HasPowerShellCues(head, headStr, headLower);
+            bool yamlFrontHasStructure = yamlKeys > 0 || yamlLists > 0;
             bool winLogLike = IndexOfToken(head, "Log Name:") >= 0 || IndexOfToken(head, "Event ID:") >= 0 || IndexOfToken(head, "Source:") >= 0 || IndexOfToken(head, "Task Category:") >= 0 || IndexOfToken(head, "Level:") >= 0;
 
             if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-')
             {
-                if (allowYaml && !winLogLike)
+                if (allowYaml && !winLogLike && yamlFrontHasStructure)
                 {
                     result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" };
                     return true;

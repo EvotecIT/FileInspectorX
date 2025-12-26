@@ -51,6 +51,7 @@ internal static partial class Signatures
             if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
+            if (LooksLikePowerShellAssignment(headStr)) cues++;
             // Count Get-/Set- as a mild cue only when combined with another cue
             bool hasGetSet = headStr.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || headStr.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0;
             if (hasGetSet) cues++;
@@ -185,6 +186,7 @@ internal static partial class Signatures
         if (sl.Contains("$_")) { cues++; }
         if (sl.Contains("@{") || sl.Contains("@(") || sl.Contains("$(") || sl.Contains("${")) { cues++; }
         if (sl.Contains("[pscustomobject]@{")) { cues++; strong++; }
+        if (LooksLikePowerShellAssignment(s)) { cues++; }
 
         // PowerShell operators (avoid matching "-in" inside other words by checking token-ish boundaries)
         static bool HasOp(string text, string op)
@@ -211,9 +213,26 @@ internal static partial class Signatures
         if (s.IndexOf("Write-Host", System.StringComparison.OrdinalIgnoreCase) >= 0) { cues++; strong++; }
         if (s.IndexOf("Import-Module", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
         if (s.IndexOf("New-Object", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
-        if (s.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+        if (s.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;     
 
         return strong >= 1 || cues >= 2;
+    }
+
+    private static bool LooksLikePowerShellAssignment(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        var span = s.AsSpan();
+        for (int i = 0; i < span.Length - 3; i++)
+        {
+            if (span[i] != '$') continue;
+            int j = i + 1;
+            if (j >= span.Length || !IsIdentStart(span[j])) continue;
+            j++;
+            while (j < span.Length && IsIdentPart(span[j])) j++;
+            while (j < span.Length && char.IsWhiteSpace(span[j])) j++;
+            if (j < span.Length && span[j] == '=') return true;
+        }
+        return false;
     }
 
     private static bool HasVerbNounCmdlet(string s)
@@ -225,6 +244,7 @@ internal static partial class Signatures
             while (i < span.Length && IsSep(span[i])) i++;
             int start = i;
             while (i < span.Length && !IsSep(span[i])) i++;
+            if (i == start && i < span.Length) { i++; continue; }
             int len = i - start;
             if (len == 0)
             {

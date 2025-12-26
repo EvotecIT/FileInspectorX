@@ -32,6 +32,7 @@ internal static partial class Signatures
 
     private static bool LooksLikeTimestamp(ReadOnlySpan<byte> l)
     {
+        if (l.Length < 10) return false;
         int i = 0;
         while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
         if (i >= l.Length) return false;
@@ -107,28 +108,70 @@ internal static partial class Signatures
         return -1;
     }
 
+    private static int CountAdmxCues(string lower, out bool strong)
+    {
+        bool hasNamespace = lower.Contains("schemas.microsoft.com/grouppolicy/2006/07/policydefinitions");
+        bool hasPolicyNamespaces = lower.Contains("<policynamespaces");
+        bool hasPolicies = lower.Contains("<policies");
+        bool hasPolicy = lower.Contains("<policy ");
+        bool hasCategories = lower.Contains("<categories");
+        bool hasSupportedOn = lower.Contains("<supportedon");
+        bool hasResources = lower.Contains("<resources");
+        bool hasMsPoliciesNs = lower.Contains("namespace=\"microsoft.policies.");
+        bool hasSchema = lower.Contains("schemaversion");
+        bool hasRevision = lower.Contains("revision=\"");
+
+        int cues = 0;
+        if (hasNamespace) cues++;
+        if (hasPolicyNamespaces) cues++;
+        if (hasPolicies) cues++;
+        if (hasPolicy) cues++;
+        if (hasCategories) cues++;
+        if (hasSupportedOn) cues++;
+        if (hasResources) cues++;
+        if (hasMsPoliciesNs) cues++;
+        if (hasSchema) cues++;
+        if (hasRevision) cues++;
+
+        strong = (hasPolicyNamespaces && (hasPolicies || hasPolicy) && hasCategories) ||
+                 (hasNamespace && (hasPolicies || hasPolicy)) ||
+                 (hasPolicyNamespaces && hasSupportedOn);
+        return cues;
+    }
+
     private static bool LooksLikeAdmxXml(string lower)
     {
-        int cues = 0;
-        if (lower.Contains("schemas.microsoft.com/grouppolicy/2006/07/policydefinitions")) cues++;
-        if (lower.Contains("<policynamespaces")) cues++;
-        if (lower.Contains("<policies")) cues++;
-        if (lower.Contains("<categories")) cues++;
-        if (lower.Contains("<resources")) cues++;
-        if (lower.Contains("schemaversion")) cues++;
-        if (lower.Contains("revision=\"")) cues++;
+        int cues = CountAdmxCues(lower, out _);
         return cues >= 2;
+    }
+
+    private static int CountAdmlCues(string lower, out bool strong)
+    {
+        bool hasNamespace = lower.Contains("schemas.microsoft.com/grouppolicy/2006/07/policydefinitions");
+        bool hasResources = lower.Contains("<resources");
+        bool hasStringTable = lower.Contains("<stringtable");
+        bool hasStringId = lower.Contains("<string id=");
+        bool hasPresentationTable = lower.Contains("<presentationtable");
+        bool hasSchema = lower.Contains("schemaversion");
+        bool hasRevision = lower.Contains("revision=\"");
+
+        int cues = 0;
+        if (hasNamespace) cues++;
+        if (hasResources) cues++;
+        if (hasStringTable) cues++;
+        if (hasStringId) cues++;
+        if (hasPresentationTable) cues++;
+        if (hasSchema) cues++;
+        if (hasRevision) cues++;
+
+        strong = (hasStringTable && hasStringId) ||
+                 (hasResources && hasStringTable && hasPresentationTable);
+        return cues;
     }
 
     private static bool LooksLikeAdmlXml(string lower)
     {
-        int cues = 0;
-        if (lower.Contains("schemas.microsoft.com/grouppolicy/2006/07/policydefinitions")) cues++;
-        if (lower.Contains("<resources")) cues++;
-        if (lower.Contains("<stringtable")) cues++;
-        if (lower.Contains("<presentationtable")) cues++;
-        if (lower.Contains("schemaversion")) cues++;
-        if (lower.Contains("revision=\"")) cues++;
+        int cues = CountAdmlCues(lower, out _);
         return cues >= 2;
     }
 

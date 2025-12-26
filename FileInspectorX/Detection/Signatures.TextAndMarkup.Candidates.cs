@@ -22,6 +22,7 @@ internal static partial class Signatures
 
         var all = CollectCandidates(head, headStr, headLower, decl);
         if (all.Count == 0) return det;
+        det.Candidates = all;
 
         var primaryExt = det.Extension ?? string.Empty;
         ContentTypeDetectionCandidate? primary = null;

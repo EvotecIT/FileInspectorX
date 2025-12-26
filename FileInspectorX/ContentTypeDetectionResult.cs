@@ -48,4 +48,7 @@ public class ContentTypeDetectionResult {
 
     /// <summary>Optional ranked alternative candidates (excluding the primary).</summary>
     public IReadOnlyList<ContentTypeDetectionCandidate>? Alternatives { get; set; }
+
+    /// <summary>Optional ranked candidates including the primary.</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? Candidates { get; set; }
 }

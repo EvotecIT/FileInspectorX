@@ -1243,7 +1243,7 @@ public static partial class FileInspector {
             if (result is null) {
                     result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
                 } else {
-                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, Candidates = result.Candidates, IsDangerous = result.IsDangerous };
                 }
         }
         if (options.ComputeSha256 && stream != null) {
@@ -1255,7 +1255,7 @@ public static partial class FileInspector {
                 if (result is null) {
                     result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", Sha256Hex = hex };
                 } else {
-                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, Candidates = result.Candidates, IsDangerous = result.IsDangerous };
                 }
             } catch { /* ignore */ } finally { if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin); }
         }
