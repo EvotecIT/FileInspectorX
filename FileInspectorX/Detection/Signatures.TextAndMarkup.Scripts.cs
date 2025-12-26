@@ -42,13 +42,21 @@ internal static partial class Signatures
             int strong = 0;
             if (headLower.Contains("[cmdletbinding]")) cues++;
             if (headLower.Contains("#requires")) cues++;
-            if (headLower.Contains("param(")) { cues++; strong++; }
-            if (headLower.Contains("begin{")) { cues++; strong++; }
-            if (headLower.Contains("process{")) { cues++; strong++; }
-            if (headLower.Contains("end{")) { cues++; strong++; }
+            if (headLower.Contains("using module ") || headLower.Contains("using namespace ")) { cues++; strong++; }
+            if (headLower.Contains("set-strictmode")) { cues++; strong++; }
+            if (headLower.Contains("$psversiontable")) { cues++; strong++; }
+            if (headLower.Contains("param(") || headLower.Contains("param (")) { cues++; strong++; }
+            if (headLower.Contains("begin{") || headLower.Contains("begin {")) { cues++; strong++; }
+            if (headLower.Contains("process{") || headLower.Contains("process {")) { cues++; strong++; }
+            if (headLower.Contains("end{") || headLower.Contains("end {")) { cues++; strong++; }
             if (headLower.Contains("[parameter(")) { cues++; strong++; }
             if (headLower.Contains("[validate")) { cues++; strong++; }
             if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
+            if (headStr.IndexOf("Write-Output", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Error", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Warning", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Verbose", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Debug", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
             if (headStr.IndexOf("Import-Module", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("New-Object", System.StringComparison.Ordinal) >= 0) cues++;
             if (LooksLikePowerShellAssignment(headStr)) cues++;
@@ -61,7 +69,7 @@ internal static partial class Signatures
             // Module/data file special-cases
             if (declaredPsm1 && (hasModuleExport || hasVerbNoun))
             {
-                result = new ContentTypeDetectionResult { Extension = "psm1", MimeType = "text/x-powershell", Confidence = "Medium", Reason = "text:psm1", ReasonDetails = "psm1:module-cues" };
+                result = new ContentTypeDetectionResult { Extension = "psm1", MimeType = "text/x-powershell", Confidence = "High", Reason = "text:psm1", ReasonDetails = "psm1:module-cues" };
                 return true;
             }
             if (declaredPsd1 && (psd1Hashtable || hasModuleExport))
@@ -169,10 +177,13 @@ internal static partial class Signatures
 
         if (sl.Contains("[cmdletbinding]")) { cues++; strong++; }
         if (sl.Contains("#requires")) { cues++; strong++; }
-        if (sl.Contains("param(")) { cues++; strong++; }
-        if (sl.Contains("begin{")) { cues++; strong++; }
-        if (sl.Contains("process{")) { cues++; strong++; }
-        if (sl.Contains("end{")) { cues++; strong++; }
+        if (sl.Contains("using module ") || sl.Contains("using namespace ")) { cues++; strong++; }
+        if (sl.Contains("set-strictmode")) { cues++; strong++; }
+        if (sl.Contains("$psversiontable")) { cues++; strong++; }
+        if (sl.Contains("param(") || sl.Contains("param (")) { cues++; strong++; }
+        if (sl.Contains("begin{") || sl.Contains("begin {")) { cues++; strong++; }
+        if (sl.Contains("process{") || sl.Contains("process {")) { cues++; strong++; }
+        if (sl.Contains("end{") || sl.Contains("end {")) { cues++; strong++; }
         if (sl.Contains("[parameter(")) { cues++; strong++; }
         if (sl.Contains("[validate")) { cues++; strong++; }
 
@@ -210,6 +221,11 @@ internal static partial class Signatures
         }
 
         if (s.IndexOf("Write-Host", System.StringComparison.OrdinalIgnoreCase) >= 0) { cues++; strong++; }
+        if (s.IndexOf("Write-Output", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+        if (s.IndexOf("Write-Error", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+        if (s.IndexOf("Write-Warning", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+        if (s.IndexOf("Write-Verbose", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+        if (s.IndexOf("Write-Debug", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
         if (s.IndexOf("Import-Module", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
         if (s.IndexOf("New-Object", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
         if (s.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;     

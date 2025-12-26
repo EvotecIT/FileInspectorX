@@ -7,7 +7,21 @@ internal static partial class Signatures
         int declaredExtensionBoost = Math.Max(0, Settings.DetectionDeclaredExtensionBoost);
         int jsonValidBoost = Math.Max(0, Settings.DetectionJsonValidBoost);
         int xmlWellFormedBoost = Math.Max(0, Settings.DetectionXmlWellFormedBoost);
-        var byExt = new Dictionary<string, ContentTypeDetectionCandidate>(StringComparer.OrdinalIgnoreCase);
+        int scriptPenaltyDeclaredMd = Settings.DetectionMarkdownDeclaredPenalty;
+        int scriptPenaltyStructuralMd = Settings.DetectionMarkdownStructuralPenalty;
+        int scriptPenaltyMd = Settings.DetectionMarkdownPenalty;
+        int logPenaltyFromScriptValue = Settings.DetectionLogPenaltyFromScript;
+        int scriptPenaltyFromLogValue = Settings.DetectionScriptPenaltyFromLog;
+        int logPenaltyFromMarkdownValue = Settings.DetectionLogPenaltyFromMarkdown;
+        int jsonPenaltyFromScript = Settings.DetectionJsonPenaltyFromScript;
+        int jsonPenaltyFromLog = Settings.DetectionJsonPenaltyFromLog;
+        int yamlPenaltyFromLog = Settings.DetectionYamlPenaltyFromLog;
+        int yamlPenaltyFromScript = Settings.DetectionYamlPenaltyFromScript;
+        int markdownPenaltyFromIni = Settings.DetectionMarkdownPenaltyFromIni;
+        int plainTextPenaltyFromScript = Settings.DetectionPlainTextPenaltyFromScript;
+        int plainTextPenaltyFromLog = Settings.DetectionPlainTextPenaltyFromLog;
+        int plainTextPenaltyFromMarkdown = Settings.DetectionPlainTextPenaltyFromMarkdown;
+        var byExt = new Dictionary<string, ContentTypeDetectionCandidate>(24, StringComparer.OrdinalIgnoreCase);
         void AddCandidate(string ext, string mime, string confidence, string reason, string? details = null, int scoreAdjust = 0, bool? dangerousOverride = null)
         {
             if (string.IsNullOrWhiteSpace(ext)) return;
@@ -108,7 +122,7 @@ internal static partial class Signatures
         bool mdLikely = mdStructuralLocal || mdCuesLocal >= 2 || (declaredMd && mdCuesLocal >= 1);
         int scriptPenaltyFromMarkdown = 0;
         if (mdLikely)
-            scriptPenaltyFromMarkdown = declaredMd ? -10 : (mdStructuralLocal ? -8 : -6);
+            scriptPenaltyFromMarkdown = declaredMd ? scriptPenaltyDeclaredMd : (mdStructuralLocal ? scriptPenaltyStructuralMd : scriptPenaltyMd);
 
         var span = head;
         if (span.Length == 0) return new List<ContentTypeDetectionCandidate>();
@@ -128,11 +142,11 @@ internal static partial class Signatures
         bool htmlHasScript = headLower.Contains("<script") || headLower.Contains("javascript:") || headLower.Contains("onerror=") || headLower.Contains("onload=");
 
         bool logCuesLocal = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2);
-        int logPenaltyFromScript = scriptCues ? -8 : 0;
-        int scriptPenaltyFromLog = logCuesLocal ? -8 : 0;
+        int logPenaltyFromScript = scriptCues ? logPenaltyFromScriptValue : 0;
+        int scriptPenaltyFromLog = logCuesLocal ? scriptPenaltyFromLogValue : 0;
         int scriptPenalty = scriptPenaltyFromLog + scriptPenaltyFromMarkdown;
-        int logPenalty = logPenaltyFromScript + (mdLikely ? -4 : 0);
-        int jsonPenalty = (scriptCues ? -4 : 0) + (logCuesLocal ? -4 : 0);
+        int logPenalty = logPenaltyFromScript + (mdLikely ? logPenaltyFromMarkdownValue : 0);
+        int jsonPenalty = (scriptCues ? jsonPenaltyFromScript : 0) + (logCuesLocal ? jsonPenaltyFromLog : 0);
         bool iniStrong = false;
         if (!scriptCues)
         {
@@ -186,7 +200,7 @@ internal static partial class Signatures
             CountYamlStructure(head, 8, out int yamlKeys, out int yamlLists);
             bool yamlStrong = yamlKeys >= 2 || (yamlKeys >= 1 && yamlLists >= 1) || yamlLists >= 3;
             bool yamlFrontHasStructure = yamlKeys > 0 || yamlLists > 0;
-            int yamlPenalty = (logCuesLocal ? -6 : 0) + ((scriptCues && !yamlStrong) ? -4 : 0);
+            int yamlPenalty = (logCuesLocal ? yamlPenaltyFromLog : 0) + ((scriptCues && !yamlStrong) ? yamlPenaltyFromScript : 0);
             if (yamlFront)
             {
                 if (yamlFrontHasStructure && (!scriptCues || yamlStrong))
@@ -314,7 +328,7 @@ internal static partial class Signatures
                     if (iniStrong && !declaredMd)
                     {
                         mdConf = "Low";
-                        mdAdjust -= 6;
+                        mdAdjust += markdownPenaltyFromIni;
                     }
                     AddCandidate("md", "text/markdown", mdConf, "text:md", null, mdAdjust);
                 }
@@ -339,13 +353,21 @@ internal static partial class Signatures
             int strong = 0;
             if (headLower.Contains("[cmdletbinding]")) cues++;
             if (headLower.Contains("#requires")) cues++;
-            if (headLower.Contains("param(")) { cues++; strong++; }
-            if (headLower.Contains("begin{")) { cues++; strong++; }
-            if (headLower.Contains("process{")) { cues++; strong++; }
-            if (headLower.Contains("end{")) { cues++; strong++; }
-            if (headLower.Contains("[parameter(")) { cues++; strong++; }
-            if (headLower.Contains("[validate")) { cues++; strong++; }
+            if (headLower.Contains("using module ") || headLower.Contains("using namespace ")) { cues++; strong++; }
+            if (headLower.Contains("set-strictmode")) { cues++; strong++; }
+            if (headLower.Contains("$psversiontable")) { cues++; strong++; }
+            if (headLower.Contains("param(") || headLower.Contains("param (")) { cues++; strong++; }
+            if (headLower.Contains("begin{") || headLower.Contains("begin {")) { cues++; strong++; }
+            if (headLower.Contains("process{") || headLower.Contains("process {")) { cues++; strong++; }
+            if (headLower.Contains("end{") || headLower.Contains("end {")) { cues++; strong++; }
+            if (headLower.Contains("[parameter(")) { cues++; strong++; }    
+            if (headLower.Contains("[validate")) { cues++; strong++; }      
             if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
+            if (headStr.IndexOf("Write-Output", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Error", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Warning", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Verbose", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
+            if (headStr.IndexOf("Write-Debug", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
             if (headStr.IndexOf("Import-Module", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
             if (headStr.IndexOf("New-Object", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
             bool hasGetSet = headStr.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || headStr.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0;
@@ -359,9 +381,11 @@ internal static partial class Signatures
             if (hasPipeline) psBoost += 2;
             if (hasModuleExport) psBoost += 2;
             if (hasGetSet) psBoost += 1;
+            if (headLower.Contains("set-strictmode")) psBoost += 1;
+            if (headLower.Contains("$psversiontable")) psBoost += 1;
 
             if (declaredPsm1 && (hasModuleExport || hasVerbNoun))
-                AddCandidate("psm1", "text/x-powershell", "Medium", "text:psm1", "psm1:module-cues", scriptPenalty + psBoost);
+                AddCandidate("psm1", "text/x-powershell", "High", "text:psm1", "psm1:module-cues", scriptPenalty + psBoost);
 
             if (declaredPsd1 && (psd1Hashtable || hasModuleExport))
                 AddCandidate("psd1", "text/x-powershell", "Low", "text:psd1", psd1Hashtable ? "psd1:hashtable" : "psd1:module-keys", scriptPenalty + psBoost);
@@ -441,7 +465,9 @@ internal static partial class Signatures
         {
             if (LooksLikePlainText(head, out bool extended, out _))
             {
-                int textPenalty = (scriptCues ? -8 : 0) + (logCuesLocal ? -6 : 0) + (mdLikely ? -4 : 0);
+                int textPenalty = (scriptCues ? plainTextPenaltyFromScript : 0) +
+                                  (logCuesLocal ? plainTextPenaltyFromLog : 0) +
+                                  (mdLikely ? plainTextPenaltyFromMarkdown : 0);
                 var details = extended ? "plain:extended" : "plain:ascii";
                 AddCandidate("txt", "text/plain", "Low", "text:plain", details, scoreAdjust: textPenalty);
             }

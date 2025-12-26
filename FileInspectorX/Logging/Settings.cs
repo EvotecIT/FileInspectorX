@@ -6,8 +6,10 @@ namespace FileInspectorX;
 /// </summary>
 /// <remarks>
 /// These settings are global and mutable. Configure once at application startup.
-/// Concurrent mutation is not thread-safe. If you must change settings at runtime,
-/// protect updates with your own lock and prefer thread-safe collections.
+/// Concurrent mutation can lead to inconsistent detection results. If you must change
+/// settings at runtime, protect updates with your own lock. Some collections (such as
+/// <see cref="DetectionScoreAdjustments"/>) use thread-safe types by default to avoid
+/// concurrent collection exceptions, but changes across multiple settings are not atomic.
 /// </remarks>
 public class Settings {
     /// <summary>
@@ -137,6 +139,90 @@ public class Settings {
     public static int DetectionNdjsonLines3Boost { get; set; } = 10;
 
     /// <summary>
+    /// Penalty applied to script candidates when markdown is likely and the declared extension is markdown.
+    /// Default -10.
+    /// </summary>
+    public static int DetectionMarkdownDeclaredPenalty { get; set; } = -10;
+
+    /// <summary>
+    /// Penalty applied to script candidates when markdown has structural cues (fence/heading).
+    /// Default -8.
+    /// </summary>
+    public static int DetectionMarkdownStructuralPenalty { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to script candidates when markdown is likely (non-structural).
+    /// Default -6.
+    /// </summary>
+    public static int DetectionMarkdownPenalty { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to log candidates when script cues are present.
+    /// Default -8.
+    /// </summary>
+    public static int DetectionLogPenaltyFromScript { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to script candidates when log cues are present.
+    /// Default -8.
+    /// </summary>
+    public static int DetectionScriptPenaltyFromLog { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to log candidates when markdown is likely.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionLogPenaltyFromMarkdown { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to JSON candidates when script cues are present.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionJsonPenaltyFromScript { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to JSON candidates when log cues are present.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionJsonPenaltyFromLog { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to YAML candidates when log cues are present.
+    /// Default -6.
+    /// </summary>
+    public static int DetectionYamlPenaltyFromLog { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to YAML candidates when script cues are present.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionYamlPenaltyFromScript { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to markdown candidates when INI cues are strong.
+    /// Default -6.
+    /// </summary>
+    public static int DetectionMarkdownPenaltyFromIni { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to plain text candidates when script cues are present.
+    /// Default -8.
+    /// </summary>
+    public static int DetectionPlainTextPenaltyFromScript { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to plain text candidates when log cues are present.
+    /// Default -6.
+    /// </summary>
+    public static int DetectionPlainTextPenaltyFromLog { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to plain text candidates when markdown is likely.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionPlainTextPenaltyFromMarkdown { get; set; } = -4;
+
+    /// <summary>
     /// Maximum bytes to sample when classifying plain text.
     /// Default 2048.
     /// </summary>
@@ -156,9 +242,15 @@ public class Settings {
 
     /// <summary>
     /// Optional override for the dangerous extension set. When non-null and non-empty,
-    /// it replaces the built-in <see cref="FileInspectorX.DangerousExtensions.Default"/> list.
+    /// behavior is controlled by <see cref="DangerousExtensionsOverrideMode"/>.
     /// </summary>
     public static ISet<string>? DangerousExtensionsOverride { get; set; } = null;
+
+    /// <summary>
+    /// Controls how <see cref="DangerousExtensionsOverride"/> is applied.
+    /// Default Replace (override list replaces the built-in set).
+    /// </summary>
+    public static DangerousExtensionsOverrideMode DangerousExtensionsOverrideMode { get; set; } = DangerousExtensionsOverrideMode.Replace;
 
     /// <summary>
     /// Maximum number of ZIP entries to enumerate when guessing ZIP subtypes (apk/jar/ipa/nupkg/od*).
@@ -184,6 +276,12 @@ public class Settings {
     /// Default 5 MB. Set to 0 to disable the size cap.
     /// </summary>
     public static int JsonStructuralValidationMaxBytes { get; set; } = 5_000_000;
+
+    /// <summary>
+    /// Maximum time in milliseconds for JSON structural validation.
+    /// Defaults to 4000 ms. Set to 0 to disable timeouts.
+    /// </summary>
+    public static int JsonStructuralValidationTimeoutMs { get; set; } = 4000;
 
     /// <summary>
     /// Maximum file size in bytes to validate when <see cref="AdmxAdmlXmlWellFormednessValidationEnabled"/> is true.
@@ -424,4 +522,15 @@ public enum VendorMatchMode
     Contains = 0,
     /// <summary>Case-insensitive full equality.</summary>
     Exact = 1
+}
+
+/// <summary>
+/// Controls how DangerousExtensionsOverride is applied.
+/// </summary>
+public enum DangerousExtensionsOverrideMode
+{
+    /// <summary>Replace the built-in dangerous extension set (default).</summary>
+    Replace = 0,
+    /// <summary>Merge override entries into the built-in dangerous extension set.</summary>
+    Merge = 1
 }

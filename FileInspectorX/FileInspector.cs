@@ -1301,14 +1301,17 @@ public static partial class FileInspector {
             bool detectedGeneric = string.IsNullOrEmpty(detExt) ||
                                    detExt.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
                                    detExt.Equals("text", StringComparison.OrdinalIgnoreCase);
+            bool declaredDangerous = DangerousExtensions.IsDangerous(decl);
             if (detectedGeneric &&
                 (decl == "log" || decl == "txt" || decl == "md" || decl == "markdown" || decl == "ps1" || decl == "psm1" || decl == "psd1" ||
                  decl == "cmd" || decl == "bat" || decl == "ini" || decl == "inf"))
             {
+                if (!declaredDangerous && HasStrongDangerousCandidate(det))
+                    return det;
                 if (!decl.Equals(det.Extension, StringComparison.OrdinalIgnoreCase))
                 {
                     det.Extension = decl;
-                    det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+                    det.MimeType = NormalizeMime(det.Extension, det.MimeType);  
                     det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
                 }
             }
@@ -1323,6 +1326,22 @@ public static partial class FileInspector {
         }
         det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
         return det;
+    }
+
+    private static bool HasStrongDangerousCandidate(ContentTypeDetectionResult det)
+    {
+        var candidates = det.Candidates ?? det.Alternatives;
+        if (candidates == null || candidates.Count == 0) return false;
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.Extension)) continue;
+            if (!DangerousExtensions.IsDangerous(candidate.Extension)) continue;
+            if (candidate.Score >= 80) return true;
+            if (!string.IsNullOrEmpty(candidate.Confidence) &&
+                candidate.Confidence.Equals("High", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private static string ToLowerHex(byte[] data) {

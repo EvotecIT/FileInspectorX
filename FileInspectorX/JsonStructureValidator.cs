@@ -28,19 +28,30 @@ internal static class JsonStructureValidator
                 return false;
             }
         }
-        bool ok = TryValidateCore(s);
+        int timeoutMs = Settings.JsonStructuralValidationTimeoutMs;
+        long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
+        System.Diagnostics.Stopwatch? sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
+        bool ok = TryValidateCore(s, sw, timeoutTicks, out bool timedOut);
+        if (timedOut)
+        {
+            skipped = true;
+            if (Settings.DetectionLogCandidates)
+                Settings.Logger.WriteDebug("json:validate skipped (timeout)");
+            return false;
+        }
         if (!ok && Settings.DetectionLogCandidates)
             Settings.Logger.WriteDebug("json:validate failed");
         return ok;
     }
 
-    private static bool TryValidateCore(string s)
+    private static bool TryValidateCore(string s, System.Diagnostics.Stopwatch? sw, long timeoutTicks, out bool timedOut)
     {
+        timedOut = false;
         var span = s.AsSpan().Trim();
         if (span.Length < 2) return false;
         char first = span[0];
         char last = span[span.Length - 1];
-        if (!((first == '{' || first == '[') && (last == '}' || last == ']')))
+        if (!((first == '{' || first == '[') && (last == '}' || last == ']')))  
             return false;
         int depthObj = 0;
         int depthArr = 0;
@@ -48,6 +59,11 @@ internal static class JsonStructureValidator
         bool escape = false;
         for (int i = 0; i < span.Length; i++)
         {
+            if ((i & 0x3FF) == 0 && TimeoutHelpers.IsExpired(sw, timeoutTicks))
+            {
+                timedOut = true;
+                return false;
+            }
             char c = span[i];
             if (inString)
             {

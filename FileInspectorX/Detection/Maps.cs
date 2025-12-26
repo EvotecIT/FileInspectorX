@@ -156,7 +156,12 @@ public static class DangerousExtensions {
         if (string.IsNullOrWhiteSpace(extension)) return false;
         var key = extension!.Trim().TrimStart('.');
         var custom = Settings.DangerousExtensionsOverride;
-        if (custom != null && custom.Count > 0) return custom.Contains(key);
+        if (custom != null && custom.Count > 0)
+        {
+            if (Settings.DangerousExtensionsOverrideMode == DangerousExtensionsOverrideMode.Merge)
+                return custom.Contains(key) || Default.Contains(key);
+            return custom.Contains(key);
+        }
         return Default.Contains(key);
     }
 }
