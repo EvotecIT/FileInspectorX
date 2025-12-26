@@ -10,6 +10,7 @@ internal static partial class Signatures {
     private const double UTF32_NUL_RATIO_MIN = 0.6;
     private const double UTF32_NONNULL_POS_DOMINANCE = 0.7;
     private const int UTF16_NUL_DOMINANCE_FACTOR = 4;
+    private const int JSON_DETECTION_SCAN_LIMIT = 2048;
     // see FileInspectorX.Settings for configurable thresholds
 
     internal static bool TryMatchMsg(string path, out ContentTypeDetectionResult? result) {

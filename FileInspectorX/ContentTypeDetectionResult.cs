@@ -22,6 +22,11 @@ public class ContentTypeDetectionResult {
     /// Null or empty when not applicable.
     /// </summary>
     public string? ReasonDetails { get; set; }
+    /// <summary>
+    /// Structured validation status when applicable: "passed", "timeout", "skipped", "failed".
+    /// Null when validation was not attempted.
+    /// </summary>
+    public string? ValidationStatus { get; set; }
 
     /// <summary>Optional SHA-256 of the full file (lowercase hex). Only set when requested via options.</summary>
     public string? Sha256Hex { get; set; }

@@ -208,7 +208,7 @@ internal static partial class Signatures
             bool jsonLooksLikeLog = LooksLikeTimestamp(TrimBytes(line1)) || StartsWithLevelToken(TrimBytes(line1));
             if (!jsonLooksLikeLog)
             {
-                int len = Math.Min(2048, head.Length);
+                int len = Math.Min(JSON_DETECTION_SCAN_LIMIT, head.Length);
                 var slice = head.Slice(0, len);
                 bool looksObject = slice[0] == (byte)'{';
                 bool looksArray = slice[0] == (byte)'[';

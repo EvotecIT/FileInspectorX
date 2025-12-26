@@ -162,6 +162,16 @@ $data | Export-OfficeExcel -FilePath $path -WorksheetName 'Data' -AutoSize
         Xunit.Assert.Equal("admx", det!.Extension);
     }
 
+    [Xunit.Fact]
+    public void Detect_Span_Does_Not_Bias_Unknown_Binary()
+    {
+        var data = new byte[64];
+        var det = FileInspector.Detect(data, new FileInspector.DetectionOptions { MagicHeaderBytes = 16 }, "ps1");
+        Xunit.Assert.NotNull(det);
+        Xunit.Assert.Equal(string.Empty, det!.Extension);
+        Xunit.Assert.Equal("unknown", det.Reason);
+    }
+
     [Xunit.Theory]
     [Xunit.InlineData("log", "Just a plain line.\nStill plain.")]
     [Xunit.InlineData("ps1", "Just a plain line.\nStill plain.")]

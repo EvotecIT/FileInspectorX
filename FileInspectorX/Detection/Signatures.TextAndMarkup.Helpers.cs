@@ -325,11 +325,14 @@ internal static partial class Signatures
                 MaxCharactersFromEntities = 1024
             };
             int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+            long timeoutTicks = 0;
             var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
+            if (timeoutMs > 0)
+                timeoutTicks = (long)(timeoutMs * (double)System.Diagnostics.Stopwatch.Frequency / 1000.0);
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
             while (reader.Read())
             {
-                if (sw != null && sw.ElapsedMilliseconds > timeoutMs) return false;
+                if (sw != null && sw.ElapsedTicks > timeoutTicks) return false;
                 if (reader.NodeType == System.Xml.XmlNodeType.Element)
                 {
                     rootName = reader.Name;

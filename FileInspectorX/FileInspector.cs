@@ -473,6 +473,7 @@ public static partial class FileInspector {
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
     private static readonly byte[] EtlMagicBytes = { 0x45, 0x6C, 0x66, 0x46 }; // "ElfF" ASCII
+    private const int ZipEntryLimit = 100_000;
 
     private static bool TryMatchEtlMagic(string path) {
         try {
@@ -516,7 +517,11 @@ public static partial class FileInspector {
                 {
                     try { len = new FileInfo(path).Length; } catch { len = -1; }
                 }
-                if (len > 0 && len > max) return;
+                if (len > 0 && len > max)
+                {
+                    det.ValidationStatus = "skipped";
+                    return;
+                }
             }
 
             long pos = 0;
@@ -535,13 +540,17 @@ public static partial class FileInspector {
                     CloseInput = false
                 };
                 int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+                long timeoutTicks = 0;
                 var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
+                if (timeoutMs > 0)
+                    timeoutTicks = (long)(timeoutMs * (double)System.Diagnostics.Stopwatch.Frequency / 1000.0);
                 using var reader = System.Xml.XmlReader.Create(stream, settings);
                 while (reader.Read())
                 {
-                    if (sw != null && sw.ElapsedMilliseconds > timeoutMs)
+                    if (sw != null && sw.ElapsedTicks > timeoutTicks)
                         throw new TimeoutException("XML well-formedness validation timed out.");
                 }
+                det.ValidationStatus = "passed";
             }
             finally
             {
@@ -553,16 +562,20 @@ public static partial class FileInspector {
                 Breadcrumbs.Write("XML_MALFORMED", message: ex.Message, path: path);
                 det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "xml:malformed");
+                det.ValidationStatus = "failed";
             }
         catch (TimeoutException ex)
         {
             Breadcrumbs.Write("XML_TIMEOUT", message: ex.Message, path: path);
             det.Confidence = "Low";
             det.Reason = AppendReason(det.Reason, "xml:validation-timeout");
+            det.ValidationStatus = "timeout";
         }
         catch
         {
             // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
+            if (string.IsNullOrEmpty(det.ValidationStatus))
+                det.ValidationStatus = "failed";
         }
     }
 
@@ -590,6 +603,7 @@ public static partial class FileInspector {
         long len = -1;
         try { len = stream.Length; } catch { len = -1; }
         long readBytes = budget;
+        bool budgetLimited = len > 0 && len > budget;
         if (len > 0) readBytes = Math.Min(len, budget);
         if (readBytes <= 0) return;
 
@@ -621,11 +635,22 @@ public static partial class FileInspector {
         if (ext == "json")
         {
             bool looksComplete = complete || LooksLikeCompleteJson(sample);
-            if (looksComplete && !TryValidateJsonStructure(sample))
+            if (!looksComplete)
+            {
+                if (budgetLimited && string.IsNullOrEmpty(det.ValidationStatus))
+                    det.ValidationStatus = "skipped";
+                return;
+            }
+            if (!TryValidateJsonStructure(sample))
             {
                 det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "json:validation-error");
+                det.ValidationStatus = "failed";
                 if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
+            }
+            else
+            {
+                det.ValidationStatus = "passed";
             }
             return;
         }
@@ -633,11 +658,22 @@ public static partial class FileInspector {
         // xml/admx/adml
         string? root = TryGetXmlRootName(sample);
         bool xmlComplete = complete || LooksLikeCompleteXml(sample, root);
-        if (xmlComplete && !TryXmlWellFormed(sample, out _))
+        if (!xmlComplete)
+        {
+            if (budgetLimited && string.IsNullOrEmpty(det.ValidationStatus))
+                det.ValidationStatus = "skipped";
+            return;
+        }
+        if (!TryXmlWellFormed(sample, out _))
         {
             det.Confidence = "Low";
             det.Reason = AppendReason(det.Reason, "xml:validation-error");
+            det.ValidationStatus = "failed";
             if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
+        }
+        else
+        {
+            det.ValidationStatus = "passed";
         }
     }
 
@@ -801,11 +837,14 @@ public static partial class FileInspector {
                 MaxCharactersFromEntities = 1024
             };
             int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+            long timeoutTicks = 0;
             var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
+            if (timeoutMs > 0)
+                timeoutTicks = (long)(timeoutMs * (double)System.Diagnostics.Stopwatch.Frequency / 1000.0);
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
             while (reader.Read())
             {
-                if (sw != null && sw.ElapsedMilliseconds > timeoutMs) return false;
+                if (sw != null && sw.ElapsedTicks > timeoutTicks) return false;
                 if (reader.NodeType == System.Xml.XmlNodeType.Element)
                 {
                     rootName = reader.Name;
@@ -1138,10 +1177,26 @@ public static partial class FileInspector {
             bool hasManifest = za.GetEntry("META-INF/MANIFEST.MF") != null;
             bool hasDex = za.GetEntry("classes.dex") != null;
             bool hasAndroidMan = za.GetEntry("AndroidManifest.xml") != null;
-            bool hasPayload = za.Entries.Any(e => e.FullName.StartsWith("Payload/", StringComparison.Ordinal));
-            bool hasInfoPlist = za.Entries.Any(e => (e.FullName.IndexOf(".app/Info.plist", System.StringComparison.Ordinal) >= 0));
             bool hasAppxManifest = za.GetEntry("AppxManifest.xml") != null;
             bool hasAppxSignature = za.GetEntry("AppxSignature.p7x") != null;
+            bool hasPayload = false;
+            bool hasInfoPlist = false;
+            bool hasNuspec = false;
+            int entriesSeen = 0;
+            foreach (var entry in za.Entries)
+            {
+                entriesSeen++;
+                if (entriesSeen > ZipEntryLimit)
+                {
+                    if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                    return null;
+                }
+                var name = entry.FullName;
+                if (!hasPayload && name.StartsWith("Payload/", StringComparison.Ordinal)) hasPayload = true;
+                if (!hasInfoPlist && name.IndexOf(".app/Info.plist", System.StringComparison.Ordinal) >= 0) hasInfoPlist = true;
+                if (!hasNuspec && name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) hasNuspec = true;
+                if (hasPayload && hasInfoPlist && hasNuspec) break;
+            }
 
             if (hasAndroidMan || hasDex) { mime = "application/vnd.android.package-archive"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "apk"; }
             if (hasManifest) { mime = "application/java-archive"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "jar"; }
@@ -1169,7 +1224,7 @@ public static partial class FileInspector {
             if (za.GetEntry("AppManifest.xaml") != null) { mime = "application/x-silverlight-app"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "xap"; }
 
             // NuGet package (nupkg): presence of a .nuspec file
-            if (za.Entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "nupkg"; }
+            if (hasNuspec) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "nupkg"; }
 
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
         } catch { }
@@ -1181,10 +1236,10 @@ public static partial class FileInspector {
         if (options.MagicHeaderBytes > 0) {
             var mh = MagicHeaderHex(header, Math.Min(options.MagicHeaderBytes, header.Length));
             if (result is null) {
-                result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
-            } else {
-                result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
-            }
+                    result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
+                } else {
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
+                }
         }
         if (options.ComputeSha256 && stream != null) {
             try {
@@ -1195,7 +1250,7 @@ public static partial class FileInspector {
                 if (result is null) {
                     result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", Sha256Hex = hex };
                 } else {
-                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, IsDangerous = result.IsDangerous };
                 }
             } catch { /* ignore */ } finally { if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin); }
         }
