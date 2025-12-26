@@ -8,8 +8,16 @@ internal static partial class Signatures
 #if NET8_0_OR_GREATER
         return System.Text.Encoding.UTF8.GetString(s);
 #else
-        var a = s.ToArray();
-        return System.Text.Encoding.UTF8.GetString(a);
+        var rented = ArrayPool<byte>.Shared.Rent(s.Length);
+        try
+        {
+            s.CopyTo(rented);
+            return System.Text.Encoding.UTF8.GetString(rented, 0, s.Length);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+        }
 #endif
     }
 
@@ -36,6 +44,10 @@ internal static partial class Signatures
         printableRatio = 0;
         if (data.Length == 0) return false;
 
+        const int SmallSampleThreshold = 32;
+        const int SmallSampleMinTextLike = 4;
+        const double SmallSamplePrintableFloor = 0.8;
+
         int sampleLimit = Settings.PlainTextSampleBytes;
         if (sampleLimit <= 0) sampleLimit = 2048;
         int sample = Math.Min(sampleLimit, data.Length);
@@ -61,11 +73,11 @@ internal static partial class Signatures
         if (minPrintable <= 0 || minPrintable > 1) minPrintable = 0.85;
         double maxControl = Settings.PlainTextControlMaxRatio;
         if (maxControl < 0 || maxControl > 1) maxControl = 0.02;
-        if (sample < 32)
+        if (sample < SmallSampleThreshold)
         {
-            if (textLike < 4) return false;
+            if (textLike < SmallSampleMinTextLike) return false;
             if (controlRatio > maxControl) return false;
-            if (printableRatio < Math.Min(0.8, minPrintable)) return false;
+            if (printableRatio < Math.Min(SmallSamplePrintableFloor, minPrintable)) return false;
             return true;
         }
 
@@ -380,14 +392,12 @@ internal static partial class Signatures
                 MaxCharactersFromEntities = 1024
             };
             int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
-            long timeoutTicks = 0;
-            var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
-            if (timeoutMs > 0)
-                timeoutTicks = (long)(timeoutMs * (double)System.Diagnostics.Stopwatch.Frequency / 1000.0);
+            long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
+            var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
             while (reader.Read())
             {
-                if (sw != null && sw.ElapsedTicks > timeoutTicks) return false;
+                if (TimeoutHelpers.IsExpired(sw, timeoutTicks)) return false;
                 if (reader.NodeType == System.Xml.XmlNodeType.Element)
                 {
                     rootName = reader.Name;

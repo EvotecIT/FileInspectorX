@@ -12,6 +12,8 @@ internal static class JsonStructureValidator
         if (!Settings.JsonStructuralValidationEnabled)
         {
             skipped = true;
+            if (Settings.DetectionLogCandidates)
+                Settings.Logger.WriteDebug("json:validate skipped (disabled)");
             return false;
         }
         int max = Settings.JsonStructuralValidationMaxBytes;
@@ -21,10 +23,15 @@ internal static class JsonStructureValidator
             if (size > max)
             {
                 skipped = true;
+                if (Settings.DetectionLogCandidates)
+                    Settings.Logger.WriteDebug($"json:validate skipped (size {size} > {max})");
                 return false;
             }
         }
-        return TryValidateCore(s);
+        bool ok = TryValidateCore(s);
+        if (!ok && Settings.DetectionLogCandidates)
+            Settings.Logger.WriteDebug("json:validate failed");
+        return ok;
     }
 
     private static bool TryValidateCore(string s)

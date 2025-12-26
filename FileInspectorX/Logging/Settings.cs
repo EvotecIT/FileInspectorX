@@ -6,7 +6,8 @@ namespace FileInspectorX;
 /// </summary>
 /// <remarks>
 /// These settings are global and mutable. Configure once at application startup.
-/// Concurrent mutation is not thread-safe.
+/// Concurrent mutation is not thread-safe. If you must change settings at runtime,
+/// protect updates with your own lock and prefer thread-safe collections.
 /// </remarks>
 public class Settings {
     /// <summary>
@@ -100,8 +101,10 @@ public class Settings {
     /// <summary>
     /// Optional score adjustments for detection candidates keyed by extension or reason.
     /// Keys can be plain (e.g., "ps1") or prefixed (e.g., "ext:ps1", "reason:text:ps1").
+    /// Note: Configure at startup; avoid concurrent mutation during detection.
     /// </summary>
-    public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } =
+        new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Score boost applied when a candidate matches the declared extension.

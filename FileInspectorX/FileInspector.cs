@@ -539,14 +539,12 @@ public static partial class FileInspector {
                     CloseInput = false
                 };
                 int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
-                long timeoutTicks = 0;
-                var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
-                if (timeoutMs > 0)
-                    timeoutTicks = (long)(timeoutMs * (double)System.Diagnostics.Stopwatch.Frequency / 1000.0);
+                long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
+                var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
                 using var reader = System.Xml.XmlReader.Create(stream, settings);
                 while (reader.Read())
                 {
-                    if (sw != null && sw.ElapsedTicks > timeoutTicks)
+                    if (TimeoutHelpers.IsExpired(sw, timeoutTicks))
                         throw new TimeoutException("XML well-formedness validation timed out.");
                 }
                 det.ValidationStatus = "passed";
@@ -812,14 +810,12 @@ public static partial class FileInspector {
                 MaxCharactersFromEntities = 1024
             };
             int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
-            long timeoutTicks = 0;
-            var sw = timeoutMs > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
-            if (timeoutMs > 0)
-                timeoutTicks = (long)(timeoutMs * (double)System.Diagnostics.Stopwatch.Frequency / 1000.0);
+            long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
+            var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
             while (reader.Read())
             {
-                if (sw != null && sw.ElapsedTicks > timeoutTicks) return false;
+                if (TimeoutHelpers.IsExpired(sw, timeoutTicks)) return false;
                 if (reader.NodeType == System.Xml.XmlNodeType.Element)
                 {
                     rootName = reader.Name;

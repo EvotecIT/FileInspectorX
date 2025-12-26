@@ -61,6 +61,12 @@ var md = FileInspectorX.MarkdownRenderer.From(fa);
 - NDJSON detection requires at least two consecutive JSON-looking lines; single-line files are detected as JSON.
 - When `DetectionMaxAlternatives` > 0, `Detection.Alternatives` includes ranked candidates (excluding the primary) with `Score` values; treat scores as relative within the same file and influenced by `DetectionScoreAdjustments`, `DetectionPrimaryScoreMargin`, and `DetectionDeclaredTieBreakerMargin`.
 
+## Thread Safety Notes
+
+- Settings are static/global; configure once at startup.
+- Avoid concurrent mutation while detection is running; if you need runtime updates, protect changes with your own lock.
+- `DetectionScoreAdjustments` defaults to a `ConcurrentDictionary`; if you replace it with a non-thread-safe dictionary, you are responsible for synchronization.
+
 ## Include/Exclude Sections
 
 ```csharp
