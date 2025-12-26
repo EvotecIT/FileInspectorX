@@ -52,6 +52,21 @@ var drivers = map.GetValueOrDefault("AssessmentCodesHuman")?.ToString() ??
 var md = FileInspectorX.MarkdownRenderer.From(fa);
 ```
 
+## Detection Ordering & Declared Extension Bias
+
+- Detection runs magic signatures first, then container refinements, then text/markup heuristics, with plain-text fallback last.
+- `Detect(path)` uses the path extension as the declared type.
+- `Detect(stream, options, declaredExtension)` and `Detect(ReadOnlySpan<byte>, options, declaredExtension)` let you pass a declared extension to mirror path-based behavior.
+- Declared extension bias applies only for ambiguous/low-confidence text cases (e.g., cmd vs bat, admx/adml vs xml, inf vs ini, ini vs toml, log/txt/md/ps1/psm1/psd1). Strong magic-byte matches are not overridden.
+- NDJSON detection requires at least two consecutive JSON-looking lines; single-line files are detected as JSON.
+- When `DetectionMaxAlternatives` > 0, `Detection.Alternatives` includes ranked candidates (excluding the primary) with `Score` values; treat scores as relative within the same file and influenced by `DetectionScoreAdjustments`, `DetectionPrimaryScoreMargin`, and `DetectionDeclaredTieBreakerMargin`.
+
+## Thread Safety Notes
+
+- Settings are static/global; configure once at startup.
+- Avoid concurrent mutation while detection is running; if you need runtime updates, protect changes with your own lock.
+- `DetectionScoreAdjustments` defaults to a `ConcurrentDictionary`; if you replace it with a non-thread-safe dictionary, you are responsible for synchronization.
+
 ## Include/Exclude Sections
 
 ```csharp

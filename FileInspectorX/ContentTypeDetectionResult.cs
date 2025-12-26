@@ -22,6 +22,11 @@ public class ContentTypeDetectionResult {
     /// Null or empty when not applicable.
     /// </summary>
     public string? ReasonDetails { get; set; }
+    /// <summary>
+    /// Structured validation status when applicable: "passed", "timeout", "skipped", "failed".
+    /// Null when validation was not attempted.
+    /// </summary>
+    public string? ValidationStatus { get; set; }
 
     /// <summary>Optional SHA-256 of the full file (lowercase hex). Only set when requested via options.</summary>
     public string? Sha256Hex { get; set; }
@@ -34,4 +39,27 @@ public class ContentTypeDetectionResult {
 
     /// <summary>Best-guess extension when MIME/heuristic is ambiguous. Null when not applicable.</summary>
     public string? GuessedExtension { get; set; }
+
+    /// <summary>
+    /// Score (0-100) used to rank candidates; higher is stronger.
+    /// Scores are heuristic and may evolve between versions.
+    /// </summary>
+    public int? Score { get; set; }
+
+    /// <summary>True when the detected type is commonly considered risky/dangerous.</summary>
+    public bool IsDangerous { get; set; }
+
+    /// <summary>Optional ranked alternative candidates (excluding the primary).</summary>
+    /// <example>
+    /// <code>
+    /// var det = FileInspector.Detect(path);
+    /// if (det?.Alternatives?.Count > 0) {
+    ///     // Present ambiguous detections to the caller/UI.
+    /// }
+    /// </code>
+    /// </example>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? Alternatives { get; set; }
+
+    /// <summary>Optional ranked candidates including the primary.</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? Candidates { get; set; }
 }

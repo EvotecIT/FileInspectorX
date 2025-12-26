@@ -5,7 +5,11 @@ namespace FileInspectorX;
 /// Controls verbosity (via <see cref="InternalLogger"/>) and read budgets used during detection.
 /// </summary>
 /// <remarks>
-/// Adjust these flags to direct diagnostic information while running detection/analysis. No thread settings are required.
+/// These settings are global and mutable. Configure once at application startup.
+/// Concurrent mutation can lead to inconsistent detection results. If you must change
+/// settings at runtime, protect updates with your own lock. Some collections (such as
+/// <see cref="DetectionScoreAdjustments"/>) use thread-safe types by default to avoid
+/// concurrent collection exceptions, but changes across multiple settings are not atomic.
 /// </remarks>
 public class Settings {
     /// <summary>
@@ -75,6 +79,186 @@ public class Settings {
     public static int HeaderReadBytes { get; set; } = 4096;
 
     /// <summary>
+    /// When true, detection emits debug logs with candidate scores and alternatives.
+    /// </summary>
+    public static bool DetectionLogCandidates { get; set; } = false;
+
+    /// <summary>
+    /// Maximum number of alternative detection candidates to keep. Default 5.  
+    /// </summary>
+    public static int DetectionMaxAlternatives { get; set; } = 5;
+
+    /// <summary>
+    /// Minimum score gap required to replace the primary detection with a higher-scoring alternative.
+    /// Default 6.
+    /// </summary>
+    public static int DetectionPrimaryScoreMargin { get; set; } = 6;
+
+    /// <summary>
+    /// Score gap within which a declared extension can act as a tie-breaker.
+    /// Default 2.
+    /// </summary>
+    public static int DetectionDeclaredTieBreakerMargin { get; set; } = 2;
+
+    /// <summary>
+    /// Optional score adjustments for detection candidates keyed by extension or reason.
+    /// Keys can be plain (e.g., "ps1") or prefixed (e.g., "ext:ps1", "reason:text:ps1").
+    /// Note: Configure at startup; avoid concurrent mutation during detection.
+    /// </summary>
+    public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } =
+        new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Score boost applied when a candidate matches the declared extension.
+    /// Default 3.
+    /// </summary>
+    public static int DetectionDeclaredExtensionBoost { get; set; } = 3;
+
+    /// <summary>
+    /// Score boost when JSON structural validation succeeds (candidate scoring).
+    /// Default 6.
+    /// </summary>
+    public static int DetectionJsonValidBoost { get; set; } = 6;
+
+    /// <summary>
+    /// Score boost when XML well-formedness validation succeeds (candidate scoring).
+    /// Default 6.
+    /// </summary>
+    public static int DetectionXmlWellFormedBoost { get; set; } = 6;
+
+    /// <summary>
+    /// Score boost for NDJSON candidates when two consecutive JSON lines are detected.
+    /// Default 8.
+    /// </summary>
+    public static int DetectionNdjsonLines2Boost { get; set; } = 8;
+
+    /// <summary>
+    /// Score boost for NDJSON candidates when three consecutive JSON lines are detected.
+    /// Default 10.
+    /// </summary>
+    public static int DetectionNdjsonLines3Boost { get; set; } = 10;
+
+    /// <summary>
+    /// Penalty applied to script candidates when markdown is likely and the declared extension is markdown.
+    /// Default -10.
+    /// </summary>
+    public static int DetectionMarkdownDeclaredPenalty { get; set; } = -10;
+
+    /// <summary>
+    /// Penalty applied to script candidates when markdown has structural cues (fence/heading).
+    /// Default -8.
+    /// </summary>
+    public static int DetectionMarkdownStructuralPenalty { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to script candidates when markdown is likely (non-structural).
+    /// Default -6.
+    /// </summary>
+    public static int DetectionMarkdownPenalty { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to log candidates when script cues are present.
+    /// Default -8.
+    /// </summary>
+    public static int DetectionLogPenaltyFromScript { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to script candidates when log cues are present.
+    /// Default -8.
+    /// </summary>
+    public static int DetectionScriptPenaltyFromLog { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to log candidates when markdown is likely.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionLogPenaltyFromMarkdown { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to JSON candidates when script cues are present.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionJsonPenaltyFromScript { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to JSON candidates when log cues are present.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionJsonPenaltyFromLog { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to YAML candidates when log cues are present.
+    /// Default -6.
+    /// </summary>
+    public static int DetectionYamlPenaltyFromLog { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to YAML candidates when script cues are present.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionYamlPenaltyFromScript { get; set; } = -4;
+
+    /// <summary>
+    /// Penalty applied to markdown candidates when INI cues are strong.
+    /// Default -6.
+    /// </summary>
+    public static int DetectionMarkdownPenaltyFromIni { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to plain text candidates when script cues are present.
+    /// Default -8.
+    /// </summary>
+    public static int DetectionPlainTextPenaltyFromScript { get; set; } = -8;
+
+    /// <summary>
+    /// Penalty applied to plain text candidates when log cues are present.
+    /// Default -6.
+    /// </summary>
+    public static int DetectionPlainTextPenaltyFromLog { get; set; } = -6;
+
+    /// <summary>
+    /// Penalty applied to plain text candidates when markdown is likely.
+    /// Default -4.
+    /// </summary>
+    public static int DetectionPlainTextPenaltyFromMarkdown { get; set; } = -4;
+
+    /// <summary>
+    /// Maximum bytes to sample when classifying plain text.
+    /// Default 2048.
+    /// </summary>
+    public static int PlainTextSampleBytes { get; set; } = 2048;
+
+    /// <summary>
+    /// Minimum ratio of printable bytes required to classify as plain text.
+    /// Default 0.85.
+    /// </summary>
+    public static double PlainTextPrintableMinRatio { get; set; } = 0.85;
+
+    /// <summary>
+    /// Maximum ratio of control bytes allowed for plain text classification.
+    /// Default 0.02.
+    /// </summary>
+    public static double PlainTextControlMaxRatio { get; set; } = 0.02;
+
+    /// <summary>
+    /// Optional override for the dangerous extension set. When non-null and non-empty,
+    /// behavior is controlled by <see cref="DangerousExtensionsOverrideMode"/>.
+    /// </summary>
+    public static ISet<string>? DangerousExtensionsOverride { get; set; } = null;
+
+    /// <summary>
+    /// Controls how <see cref="DangerousExtensionsOverride"/> is applied.
+    /// Default Replace (override list replaces the built-in set).
+    /// </summary>
+    public static DangerousExtensionsOverrideMode DangerousExtensionsOverrideMode { get; set; } = DangerousExtensionsOverrideMode.Replace;
+
+    /// <summary>
+    /// Maximum number of ZIP entries to enumerate when guessing ZIP subtypes (apk/jar/ipa/nupkg/od*).
+    /// Default 100000. Set to 0 to skip subtype guessing for large or adversarial archives.
+    /// </summary>
+    public static int ZipSubtypeMaxEntries { get; set; } = 100_000;
+
+    /// <summary>
     /// When true, <see cref="FileInspector.Detect(string)"/> performs a best-effort XML well-formedness check for
     /// Group Policy ADMX/ADML files (declared or detected) using a secure XmlReader (DTD prohibited).
     /// Default true to reduce false positives and surface malformed GPO templates explicitly.
@@ -82,10 +266,34 @@ public class Settings {
     public static bool AdmxAdmlXmlWellFormednessValidationEnabled { get; set; } = true;
 
     /// <summary>
+    /// When true, JSON structural validation is performed for JSON detections/validation paths.
+    /// Default true.
+    /// </summary>
+    public static bool JsonStructuralValidationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of bytes to validate when JSON structural validation is enabled.
+    /// Default 5 MB. Set to 0 to disable the size cap.
+    /// </summary>
+    public static int JsonStructuralValidationMaxBytes { get; set; } = 5_000_000;
+
+    /// <summary>
+    /// Maximum time in milliseconds for JSON structural validation.
+    /// Defaults to 4000 ms. Set to 0 to disable timeouts.
+    /// </summary>
+    public static int JsonStructuralValidationTimeoutMs { get; set; } = 4000;
+
+    /// <summary>
     /// Maximum file size in bytes to validate when <see cref="AdmxAdmlXmlWellFormednessValidationEnabled"/> is true.
     /// Defaults to 5 MB.
     /// </summary>
     public static long AdmxAdmlXmlWellFormednessMaxBytes { get; set; } = 5_000_000;
+
+    /// <summary>
+    /// Maximum time in milliseconds for XML well-formedness checks (including ADMX/ADML).
+    /// Defaults to 4000 ms. Set to 0 to disable timeouts.
+    /// </summary>
+    public static int XmlWellFormednessTimeoutMs { get; set; } = 4000;
 
     /// <summary>
     /// JS minified heuristic: minimum total characters to consider the heuristic.
@@ -314,4 +522,15 @@ public enum VendorMatchMode
     Contains = 0,
     /// <summary>Case-insensitive full equality.</summary>
     Exact = 1
+}
+
+/// <summary>
+/// Controls how DangerousExtensionsOverride is applied.
+/// </summary>
+public enum DangerousExtensionsOverrideMode
+{
+    /// <summary>Replace the built-in dangerous extension set (default).</summary>
+    Replace = 0,
+    /// <summary>Merge override entries into the built-in dangerous extension set.</summary>
+    Merge = 1
 }

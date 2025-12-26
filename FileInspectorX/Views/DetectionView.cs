@@ -21,6 +21,14 @@ public sealed class DetectionView
     public int BytesInspected { get; set; }
     /// <summary>Best-guess extension when ambiguous.</summary>
     public string? GuessedExtension { get; set; }
+    /// <summary>Score (0-100) used to rank candidates.</summary>
+    public int? Score { get; set; }
+    /// <summary>True when the detected type is commonly considered risky/dangerous.</summary>
+    public bool IsDangerous { get; set; }
+    /// <summary>Alternative candidates when multiple formats are plausible.</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? Alternatives { get; set; }
+    /// <summary>Ranked candidates including the primary, when available.</summary>
+    public IReadOnlyList<ContentTypeDetectionCandidate>? Candidates { get; set; }
     /// <summary>Optional SHA-256 hash (when requested).</summary>
     public string? Sha256Hex { get; set; }
     /// <summary>Optional magic header bytes as hex (when requested).</summary>
@@ -40,6 +48,10 @@ public sealed class DetectionView
         ReasonDetails = r.ReasonDetails,
         BytesInspected = r.BytesInspected,
         GuessedExtension = r.GuessedExtension,
+        Score = r.Score,
+        IsDangerous = r.IsDangerous,
+        Alternatives = r.Alternatives,
+        Candidates = r.Candidates,
         Sha256Hex = r.Sha256Hex,
         MagicHeaderHex = r.MagicHeaderHex,
         Raw = null

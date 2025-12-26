@@ -158,6 +158,22 @@ var full = FileInspector.Inspect(path, new FileInspector.DetectionOptions { Comp
 var summary = full.ToSummaryView(path);
 ```
 
+## Detection Ordering & Declared Extension Bias
+
+Detection runs in a stable order so downstream callers can reason about outcomes:
+
+- Magic-byte signatures and fast format checks run first (archives, executables, media, databases, etc.).
+- Container refinements (ZIP subtypes, OLE2 subtypes) run next when applicable.
+- Text/markup heuristics (JSON/XML/YAML/INI/CSV/PS/Batch/etc.) run after binary checks.
+- Plain-text fallback is last when the content looks printable.
+
+Declared extension is used as a bias only for ambiguous/low-confidence cases:
+
+- `Detect(path)` uses the file extension as the declared value automatically.
+- `Detect(stream, options, declaredExtension)` and `Detect(ReadOnlySpan<byte>, options, declaredExtension)` let you supply the declared extension to match path-based behavior.
+- Bias is applied only for ambiguous text families (e.g., cmd vs bat, admx/adml vs xml, inf vs ini, ini vs toml) and low-confidence generic text (log/txt/md/ps1/psm1/psd1). Strong magic-byte matches are not overridden.
+- `CompareDeclared` normalizes leading dots and can fall back to `GuessedExtension` when `Extension` is empty (e.g., ZIP subtypes).
+
 ## Features
 
 - Fast detection: magic bytes + heuristics (images, archives, PDFs, executables, text/markup, scripts, CSV/TSV, DMG/ISO/UDF, EVTX, ESE, RIFF/media, etc.)

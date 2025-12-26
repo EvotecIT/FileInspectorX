@@ -48,9 +48,27 @@ public static partial class FileInspector {
     /// describes the comparison (e.g., "match" or "decl:txt vs det:pdf").
     /// </returns>
     public static (bool Mismatch, string Reason) CompareDeclared(string? declaredExtension, ContentTypeDetectionResult? detected) {
-        var decl = (declaredExtension ?? string.Empty).Trim().TrimStart('.');
+        var decl = NormalizeExtension(declaredExtension) ?? string.Empty;
         if (detected is null || string.IsNullOrEmpty(decl)) return (false, "no-detection-or-declared");
-        var det = (detected.Extension ?? string.Empty).Trim();
+        var detRaw = NormalizeExtension(detected.Extension);
+        var detGuess = NormalizeExtension(detected.GuessedExtension);
+        if (string.IsNullOrEmpty(detRaw) && string.IsNullOrEmpty(detGuess)) return (false, "no-detection-or-declared");
+        string det;
+        string detLabel;
+        if (!string.IsNullOrEmpty(detRaw))
+        {
+            det = detRaw!;
+            detLabel = detRaw!;
+        }
+        else if (!string.IsNullOrEmpty(detGuess))
+        {
+            det = detGuess!;
+            detLabel = detGuess! + "(guess)";
+        }
+        else
+        {
+            return (false, "no-detection-or-declared");
+        }
 
         // Treat common synonyms as equivalent (avoid false mismatches)
         static bool Equivalent(string a, string b) {
@@ -177,14 +195,17 @@ public static partial class FileInspector {
         }
 
         var mismatch = !(Equivalent(decl, det) || familyMatch);
-        // Special-case: If detection is low-confidence PowerShell but the declared is plain-text family, treat as match to avoid noise
-        if (mismatch && InPlainTextFamily(decl) && det.Equals("ps1", StringComparison.OrdinalIgnoreCase))
-        {
-            var conf = detected.Confidence ?? string.Empty;
-            if (conf.Equals("Low", StringComparison.OrdinalIgnoreCase)) mismatch = false;
-        }
-        var reason = mismatch ? $"decl:{decl} vs det:{detected.Extension}" : "match";
+        var reason = mismatch ? $"decl:{decl} vs det:{detLabel}" : "match";
         return (mismatch, reason);
+    }
+
+    /// <summary>
+    /// Normalizes an extension by trimming whitespace and a leading dot. Returns null when empty.
+    /// </summary>
+    public static string? NormalizeExtension(string? extension)
+    {
+        var normalized = (extension ?? string.Empty).Trim().TrimStart('.');
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;       
     }
 
     /// <summary>
@@ -320,6 +341,7 @@ public static partial class FileInspector {
                 }
             }
             det = ApplyDeclaredBias(det, extDeclared);
+            TryValidateStructuredTextWithBudget(fs, det, skipAdmxAdml: true);
             TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
             return det;
         } catch (OutOfMemoryException) { throw; }
@@ -337,34 +359,35 @@ public static partial class FileInspector {
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
-        if (Signatures.TryMatchTar(src, out var tar)) return Enrich(tar, src, stream, options);
-        if (Signatures.TryMatchRiff(src, out var riff)) return Enrich(riff, src, stream, options);
-        if (Signatures.TryMatchEvtx(src, out var evtx)) return Enrich(evtx, src, stream, options);
-        if (Signatures.TryMatchEse(src, out var ese)) return Enrich(ese, src, stream, options);
-        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Enrich(hive, src, stream, options);
-        if (Signatures.TryMatchRegistryPol(src, out var pol)) return Enrich(pol, src, stream, options);
-        if (Signatures.TryMatchFtyp(src, out var ftyp)) return Enrich(ftyp, src, stream, options);
-        if (Signatures.TryMatchSqlite(src, out var sqlite)) return Enrich(sqlite, src, stream, options);
-        if (Signatures.TryMatchPkcs12(src, out var p12)) return Enrich(p12, src, stream, options);
-        if (Signatures.TryMatchDerCertificate(src, out var der)) return Enrich(der, src, stream, options);
-        if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Enrich(pgpbin, src, stream, options);
-        if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Enrich(kdbx, src, stream, options);
-        if (Signatures.TryMatch7z(src, out var _7z)) return Enrich(_7z, src, stream, options);
-        if (Signatures.TryMatchRar(src, out var rar)) return Enrich(rar, src, stream, options);
-        if (Signatures.TryMatchElf(src, out var elf)) return Enrich(elf, src, stream, options);
-        if (Signatures.TryMatchMachO(src, out var macho)) return Enrich(macho, src, stream, options);
-        if (Signatures.TryMatchCab(src, out var cab)) return Enrich(cab, src, stream, options);
-        if (Signatures.TryMatchGlb(src, out var glb)) return Enrich(glb, src, stream, options);
-        if (Signatures.TryMatchTiff(src, out var tiff)) return Enrich(tiff, src, stream, options);
+        if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
+        if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
+        if (Signatures.TryMatchEvtx(src, out var evtx)) return Finish(Enrich(evtx, src, stream, options));
+        if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
+        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
+        if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
+        if (Signatures.TryMatchFtyp(src, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
+        if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
+        if (Signatures.TryMatchPkcs12(src, out var p12)) return Finish(Enrich(p12, src, stream, options));
+        if (Signatures.TryMatchDerCertificate(src, out var der)) return Finish(Enrich(der, src, stream, options));
+        if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Finish(Enrich(pgpbin, src, stream, options));
+        if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
+        if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
+        if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
+        if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
+        if (Signatures.TryMatchMachO(src, out var macho)) return Finish(Enrich(macho, src, stream, options));
+        if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
+        if (Signatures.TryMatchGlb(src, out var glb)) return Finish(Enrich(glb, src, stream, options));
+        if (Signatures.TryMatchTiff(src, out var tiff)) return Finish(Enrich(tiff, src, stream, options));
         // ISO requires file path offsets; skip here
 
         foreach (var sig in Signatures.All()) {
             if (Signatures.Match(src, sig)) {
                 if (sig.Extension == "zip") {
                     var refined = TryRefineZipOOxml(stream);
-                    if (refined != null) return Enrich(refined, src, stream, options);
+                    if (refined != null) return Finish(Enrich(refined, src, stream, options));
                     var confZip = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                     var guess = TryGuessZipSubtype(stream, out var guessMime);
                     var basicZip = new ContentTypeDetectionResult {
@@ -374,11 +397,11 @@ public static partial class FileInspector {
                         Reason = $"magic:{sig.Extension}",
                         GuessedExtension = guess
                     };
-                    return Enrich(basicZip, src, stream, options);
+                    return Finish(Enrich(basicZip, src, stream, options));
                 }
                 if (sig.Extension == "ole2" && stream is not null) {
                     var refinedOle = TryRefineOle2Subtype(stream);
-                    if (refinedOle != null) return Enrich(refinedOle, src, stream, options);
+                    if (refinedOle != null) return Finish(Enrich(refinedOle, src, stream, options));
                 }
                 var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                 var basic = new ContentTypeDetectionResult {
@@ -391,20 +414,23 @@ public static partial class FileInspector {
                 // Promote generic OLE2 to MSI when directory hints indicate MSI tables (extra safeguard for detection-only callers)
                 if (sig.Extension == "ole2" && stream is not null)
                 {
-                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Enrich(refine, src, stream, options); } catch { }
+                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Finish(Enrich(refine, src, stream, options)); } catch { }
                 }
-                return enriched;
+                return Finish(enriched);
             }
         }
 
         if (Signatures.TryMatchText(src, out var text, declaredExtension)) {
             if (text is not null && text.Extension == "json") {
                 var refined = TryRefineGltfJson(stream);
-                if (refined != null) return Enrich(refined, src, stream, options);
+                if (refined != null) return Finish(Enrich(refined, src, stream, options));
             }
-            return Enrich(text, src, stream, options);
+            var enriched = Enrich(text, src, stream, options);
+            var finished = Finish(enriched);
+            TryValidateStructuredTextWithBudget(stream, finished, skipAdmxAdml: false);
+            return finished;
         }
-        return Enrich(null, src, stream, options);
+        return Finish(Enrich(null, src, stream, options));
     }
 
     private static ContentTypeDetectionResult? TryRefineGltfJson(Stream stream) {
@@ -490,7 +516,11 @@ public static partial class FileInspector {
                 {
                     try { len = new FileInfo(path).Length; } catch { len = -1; }
                 }
-                if (len > 0 && len > max) return;
+                if (len > 0 && len > max)
+                {
+                    det.ValidationStatus = "skipped";
+                    return;
+                }
             }
 
             long pos = 0;
@@ -502,10 +532,22 @@ public static partial class FileInspector {
                 {
                     DtdProcessing = System.Xml.DtdProcessing.Prohibit,
                     XmlResolver = null,
+                    MaxCharactersInDocument = Math.Min(Settings.AdmxAdmlXmlWellFormednessMaxBytes > 0
+                        ? Settings.AdmxAdmlXmlWellFormednessMaxBytes
+                        : 100L * 1024L * 1024L, 100L * 1024L * 1024L),
+                    MaxCharactersFromEntities = 1024,
                     CloseInput = false
                 };
+                int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+                long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
+                var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
                 using var reader = System.Xml.XmlReader.Create(stream, settings);
-                while (reader.Read()) { }
+                while (reader.Read())
+                {
+                    if (TimeoutHelpers.IsExpired(sw, timeoutTicks))
+                        throw new TimeoutException("XML well-formedness validation timed out.");
+                }
+                det.ValidationStatus = "passed";
             }
             finally
             {
@@ -517,10 +559,274 @@ public static partial class FileInspector {
                 Breadcrumbs.Write("XML_MALFORMED", message: ex.Message, path: path);
                 det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "xml:malformed");
+                det.ValidationStatus = "failed";
             }
+        catch (TimeoutException ex)
+        {
+            Breadcrumbs.Write("XML_TIMEOUT", message: ex.Message, path: path);
+            det.Confidence = "Low";
+            det.Reason = AppendReason(det.Reason, "xml:validation-timeout");
+            det.ValidationStatus = "timeout";
+        }
         catch
         {
             // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
+            if (string.IsNullOrEmpty(det.ValidationStatus))
+                det.ValidationStatus = "failed";
+        }
+    }
+
+    private static void TryValidateStructuredTextWithBudget(Stream? stream, ContentTypeDetectionResult? det, bool skipAdmxAdml)
+    {
+        if (stream == null || det == null) return;
+        if (!stream.CanSeek) return;
+
+        var ext = (det.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext)) return;
+        if (ext == "admx" || ext == "adml")
+        {
+            if (skipAdmxAdml) return;
+        }
+        else if (ext != "json" && ext != "xml")
+        {
+            return;
+        }
+
+        const long MaxStructuredValidationBytes = 100L * 1024L * 1024L;
+        long budget = Settings.DetectionReadBudgetBytes;
+        if (budget <= 0) return;
+        if (budget > MaxStructuredValidationBytes) budget = MaxStructuredValidationBytes;
+
+        long len = -1;
+        try { len = stream.Length; } catch { len = -1; }
+        long readBytes = budget;
+        bool budgetLimited = len > 0 && len > budget;
+        if (len > 0) readBytes = Math.Min(len, budget);
+        if (readBytes <= 0) return;
+
+        long pos = 0;
+        try { pos = stream.Position; } catch { pos = 0; }
+        byte[] buffer = new byte[(int)Math.Min(readBytes, int.MaxValue)];
+        int n = 0;
+        try
+        {
+            stream.Seek(0, SeekOrigin.Begin);
+            n = stream.Read(buffer, 0, buffer.Length);
+        }
+        catch
+        {
+            return;
+        }
+        finally
+        {
+            try { stream.Seek(pos, SeekOrigin.Begin); } catch { /* ignore */ }
+        }
+
+        if (n <= 0) return;
+        string sample = DecodeTextSample(buffer, n);
+        if (string.IsNullOrWhiteSpace(sample)) return;
+
+        bool complete = false;
+        if (len > 0 && n >= len) complete = true;
+
+        if (ext == "json")
+        {
+            bool looksComplete = complete || LooksLikeCompleteJson(sample);
+            if (!looksComplete)
+            {
+                if (budgetLimited && string.IsNullOrEmpty(det.ValidationStatus))
+                    det.ValidationStatus = "skipped";
+                return;
+            }
+            bool jsonValid = JsonStructureValidator.TryValidate(sample, n, out bool jsonSkipped);
+            if (!jsonValid)
+            {
+                if (jsonSkipped)
+                {
+                    if (string.IsNullOrEmpty(det.ValidationStatus))
+                        det.ValidationStatus = "skipped";
+                    return;
+                }
+                det.Confidence = "Low";
+                det.Reason = AppendReason(det.Reason, "json:validation-error");
+                det.ValidationStatus = "failed";
+                if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
+            }
+            else
+            {
+                det.ValidationStatus = "passed";
+            }
+            return;
+        }
+
+        // xml/admx/adml
+        string? root = TryGetXmlRootName(sample);
+        bool xmlComplete = complete || LooksLikeCompleteXml(sample, root);
+        if (!xmlComplete)
+        {
+            if (budgetLimited && string.IsNullOrEmpty(det.ValidationStatus))
+                det.ValidationStatus = "skipped";
+            return;
+        }
+        if (!TryXmlWellFormed(sample, out _))
+        {
+            det.Confidence = "Low";
+            det.Reason = AppendReason(det.Reason, "xml:validation-error");
+            det.ValidationStatus = "failed";
+            if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
+        }
+        else
+        {
+            det.ValidationStatus = "passed";
+        }
+    }
+
+    private static string DecodeTextSample(byte[] buffer, int count)
+    {
+        if (buffer == null || count <= 0) return string.Empty;
+        int bomSkip = 0;
+        System.Text.Encoding enc = System.Text.Encoding.UTF8;
+        if (count >= 4 && buffer[0] == 0xFF && buffer[1] == 0xFE && buffer[2] == 0x00 && buffer[3] == 0x00)
+        {
+            enc = new System.Text.UTF32Encoding(false, true);
+            bomSkip = 4;
+        }
+        else if (count >= 4 && buffer[0] == 0x00 && buffer[1] == 0x00 && buffer[2] == 0xFE && buffer[3] == 0xFF)
+        {
+            enc = new System.Text.UTF32Encoding(true, true);
+            bomSkip = 4;
+        }
+        else if (count >= 2 && buffer[0] == 0xFF && buffer[1] == 0xFE)
+        {
+            enc = System.Text.Encoding.Unicode;
+            bomSkip = 2;
+        }
+        else if (count >= 2 && buffer[0] == 0xFE && buffer[1] == 0xFF)
+        {
+            enc = System.Text.Encoding.BigEndianUnicode;
+            bomSkip = 2;
+        }
+        else if (count >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF)
+        {
+            enc = System.Text.Encoding.UTF8;
+            bomSkip = 3;
+        }
+        else
+        {
+            int scan = Math.Min(count, 2048);
+            int nulTotal = 0;
+            int nulEven = 0;
+            int nulOdd = 0;
+            for (int i = 0; i < scan; i++)
+            {
+                if (buffer[i] == 0x00)
+                {
+                    nulTotal++;
+                    if ((i & 1) == 0) nulEven++; else nulOdd++;
+                }
+            }
+            if (nulTotal > 0 && ((double)nulTotal / scan) >= 0.2)
+            {
+                if (nulOdd > nulEven * 4) enc = System.Text.Encoding.Unicode;
+                else if (nulEven > nulOdd * 4) enc = System.Text.Encoding.BigEndianUnicode;
+            }
+        }
+
+        if (bomSkip >= count) return string.Empty;
+        int len = count - bomSkip;
+        if (len == 0) return string.Empty;
+        return enc.GetString(buffer, bomSkip, len);
+    }
+
+    private static int ScoreFromConfidence(string? confidence)
+    {
+        if (string.Equals(confidence, "High", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (string.Equals(confidence, "Medium", StringComparison.OrdinalIgnoreCase)) return 70;
+        if (string.Equals(confidence, "Low", StringComparison.OrdinalIgnoreCase)) return 50;
+        return 40;
+    }
+
+    private static bool LooksLikeCompleteJson(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var t = s.Trim();
+        if (t.Length < 2) return false;
+        char first = t[0];
+        char last = t[t.Length - 1];
+        return (first == '{' || first == '[') && (last == '}' || last == ']');
+    }
+
+    private static bool LooksLikeCompleteXml(string s, string? rootName)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var lower = s.ToLowerInvariant();
+        if (!lower.Contains("</")) return false;
+        if (!lower.TrimEnd().EndsWith(">")) return false;
+        if (!string.IsNullOrEmpty(rootName))
+        {
+            var rootLower = rootName!.ToLowerInvariant();
+            return lower.Contains("</" + rootLower);
+        }
+        return true;
+    }
+
+    private static string? TryGetXmlRootName(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return null;
+        int i = 0;
+        while (i < s.Length)
+        {
+            int lt = s.IndexOf('<', i);
+            if (lt < 0 || lt + 1 >= s.Length) return null;
+            char next = s[lt + 1];
+            if (next == '?' || next == '!')
+            {
+                int gt = s.IndexOf('>', lt + 2);
+                if (gt < 0) return null;
+                i = gt + 1;
+                continue;
+            }
+            int start = lt + 1;
+            while (start < s.Length && char.IsWhiteSpace(s[start])) start++;
+            int end = start;
+            while (end < s.Length && (char.IsLetterOrDigit(s[end]) || s[end] == ':' || s[end] == '_' || s[end] == '-')) end++;
+            if (end > start) return s.Substring(start, end - start);
+            i = lt + 1;
+        }
+        return null;
+    }
+
+    private static bool TryXmlWellFormed(string xml, out string? rootName)
+    {
+        rootName = null;
+        if (string.IsNullOrWhiteSpace(xml)) return false;
+        try
+        {
+            var settings = new System.Xml.XmlReaderSettings
+            {
+                DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                XmlResolver = null,
+                MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
+                MaxCharactersFromEntities = 1024
+            };
+            int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+            long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
+            var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
+            using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
+            while (reader.Read())
+            {
+                if (TimeoutHelpers.IsExpired(sw, timeoutTicks)) return false;
+                if (reader.NodeType == System.Xml.XmlNodeType.Element)
+                {
+                    rootName = reader.Name;
+                    break;
+                }
+            }
+            return !string.IsNullOrEmpty(rootName);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -762,27 +1068,28 @@ public static partial class FileInspector {
     /// <summary>
     /// Detects content type from an in-memory span of bytes.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null) {
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null) {
         options ??= new DetectionOptions();
-        if (Signatures.TryMatchTar(data, out var tar)) return Enrich(tar, data, null, options);
-        if (Signatures.TryMatchRiff(data, out var riff)) return Enrich(riff, data, null, options);
-        if (Signatures.TryMatchEvtx(data, out var evtx2)) return Enrich(evtx2, data, null, options);
-        if (Signatures.TryMatchEse(data, out var ese2)) return Enrich(ese2, data, null, options);
-        if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Enrich(hive2, data, null, options);
-        if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Enrich(pol2, data, null, options);
-        if (Signatures.TryMatchFtyp(data, out var ftyp)) return Enrich(ftyp, data, null, options);
-        if (Signatures.TryMatchSqlite(data, out var sqlite)) return Enrich(sqlite, data, null, options);
-        if (Signatures.TryMatchPkcs12(data, out var p12)) return Enrich(p12, data, null, options);
-        if (Signatures.TryMatchDerCertificate(data, out var der)) return Enrich(der, data, null, options);
-        if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Enrich(pgpbin, data, null, options);
-        if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Enrich(kdbx, data, null, options);
-        if (Signatures.TryMatch7z(data, out var _7z)) return Enrich(_7z, data, null, options);
-        if (Signatures.TryMatchRar(data, out var rar)) return Enrich(rar, data, null, options);
-        if (Signatures.TryMatchElf(data, out var elf)) return Enrich(elf, data, null, options);
-        if (Signatures.TryMatchMachO(data, out var macho)) return Enrich(macho, data, null, options);
-        if (Signatures.TryMatchCab(data, out var cab)) return Enrich(cab, data, null, options);
-        if (Signatures.TryMatchGlb(data, out var glb)) return Enrich(glb, data, null, options);
-        if (Signatures.TryMatchTiff(data, out var tiff)) return Enrich(tiff, data, null, options);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
+        if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
+        if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
+        if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));
+        if (Signatures.TryMatchEse(data, out var ese2)) return Finish(Enrich(ese2, data, null, options));
+        if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Finish(Enrich(hive2, data, null, options));
+        if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
+        if (Signatures.TryMatchFtyp(data, out var ftyp)) return Finish(Enrich(ftyp, data, null, options));
+        if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
+        if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
+        if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+        if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Finish(Enrich(pgpbin, data, null, options));
+        if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));
+        if (Signatures.TryMatch7z(data, out var _7z)) return Finish(Enrich(_7z, data, null, options));
+        if (Signatures.TryMatchRar(data, out var rar)) return Finish(Enrich(rar, data, null, options));
+        if (Signatures.TryMatchElf(data, out var elf)) return Finish(Enrich(elf, data, null, options));
+        if (Signatures.TryMatchMachO(data, out var macho)) return Finish(Enrich(macho, data, null, options));
+        if (Signatures.TryMatchCab(data, out var cab)) return Finish(Enrich(cab, data, null, options));
+        if (Signatures.TryMatchGlb(data, out var glb)) return Finish(Enrich(glb, data, null, options));
+        if (Signatures.TryMatchTiff(data, out var tiff)) return Finish(Enrich(tiff, data, null, options));
         foreach (var sig in Signatures.All()) if (Signatures.Match(data, sig)) {
                 var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                 var basic = new ContentTypeDetectionResult {
@@ -791,10 +1098,10 @@ public static partial class FileInspector {
                     Confidence = conf,
                     Reason = $"magic:{sig.Extension}"
                 };
-                return Enrich(basic, data, null, options);
+                return Finish(Enrich(basic, data, null, options));
             }
-        if (Signatures.TryMatchText(data, out var text)) return Enrich(text, data, null, options);
-        return Enrich(null, data, null, options);
+        if (Signatures.TryMatchText(data, out var text, declaredExtension)) return Finish(Enrich(text, data, null, options));
+        return Finish(Enrich(null, data, null, options));
     }
 
     private static ContentTypeDetectionResult? TryRefineZipOOxml(string path) {
@@ -838,13 +1145,35 @@ public static partial class FileInspector {
             long pos = stream.CanSeek ? stream.Position : 0;
             if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
             using var za = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            int entryLimit = Math.Max(0, Settings.ZipSubtypeMaxEntries);
+            if (entryLimit == 0)
+            {
+                if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                return null;
+            }
             bool hasManifest = za.GetEntry("META-INF/MANIFEST.MF") != null;
             bool hasDex = za.GetEntry("classes.dex") != null;
             bool hasAndroidMan = za.GetEntry("AndroidManifest.xml") != null;
-            bool hasPayload = za.Entries.Any(e => e.FullName.StartsWith("Payload/", StringComparison.Ordinal));
-            bool hasInfoPlist = za.Entries.Any(e => (e.FullName.IndexOf(".app/Info.plist", System.StringComparison.Ordinal) >= 0));
             bool hasAppxManifest = za.GetEntry("AppxManifest.xml") != null;
             bool hasAppxSignature = za.GetEntry("AppxSignature.p7x") != null;
+            bool hasPayload = false;
+            bool hasInfoPlist = false;
+            bool hasNuspec = false;
+            int entriesSeen = 0;
+            foreach (var entry in za.Entries)
+            {
+                entriesSeen++;
+                if (entriesSeen > entryLimit)
+                {
+                    if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                    return null;
+                }
+                var name = entry.FullName;
+                if (!hasPayload && name.StartsWith("Payload/", StringComparison.Ordinal)) hasPayload = true;
+                if (!hasInfoPlist && name.IndexOf(".app/Info.plist", System.StringComparison.Ordinal) >= 0) hasInfoPlist = true;
+                if (!hasNuspec && name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) hasNuspec = true;
+                if (hasPayload && hasInfoPlist && hasNuspec) break;
+            }
 
             if (hasAndroidMan || hasDex) { mime = "application/vnd.android.package-archive"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "apk"; }
             if (hasManifest) { mime = "application/java-archive"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "jar"; }
@@ -872,7 +1201,7 @@ public static partial class FileInspector {
             if (za.GetEntry("AppManifest.xaml") != null) { mime = "application/x-silverlight-app"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "xap"; }
 
             // NuGet package (nupkg): presence of a .nuspec file
-            if (za.Entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "nupkg"; }
+            if (hasNuspec) { mime = "application/zip"; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "nupkg"; }
 
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
         } catch { }
@@ -884,10 +1213,10 @@ public static partial class FileInspector {
         if (options.MagicHeaderBytes > 0) {
             var mh = MagicHeaderHex(header, Math.Min(options.MagicHeaderBytes, header.Length));
             if (result is null) {
-                result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
-            } else {
-                result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension };
-            }
+                    result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", MagicHeaderHex = mh };
+                } else {
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = result.Sha256Hex, MagicHeaderHex = mh, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, Candidates = result.Candidates, IsDangerous = result.IsDangerous };
+                }
         }
         if (options.ComputeSha256 && stream != null) {
             try {
@@ -898,11 +1227,15 @@ public static partial class FileInspector {
                 if (result is null) {
                     result = new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown", Sha256Hex = hex };
                 } else {
-                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension };
+                    result = new ContentTypeDetectionResult { Extension = result.Extension, MimeType = result.MimeType, Confidence = result.Confidence, Reason = result.Reason, ReasonDetails = result.ReasonDetails, ValidationStatus = result.ValidationStatus, Sha256Hex = hex, MagicHeaderHex = result.MagicHeaderHex, GuessedExtension = result.GuessedExtension, Score = result.Score, Alternatives = result.Alternatives, Candidates = result.Candidates, IsDangerous = result.IsDangerous };
                 }
             } catch { /* ignore */ } finally { if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin); }
         }
-        if (result != null) result.BytesInspected = inspected;
+        if (result != null)
+        {
+            result.BytesInspected = inspected;
+            result.IsDangerous = result.IsDangerous || DangerousExtensions.IsDangerous(result.Extension);
+        }
         return result;
     }
 
@@ -919,6 +1252,14 @@ public static partial class FileInspector {
         if (string.IsNullOrWhiteSpace(declaredExt)) return det;
         var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
 
+        // Avoid biasing "unknown" detections (common when stream/span detection fails).
+        if (string.IsNullOrWhiteSpace(det.Extension) &&
+            string.IsNullOrWhiteSpace(det.GuessedExtension) &&
+            string.Equals(det.Reason, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            return det;
+        }
+
         // Prefer the declared extension only for ambiguous/generic detections (avoid masking strong magic-byte hits).
         // This is primarily to reduce false mismatches for "well-known text containers" (cmd/admx/adml/inf/ini) where the
         // content is still plain text / XML but the extension is more specific and expected in Windows/GPO contexts.
@@ -929,6 +1270,7 @@ public static partial class FileInspector {
             det.Extension = "cmd";
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, "bias:decl:cmd");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }
 
@@ -938,6 +1280,7 @@ public static partial class FileInspector {
             det.Extension = decl;
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }
 
@@ -947,6 +1290,7 @@ public static partial class FileInspector {
             det.Extension = "inf";
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, "bias:decl:inf");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }
 
@@ -957,14 +1301,17 @@ public static partial class FileInspector {
             bool detectedGeneric = string.IsNullOrEmpty(detExt) ||
                                    detExt.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
                                    detExt.Equals("text", StringComparison.OrdinalIgnoreCase);
+            bool declaredDangerous = DangerousExtensions.IsDangerous(decl);
             if (detectedGeneric &&
                 (decl == "log" || decl == "txt" || decl == "md" || decl == "markdown" || decl == "ps1" || decl == "psm1" || decl == "psd1" ||
                  decl == "cmd" || decl == "bat" || decl == "ini" || decl == "inf"))
             {
+                if (!declaredDangerous && HasStrongDangerousCandidate(det))
+                    return det;
                 if (!decl.Equals(det.Extension, StringComparison.OrdinalIgnoreCase))
                 {
                     det.Extension = decl;
-                    det.MimeType = NormalizeMime(det.Extension, det.MimeType);
+                    det.MimeType = NormalizeMime(det.Extension, det.MimeType);  
                     det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
                 }
             }
@@ -977,7 +1324,24 @@ public static partial class FileInspector {
                 det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
             }
         }
+        det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
         return det;
+    }
+
+    private static bool HasStrongDangerousCandidate(ContentTypeDetectionResult det)
+    {
+        var candidates = det.Candidates ?? det.Alternatives;
+        if (candidates == null || candidates.Count == 0) return false;
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.Extension)) continue;
+            if (!DangerousExtensions.IsDangerous(candidate.Extension)) continue;
+            if (candidate.Score >= 80) return true;
+            if (!string.IsNullOrEmpty(candidate.Confidence) &&
+                candidate.Confidence.Equals("High", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private static string ToLowerHex(byte[] data) {

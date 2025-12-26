@@ -242,5 +242,21 @@ public class TextLogDetectionsTests
         }
         finally { TestHelpers.SafeDelete(p); }
     }
+
+    [Fact]
+    public void Detect_Bracketed_Info_Log()
+    {
+        var p = Path.GetTempFileName();
+        try
+        {
+            var text = "[Info  - 6:53:20 PM] OmniSharp.Extensions.JsonRpc.InputHandler: Starting\n" +
+                       "[Info  - 6:53:20 PM] OmniSharp.Extensions.LanguageServer.Shared.LspRequestRouter: Finished\n";
+            File.WriteAllText(p, text);
+            var r = FI.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+        }
+        finally { TestHelpers.SafeDelete(p); }
+    }
 }
 

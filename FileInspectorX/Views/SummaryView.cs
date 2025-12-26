@@ -17,6 +17,8 @@ public sealed class SummaryView
     public string Confidence { get; set; } = string.Empty;
     /// <summary>Short reason for detection.</summary>
     public string Reason { get; set; } = string.Empty;
+    /// <summary>Structured validation status when applicable.</summary>
+    public string ValidationStatus { get; set; } = string.Empty;
     /// <summary>Bit flags with analysis signals.</summary>
     public ContentFlags Flags { get; set; } = ContentFlags.None;
     /// <summary>Compact installer/package summary when applicable (e.g., "MSIX: Name v1.0 by Publisher"). Empty when not applicable.</summary>
@@ -37,6 +39,7 @@ public sealed class SummaryView
             MimeType = d?.MimeType ?? string.Empty,
             Confidence = d?.Confidence ?? string.Empty,
             Reason = d?.Reason ?? string.Empty,
+            ValidationStatus = d?.ValidationStatus ?? string.Empty,
             Flags = a.Flags,
             InstallerSummary = BuildInstallerSummary(a.Installer),
             Raw = a
