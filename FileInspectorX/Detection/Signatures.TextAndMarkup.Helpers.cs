@@ -34,10 +34,12 @@ internal static partial class Signatures
     {
         int i = 0;
         while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+        if (i >= l.Length) return false;
         if (i < l.Length && l[i] == (byte)'[')
         {
             i++;
             while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+            if (i >= l.Length) return false;
         }
         if (l.Length - i < 10) return false;
         bool y = IsDigit(l[i + 0]) && IsDigit(l[i + 1]) && IsDigit(l[i + 2]) && IsDigit(l[i + 3]);

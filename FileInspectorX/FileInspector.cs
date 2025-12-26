@@ -53,8 +53,22 @@ public static partial class FileInspector {
         var detRaw = NormalizeExtension(detected.Extension);
         var detGuess = NormalizeExtension(detected.GuessedExtension);
         if (string.IsNullOrEmpty(detRaw) && string.IsNullOrEmpty(detGuess)) return (false, "no-detection-or-declared");
-        string det = detRaw ?? detGuess!;
-        var detLabel = detRaw != null ? det : detGuess! + "(guess)";
+        string det;
+        string detLabel;
+        if (!string.IsNullOrEmpty(detRaw))
+        {
+            det = detRaw!;
+            detLabel = detRaw!;
+        }
+        else if (!string.IsNullOrEmpty(detGuess))
+        {
+            det = detGuess!;
+            detLabel = detGuess! + "(guess)";
+        }
+        else
+        {
+            return (false, "no-detection-or-declared");
+        }
 
         // Treat common synonyms as equivalent (avoid false mismatches)
         static bool Equivalent(string a, string b) {
@@ -1205,6 +1219,14 @@ public static partial class FileInspector {
         if (det == null) return det;
         if (string.IsNullOrWhiteSpace(declaredExt)) return det;
         var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+
+        // Avoid biasing "unknown" detections (common when stream/span detection fails).
+        if (string.IsNullOrWhiteSpace(det.Extension) &&
+            string.IsNullOrWhiteSpace(det.GuessedExtension) &&
+            string.Equals(det.Reason, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            return det;
+        }
 
         // Prefer the declared extension only for ambiguous/generic detections (avoid masking strong magic-byte hits).
         // This is primarily to reduce false mismatches for "well-known text containers" (cmd/admx/adml/inf/ini) where the
