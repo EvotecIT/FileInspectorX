@@ -155,6 +155,8 @@ public static class DangerousExtensions {
     public static bool IsDangerous(string? extension) {
         if (string.IsNullOrWhiteSpace(extension)) return false;
         var key = extension!.Trim().TrimStart('.');
+        var custom = Settings.DangerousExtensionsOverride;
+        if (custom != null && custom.Count > 0) return custom.Contains(key);
         return Default.Contains(key);
     }
 }

@@ -30,6 +30,49 @@ internal static partial class Signatures
         return a <= b ? s.Slice(a, b - a + 1) : ReadOnlySpan<byte>.Empty;
     }
 
+    private static bool LooksLikePlainText(ReadOnlySpan<byte> data, out bool extended, out double printableRatio)
+    {
+        extended = false;
+        printableRatio = 0;
+        if (data.Length == 0) return false;
+
+        int sampleLimit = Settings.PlainTextSampleBytes;
+        if (sampleLimit <= 0) sampleLimit = 2048;
+        int sample = Math.Min(sampleLimit, data.Length);
+        if (sample <= 0) return false;
+
+        int printable = 0;
+        int control = 0;
+        int high = 0;
+        for (int i = 0; i < sample; i++)
+        {
+            byte b = data[i];
+            if (b == 9 || b == 10 || b == 13) { printable++; continue; }
+            if (b < 32 || b == 127) { control++; continue; }
+            if (b < 127) { printable++; continue; }
+            high++;
+        }
+        extended = high > 0;
+        int textLike = printable + high;
+        printableRatio = textLike / (double)sample;
+        double controlRatio = control / (double)sample;
+
+        double minPrintable = Settings.PlainTextPrintableMinRatio;
+        if (minPrintable <= 0 || minPrintable > 1) minPrintable = 0.85;
+        double maxControl = Settings.PlainTextControlMaxRatio;
+        if (maxControl < 0 || maxControl > 1) maxControl = 0.02;
+        if (sample < 32)
+        {
+            if (textLike < 4) return false;
+            if (controlRatio > maxControl) return false;
+            if (printableRatio < Math.Min(0.8, minPrintable)) return false;
+            return true;
+        }
+
+        if (controlRatio > maxControl) return false;
+        return printableRatio >= minPrintable;
+    }
+
     private static bool LooksLikeTimestamp(ReadOnlySpan<byte> l)
     {
         if (l.Length < 10) return false;
@@ -311,37 +354,6 @@ internal static partial class Signatures
         char first = t[0];
         char last = t[t.Length - 1];
         return (first == '{' || first == '[') && (last == '}' || last == ']');
-    }
-
-    private static bool TryValidateJsonStructure(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return false;
-        var span = s.AsSpan().Trim();
-        if (span.Length < 2) return false;
-        char first = span[0];
-        char last = span[span.Length - 1];
-        if (!((first == '{' || first == '[') && (last == '}' || last == ']'))) return false;
-        int depthObj = 0;
-        int depthArr = 0;
-        bool inString = false;
-        bool escape = false;
-        for (int i = 0; i < span.Length; i++)
-        {
-            char c = span[i];
-            if (inString)
-            {
-                if (escape) { escape = false; continue; }
-                if (c == '\\') { escape = true; continue; }
-                if (c == '"') inString = false;
-                continue;
-            }
-            if (c == '"') { inString = true; continue; }
-            if (c == '{') depthObj++;
-            else if (c == '}') { depthObj--; if (depthObj < 0) return false; }
-            else if (c == '[') depthArr++;
-            else if (c == ']') { depthArr--; if (depthArr < 0) return false; }
-        }
-        return !inString && depthObj == 0 && depthArr == 0;
     }
 
     private static bool LooksLikeCompleteXml(string lower, string? rootLower)

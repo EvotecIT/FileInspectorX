@@ -10,8 +10,8 @@ internal static partial class Signatures
         ReadOnlySpan<byte> line3,
         CandidateAdder addCandidate)
     {
-        const int NdjsonLines2Boost = 8;
-        const int NdjsonLines3Boost = 10;
+        int ndjsonLines2Boost = Math.Max(0, Settings.DetectionNdjsonLines2Boost);
+        int ndjsonLines3Boost = Math.Max(0, Settings.DetectionNdjsonLines3Boost);
 
         static bool LooksJsonLine(ReadOnlySpan<byte> l)
         {
@@ -46,7 +46,7 @@ internal static partial class Signatures
         var l3 = TrimBytes(line3);
         bool j3 = LooksJsonLine(l3);
         string conf = j3 ? "High" : "Medium";
-        int boost = j3 ? NdjsonLines3Boost : NdjsonLines2Boost;
+        int boost = j3 ? ndjsonLines3Boost : ndjsonLines2Boost;
         addCandidate("ndjson", "application/x-ndjson", conf, "text:ndjson", j3 ? "ndjson:lines-3" : "ndjson:lines-2", boost, null);
     }
 
@@ -65,7 +65,7 @@ internal static partial class Signatures
         if (jsonLooksLikeLog) return;
 
         bool jsonComplete = LooksLikeCompleteJson(headStr);
-        bool jsonValid = jsonComplete && TryValidateJsonStructure(headStr);
+        bool jsonValid = jsonComplete && JsonStructureValidator.TryValidate(headStr, head.Length, out _);
 
         int len = Math.Min(JSON_DETECTION_SCAN_LIMIT, head.Length);
         var slice = head.Slice(0, len);

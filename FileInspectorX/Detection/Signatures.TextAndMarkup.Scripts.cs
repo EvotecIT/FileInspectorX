@@ -150,13 +150,12 @@ internal static partial class Signatures
         }
 
         // Fallback: treat as plain text if mostly printable. Include BOM charset when known.
-        int printable = 0; int sample = Math.Min(1024, data.Length);
-        for (int i = 0; i < sample; i++) { byte b = data[i]; if (b == 9 || b == 10 || b == 13 || (b >= 32 && b < 127)) printable++; }
-        if ((double)printable / sample > 0.95) {
+        if (LooksLikePlainText(data, out bool extended, out _)) {
             var mime = "text/plain";
             if (!string.IsNullOrEmpty(textCharset)) mime += "; charset=" + textCharset;
             var reason = bomDetected ? "bom:text-plain" : "text:plain";
-            result = new ContentTypeDetectionResult { Extension = "txt", MimeType = mime, Confidence = "Low", Reason = reason };
+            var details = extended ? "plain:extended" : "plain:ascii";
+            result = new ContentTypeDetectionResult { Extension = "txt", MimeType = mime, Confidence = "Low", Reason = reason, ReasonDetails = details };
             return true;
         }
 

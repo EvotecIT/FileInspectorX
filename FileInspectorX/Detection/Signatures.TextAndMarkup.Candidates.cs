@@ -84,7 +84,8 @@ internal static partial class Signatures
             primary = best;
             replaced = true;
         }
-        if (!replaced && declaredCandidate != null &&
+        bool allowDeclaredTieBreak = IsGenericPrimary(primaryExt, det.Reason);
+        if (allowDeclaredTieBreak && !replaced && declaredCandidate != null &&
             !string.Equals(declaredCandidate.Extension, primaryExt, StringComparison.OrdinalIgnoreCase))
         {
             int topScore = best?.Score ?? primary?.Score ?? det.Score ?? 0;
@@ -144,6 +145,19 @@ internal static partial class Signatures
 
         static string AppendReason(string? reason, string tag)
             => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
+        static bool IsGenericPrimary(string ext, string? reason)
+        {
+            var norm = (ext ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(norm)) return true;
+            if (norm == "txt" || norm == "text") return true;
+            if (!string.IsNullOrEmpty(reason))
+            {
+                var r = reason!;
+                if (r.IndexOf("text:plain", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (r.IndexOf("text-plain", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
+        }
     }
 
     static int ConfidenceRank(string? confidence)

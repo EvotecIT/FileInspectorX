@@ -640,8 +640,15 @@ public static partial class FileInspector {
                     det.ValidationStatus = "skipped";
                 return;
             }
-            if (!TryValidateJsonStructure(sample))
+            bool jsonValid = JsonStructureValidator.TryValidate(sample, n, out bool jsonSkipped);
+            if (!jsonValid)
             {
+                if (jsonSkipped)
+                {
+                    if (string.IsNullOrEmpty(det.ValidationStatus))
+                        det.ValidationStatus = "skipped";
+                    return;
+                }
                 det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "json:validation-error");
                 det.ValidationStatus = "failed";
@@ -749,37 +756,6 @@ public static partial class FileInspector {
         char first = t[0];
         char last = t[t.Length - 1];
         return (first == '{' || first == '[') && (last == '}' || last == ']');
-    }
-
-    private static bool TryValidateJsonStructure(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return false;
-        var span = s.AsSpan().Trim();
-        if (span.Length < 2) return false;
-        char first = span[0];
-        char last = span[span.Length - 1];
-        if (!((first == '{' || first == '[') && (last == '}' || last == ']'))) return false;
-        int depthObj = 0;
-        int depthArr = 0;
-        bool inString = false;
-        bool escape = false;
-        for (int i = 0; i < span.Length; i++)
-        {
-            char c = span[i];
-            if (inString)
-            {
-                if (escape) { escape = false; continue; }
-                if (c == '\\') { escape = true; continue; }
-                if (c == '"') inString = false;
-                continue;
-            }
-            if (c == '"') { inString = true; continue; }
-            if (c == '{') depthObj++;
-            else if (c == '}') { depthObj--; if (depthObj < 0) return false; }
-            else if (c == '[') depthArr++;
-            else if (c == ']') { depthArr--; if (depthArr < 0) return false; }
-        }
-        return !inString && depthObj == 0 && depthArr == 0;
     }
 
     private static bool LooksLikeCompleteXml(string s, string? rootName)

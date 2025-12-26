@@ -40,13 +40,24 @@ public class ContentTypeDetectionResult {
     /// <summary>Best-guess extension when MIME/heuristic is ambiguous. Null when not applicable.</summary>
     public string? GuessedExtension { get; set; }
 
-    /// <summary>Score (0-100) used to rank candidates; higher is stronger.</summary>
+    /// <summary>
+    /// Score (0-100) used to rank candidates; higher is stronger.
+    /// Scores are heuristic and may evolve between versions.
+    /// </summary>
     public int? Score { get; set; }
 
     /// <summary>True when the detected type is commonly considered risky/dangerous.</summary>
     public bool IsDangerous { get; set; }
 
     /// <summary>Optional ranked alternative candidates (excluding the primary).</summary>
+    /// <example>
+    /// <code>
+    /// var det = FileInspector.Detect(path);
+    /// if (det?.Alternatives?.Count > 0) {
+    ///     // Present ambiguous detections to the caller/UI.
+    /// }
+    /// </code>
+    /// </example>
     public IReadOnlyList<ContentTypeDetectionCandidate>? Alternatives { get; set; }
 
     /// <summary>Optional ranked candidates including the primary.</summary>

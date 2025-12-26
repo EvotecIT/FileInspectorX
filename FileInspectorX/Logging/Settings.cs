@@ -5,7 +5,8 @@ namespace FileInspectorX;
 /// Controls verbosity (via <see cref="InternalLogger"/>) and read budgets used during detection.
 /// </summary>
 /// <remarks>
-/// Adjust these flags to direct diagnostic information while running detection/analysis. No thread settings are required.
+/// These settings are global and mutable. Configure once at application startup.
+/// Concurrent mutation is not thread-safe.
 /// </remarks>
 public class Settings {
     /// <summary>
@@ -103,6 +104,60 @@ public class Settings {
     public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Score boost applied when a candidate matches the declared extension.
+    /// Default 3.
+    /// </summary>
+    public static int DetectionDeclaredExtensionBoost { get; set; } = 3;
+
+    /// <summary>
+    /// Score boost when JSON structural validation succeeds (candidate scoring).
+    /// Default 6.
+    /// </summary>
+    public static int DetectionJsonValidBoost { get; set; } = 6;
+
+    /// <summary>
+    /// Score boost when XML well-formedness validation succeeds (candidate scoring).
+    /// Default 6.
+    /// </summary>
+    public static int DetectionXmlWellFormedBoost { get; set; } = 6;
+
+    /// <summary>
+    /// Score boost for NDJSON candidates when two consecutive JSON lines are detected.
+    /// Default 8.
+    /// </summary>
+    public static int DetectionNdjsonLines2Boost { get; set; } = 8;
+
+    /// <summary>
+    /// Score boost for NDJSON candidates when three consecutive JSON lines are detected.
+    /// Default 10.
+    /// </summary>
+    public static int DetectionNdjsonLines3Boost { get; set; } = 10;
+
+    /// <summary>
+    /// Maximum bytes to sample when classifying plain text.
+    /// Default 2048.
+    /// </summary>
+    public static int PlainTextSampleBytes { get; set; } = 2048;
+
+    /// <summary>
+    /// Minimum ratio of printable bytes required to classify as plain text.
+    /// Default 0.85.
+    /// </summary>
+    public static double PlainTextPrintableMinRatio { get; set; } = 0.85;
+
+    /// <summary>
+    /// Maximum ratio of control bytes allowed for plain text classification.
+    /// Default 0.02.
+    /// </summary>
+    public static double PlainTextControlMaxRatio { get; set; } = 0.02;
+
+    /// <summary>
+    /// Optional override for the dangerous extension set. When non-null and non-empty,
+    /// it replaces the built-in <see cref="FileInspectorX.DangerousExtensions.Default"/> list.
+    /// </summary>
+    public static ISet<string>? DangerousExtensionsOverride { get; set; } = null;
+
+    /// <summary>
     /// Maximum number of ZIP entries to enumerate when guessing ZIP subtypes (apk/jar/ipa/nupkg/od*).
     /// Default 100000. Set to 0 to skip subtype guessing for large or adversarial archives.
     /// </summary>
@@ -114,6 +169,18 @@ public class Settings {
     /// Default true to reduce false positives and surface malformed GPO templates explicitly.
     /// </summary>
     public static bool AdmxAdmlXmlWellFormednessValidationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// When true, JSON structural validation is performed for JSON detections/validation paths.
+    /// Default true.
+    /// </summary>
+    public static bool JsonStructuralValidationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of bytes to validate when JSON structural validation is enabled.
+    /// Default 5 MB. Set to 0 to disable the size cap.
+    /// </summary>
+    public static int JsonStructuralValidationMaxBytes { get; set; } = 5_000_000;
 
     /// <summary>
     /// Maximum file size in bytes to validate when <see cref="AdmxAdmlXmlWellFormednessValidationEnabled"/> is true.

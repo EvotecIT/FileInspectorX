@@ -4,16 +4,16 @@ internal static partial class Signatures
 {
     static List<ContentTypeDetectionCandidate> CollectCandidates(ReadOnlySpan<byte> head, string headStr, string headLower, string decl)
     {
-        const int DeclaredExtensionBoost = 3;
-        const int JsonValidBoost = 6;
-        const int XmlWellFormedBoost = 6;
+        int declaredExtensionBoost = Math.Max(0, Settings.DetectionDeclaredExtensionBoost);
+        int jsonValidBoost = Math.Max(0, Settings.DetectionJsonValidBoost);
+        int xmlWellFormedBoost = Math.Max(0, Settings.DetectionXmlWellFormedBoost);
         var byExt = new Dictionary<string, ContentTypeDetectionCandidate>(StringComparer.OrdinalIgnoreCase);
         void AddCandidate(string ext, string mime, string confidence, string reason, string? details = null, int scoreAdjust = 0, bool? dangerousOverride = null)
         {
             if (string.IsNullOrWhiteSpace(ext)) return;
             int adjust = scoreAdjust + GetScoreAdjustment(ext, reason, details);
             if (!string.IsNullOrWhiteSpace(decl) && string.Equals(ext, decl, StringComparison.OrdinalIgnoreCase))
-                adjust += DeclaredExtensionBoost;
+                adjust += declaredExtensionBoost;
             int score = ClampScore(ScoreFromConfidence(confidence) + adjust, confidence);
             bool dangerous = dangerousOverride ?? DangerousExtensions.IsDangerous(ext);
             var c = new ContentTypeDetectionCandidate { Extension = ext, MimeType = mime, Confidence = confidence, Reason = reason, ReasonDetails = details, Score = score, IsDangerous = dangerous };
@@ -170,9 +170,9 @@ internal static partial class Signatures
 
         TryAddNdjsonCandidate(line1, line2, line3, AddCandidate);
 
-        TryAddJsonCandidates(head, line1, headStr, jsonPenalty, AddCandidate, JsonValidBoost);
+        TryAddJsonCandidates(head, line1, headStr, jsonPenalty, AddCandidate, jsonValidBoost);
 
-        TryAddXmlCandidates(head, headStr, headLower, declaredAdmx, declaredAdml, htmlHasScript, AddCandidate, XmlWellFormedBoost);
+        TryAddXmlCandidates(head, headStr, headLower, declaredAdmx, declaredAdml, htmlHasScript, AddCandidate, xmlWellFormedBoost);
 
         if (!logCuesLocal)
         {
@@ -435,6 +435,16 @@ internal static partial class Signatures
             if (IndexOfToken(head, "require(") >= 0 || IndexOfToken(head, "require ") >= 0) luaCues++;
             if (IndexOfToken(head, " then") >= 0 && IndexOfToken(head, " end") >= 0) luaCues++;
             if (luaCues >= 2) AddCandidate("lua", "text/x-lua", "Low", "text:lua-heur", $"lua:cues-{luaCues}", scriptPenalty);
+        }
+
+        // Plain text candidate (low confidence) for mostly printable text.
+        {
+            if (LooksLikePlainText(head, out bool extended, out _))
+            {
+                int textPenalty = (scriptCues ? -8 : 0) + (logCuesLocal ? -6 : 0) + (mdLikely ? -4 : 0);
+                var details = extended ? "plain:extended" : "plain:ascii";
+                AddCandidate("txt", "text/plain", "Low", "text:plain", details, scoreAdjust: textPenalty);
+            }
         }
 
         var list = new List<ContentTypeDetectionCandidate>(byExt.Values);
