@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Reflection;
 using System.Threading;
 using FileInspectorX;
 
@@ -11,17 +10,11 @@ public class SettingsBehaviorTests
     [Xunit.Fact]
     public void JsonValidationCore_TimesOut_When_StopwatchExpired()
     {
-        var type = typeof(FileInspector).Assembly.GetType("FileInspectorX.JsonStructureValidator", throwOnError: true);
-        var method = type?.GetMethod("TryValidateCore", BindingFlags.NonPublic | BindingFlags.Static);
-        Xunit.Assert.NotNull(method);
-
         var sw = Stopwatch.StartNew();
         var spinner = new SpinWait();
         while (sw.ElapsedTicks <= 1) spinner.SpinOnce();
 
-        object?[] args = { "{\"a\":1}", sw, 1L, null };
-        var ok = (bool)method!.Invoke(null, args)!;
-        var timedOut = (bool)args[3]!;
+        var ok = JsonStructureValidator.TryValidateCoreForTest("{\"a\":1}", sw, 1L, out var timedOut);
         Xunit.Assert.False(ok);
         Xunit.Assert.True(timedOut);
     }

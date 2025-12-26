@@ -44,6 +44,9 @@ internal static class JsonStructureValidator
         return ok;
     }
 
+    internal static bool TryValidateCoreForTest(string s, System.Diagnostics.Stopwatch? sw, long timeoutTicks, out bool timedOut)
+        => TryValidateCore(s, sw, timeoutTicks, out timedOut);
+
     private static bool TryValidateCore(string s, System.Diagnostics.Stopwatch? sw, long timeoutTicks, out bool timedOut)
     {
         timedOut = false;
