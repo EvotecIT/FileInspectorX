@@ -895,6 +895,13 @@ public static partial class FileInspector {
                 var ver = PeReader.TryExtractVersionStrings(path);
                 if (ver != null && ver.Count > 0) res.VersionInfo = ver;
                 if (PeReader.TryReadPe(path, out var peInfo)) {
+                    const ushort IMAGE_FILE_DLL = 0x2000;
+                    if ((peInfo.Characteristics & IMAGE_FILE_DLL) != 0)
+                        res.PeKind = "dll";
+                    else if (peInfo.Subsystem == 1)
+                        res.PeKind = "sys";
+                    else
+                        res.PeKind = "exe";
                     if (peInfo.Sections.Any(s => string.Equals(s.Name, "UPX0", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, "UPX1", StringComparison.OrdinalIgnoreCase))) {
                         res.Flags |= ContentFlags.PeLooksPackedUpx;
                     }
@@ -948,6 +955,8 @@ public static partial class FileInspector {
                     }
                 }
             } catch { }
+
+            PopulateDetectionSummary(res);
 
             // Assessment (optional)
             if (options?.IncludeAssessment != false)

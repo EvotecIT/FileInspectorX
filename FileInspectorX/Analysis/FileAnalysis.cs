@@ -7,6 +7,20 @@ namespace FileInspectorX;
 public class FileAnalysis {
     /// <summary>Result of magic/heuristic content type detection.</summary>
     public ContentTypeDetectionResult? Detection { get; set; }
+    /// <summary>Detected extension (cached from <see cref="Detection"/>).</summary>
+    public string? DetectedExtension { get; set; }
+    /// <summary>Detected MIME type (cached from <see cref="Detection"/>).</summary>
+    public string? DetectedMimeType { get; set; }
+    /// <summary>Detection confidence (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionConfidence { get; set; }
+    /// <summary>Detection reason (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionReason { get; set; }
+    /// <summary>Detection validation status (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionValidationStatus { get; set; }
+    /// <summary>Detection score (cached from <see cref="Detection"/>).</summary>
+    public int? DetectionScore { get; set; }
+    /// <summary>Detection dangerous flag (cached from <see cref="Detection"/>).</summary>
+    public bool? DetectionIsDangerous { get; set; }
     /// <summary>Broad content category derived from <see cref="Detection"/>.</summary>
     public ContentKind Kind { get; set; } = ContentKind.Unknown;
     /// <summary>Bitmask of analysis signals collected for this file.</summary>
@@ -25,6 +39,8 @@ public class FileAnalysis {
     public string? PeMachine { get; set; }
     /// <summary>Subsystem string for PE files (e.g., Windows GUI, CUI).</summary>
     public string? PeSubsystem { get; set; }
+    /// <summary>PE kind (exe/dll/sys) when available.</summary>
+    public string? PeKind { get; set; }
 
     // Container summary (ZIP/TAR)
     /// <summary>Number of entries sampled inside the container.</summary>
