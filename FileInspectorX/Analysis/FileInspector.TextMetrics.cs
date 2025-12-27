@@ -5,6 +5,7 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
+    private const int TopTokensHardMaxUniqueTokens = 100_000;
     private static readonly HashSet<string> TopTokenStopWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "function", "param", "return", "true", "false", "null", "begin", "process", "end",
@@ -27,6 +28,7 @@ public static partial class FileInspector
             int max = Math.Max(0, Settings.TopTokensMax);
             if (max == 0) return;
             int maxUnique = Math.Max(0, Settings.TopTokensMaxUniqueTokens);
+            if (maxUnique == 0) maxUnique = TopTokensHardMaxUniqueTokens;
 
             bool isLog = string.Equals(res.TextSubtype, "log", StringComparison.OrdinalIgnoreCase);
             bool isScript = IsScriptTextSubtype(res.TextSubtype) || IsScriptTextSubtype(res.ScriptLanguage);
@@ -43,7 +45,11 @@ public static partial class FileInspector
             var tokens = ExtractTopTokens(text, max, minLen, minCount, maxUnique);
             if (tokens.Count > 0) res.TopTokens = tokens;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (Settings.Logger.IsDebug)
+                Settings.Logger.WriteDebug("textmetrics:failed ({0})", ex.GetType().Name);
+        }
     }
 
     private static IReadOnlyList<string> ExtractTopTokens(string text, int max, int minLen, int minCount, int maxUnique)
@@ -111,5 +117,5 @@ public static partial class FileInspector
         return true;
     }
 
-    private static bool IsTrimChar(char c) => c == '-' || c == '_' || c == '.' || c == ':';
+    private static bool IsTrimChar(char c) => c == '-' || c == '_' || c == '.';
 }

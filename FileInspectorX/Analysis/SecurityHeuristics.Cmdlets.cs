@@ -57,7 +57,11 @@ internal static partial class SecurityHeuristics
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (Settings.Logger.IsDebug)
+                Settings.Logger.WriteDebug("cmdlets:script-hints failed ({0})", ex.GetType().Name);
+        }
     }
 
     private static string? TryExtractModuleName(string line, string keyword)
@@ -149,7 +153,7 @@ internal static partial class SecurityHeuristics
     private static string? NormalizeModuleName(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
-        var name = (raw ?? string.Empty).Trim().Trim('"', '\'');
+        var name = raw!.Trim().Trim('"', '\'');
         if (string.IsNullOrWhiteSpace(name)) return null;
         if (name.StartsWith("$", StringComparison.Ordinal)) return null;
         int semi = name.IndexOf(';');

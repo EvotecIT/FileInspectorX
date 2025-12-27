@@ -895,7 +895,6 @@ public static partial class FileInspector {
                 var ver = PeReader.TryExtractVersionStrings(path);
                 if (ver != null && ver.Count > 0) res.VersionInfo = ver;
                 if (PeReader.TryReadPe(path, out var peInfo)) {
-                    const ushort IMAGE_FILE_DLL = 0x2000;
                     if ((peInfo.Characteristics & IMAGE_FILE_DLL) != 0)
                         res.PeKind = "dll";
                     else if (peInfo.Subsystem == 1)
@@ -2073,27 +2072,6 @@ public static partial class FileInspector {
             "pl" => "perl",
             _ => null
         };
-    }
-
-    private static string ReadHeadText(string path, int cap) {
-        try {
-            using var fs = File.OpenRead(path);
-            int len = (int)Math.Min(fs.Length, cap);
-            var buf = new byte[len];
-            var n = fs.Read(buf, 0, buf.Length);
-            if (n <= 0) return string.Empty;
-            if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
-                return n > 3 ? System.Text.Encoding.UTF8.GetString(buf, 3, n - 3) : string.Empty;
-            if (n >= 4 && buf[0] == 0xFF && buf[1] == 0xFE && buf[2] == 0x00 && buf[3] == 0x00)
-                return n > 4 ? new System.Text.UTF32Encoding(false, true, true).GetString(buf, 4, n - 4) : string.Empty;
-            if (n >= 4 && buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0xFE && buf[3] == 0xFF)
-                return n > 4 ? new System.Text.UTF32Encoding(true, true, true).GetString(buf, 4, n - 4) : string.Empty;
-            if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)
-                return n > 2 ? System.Text.Encoding.Unicode.GetString(buf, 2, n - 2) : string.Empty;
-            if (n >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)
-                return n > 2 ? System.Text.Encoding.BigEndianUnicode.GetString(buf, 2, n - 2) : string.Empty;
-            return System.Text.Encoding.UTF8.GetString(buf, 0, n);
-        } catch { return string.Empty; }
     }
 
     private static bool LooksMinifiedJs(string path, int cap, int minLen, int avgLineThreshold, double densityThreshold) {

@@ -32,8 +32,10 @@ public static partial class FileInspector
                 meta.MagicHeaderHex = MagicHeaderHex(path, options.MagicHeaderBytes);
             return meta;
         }
-        catch
+        catch (Exception ex)
         {
+            if (Settings.Logger.IsDebug)
+                Settings.Logger.WriteDebug("metadata:read failed ({0})", ex.GetType().Name);
             return null;
         }
     }
@@ -126,7 +128,13 @@ public static partial class FileInspector
             AddFileMetadata(dict, fileMetadata);
 
         var reportDict = (report ?? ReportView.From(analysis)).ToDictionary();
-        foreach (var kv in reportDict) dict[kv.Key] = kv.Value;
+        foreach (var kv in reportDict)
+        {
+            if (!dict.ContainsKey(kv.Key))
+                dict[kv.Key] = kv.Value;
+            else if (Settings.Logger.IsDebug)
+                Settings.Logger.WriteDebug("metadata:collision key '{0}' skipped", kv.Key);
+        }
 
         AddSignatureMetadata(dict, analysis);
         return dict;
