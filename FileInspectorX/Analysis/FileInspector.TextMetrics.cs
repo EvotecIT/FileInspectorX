@@ -16,7 +16,11 @@ public static partial class FileInspector
         "http", "https"
     };
 
-    private static void TryPopulateTextMetrics(FileAnalysis res, ContentTypeDetectionResult? det, string path)
+    private static void TryPopulateTextMetrics(
+        FileAnalysis res,
+        ContentTypeDetectionResult? det,
+        string path,
+        Func<int, string>? readHeadText = null)
     {
         try
         {
@@ -39,7 +43,7 @@ public static partial class FileInspector
             int maxBytes = Settings.TopTokensMaxBytes;
             if (maxBytes <= 0) maxBytes = Settings.DetectionReadBudgetBytes;
             int cap = Math.Min(Settings.DetectionReadBudgetBytes, maxBytes);
-            var text = ReadHeadText(path, cap);
+            var text = readHeadText != null ? readHeadText(cap) : ReadHeadText(path, cap);
             if (string.IsNullOrEmpty(text)) return;
 
             var tokens = ExtractTopTokens(text, max, minLen, minCount, maxUnique);
@@ -47,7 +51,9 @@ public static partial class FileInspector
         }
         catch (Exception ex)
         {
-            if (Settings.Logger.IsDebug)
+            if (Settings.Logger.IsWarning)
+                Settings.Logger.WriteWarning("textmetrics:failed ({0})", ex.GetType().Name);
+            else if (Settings.Logger.IsDebug)
                 Settings.Logger.WriteDebug("textmetrics:failed ({0})", ex.GetType().Name);
         }
     }
@@ -70,8 +76,9 @@ public static partial class FileInspector
             if (!TryTrimToken(span.Slice(start, len), out var trimmed)) continue;
             if (trimmed.Length < minLen) continue;
             if (IsNumeric(trimmed)) continue;
-            var token = trimmed.ToString().ToLowerInvariant();
+            var token = trimmed.ToString();
             if (TopTokenStopWords.Contains(token)) continue;
+            if (ShouldRedactToken(token)) continue;
             if (maxUnique > 0 && counts.Count >= maxUnique && !counts.ContainsKey(token)) continue;
             counts.TryGetValue(token, out int c);
             counts[token] = c + 1;
@@ -82,7 +89,7 @@ public static partial class FileInspector
         list.Sort((a, b) =>
         {
             int c = b.Value.CompareTo(a.Value);
-            return c != 0 ? c : string.Compare(a.Key, b.Key, StringComparison.OrdinalIgnoreCase);
+            return c != 0 ? c : StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key);
         });
 
         var result = new List<string>(Math.Min(max, list.Count));
@@ -93,6 +100,19 @@ public static partial class FileInspector
             if (result.Count >= max) break;
         }
         return result;
+    }
+
+    private static bool ShouldRedactToken(string token)
+    {
+        var patterns = Settings.TopTokensRedactPatterns;
+        if (patterns == null || patterns.Length == 0) return false;
+        for (int i = 0; i < patterns.Length; i++)
+        {
+            var p = patterns[i];
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            if (token.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+        }
+        return false;
     }
 
     private static bool IsTokenChar(char c)

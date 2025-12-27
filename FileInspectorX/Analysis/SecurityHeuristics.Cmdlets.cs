@@ -59,7 +59,9 @@ internal static partial class SecurityHeuristics
         }
         catch (Exception ex)
         {
-            if (Settings.Logger.IsDebug)
+            if (Settings.Logger.IsWarning)
+                Settings.Logger.WriteWarning("cmdlets:script-hints failed ({0})", ex.GetType().Name);
+            else if (Settings.Logger.IsDebug)
                 Settings.Logger.WriteDebug("cmdlets:script-hints failed ({0})", ex.GetType().Name);
         }
     }

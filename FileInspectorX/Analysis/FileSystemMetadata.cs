@@ -28,8 +28,8 @@ public sealed class FileSystemMetadata
 /// </summary>
 public sealed class FileMetadataOptions
 {
-    /// <summary>Include the file path. Default true.</summary>
-    public bool IncludePath { get; set; } = true;
+    /// <summary>Include the file path. Default false. Note: may expose sensitive path information.</summary>
+    public bool IncludePath { get; set; } = false;
     /// <summary>Include the file size. Default true.</summary>
     public bool IncludeSize { get; set; } = true;
     /// <summary>Include created/modified timestamps. Default true.</summary>
@@ -38,8 +38,8 @@ public sealed class FileMetadataOptions
     public bool IncludeAccessedUtc { get; set; } = false;
     /// <summary>Include file attributes. Default false.</summary>
     public bool IncludeAttributes { get; set; } = false;
-    /// <summary>Include magic header bytes in hex. Default true. Note: may expose sensitive content.</summary>
-    public bool IncludeMagicHeader { get; set; } = true;
-    /// <summary>Number of bytes to capture for the magic header. Default 64.</summary>
-    public int MagicHeaderBytes { get; set; } = 64;
+    /// <summary>Include magic header bytes in hex. Default false. Note: may expose sensitive content.</summary>
+    public bool IncludeMagicHeader { get; set; } = false;
+    /// <summary>Number of bytes to capture for the magic header. Default 16.</summary>
+    public int MagicHeaderBytes { get; set; } = 16;
 }

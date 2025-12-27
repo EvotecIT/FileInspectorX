@@ -4,8 +4,6 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private const int StrongCandidateScoreThreshold = 80;
-
     /// <summary>
     /// Compares a declared extension with a detected content type and exposes strong alternatives/danger flags.
     /// </summary>
@@ -127,7 +125,7 @@ public static partial class FileInspector
 
     private static bool IsStrongCandidate(ContentTypeDetectionCandidate candidate)
     {
-        if (candidate.Score >= StrongCandidateScoreThreshold) return true;
+        if (candidate.Score >= Settings.DetectionStrongCandidateScoreThreshold) return true;
         if (!string.IsNullOrEmpty(candidate.Confidence) &&
             candidate.Confidence.Equals("High", StringComparison.OrdinalIgnoreCase))
             return true;

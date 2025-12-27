@@ -34,7 +34,9 @@ public static partial class FileInspector
         }
         catch (Exception ex)
         {
-            if (Settings.Logger.IsDebug)
+            if (Settings.Logger.IsWarning)
+                Settings.Logger.WriteWarning("metadata:read failed ({0})", ex.GetType().Name);
+            else if (Settings.Logger.IsDebug)
                 Settings.Logger.WriteDebug("metadata:read failed ({0})", ex.GetType().Name);
             return null;
         }
@@ -132,6 +134,8 @@ public static partial class FileInspector
         {
             if (!dict.ContainsKey(kv.Key))
                 dict[kv.Key] = kv.Value;
+            else if (Settings.Logger.IsWarning)
+                Settings.Logger.WriteWarning("metadata:collision key '{0}' skipped", kv.Key);
             else if (Settings.Logger.IsDebug)
                 Settings.Logger.WriteDebug("metadata:collision key '{0}' skipped", kv.Key);
         }

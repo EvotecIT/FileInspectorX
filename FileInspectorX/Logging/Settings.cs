@@ -101,6 +101,12 @@ public class Settings {
     public static int DetectionDeclaredTieBreakerMargin { get; set; } = 2;
 
     /// <summary>
+    /// Score threshold for considering a candidate a strong alternative when comparing declared vs detected types.
+    /// Default 80.
+    /// </summary>
+    public static int DetectionStrongCandidateScoreThreshold { get; set; } = 80;
+
+    /// <summary>
     /// Optional score adjustments for detection candidates keyed by extension or reason.
     /// Keys can be plain (e.g., "ps1") or prefixed (e.g., "ext:ps1", "reason:text:ps1").
     /// Note: Configure at startup; avoid concurrent mutation during detection.
@@ -343,9 +349,30 @@ public class Settings {
 
     /// <summary>
     /// Maximum number of unique tokens tracked when computing top tokens. Default 10000.
-    /// New tokens are dropped once the limit is reached.
+    /// New tokens are dropped once the limit is reached. A hard safety cap of 100000 is applied.
     /// </summary>
     public static int TopTokensMaxUniqueTokens { get; set; } = 10_000;
+
+    /// <summary>
+    /// Token substrings to redact from top-token output (case-insensitive). Defaults to common sensitive keywords.
+    /// Set to an empty array to disable redaction when top tokens are enabled.
+    /// </summary>
+    public static string[] TopTokensRedactPatterns { get; set; } = new[]
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "token",
+        "apikey",
+        "api_key",
+        "bearer",
+        "authorization",
+        "clientsecret",
+        "privatekey",
+        "sshkey",
+        "connectionstring"
+    };
 
     /// <summary>
     /// Maximum line length to scan for script hints (module/function/class). Default 4096.

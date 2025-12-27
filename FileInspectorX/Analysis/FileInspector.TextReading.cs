@@ -16,8 +16,12 @@ public static partial class FileInspector
             int n = fs.Read(buf, 0, buf.Length);
             return ReadHeadTextWithBomDetection(buf, n);
         }
-        catch
+        catch (Exception ex)
         {
+            if (Settings.Logger.IsWarning)
+                Settings.Logger.WriteWarning("text:read failed ({0})", ex.GetType().Name);
+            else if (Settings.Logger.IsDebug)
+                Settings.Logger.WriteDebug("text:read failed ({0})", ex.GetType().Name);
             return string.Empty;
         }
     }
