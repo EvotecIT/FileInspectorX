@@ -322,6 +322,7 @@ public class Settings {
     /// <summary>
     /// When true, computes top tokens for script/log text and attaches them to <see cref="FileAnalysis.TopTokens"/>.
     /// Default false.
+    /// Note: enabling this can surface sensitive keywords from scripts/logs.
     /// </summary>
     public static bool TopTokensEnabled { get; set; } = false;
 
@@ -342,6 +343,7 @@ public class Settings {
 
     /// <summary>
     /// Maximum number of unique tokens tracked when computing top tokens. Default 10000.
+    /// New tokens are dropped once the limit is reached.
     /// </summary>
     public static int TopTokensMaxUniqueTokens { get; set; } = 10_000;
 
@@ -349,6 +351,12 @@ public class Settings {
     /// Maximum line length to scan for script hints (module/function/class). Default 4096.
     /// </summary>
     public static int ScriptHintMaxLineLength { get; set; } = 4096;
+
+    /// <summary>
+    /// Maximum number of lines to scan for script hints. Default 400.
+    /// Set to 0 to disable script hint extraction.
+    /// </summary>
+    public static int ScriptHintMaxLines { get; set; } = 400;
 
     /// <summary>
     /// When true, the References extractor will attempt to check existence for network paths (UNC/file URLs) it discovers.

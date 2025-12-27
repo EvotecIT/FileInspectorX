@@ -19,7 +19,7 @@ public sealed class FileSystemMetadata
     public DateTime? AccessedUtc { get; set; }
     /// <summary>File attributes (e.g., ReadOnly, Hidden), when requested.</summary>
     public string? Attributes { get; set; }
-    /// <summary>Magic header bytes as hex, when requested.</summary>
+    /// <summary>Magic header bytes as hex, when requested. Note: may expose sensitive content.</summary>
     public string? MagicHeaderHex { get; set; }
 }
 
@@ -38,7 +38,7 @@ public sealed class FileMetadataOptions
     public bool IncludeAccessedUtc { get; set; } = false;
     /// <summary>Include file attributes. Default false.</summary>
     public bool IncludeAttributes { get; set; } = false;
-    /// <summary>Include magic header bytes in hex. Default true.</summary>
+    /// <summary>Include magic header bytes in hex. Default true. Note: may expose sensitive content.</summary>
     public bool IncludeMagicHeader { get; set; } = true;
     /// <summary>Number of bytes to capture for the magic header. Default 64.</summary>
     public int MagicHeaderBytes { get; set; } = 64;

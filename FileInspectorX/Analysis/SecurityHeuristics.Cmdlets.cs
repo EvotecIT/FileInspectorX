@@ -16,7 +16,9 @@ internal static partial class SecurityHeuristics
             using var sr = new StringReader(text);
             string? line;
             int lines = 0;
-            while (lines < 400 && (line = sr.ReadLine()) != null)
+            int maxLines = Settings.ScriptHintMaxLines;
+            if (maxLines <= 0) return;
+            while (lines < maxLines && (line = sr.ReadLine()) != null)
             {
                 lines++;
                 if (!canAdd()) break;
@@ -113,6 +115,7 @@ internal static partial class SecurityHeuristics
         for (int i = 0; i + token.Length <= line.Length; i++)
         {
             if (!StartsWithToken(line.Slice(i), token)) continue;
+            // Enforce word boundaries to avoid matching inside longer identifiers.
             bool startOk = i == 0 || char.IsWhiteSpace(line[i - 1]);
             bool endOk = i + token.Length >= line.Length || char.IsWhiteSpace(line[i + token.Length]);
             if (startOk && endOk) return i;
