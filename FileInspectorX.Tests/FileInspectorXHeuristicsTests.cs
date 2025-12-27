@@ -30,6 +30,26 @@ $data | Export-OfficeExcel -FilePath $path -WorksheetName 'Data' -AutoSize
     }
 
     [Xunit.Fact]
+    public void PsScript_Populates_ScriptLanguage_And_Cmdlets()
+    {
+        var ps = """
+New-ConfigurationManifest -ModuleVersion '1.0.0'
+Get-ChildItem -Path . | Out-String
+""".Replace("\r\n", "\n");
+        var tmp = WriteTemp(".ps1", ps);
+        try
+        {
+            var analysis = FileInspector.Inspect(tmp);
+            Xunit.Assert.NotNull(analysis);
+            Xunit.Assert.Equal("powershell", analysis!.ScriptLanguage);
+            Xunit.Assert.NotNull(analysis.ScriptCmdlets);
+            Xunit.Assert.Contains("new-configurationmanifest", analysis.ScriptCmdlets!);
+            Xunit.Assert.Contains("get-childitem", analysis.ScriptCmdlets!);
+        }
+        finally { TryDelete(tmp); }
+    }
+
+    [Xunit.Fact]
     public void LogFile_Detected_As_Log()
     {
         var log = """

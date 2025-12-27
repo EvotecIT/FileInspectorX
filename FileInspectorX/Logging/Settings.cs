@@ -101,6 +101,12 @@ public class Settings {
     public static int DetectionDeclaredTieBreakerMargin { get; set; } = 2;
 
     /// <summary>
+    /// Score threshold for considering a candidate a strong alternative when comparing declared vs detected types.
+    /// Default 80.
+    /// </summary>
+    public static int DetectionStrongCandidateScoreThreshold { get; set; } = 80;
+
+    /// <summary>
     /// Optional score adjustments for detection candidates keyed by extension or reason.
     /// Keys can be plain (e.g., "ps1") or prefixed (e.g., "ext:ps1", "reason:text:ps1").
     /// Note: Configure at startup; avoid concurrent mutation during detection.
@@ -318,6 +324,66 @@ public class Settings {
     /// When true, scans text/script content for generic secrets (private keys, JWTs, key=... patterns). Emits neutral codes only.
     /// </summary>
     public static bool SecretsScanEnabled { get; set; } = true;
+
+    /// <summary>
+    /// When true, computes top tokens for script/log text and attaches them to <see cref="FileAnalysis.TopTokens"/>.
+    /// Default false.
+    /// Note: enabling this can surface sensitive keywords from scripts/logs.
+    /// </summary>
+    public static bool TopTokensEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Maximum bytes to scan when computing top tokens. Default 262144 (256 KB).
+    /// Set to 0 to fall back to <see cref="DetectionReadBudgetBytes"/>.
+    /// </summary>
+    public static int TopTokensMaxBytes { get; set; } = 256 * 1024;
+
+    /// <summary>Maximum number of top tokens to return. Default 8.</summary>
+    public static int TopTokensMax { get; set; } = 8;
+
+    /// <summary>Minimum token length to consider. Default 4.</summary>
+    public static int TopTokensMinLength { get; set; } = 4;
+
+    /// <summary>Minimum occurrence count to include a token. Default 2.</summary>
+    public static int TopTokensMinCount { get; set; } = 2;
+
+    /// <summary>
+    /// Maximum number of unique tokens tracked when computing top tokens. Default 10000.
+    /// New tokens are dropped once the limit is reached. A hard safety cap of 100000 is applied.
+    /// </summary>
+    public static int TopTokensMaxUniqueTokens { get; set; } = 10_000;
+
+    /// <summary>
+    /// Token substrings to redact from top-token output (case-insensitive). Defaults to common sensitive keywords.
+    /// Set to an empty array to disable redaction when top tokens are enabled.
+    /// </summary>
+    public static string[] TopTokensRedactPatterns { get; set; } = new[]
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "token",
+        "apikey",
+        "api_key",
+        "bearer",
+        "authorization",
+        "clientsecret",
+        "privatekey",
+        "sshkey",
+        "connectionstring"
+    };
+
+    /// <summary>
+    /// Maximum line length to scan for script hints (module/function/class). Default 4096.
+    /// </summary>
+    public static int ScriptHintMaxLineLength { get; set; } = 4096;
+
+    /// <summary>
+    /// Maximum number of lines to scan for script hints. Default 400.
+    /// Set to 0 to disable script hint extraction.
+    /// </summary>
+    public static int ScriptHintMaxLines { get; set; } = 400;
 
     /// <summary>
     /// When true, the References extractor will attempt to check existence for network paths (UNC/file URLs) it discovers.

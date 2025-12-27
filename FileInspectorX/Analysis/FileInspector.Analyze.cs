@@ -203,6 +203,20 @@ public static partial class FileInspector {
 
         try {
             if (det is null) return res;
+            string? headTextCached = null;
+            int headTextCap = 0;
+            string ReadHeadTextCached(int cap)
+            {
+                if (cap <= 0) return string.Empty;
+                if (headTextCached == null || headTextCap < cap)
+                {
+                    headTextCached = ReadHeadText(path, cap);
+                    headTextCap = cap;
+                }
+                if (headTextCached == null) return string.Empty;
+                if (headTextCached.Length > cap) return headTextCached.Substring(0, cap);
+                return headTextCached;
+            }
 
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
             if (det.Extension is "b64" or "hex" or "b85" or "uu")
@@ -505,17 +519,30 @@ public static partial class FileInspector {
                 }
                 // JS minified heuristic if file extension is .js
                 var declaredExt = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
+                var detectedExt = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+                string? mappedScript = MapScriptLanguageFromExtension(detectedExt) ??
+                                       MapScriptLanguageFromExtension(declaredExt);
+                if (!string.IsNullOrEmpty(mappedScript))
+                {
+                    if (string.IsNullOrEmpty(res.ScriptLanguage)) res.ScriptLanguage = mappedScript;
+                    res.Flags |= ContentFlags.IsScript;
+                    if (string.IsNullOrEmpty(res.TextSubtype)) res.TextSubtype = mappedScript;
+                    if (detectedExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd" or "vbs" or "js")
+                        res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+                }
                 if (declaredExt == "js") {
+                    var jsHead = ReadHeadTextCached(Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
                     if (LooksMinifiedJs(path, Settings.DetectionReadBudgetBytes,
                         Settings.JsMinifiedMinLength,
                         Settings.JsMinifiedAvgLineThreshold,
-                        Settings.JsMinifiedDensityThreshold)) {
+                        Settings.JsMinifiedDensityThreshold,
+                        jsHead)) {
                         res.Flags |= ContentFlags.JsLooksMinified;
                     }
                 }
                 // PowerShell classification for plain text files (avoid false positives on changelogs)
                 try {
-                    var headTxt = ReadHeadText(path, Math.Min(Settings.DetectionReadBudgetBytes, 256*1024));
+                    var headTxt = ReadHeadTextCached(Math.Min(Settings.DetectionReadBudgetBytes, 256*1024));
                     var psClass = SecurityHeuristics.ClassifyPowerShellFromText(headTxt);
                     if (psClass.level == SecurityHeuristics.PsClassLevel.Strong)
                     {
@@ -564,27 +591,41 @@ public static partial class FileInspector {
                     res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 // Set TextSubtype for common text families
-                res.TextSubtype = string.IsNullOrEmpty(res.TextSubtype) ? declaredExt switch {
-                    "md" => "markdown",
-                    "yml" or "yaml" => "yaml",
-                    "json" => "json",
-                    "xml" => "xml",
-                    "csv" => "csv",
-                    "tsv" => "tsv",
-                    "log" => "log",
-                    "ps1" or "psm1" or "psd1" => "powershell",
-                    "py" or "pyw" => "python",
-                    "rb" => "ruby",
-                    "lua" => "lua",
-                    "vbs" => "vbscript",
-                    "sh" or "bash" or "zsh" => "shell",
-                    "bat" or "cmd" => "batch",
-                    _ => res.TextSubtype
-                } : res.TextSubtype;
+                if (string.IsNullOrEmpty(res.TextSubtype))
+                {
+                    var mappedDecl = MapTextSubtypeFromExtension(declaredExt);
+                    if (!string.IsNullOrEmpty(mappedDecl)) res.TextSubtype = mappedDecl;
+                }
+
+                // Fallback to detected extension when no declared type is available
+                if (string.IsNullOrEmpty(res.TextSubtype))
+                {
+                    var mappedDet = MapTextSubtypeFromExtension(detectedExt);
+                    if (!string.IsNullOrEmpty(mappedDet)) res.TextSubtype = mappedDet;
+                }
+
+                // Backfill TextSubtype from ScriptLanguage if needed
+                if (string.IsNullOrEmpty(res.TextSubtype) && IsScriptTextSubtype(res.ScriptLanguage))
+                {
+                    res.TextSubtype = res.ScriptLanguage;
+                }
+
+                // Ensure ScriptLanguage is filled when TextSubtype implies a script
+                if (string.IsNullOrEmpty(res.ScriptLanguage) && !string.IsNullOrEmpty(res.TextSubtype))
+                {
+                    var scriptSubtype = res.TextSubtype;
+                    if (IsScriptTextSubtype(scriptSubtype))
+                    {
+                        res.ScriptLanguage = scriptSubtype;
+                        res.Flags |= ContentFlags.IsScript;
+                        if (scriptSubtype is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
+                            res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+                    }
+                }
 
                 // Citrix ICA (INI-like) and ReceiverConfig.cr (XML) detection
                 try {
-                    var headTxt = ReadHeadText(path, 8192);
+                    var headTxt = ReadHeadTextCached(8192);
                     var lower = headTxt?.ToLowerInvariant() ?? string.Empty;
                     if (declaredExt == "ica" || lower.Contains("[wfclient]") || lower.Contains("[applicationservers]"))
                     {
@@ -601,9 +642,13 @@ public static partial class FileInspector {
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (sf.Count > 0) res.SecurityFindings = sf;
-                // Cmdlets: best-effort extraction for presentation
-                var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
-                if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
+                // Cmdlets: best-effort extraction for presentation (PowerShell only)
+                var psLang = res.ScriptLanguage ?? res.TextSubtype;
+                if (string.Equals(psLang, "powershell", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
+                    if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
+                }
                 // Generic text/log/schema cues
                 var tf = SecurityHeuristics.AssessTextGeneric(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (tf.Count > 0)
@@ -614,7 +659,7 @@ public static partial class FileInspector {
                 }
                 // Very permissive fallback for common JWT test token
                 try {
-                    var headTxt = ReadHeadText(path, 4096);
+                    var headTxt = ReadHeadTextCached(4096);
                     if (!string.IsNullOrEmpty(headTxt) && headTxt.IndexOf("header.payload.signature", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
@@ -743,14 +788,11 @@ public static partial class FileInspector {
                 if (list.Count > (res.SecurityFindings?.Count ?? 0)) res.SecurityFindings = list;
             } catch { }
 
-            // CSV/TSV row estimate (lightweight)
-            if ((det!.Extension is "csv" or "tsv") || string.Equals(det.MimeType, "text/csv", StringComparison.OrdinalIgnoreCase) || string.Equals(det.MimeType, "text/tab-separated-values", StringComparison.OrdinalIgnoreCase)) {
-                res.EstimatedLineCount = EstimateLines(path, Settings.DetectionReadBudgetBytes);
-            }
+            TryPopulateTextMetrics(res, det, path, ReadHeadTextCached);
 
             // PDF heuristics
-            if (det.Extension == "pdf") {
-                var txt = ReadHeadText(path, 1 << 20); // cap 1MB
+            if (det != null && det.Extension == "pdf") {
+                var txt = ReadHeadTextCached(1 << 20); // cap 1MB
                 if (ContainsIgnoreCase(txt, "/JavaScript") || ContainsIgnoreCase(txt, "/JS")) res.Flags |= ContentFlags.PdfHasJavaScript;
                 if (ContainsIgnoreCase(txt, "/OpenAction")) res.Flags |= ContentFlags.PdfHasOpenAction;
                 if (ContainsIgnoreCase(txt, "/AA")) res.Flags |= ContentFlags.PdfHasAA;
@@ -777,7 +819,7 @@ public static partial class FileInspector {
             }
 
             // OLE2 Office macros (VBA) check for legacy formats (.doc/.xls/.ppt)
-            if (det.Extension is "doc" or "xls" or "ppt")
+            if (det != null && det.Extension is "doc" or "xls" or "ppt")
             {
                 try
                 {
@@ -866,6 +908,12 @@ public static partial class FileInspector {
                 var ver = PeReader.TryExtractVersionStrings(path);
                 if (ver != null && ver.Count > 0) res.VersionInfo = ver;
                 if (PeReader.TryReadPe(path, out var peInfo)) {
+                    if ((peInfo.Characteristics & IMAGE_FILE_DLL) != 0)
+                        res.PeKind = "dll";
+                    else if (peInfo.Subsystem == 1)
+                        res.PeKind = "sys";
+                    else
+                        res.PeKind = "exe";
                     if (peInfo.Sections.Any(s => string.Equals(s.Name, "UPX0", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, "UPX1", StringComparison.OrdinalIgnoreCase))) {
                         res.Flags |= ContentFlags.PeLooksPackedUpx;
                     }
@@ -919,6 +967,8 @@ public static partial class FileInspector {
                     }
                 }
             } catch { }
+
+            PopulateDetectionSummary(res);
 
             // Assessment (optional)
             if (options?.IncludeAssessment != false)
@@ -2011,26 +2061,35 @@ public static partial class FileInspector {
         if (l.Contains("bash")) return "bash";
         if (l.Contains("sh")) return "sh";
         if (l.Contains("python")) return "python";
-        if (l.Contains("node")) return "node";
+        if (l.Contains("node")) return "javascript";
         if (l.Contains("pwsh") || l.Contains("powershell")) return "powershell";
         if (l.Contains("perl")) return "perl";
         if (l.Contains("ruby")) return "ruby";
         return "unknown";
     }
 
-    private static string ReadHeadText(string path, int cap) {
-        try {
-            using var fs = File.OpenRead(path);
-            int len = (int)Math.Min(fs.Length, cap);
-            var buf = new byte[len];
-            var n = fs.Read(buf, 0, buf.Length);
-            return System.Text.Encoding.UTF8.GetString(buf, 0, n);
-        } catch { return string.Empty; }
+    private static string? MapScriptLanguageFromExtension(string? ext)
+    {
+        if (string.IsNullOrWhiteSpace(ext)) return null;
+        var e = ext!.Trim().TrimStart('.').ToLowerInvariant();
+        return e switch
+        {
+            "ps1" or "psm1" or "psd1" => "powershell",
+            "js" or "jse" or "mjs" or "cjs" => "javascript",
+            "vbs" or "vbe" or "wsf" or "wsh" => "vbscript",
+            "py" or "pyw" => "python",
+            "rb" => "ruby",
+            "lua" => "lua",
+            "sh" or "bash" or "zsh" => "shell",
+            "bat" or "cmd" => "batch",
+            "pl" => "perl",
+            _ => null
+        };
     }
 
-    private static bool LooksMinifiedJs(string path, int cap, int minLen, int avgLineThreshold, double densityThreshold) {
+    private static bool LooksMinifiedJs(string path, int cap, int minLen, int avgLineThreshold, double densityThreshold, string? headText = null) {
         try {
-            var text = ReadHeadText(path, Math.Min(cap, 512 * 1024));
+            var text = headText ?? ReadHeadText(path, Math.Min(cap, 512 * 1024));
             if (string.IsNullOrEmpty(text) || text.Length < minLen) return false;
             int lines = 1; for (int i = 0; i < text.Length; i++) if (text[i] == '\n') lines++;
             int nonWs = 0; for (int i = 0; i < text.Length; i++) { char c = text[i]; if (!char.IsWhiteSpace(c)) nonWs++; }

@@ -7,6 +7,20 @@ namespace FileInspectorX;
 public class FileAnalysis {
     /// <summary>Result of magic/heuristic content type detection.</summary>
     public ContentTypeDetectionResult? Detection { get; set; }
+    /// <summary>Detected extension (cached from <see cref="Detection"/>).</summary>
+    public string? DetectedExtension { get; set; }
+    /// <summary>Detected MIME type (cached from <see cref="Detection"/>).</summary>
+    public string? DetectedMimeType { get; set; }
+    /// <summary>Detection confidence (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionConfidence { get; set; }
+    /// <summary>Detection reason (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionReason { get; set; }
+    /// <summary>Detection validation status (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionValidationStatus { get; set; }
+    /// <summary>Detection score (cached from <see cref="Detection"/>).</summary>
+    public int? DetectionScore { get; set; }
+    /// <summary>Detection dangerous flag (cached from <see cref="Detection"/>).</summary>
+    public bool? DetectionIsDangerous { get; set; }
     /// <summary>Broad content category derived from <see cref="Detection"/>.</summary>
     public ContentKind Kind { get; set; } = ContentKind.Unknown;
     /// <summary>Bitmask of analysis signals collected for this file.</summary>
@@ -25,6 +39,8 @@ public class FileAnalysis {
     public string? PeMachine { get; set; }
     /// <summary>Subsystem string for PE files (e.g., Windows GUI, CUI).</summary>
     public string? PeSubsystem { get; set; }
+    /// <summary>PE kind (exe/dll/sys) when available.</summary>
+    public string? PeKind { get; set; }
 
     // Container summary (ZIP/TAR)
     /// <summary>Number of entries sampled inside the container.</summary>
@@ -39,7 +55,7 @@ public class FileAnalysis {
     public SignatureSummary? Signature { get; set; }
 
     // Text-specific hints
-    /// <summary>Estimated number of lines for delimited text (CSV/TSV) based on sample.</summary>
+    /// <summary>Estimated number of lines for text-like files based on sample.</summary>
     public int? EstimatedLineCount { get; set; }
     /// <summary>Text subtype such as json, yaml, markdown, log.</summary>
     public string? TextSubtype { get; set; }
@@ -55,6 +71,12 @@ public class FileAnalysis {
     /// For scripts, best-effort list of notable cmdlets/verbs seen (e.g., Start-Process, Invoke-WebRequest).
     /// </summary>
     public IReadOnlyList<string>? ScriptCmdlets { get; set; }
+
+    /// <summary>
+    /// Top tokens extracted from script/log content when enabled (bounded).
+    /// Values are formatted as "token:count".
+    /// </summary>
+    public IReadOnlyList<string>? TopTokens { get; set; }
 
     /// <summary>
     /// Normalized file permission/ownership snapshot (best-effort cross-platform).
