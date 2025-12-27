@@ -34,7 +34,9 @@ public static partial class FileInspector
 
             int minLen = Math.Max(2, Settings.TopTokensMinLength);
             int minCount = Math.Max(1, Settings.TopTokensMinCount);
-            int cap = Math.Min(Settings.DetectionReadBudgetBytes, 256 * 1024);  
+            int maxBytes = Settings.TopTokensMaxBytes;
+            if (maxBytes <= 0) maxBytes = Settings.DetectionReadBudgetBytes;
+            int cap = Math.Min(Settings.DetectionReadBudgetBytes, maxBytes);
             var text = ReadHeadText(path, cap);
             if (string.IsNullOrEmpty(text)) return;
 
@@ -47,7 +49,9 @@ public static partial class FileInspector
     private static IReadOnlyList<string> ExtractTopTokens(string text, int max, int minLen, int minCount, int maxUnique)
     {
         if (string.IsNullOrEmpty(text) || max <= 0) return Array.Empty<string>();
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var counts = maxUnique > 0
+            ? new Dictionary<string, int>(maxUnique, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var span = text.AsSpan();
         int i = 0;
         while (i < span.Length)

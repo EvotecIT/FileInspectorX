@@ -147,10 +147,10 @@ public static partial class FileInspector
     {
         var status = GetSignatureStatus(analysis);
         if (status == null) return;
-        if (status.IsSigned.HasValue) dict["IsSigned"] = status.IsSigned.Value;
-        if (status.IsValid.HasValue) dict["SignatureValid"] = status.IsValid.Value;
-        if (!string.IsNullOrWhiteSpace(status.SignerSubject)) dict["SignerSubject"] = status.SignerSubject;
-        if (!string.IsNullOrWhiteSpace(status.SignerThumbprint)) dict["SignerThumbprint"] = status.SignerThumbprint;
-        if (status.SigningTimeUtc.HasValue) dict["SigningTime"] = status.SigningTimeUtc.Value;
+        if (status.IsSigned.HasValue && !dict.ContainsKey("IsSigned")) dict["IsSigned"] = status.IsSigned.Value;
+        if (status.IsValid.HasValue && !dict.ContainsKey("SignatureValid")) dict["SignatureValid"] = status.IsValid.Value;
+        if (!string.IsNullOrWhiteSpace(status.SignerSubject) && !dict.ContainsKey("SignerSubject")) dict["SignerSubject"] = status.SignerSubject;
+        if (!string.IsNullOrWhiteSpace(status.SignerThumbprint) && !dict.ContainsKey("SignerThumbprint")) dict["SignerThumbprint"] = status.SignerThumbprint;
+        if (status.SigningTimeUtc.HasValue && !dict.ContainsKey("SigningTime")) dict["SigningTime"] = status.SigningTimeUtc.Value;
     }
 }

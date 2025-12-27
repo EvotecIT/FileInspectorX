@@ -506,7 +506,11 @@ public static partial class FileInspector {
                 // JS minified heuristic if file extension is .js
                 var declaredExt = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
                 var detectedExt = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
-                var mappedScript = MapScriptLanguageFromExtension(detectedExt) ?? MapScriptLanguageFromExtension(declaredExt);
+                string? mappedScript = null;
+                if (!string.IsNullOrEmpty(detectedExt))
+                    mappedScript = MapScriptLanguageFromExtension(detectedExt);
+                if (mappedScript == null && !string.IsNullOrWhiteSpace(declaredExt))
+                    mappedScript = MapScriptLanguageFromExtension(declaredExt);
                 if (!string.IsNullOrEmpty(mappedScript))
                 {
                     if (string.IsNullOrEmpty(res.ScriptLanguage)) res.ScriptLanguage = mappedScript;
@@ -626,8 +630,8 @@ public static partial class FileInspector {
                 var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
                 if (sf.Count > 0) res.SecurityFindings = sf;
                 // Cmdlets: best-effort extraction for presentation (PowerShell only)
-                if (string.Equals(res.ScriptLanguage, "powershell", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(res.TextSubtype, "powershell", StringComparison.OrdinalIgnoreCase))
+                var psLang = res.ScriptLanguage ?? res.TextSubtype;
+                if (string.Equals(psLang, "powershell", StringComparison.OrdinalIgnoreCase))
                 {
                     var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
                     if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;

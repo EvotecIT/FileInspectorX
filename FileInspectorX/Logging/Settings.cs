@@ -325,6 +325,12 @@ public class Settings {
     /// </summary>
     public static bool TopTokensEnabled { get; set; } = false;
 
+    /// <summary>
+    /// Maximum bytes to scan when computing top tokens. Default 262144 (256 KB).
+    /// Set to 0 to fall back to <see cref="DetectionReadBudgetBytes"/>.
+    /// </summary>
+    public static int TopTokensMaxBytes { get; set; } = 256 * 1024;
+
     /// <summary>Maximum number of top tokens to return. Default 8.</summary>
     public static int TopTokensMax { get; set; } = 8;
 
