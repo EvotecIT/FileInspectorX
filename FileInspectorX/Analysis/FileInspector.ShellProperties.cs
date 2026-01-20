@@ -36,11 +36,13 @@ public static partial class FileInspector
                         TryAddKey(keys, seen, key);
                 }
 
-                if (store.GetCount(out var count) != PropertySystemNative.S_OK) return list;
-                for (uint i = 0; i < count; i++)
+                if (store.GetCount(out var count) == PropertySystemNative.S_OK)
                 {
-                    if (store.GetAt(i, out var key) != PropertySystemNative.S_OK) continue;
-                    TryAddKey(keys, seen, key);
+                    for (uint i = 0; i < count; i++)
+                    {
+                        if (store.GetAt(i, out var key) != PropertySystemNative.S_OK) continue;
+                        TryAddKey(keys, seen, key);
+                    }
                 }
 
                 for (var i = 0; i < keys.Count; i++)

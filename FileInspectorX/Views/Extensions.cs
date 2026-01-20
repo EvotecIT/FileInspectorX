@@ -37,8 +37,12 @@ public static class ViewExtensions
     /// <summary>Projects Windows shell properties into <see cref="ShellPropertiesView"/> rows; attaches the original object to <c>Raw</c>.</summary>
     public static IEnumerable<ShellPropertiesView> ToShellPropertiesView(this FileAnalysis a, string path, ShellPropertiesOptions? options = null)
     {
-        var opts = options ?? new ShellPropertiesOptions { IncludeEmpty = true };
-        foreach (var v in ShellPropertiesView.From(path, FileInspector.ReadShellProperties(path, opts)))
+        var includeEmpty = options?.IncludeEmpty == true;
+        var props = a.ShellProperties;
+        if (props == null || includeEmpty)
+            props = FileInspector.ReadShellProperties(path, options);
+
+        foreach (var v in ShellPropertiesView.From(path, props))
         {
             v.Raw = a;
             yield return v;
