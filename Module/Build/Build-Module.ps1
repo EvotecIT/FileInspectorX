@@ -1,3 +1,5 @@
+Import-Module PSPublishModule -Force -RequiredVersion '2.0.26'
+
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
     $Manifest = [ordered] @{
