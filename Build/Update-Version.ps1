@@ -2,4 +2,4 @@
 
 Get-ProjectVersion -Path "C:\Support\GitHub\FileInspectorX" -ExcludeFolders @('C:\Support\GitHub\FileInspectorX\Module\Artefacts') | Format-Table
 
-Set-ProjectVersion -Path "C:\Support\GitHub\FileInspectorX" -NewVersion "1.0.6" -Verbose -ExcludeFolders @('C:\Support\GitHub\FileInspectorX\Module\Artefacts') #-WhatIf
+Set-ProjectVersion -Path "C:\Support\GitHub\FileInspectorX" -NewVersion "1.0.7" -Verbose -ExcludeFolders @('C:\Support\GitHub\FileInspectorX\Module\Artefacts') #-WhatIf

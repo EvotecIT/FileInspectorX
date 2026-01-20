@@ -66,6 +66,45 @@ var sig     = SignatureView.From(path, analysis.Authenticode);
 var detOnly = FileInspector.Detect(path, options);
 ```
 
+## C# Recipes
+
+```csharp
+// Presentation-ready report + map
+var analysis = FileInspector.Analyze(path);
+var report = ReportView.From(analysis);
+var map = report.ToDictionary();
+
+// Humanize flags if you only have CSV
+string flagsShort;
+if (!map.TryGetValue("AnalysisFlagsHuman", out var human))
+{
+    map.TryGetValue("AnalysisFlags", out var csv);
+    flagsShort = Legend.HumanizeFlagsCsv(csv?.ToString());
+}
+else flagsShort = human?.ToString() ?? string.Empty;
+
+// Render a Markdown report (dependency-free)
+var md = MarkdownRenderer.From(analysis);
+
+// Include file system metadata + flattened dictionary
+var summary2 = FileInspector.InspectWithMetadata(path, new FileInspector.DetectionOptions { MagicHeaderBytes = 64 });
+var metadata = summary2.Metadata;
+
+// Optional: top tokens for scripts/logs (disabled by default)
+Settings.TopTokensEnabled = true;
+Settings.TopTokensMax = 8;
+Settings.TopTokensMinLength = 4;
+Settings.TopTokensMinCount = 2;
+
+// Compare declared vs detected (with alternatives)
+var cmp = FileInspector.CompareDeclaredDetailed(".log", summary2.Analysis.Detection);
+Console.WriteLine($"Mismatch? {cmp.Mismatch} Reason={cmp.Reason}");
+
+// Consume typed legends directly
+foreach (var entry in Legend.GetAnalysisFlagLegend())
+    Console.WriteLine($"{entry.Short} = {entry.Long}");
+```
+
 ## PowerShell Examples
 
 ```powershell
@@ -75,14 +114,15 @@ Get-FileInsight -Path .\file.bin | Format-List
 # Opt-in compact views
 Get-FileInsight -Path .\file.bin -View Summary | Format-Table -Auto
 
-# Other views: Summary | Detection | Permissions | Signature | Analysis
+# Other views: Summary | Detection | Permissions | Signature | Analysis | ShellProperties
 Get-FileInsight -Path .\file.bin -View Detection | Format-Table -Auto
 Get-FileInsight -Path .\file.bin -View Permissions | Format-Table Path,Owner,Group,ModeSymbolic,EveryoneWriteAllowed -Auto
 Get-FileInsight -Path .\app.exe -View Signature | Format-List
 Get-FileInsight -Path .\package.msix -View Installer | Format-Table -Auto
+Get-FileInsight -Path .\song.mp3 -View ShellProperties | Format-Table -Auto
 
 # Exclude sections to trim work/shape
-Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences | Format-List
+Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences -ExcludeShellProperties | Format-List
 
 # Back-compat: detection only
 Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
@@ -113,6 +153,8 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -
 - ReferencesView: (generic) FilePath/Url/Command values found in configs (Task XML, scripts.ini), with Exists and Issues flags
 - AssessmentView: compact risk score (0–100), decision (Allow/Warn/Block/Defer), and finding codes
   - Codes include: Package.VendorPresent/VendorUnknown/VendorAllowed, Sig.VendorAllowed/Sig.VendorUnknown, Archive.* and Pdf.* flags, etc.
+- ShellPropertiesView (Windows only): Windows shell properties (Explorer Details), e.g., Title/Authors/BPM/Initial Key, etc.
+  - IncludeEmpty enumerates the full Details property list and can be slower.
 
 ## Usage Model: Raw + Views + Exclude Toggles
 
@@ -120,12 +162,22 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -
   - The cmdlet returns the full `FileAnalysis` object by default (`-View Raw`). This is a single, rich object with Detection, Flags, Security, Authenticode/Installer, References, Assessment, Secrets summary, and more.
 
 - Views for display
-  - Use `-View Summary|Detection|Analysis|Permissions|Signature|References|Assessment|Installer` to get compact, tabular shapes.
+- Use `-View Summary|Detection|Analysis|Permissions|Signature|References|Assessment|Installer|ShellProperties` to get compact, tabular shapes.
   - Every view carries `.Raw` so you can drill back into the full object without re‑invoking.
 
 - Trim work/shape with excludes
-  - `-ExcludePermissions`, `-ExcludeSignature`, `-ExcludeInstaller`, `-ExcludeReferences`, `-ExcludeContainer`, `-ExcludeAssessment`.
+  - `-ExcludePermissions`, `-ExcludeSignature`, `-ExcludeInstaller`, `-ExcludeReferences`, `-ExcludeContainer`, `-ExcludeAssessment`, `-ExcludeShellProperties`.
   - In C#, use `new FileInspector.DetectionOptions { IncludePermissions = false, ... }`.
+
+```csharp
+var lean = FileInspector.Analyze(path, new FileInspector.DetectionOptions {
+    IncludePermissions = false,
+    IncludeReferences = false,
+    IncludeShellProperties = false,
+    IncludeAuthenticode = true,
+    IncludeAssessment = true
+});
+```
 
 ## API Choices: Detect vs Inspect vs Analyze
 
@@ -173,6 +225,7 @@ Declared extension is used as a bias only for ambiguous/low-confidence cases:
 - `Detect(stream, options, declaredExtension)` and `Detect(ReadOnlySpan<byte>, options, declaredExtension)` let you supply the declared extension to match path-based behavior.
 - Bias is applied only for ambiguous text families (e.g., cmd vs bat, admx/adml vs xml, inf vs ini, ini vs toml) and low-confidence generic text (log/txt/md/ps1/psm1/psd1). Strong magic-byte matches are not overridden.
 - `CompareDeclared` normalizes leading dots and can fall back to `GuessedExtension` when `Extension` is empty (e.g., ZIP subtypes).
+- `CompareDeclaredDetailed` returns the mismatch plus reasoning and detection alternatives (when available).
 
 ## Features
 
@@ -287,6 +340,13 @@ Use `ReportView.From(FileAnalysis)` for presentation‑ready fields:
 - `AssessmentCodesHuman`: humanized assessment codes.
 
 These are exported via `ReportView.ToDictionary()` for templating/email systems.
+Example keys: `DetectedTypeExtension`, `DetectedTypeName`, `DetectionConfidence`, `CompanyName`, `ProductName`, `FileVersion`, `AnalysisFlags`, `AnalysisFlagsHuman`, `AssessmentScore`, `AssessmentDecision`, `AssessmentCodes`, `EncryptedEntryCount`, `InnerFindings`, `TopTokens`.
+
+## Thread Safety Notes
+
+- Settings are static/global; configure once at startup.
+- Avoid concurrent mutation while detection is running; if you need runtime updates, protect changes with your own lock.
+- `DetectionScoreAdjustments` defaults to `ConcurrentDictionary`. If you replace it with a non-thread-safe dictionary, you are responsible for synchronization.
 
 ## Settings Cheatsheet
 
@@ -295,6 +355,8 @@ These are exported via `ReportView.ToDictionary()` for templating/email systems.
 Settings.DeepContainerScanEnabled = true;      // default: false
 Settings.DeepContainerMaxEntries = 64;         // sample cap
 Settings.DeepContainerMaxEntryBytes = 262144;  // per‑entry cap (256 KB)
+Settings.KnownToolNameIndicators = new[] { "pingcastle", "bloodhound" };
+Settings.KnownToolHashes = new Dictionary<string,string> { /* name => lowercase sha256 */ };
 
 // Script & secrets scanning
 Settings.SecurityScanScripts = true;           // default: true

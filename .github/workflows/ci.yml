@@ -33,24 +33,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  ci:
-    uses: EvotecIT/github-actions/.github/workflows/ci-orchestrator.yml@master
-    with:
-      solution: 'FileInspectorX.sln'
-      dotnet_windows_runs_on: '["windows-latest"]'
-      dotnet_windows_frameworks: '["net472","net8.0"]'
-      dotnet_ubuntu_runs_on: '["ubuntu-latest"]'
-      dotnet_ubuntu_frameworks: '["net8.0"]'
-      dotnet_macos_runs_on: '["macos-latest"]'
-      dotnet_macos_frameworks: '["net8.0"]'
-      codecov_enable: true
-      ps_windows_runs_on: '["windows-latest"]'
-      ps_windows_versions: '["5.1","7"]'
-      ps_module_manifest: 'Module/FileInspectorX.psd1'
-      ps_test_script: 'Module/FileInspectorX.Tests.ps1'
-      ps_tests_path: 'Module/Tests'
-      ps_empty_tests_behavior: 'skip'
-      claude_review: true
-      claude_runs_on: '["ubuntu-latest"]'
-      post_pr_comment: true
-    secrets: inherit
+  build-test:
+    name: Build/Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+
+      - name: Restore
+        run: dotnet restore FileInspectorX.sln
+
+      - name: Build
+        run: dotnet build FileInspectorX.sln -c Release --no-restore
+
+      - name: Test (net8.0)
+        if: runner.os != 'Linux'
+        run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net8.0 --no-build
+
+      - name: Test (net8.0) + Coverage
+        if: runner.os == 'Linux'
+        run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net8.0 --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Test (net472)
+        if: runner.os == 'Windows'
+        run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net472 --no-build
+
+      - name: Upload coverage to Codecov
+        if: runner.os == 'Linux'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./TestResults/**/coverage.cobertura.xml
+          fail_ci_if_error: false

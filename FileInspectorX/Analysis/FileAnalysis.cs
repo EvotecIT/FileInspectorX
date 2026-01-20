@@ -101,6 +101,11 @@ public class FileAnalysis {
     public IReadOnlyList<Reference>? References { get; set; }
 
     /// <summary>
+    /// Windows shell properties (Explorer Details), when requested and supported.
+    /// </summary>
+    public IReadOnlyList<ShellProperty>? ShellProperties { get; set; }
+
+    /// <summary>
     /// Suspicious traits of the file name/path (generic; library-agnostic; see <see cref="NameIssues"/>).
     /// </summary>
     public NameIssues NameIssues { get; set; } = NameIssues.None;

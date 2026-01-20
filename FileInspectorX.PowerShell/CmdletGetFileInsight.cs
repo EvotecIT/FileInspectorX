@@ -8,7 +8,7 @@ using FileInspectorX;
 namespace FileInspectorX.PowerShell {
     /// <summary>
     /// <para type="synopsis">Analyzes files and returns a full FileAnalysis object by default, with optional compact views.</para>
-    /// <para type="description">By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer). Each view exposes Raw with the full FileAnalysis for drill-down.</para>
+    /// <para type="description">By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.</para>
     /// <example>
     ///  <para>Analyze a single file</para>
     ///  <code>Get-FileInsight -Path C:\\files\\sample.docx</code>
@@ -41,6 +41,7 @@ namespace FileInspectorX.PowerShell {
     [OutputType(typeof(AssessmentView))]
     [OutputType(typeof(InstallerView))]
     [OutputType(typeof(ReferencesView))]
+    [OutputType(typeof(ShellPropertiesView))]
     public sealed class CmdletGetFileInsight : AsyncPSCmdlet {
         /// <summary>
         /// One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.
@@ -49,7 +50,7 @@ namespace FileInspectorX.PowerShell {
         [Alias("FullName")]
         public string[] Path { get; set; } = Array.Empty<string>();
 
-        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Installer.</summary>
+        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Installer, ShellProperties.</summary>
         [Parameter()]
         public InsightView View { get; set; } = InsightView.Raw;
 
@@ -78,6 +79,8 @@ namespace FileInspectorX.PowerShell {
         [Parameter()] public SwitchParameter ExcludeContainer { get; set; }
         /// <summary>Exclude assessment (score/decision/codes).</summary>
         [Parameter()] public SwitchParameter ExcludeAssessment { get; set; }
+        /// <summary>Exclude Windows shell properties (Explorer Details).</summary>
+        [Parameter()] public SwitchParameter ExcludeShellProperties { get; set; }
 
 
         private InternalLogger? _logger;
@@ -101,7 +104,8 @@ namespace FileInspectorX.PowerShell {
                 IncludeReferences = !ExcludeReferences,
                 IncludeInstaller = !ExcludeInstaller,
                 IncludeContainer = !ExcludeContainer,
-                IncludeAssessment = !ExcludeAssessment
+                IncludeAssessment = !ExcludeAssessment,
+                IncludeShellProperties = !ExcludeShellProperties
             };
 
             // Resolve each incoming path through PS provider
@@ -155,6 +159,10 @@ namespace FileInspectorX.PowerShell {
                             case InsightView.References: {
                                 var a = FileInspector.Inspect(p, options);
                                 foreach (var v in a.ToReferencesView(p)) WriteObject(v);
+                                break; }
+                            case InsightView.ShellProperties: {
+                                var a = FileInspector.Inspect(p, options);
+                                foreach (var v in a.ToShellPropertiesView(p)) WriteObject(v);
                                 break; }
                             default: {
                                 var a = FileInspector.Inspect(p, options);
