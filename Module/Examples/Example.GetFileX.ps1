@@ -1,6 +1,5 @@
 Import-Module $PSScriptRoot\..\FileInspectorX.psd1 -Force
 
-
 # Analyze a single file
 Get-FileInsight -Path "$PSScriptRoot/../../README.MD" | Format-List
 
