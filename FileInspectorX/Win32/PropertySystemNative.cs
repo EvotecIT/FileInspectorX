@@ -133,9 +133,9 @@ internal static class PropertySystemNative
                 switch (baseType)
                 {
                     case VarEnum.VT_LPWSTR:
-                        return ReadStringVector(calpwstr, useBstr: false);
+                        return ReadStringVector(calpwstr.cElems, calpwstr.pElems, Marshal.PtrToStringUni);
                     case VarEnum.VT_BSTR:
-                        return ReadStringVector(cabstr, useBstr: true);
+                        return ReadStringVector(cabstr.cElems, cabstr.pElems, Marshal.PtrToStringBSTR);
                     default:
                         return null;
                 }
@@ -180,28 +180,15 @@ internal static class PropertySystemNative
             }
         }
 
-        private static string[] ReadStringVector(CALPWSTR ca, bool useBstr)
+        private static string[] ReadStringVector(uint count, IntPtr elems, Func<IntPtr, string?> converter)
         {
-            if (ca.cElems == 0 || ca.pElems == IntPtr.Zero) return Array.Empty<string>();
-            if (ca.cElems > MaxVectorElements) return Array.Empty<string>();
-            var arr = new string[ca.cElems];
-            for (var i = 0; i < ca.cElems; i++)
+            if (count == 0 || elems == IntPtr.Zero) return Array.Empty<string>();
+            if (count > MaxVectorElements) return Array.Empty<string>();
+            var arr = new string[count];
+            for (var i = 0; i < count; i++)
             {
-                var ptr = Marshal.ReadIntPtr(ca.pElems, i * IntPtr.Size);
-                arr[i] = useBstr ? (Marshal.PtrToStringBSTR(ptr) ?? string.Empty) : (Marshal.PtrToStringUni(ptr) ?? string.Empty);
-            }
-            return arr;
-        }
-
-        private static string[] ReadStringVector(CABSTR ca, bool useBstr)
-        {
-            if (ca.cElems == 0 || ca.pElems == IntPtr.Zero) return Array.Empty<string>();
-            if (ca.cElems > MaxVectorElements) return Array.Empty<string>();
-            var arr = new string[ca.cElems];
-            for (var i = 0; i < ca.cElems; i++)
-            {
-                var ptr = Marshal.ReadIntPtr(ca.pElems, i * IntPtr.Size);
-                arr[i] = useBstr ? (Marshal.PtrToStringBSTR(ptr) ?? string.Empty) : (Marshal.PtrToStringUni(ptr) ?? string.Empty);
+                var ptr = Marshal.ReadIntPtr(elems, i * IntPtr.Size);
+                arr[i] = converter(ptr) ?? string.Empty;
             }
             return arr;
         }
