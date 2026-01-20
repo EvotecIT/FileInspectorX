@@ -208,7 +208,7 @@ internal static class PropertySystemNative
 
         private static DateTime? FileTimeToDateTime(ComTypes.FILETIME ft)
         {
-            long ticks = ((long)ft.dwHighDateTime << 32) | (uint)ft.dwLowDateTime;
+            long ticks = ((long)ft.dwHighDateTime << 32) | ((long)(uint)ft.dwLowDateTime);
             if (ticks <= 0) return null;
             try
             {
