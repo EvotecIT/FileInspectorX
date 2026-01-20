@@ -79,7 +79,7 @@ Build-Module -ModuleName 'FileInspectorX' {
         DotSourceLibraries                = $true
         NETSearchClass                    = 'FileInspectorX.PowerShell.CmdletGetFileInsight'
         NETBinaryModuleDocumentation      = $true
-        RefreshPSD1Only                   = $true
+        RefreshPSD1Only                   = $false
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
@@ -88,6 +88,6 @@ Build-Module -ModuleName 'FileInspectorX' {
     New-ConfigurationArtefact -Type Packed -Enable -Path "$PSScriptRoot\..\Artefacts\Packed" -IncludeTagName -ArtefactName "FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>.zip" -ID 'ToGitHub'
 
     # global options for publishing to github/psgallery
-    #New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$true
-    #New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'EvotecIT' -Enabled:$true -ID 'ToGitHub' -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
+    New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$true
+    New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'EvotecIT' -Enabled:$true -ID 'ToGitHub' -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
 }
