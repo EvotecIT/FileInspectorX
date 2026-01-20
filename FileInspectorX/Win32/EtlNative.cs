@@ -48,6 +48,7 @@ public static class EtlNative
     {
         // Temporarily disabled: OpenTraceW can AV on some large/corrupted ETL files.
         // Returning null avoids native calls while preserving existing caller semantics.
+        // This method is kept for API compatibility; callers fall back to tracerpt-based validation.
         return null;
     }
 }

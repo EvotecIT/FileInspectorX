@@ -39,7 +39,12 @@ public static class EtlProbe
                 var waitMs = Math.Max(1000, timeoutMs);
                 if (!p.WaitForExit(waitMs))
                 {
-                    try { p.Kill(); } catch { }
+                    try
+                    {
+                        p.Kill();
+                        p.WaitForExit(1000);
+                    }
+                    catch { }
                     return null; // timeout
                 }
                 // tracerpt returns 0 on success; non-zero on failures to parse the ETL
