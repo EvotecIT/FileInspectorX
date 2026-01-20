@@ -34,4 +34,14 @@ public static class ViewExtensions
     public static AssessmentView ToAssessmentView(this FileAnalysis a, string path) { var v = AssessmentView.From(path, FileInspector.Assess(a)); v.Raw = a; return v; }
     /// <summary>Projects installer metadata into an <see cref="InstallerView"/>; attaches the original object to <c>Raw</c>.</summary>
     public static InstallerView ToInstallerView(this FileAnalysis a, string path) { var v = InstallerView.From(path, a.Installer); v.Raw = a; return v; }
+    /// <summary>Projects Windows shell properties into <see cref="ShellPropertiesView"/> rows; attaches the original object to <c>Raw</c>.</summary>
+    public static IEnumerable<ShellPropertiesView> ToShellPropertiesView(this FileAnalysis a, string path, ShellPropertiesOptions? options = null)
+    {
+        var opts = options ?? new ShellPropertiesOptions { IncludeEmpty = true };
+        foreach (var v in ShellPropertiesView.From(path, FileInspector.ReadShellProperties(path, opts)))
+        {
+            v.Raw = a;
+            yield return v;
+        }
+    }
 }

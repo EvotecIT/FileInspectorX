@@ -895,6 +895,10 @@ public static partial class FileInspector {
                 } catch { }
             }
 
+            // Windows shell properties (Explorer Details)
+            if (options?.IncludeShellProperties != false)
+                res.ShellProperties = ReadShellProperties(path, new ShellPropertiesOptions { IncludeEmpty = false });
+
             // File name/path checks (always cheap)
             res.NameIssues = AnalyzeName(path, det);
 

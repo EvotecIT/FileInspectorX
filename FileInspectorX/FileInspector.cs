@@ -36,6 +36,8 @@ public static partial class FileInspector {
         public bool IncludeInstaller { get; set; } = true;
         /// <summary>Compute Assessment (score/decision) and attach to the result. Default true.</summary>
         public bool IncludeAssessment { get; set; } = true;
+        /// <summary>Include Windows shell properties (Explorer Details). Default true.</summary>
+        public bool IncludeShellProperties { get; set; } = true;
     }
 
     /// <summary>

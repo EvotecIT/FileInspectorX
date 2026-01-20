@@ -8,9 +8,9 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <Description>FileInspectorX: dependency-free content type detection (magic bytes + heuristics)</Description>
         <AssemblyName>FileInspectorX</AssemblyName>
-        <VersionPrefix>1.0.6</VersionPrefix>
+        <VersionPrefix>1.0.7</VersionPrefix>
         <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
-        <PackageReadmeFile>NuGet.README.md</PackageReadmeFile>
+        <PackageReadmeFile>README.MD</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
         <RepositoryUrl>https://github.com/EvotecIT/FileInspectorX.git</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
@@ -51,7 +51,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="NuGet.README.md" Pack="true" PackagePath="/" />
+        <None Include="..\\README.MD" Pack="true" PackagePath="/" Link="README.MD" />
     </ItemGroup>
 
 </Project>

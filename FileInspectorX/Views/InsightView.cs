@@ -22,5 +22,7 @@ public enum InsightView
     /// <summary>Flattened risk assessment view (score/decision/codes).</summary>
     Assessment = 7,
     /// <summary>Flattened installer/package metadata view.</summary>
-    Installer = 8
+    Installer = 8,
+    /// <summary>Windows shell properties view (Explorer Details).</summary>
+    ShellProperties = 9
 }
