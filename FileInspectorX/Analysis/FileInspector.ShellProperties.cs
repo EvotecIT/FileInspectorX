@@ -18,71 +18,65 @@ public static partial class FileInspector
         if (!File.Exists(path)) return Array.Empty<ShellProperty>();
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return Array.Empty<ShellProperty>();
 
+        PropertySystemNative.IPropertyStore? store = null;
         try
         {
             var iid = typeof(PropertySystemNative.IPropertyStore).GUID;
             var flags = PropertySystemNative.GETPROPERTYSTOREFLAGS.GPS_BESTEFFORT |
                         PropertySystemNative.GETPROPERTYSTOREFLAGS.GPS_OPENSLOWITEM;
-            var hr = PropertySystemNative.SHGetPropertyStoreFromParsingName(path, IntPtr.Zero, flags, ref iid, out var store);
+            var hr = PropertySystemNative.SHGetPropertyStoreFromParsingName(path, IntPtr.Zero, flags, ref iid, out store);
             if (hr != PropertySystemNative.S_OK || store == null) return Array.Empty<ShellProperty>();
 
             var list = new List<ShellProperty>();
-            try
+            var keys = new List<PropertySystemNative.PROPERTYKEY>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (options.IncludeEmpty)
             {
-                var keys = new List<PropertySystemNative.PROPERTYKEY>();
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var key in GetPropertyListKeys(FullDetailsPropList))
+                    TryAddKey(keys, seen, key);
+            }
 
-                if (options.IncludeEmpty)
+            if (store.GetCount(out var count) == PropertySystemNative.S_OK)
+            {
+                for (uint i = 0; i < count; i++)
                 {
-                    foreach (var key in GetPropertyListKeys(FullDetailsPropList))
-                        TryAddKey(keys, seen, key);
-                }
-
-                if (store.GetCount(out var count) == PropertySystemNative.S_OK)
-                {
-                    for (uint i = 0; i < count; i++)
-                    {
-                        if (store.GetAt(i, out var key) != PropertySystemNative.S_OK) continue;
-                        TryAddKey(keys, seen, key);
-                    }
-                }
-
-                for (var i = 0; i < keys.Count; i++)
-                {
-                    var key = keys[i];
-                    var pv = new PropertySystemNative.PROPVARIANT();
-                    try
-                    {
-                        var hrVal = store.GetValue(ref key, out pv);
-                        var valueText = hrVal == PropertySystemNative.S_OK ? FormatShellValue(pv.GetValue()) : null;
-                        if (string.IsNullOrWhiteSpace(valueText))
-                        {
-                            if (!options.IncludeEmpty) continue;
-                            valueText = string.Empty;
-                        }
-
-                        var canonicalName = TryGetCanonicalName(key);
-                        var displayName = TryGetDisplayName(key);
-                        var resolvedDisplay = displayName ?? canonicalName ?? FormatPropertyKey(key);
-
-                        list.Add(new ShellProperty
-                        {
-                            DisplayName = resolvedDisplay,
-                            CanonicalName = canonicalName,
-                            Value = valueText,
-                            ValueType = pv.GetVarTypeString(),
-                            Key = FormatPropertyKey(key)
-                        });
-                    }
-                    finally
-                    {
-                        pv.Dispose();
-                    }
+                    if (store.GetAt(i, out var key) != PropertySystemNative.S_OK) continue;
+                    TryAddKey(keys, seen, key);
                 }
             }
-            finally
+
+            for (var i = 0; i < keys.Count; i++)
             {
-                Marshal.FinalReleaseComObject(store);
+                var key = keys[i];
+                var pv = new PropertySystemNative.PROPVARIANT();
+                try
+                {
+                    var hrVal = store.GetValue(ref key, out pv);
+                    var valueText = hrVal == PropertySystemNative.S_OK ? FormatShellValue(pv.GetValue()) : null;
+                    if (string.IsNullOrWhiteSpace(valueText))
+                    {
+                        if (!options.IncludeEmpty) continue;
+                        valueText = string.Empty;
+                    }
+
+                    var canonicalName = TryGetCanonicalName(key);
+                    var displayName = TryGetDisplayName(key);
+                    var resolvedDisplay = displayName ?? canonicalName ?? FormatPropertyKey(key);
+
+                    list.Add(new ShellProperty
+                    {
+                        DisplayName = resolvedDisplay,
+                        CanonicalName = canonicalName,
+                        Value = valueText,
+                        ValueType = pv.GetVarTypeString(),
+                        Key = FormatPropertyKey(key)
+                    });
+                }
+                finally
+                {
+                    pv.Dispose();
+                }
             }
             return list;
         }
@@ -93,6 +87,13 @@ public static partial class FileInspector
             else if (Settings.Logger.IsDebug)
                 Settings.Logger.WriteDebug("shellprops:read failed ({0})", ex.GetType().Name);
             return Array.Empty<ShellProperty>();
+        }
+        finally
+        {
+            if (store != null)
+            {
+                try { Marshal.FinalReleaseComObject(store); } catch { }
+            }
         }
     }
 

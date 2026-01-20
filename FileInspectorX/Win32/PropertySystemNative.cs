@@ -91,6 +91,7 @@ internal static class PropertySystemNative
     [StructLayout(LayoutKind.Explicit)]
     internal struct PROPVARIANT : IDisposable
     {
+        private const uint MaxVectorElements = 10000;
         [FieldOffset(0)] private ushort vt;
         [FieldOffset(8)] private IntPtr pointerValue;
         [FieldOffset(8)] private int intValue;
@@ -182,6 +183,7 @@ internal static class PropertySystemNative
         private static string[] ReadStringVector(CALPWSTR ca, bool useBstr)
         {
             if (ca.cElems == 0 || ca.pElems == IntPtr.Zero) return Array.Empty<string>();
+            if (ca.cElems > MaxVectorElements) return Array.Empty<string>();
             var arr = new string[ca.cElems];
             for (var i = 0; i < ca.cElems; i++)
             {
@@ -194,6 +196,7 @@ internal static class PropertySystemNative
         private static string[] ReadStringVector(CABSTR ca, bool useBstr)
         {
             if (ca.cElems == 0 || ca.pElems == IntPtr.Zero) return Array.Empty<string>();
+            if (ca.cElems > MaxVectorElements) return Array.Empty<string>();
             var arr = new string[ca.cElems];
             for (var i = 0; i < ca.cElems; i++)
             {
