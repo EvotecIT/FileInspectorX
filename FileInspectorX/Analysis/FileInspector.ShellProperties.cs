@@ -6,6 +6,8 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
+    private const string FullDetailsPropList = "System.PropList.FullDetails";
+
     /// <summary>
     /// Reads Windows shell properties (Explorer Details) for a file. Returns empty on non-Windows platforms or errors.
     /// </summary>
@@ -32,7 +34,7 @@ public static partial class FileInspector
 
                 if (options.IncludeEmpty)
                 {
-                    foreach (var key in GetPropertyListKeys("System.PropList.FullDetails"))
+                    foreach (var key in GetPropertyListKeys(FullDetailsPropList))
                         TryAddKey(keys, seen, key);
                 }
 
@@ -157,14 +159,15 @@ public static partial class FileInspector
         }
     }
 
-    private static IEnumerable<PropertySystemNative.PROPERTYKEY> GetPropertyListKeys(string propList)
+    private static List<PropertySystemNative.PROPERTYKEY> GetPropertyListKeys(string propList)
     {
+        var keys = new List<PropertySystemNative.PROPERTYKEY>();
         var iid = typeof(PropertySystemNative.IPropertyDescriptionList).GUID;
         var hr = PropertySystemNative.PSGetPropertyDescriptionListFromString(propList, ref iid, out var list);
-        if (hr != PropertySystemNative.S_OK || list == null) yield break;
+        if (hr != PropertySystemNative.S_OK || list == null) return keys;
         try
         {
-            if (list.GetCount(out var count) != PropertySystemNative.S_OK) yield break;
+            if (list.GetCount(out var count) != PropertySystemNative.S_OK) return keys;
             var iidDesc = typeof(PropertySystemNative.IPropertyDescription).GUID;
             for (uint i = 0; i < count; i++)
             {
@@ -172,7 +175,7 @@ public static partial class FileInspector
                 try
                 {
                     if (desc.GetPropertyKey(out var key) == PropertySystemNative.S_OK)
-                        yield return key;
+                        keys.Add(key);
                 }
                 finally
                 {
@@ -184,6 +187,7 @@ public static partial class FileInspector
         {
             Marshal.FinalReleaseComObject(list);
         }
+        return keys;
     }
 
     private static string? FormatShellValue(object? value)

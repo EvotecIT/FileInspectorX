@@ -154,6 +154,7 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -
 - AssessmentView: compact risk score (0–100), decision (Allow/Warn/Block/Defer), and finding codes
   - Codes include: Package.VendorPresent/VendorUnknown/VendorAllowed, Sig.VendorAllowed/Sig.VendorUnknown, Archive.* and Pdf.* flags, etc.
 - ShellPropertiesView (Windows only): Windows shell properties (Explorer Details), e.g., Title/Authors/BPM/Initial Key, etc.
+  - IncludeEmpty enumerates the full Details property list and can be slower.
 
 ## Usage Model: Raw + Views + Exclude Toggles
 

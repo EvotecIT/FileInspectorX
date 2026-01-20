@@ -22,6 +22,6 @@ public sealed class ShellProperty
 /// </summary>
 public sealed class ShellPropertiesOptions
 {
-    /// <summary>Include entries with empty/whitespace values. Default false.</summary>
+    /// <summary>Include entries with empty/whitespace values. Default false. May be expensive (enumerates full Details property list).</summary>
     public bool IncludeEmpty { get; set; } = false;
 }
