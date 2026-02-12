@@ -1392,16 +1392,26 @@ public static partial class FileInspector {
                             if (Settings.KnownToolHashes.Count > 0 && nn > 0 && e.Length <= deepBytes)
                             {
                                 try {
-                                    using var sha = System.Security.Cryptography.SHA256.Create();
-                                    // Compute on first buffer; if entry is larger but within deepBytes, read fully
-                                    var ms = new System.IO.MemoryStream();
-                                    ms.Write(buf, 0, nn);
-                                    if (nn < cap)
+                                    byte[] ReadEntryBytesBounded()
                                     {
-                                        int left = cap - nn; var tmp = new byte[8192]; int r2;
-                                        while (left > 0 && (r2 = es2.Read(tmp, 0, Math.Min(tmp.Length, left))) > 0) { ms.Write(tmp, 0, r2); left -= r2; }
+                                        using var rs = e.Open();
+                                        using var ms = new System.IO.MemoryStream();
+                                        int left = cap;
+                                        var tmpbuf = new byte[8192];
+                                        while (left > 0)
+                                        {
+                                            int r2 = rs.Read(tmpbuf, 0, Math.Min(tmpbuf.Length, left));
+                                            if (r2 <= 0) break;
+                                            ms.Write(tmpbuf, 0, r2);
+                                            left -= r2;
+                                        }
+                                        return ms.ToArray();
                                     }
-                                    var hash = sha.ComputeHash(ms.ToArray());
+
+                                    using var sha = System.Security.Cryptography.SHA256.Create();
+                                    var hashBytes = ReadEntryBytesBounded();
+                                    if (hashBytes.Length == 0) throw new InvalidDataException("zip:empty-entry");
+                                    var hash = sha.ComputeHash(hashBytes);
                                     var hex = ToLowerHex(hash);
                                     foreach (var kv in Settings.KnownToolHashes)
                                     {
@@ -1416,17 +1426,25 @@ public static partial class FileInspector {
                                 try
                                 {
                                     tmp = System.IO.Path.GetTempFileName();
-                                    // write full entry within deepBytes
-                                    // rebuild buffer from es2: ensure full up-to-cap content
+                                    byte[] entryBytes;
+                                    using (var rs = e.Open())
+                                    using (var ms = new System.IO.MemoryStream())
+                                    {
+                                        int left = cap;
+                                        var tmpbuf = new byte[8192];
+                                        while (left > 0)
+                                        {
+                                            int r2 = rs.Read(tmpbuf, 0, Math.Min(tmpbuf.Length, left));
+                                            if (r2 <= 0) break;
+                                            ms.Write(tmpbuf, 0, r2);
+                                            left -= r2;
+                                        }
+                                        entryBytes = ms.ToArray();
+                                    }
+                                    if (entryBytes.Length == 0) throw new InvalidDataException("zip:empty-entry");
                                     using (var fsout = System.IO.File.Create(tmp))
                                     {
-                                        // write what we already read
-                                        fsout.Write(buf, 0, nn);
-                                        if (nn < cap)
-                                        {
-                                            int left = cap - nn; var tmpbuf = new byte[8192]; int r2;
-                                            while (left > 0 && (r2 = es2.Read(tmpbuf, 0, Math.Min(tmpbuf.Length, left))) > 0) { fsout.Write(tmpbuf, 0, r2); left -= r2; }
-                                        }
+                                        fsout.Write(entryBytes, 0, entryBytes.Length);
                                     }
                                     var ia = FileInspector.Analyze(tmp);
                                     innerExecutablesSampled++;
@@ -1834,6 +1852,8 @@ public static partial class FileInspector {
                     if (size > 0)
                     {
                         long pad = ((size + 511) / 512) * 512;
+                        long entryDataStart = fs.Position;
+                        long nextHeaderPos = entryDataStart + pad;
                         // 1) Quick nested-archive peek (up to 64 bytes) without moving beyond current entry
                         if (!hasNestedArchives && size <= 128)
                         {
@@ -1853,8 +1873,8 @@ public static partial class FileInspector {
                                         localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = de ?? ext });
                                 }
                             }
-                            long toSkipRem = pad - nhead;
-                            if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+                            if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
+                            else fs.Seek(0, SeekOrigin.End);
                             continue;
                         }
 
@@ -1878,10 +1898,8 @@ public static partial class FileInspector {
                                         left -= r;
                                     }
                                 }
-                                // Skip any remaining bytes of this entry to the padded boundary
-                                long consumed = Math.Min(size, deepBytes);
-                                long toSkipRem = pad - consumed;
-                                if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+                                if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
+                                else fs.Seek(0, SeekOrigin.End);
 
                                 var ia = FileInspector.Analyze(tmp);
                                 deepScanned++;
@@ -1898,9 +1916,9 @@ public static partial class FileInspector {
                             }
                             catch
                             {
-                                // On error, seek to next padded header position to keep parser stable
-                                long toSkipRem = pad;
-                                if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
+                                // On error, seek to next padded header position to keep parser stable.
+                                if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
+                                else fs.Seek(0, SeekOrigin.End);
                                 continue;
                             }
                             finally
@@ -1912,7 +1930,8 @@ public static partial class FileInspector {
                             }
                         }
                         // 3) Not sampled – skip entire entry payload to next header
-                        fs.Seek(pad, SeekOrigin.Current);
+                        if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
+                        else fs.Seek(0, SeekOrigin.End);
                         continue;
                     }
                 }
