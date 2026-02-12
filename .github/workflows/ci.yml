@@ -36,6 +36,8 @@ jobs:
   build-test:
     name: Build/Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,13 +71,13 @@ jobs:
         run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net472 --no-build
 
       - name: Upload coverage to Codecov
-        if: runner.os == 'Linux' && secrets.CODECOV_TOKEN != ''
+        if: runner.os == 'Linux' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v4
         with:
           files: ./TestResults/**/coverage.cobertura.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Coverage upload skipped (missing CODECOV_TOKEN)
-        if: runner.os == 'Linux' && secrets.CODECOV_TOKEN == ''
+        if: runner.os == 'Linux' && env.CODECOV_TOKEN == ''
         run: echo "Skipping Codecov upload because CODECOV_TOKEN is not configured."
