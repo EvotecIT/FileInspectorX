@@ -29,12 +29,22 @@ internal static partial class SecurityHeuristics
     };
     internal static IReadOnlyList<string> AssessScript(string path, string? declaredExt, int budgetBytes)
     {
+        try
+        {
+            string text = ReadTextHead(path, budgetBytes);
+            return AssessScriptFromText(text, declaredExt);
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
+    internal static IReadOnlyList<string> AssessScriptFromText(string? text, string? declaredExt)
+    {
         var findings = new List<string>(8);
         try {
             if (!Settings.SecurityScanScripts) return findings;
-            string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return findings;
-            var lower = text.ToLowerInvariant();
+            var source = text ?? string.Empty;
+            var lower = source.ToLowerInvariant();
 
             // Generic encoded payload indicators
             if (lower.Contains("frombase64string(") || lower.Contains("encodedcommand") || lower.Contains("-enc ")) findings.Add("ps:encoded");
@@ -86,7 +96,7 @@ internal static partial class SecurityHeuristics
 
             // Network paths and share mappings (UNC, net use, PSDrive)
             var uncShares = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var share in ExtractUncShares(text)) uncShares.Add(share);
+            foreach (var share in ExtractUncShares(source)) uncShares.Add(share);
             if (uncShares.Count > 0) findings.Add($"net:unc={uncShares.Count}");
 
             int mapCount = 0;
@@ -95,7 +105,7 @@ internal static partial class SecurityHeuristics
             if (mapCount > 0) findings.Add($"net:map={mapCount}");
 
             var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var h in ExtractHttpHosts(text)) hosts.Add(h);
+            foreach (var h in ExtractHttpHosts(source)) hosts.Add(h);
             foreach (var share in uncShares) { var h = ExtractHostFromUnc(share); if (!string.IsNullOrEmpty(h)) hosts.Add(h!); }
             if (hosts.Count > 0)
             {
@@ -136,14 +146,14 @@ internal static partial class SecurityHeuristics
             // Lightweight secrets (privacy-safe): only categories, never values
             if (Settings.SecretsScanEnabled)
             {
-                if (CountPrivateKeyIndicators(text) > 0)
+                if (CountPrivateKeyIndicators(source) > 0)
                     findings.Add("secret:privkey");
 
-                if (CountJwtLikeIndicators(text) > 0) findings.Add("secret:jwt");
+                if (CountJwtLikeIndicators(source) > 0) findings.Add("secret:jwt");
 
-                if (CountKeyPatternIndicators(text) > 0) findings.Add("secret:keypattern");
+                if (CountKeyPatternIndicators(source) > 0) findings.Add("secret:keypattern");
 
-                if (CountTokenFamilyIndicators(text) > 0) findings.Add("secret:token");
+                if (CountTokenFamilyIndicators(source) > 0) findings.Add("secret:token");
             }
         } catch { }
         return findings;
@@ -331,13 +341,23 @@ internal static partial class SecurityHeuristics
 
     internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)
     {
+        try
+        {
+            string text = ReadTextHead(path, budgetBytes);
+            return AssessTextGenericFromText(text, declaredExt);
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
+    internal static IReadOnlyList<string> AssessTextGenericFromText(string? text, string? declaredExt)
+    {
         var findings = new List<string>(8);
         try {
-            string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return findings;
+            var source = text ?? string.Empty;
             // Lowercasing is bounded by ReadTextHead (max 512 KB) to limit allocations.
-            var lower = text.ToLowerInvariant();
-            var logCues = HasLogCues(text);
+            var lower = source.ToLowerInvariant();
+            var logCues = HasLogCues(source);
 
             // IIS W3C logs
             if (LooksLikeIisW3cLog(lower))
@@ -408,11 +428,11 @@ internal static partial class SecurityHeuristics
             // Secrets categories (privacy-safe; same as script path)
             if (Settings.SecretsScanEnabled)
             {
-                if (CountPrivateKeyIndicators(text) > 0)
+                if (CountPrivateKeyIndicators(source) > 0)
                     findings.Add("secret:privkey");
-                if (CountJwtLikeIndicators(text) > 0) findings.Add("secret:jwt");
-                if (CountKeyPatternIndicators(text) > 0) findings.Add("secret:keypattern");
-                if (CountTokenFamilyIndicators(text) > 0) findings.Add("secret:token");
+                if (CountJwtLikeIndicators(source) > 0) findings.Add("secret:jwt");
+                if (CountKeyPatternIndicators(source) > 0) findings.Add("secret:keypattern");
+                if (CountTokenFamilyIndicators(source) > 0) findings.Add("secret:token");
             }
         } catch { }
         return findings;
@@ -472,15 +492,25 @@ internal static partial class SecurityHeuristics
 
     internal static SecretsSummary CountSecrets(string path, int budgetBytes)
     {
+        try
+        {
+            string text = ReadTextHead(path, budgetBytes);
+            return CountSecretsFromText(text);
+        }
+        catch { return new SecretsSummary(); }
+    }
+
+    internal static SecretsSummary CountSecretsFromText(string? text)
+    {
         var s = new SecretsSummary();
         try {
             if (!Settings.SecretsScanEnabled) return s;
-            string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return s;
-            s.PrivateKeyCount = CountPrivateKeyIndicators(text);
-            s.JwtLikeCount = CountJwtLikeIndicators(text);
-            s.KeyPatternCount = CountKeyPatternIndicators(text);
-            s.TokenFamilyCount = CountTokenFamilyIndicators(text);
+            var source = text ?? string.Empty;
+            s.PrivateKeyCount = CountPrivateKeyIndicators(source);
+            s.JwtLikeCount = CountJwtLikeIndicators(source);
+            s.KeyPatternCount = CountKeyPatternIndicators(source);
+            s.TokenFamilyCount = CountTokenFamilyIndicators(source);
         } catch { }
         return s;
     }
@@ -777,7 +807,11 @@ internal static partial class SecurityHeuristics
     private static bool SpanEqualsIgnoreCase(string text, int start, string token, int max)
     {
         if (start < 0 || start + token.Length > max || start + token.Length > text.Length) return false;
-        return text.AsSpan(start, token.Length).ToString().Equals(token, StringComparison.OrdinalIgnoreCase);
+        for (int i = 0; i < token.Length; i++)
+        {
+            if (char.ToUpperInvariant(text[start + i]) != char.ToUpperInvariant(token[i])) return false;
+        }
+        return true;
     }
 
     private static bool HasLongTokenAfter(string t, int start)

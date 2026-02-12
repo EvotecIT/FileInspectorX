@@ -636,8 +636,11 @@ public static partial class FileInspector {
                     }
                 } catch { }
 
+                int heuristicsCap = Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
+                var heuristicsText = ReadHeadTextCached(heuristicsCap);
+
                 // Lightweight script security assessment
-                var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
+                var sf = SecurityHeuristics.AssessScriptFromText(heuristicsText, declaredExt);
                 if (sf.Count > 0) res.SecurityFindings = sf;
                 // Cmdlets: best-effort extraction for presentation (PowerShell only)
                 var psLang = res.ScriptLanguage ?? res.TextSubtype;
@@ -647,7 +650,7 @@ public static partial class FileInspector {
                     if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
                 }
                 // Generic text/log/schema cues
-                var tf = SecurityHeuristics.AssessTextGeneric(path, declaredExt, Settings.DetectionReadBudgetBytes);
+                var tf = SecurityHeuristics.AssessTextGenericFromText(heuristicsText, declaredExt);
                 if (tf.Count > 0)
                 {
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
@@ -656,7 +659,7 @@ public static partial class FileInspector {
                 }
                 if (Settings.SecretsScanEnabled)
                 {
-                    var ss = SecurityHeuristics.CountSecrets(path, Settings.DetectionReadBudgetBytes);
+                    var ss = SecurityHeuristics.CountSecretsFromText(heuristicsText);
                     if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0 || ss.TokenFamilyCount > 0)
                     {
                         res.Secrets = ss;
