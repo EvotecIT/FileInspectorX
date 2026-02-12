@@ -220,7 +220,17 @@ internal static partial class SecurityHeuristics
         try
         {
             string text = ReadTextHead(path, budgetBytes);
+            return GetCmdletsFromText(text);
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
+    internal static IReadOnlyList<string> GetCmdletsFromText(string? text)
+    {
+        try
+        {
             if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
+            var source = text ?? string.Empty;
             const int MaxCmdlets = 12;
             // Common cmdlets/verbs of interest
             string[] probes = new [] {
@@ -240,23 +250,23 @@ internal static partial class SecurityHeuristics
             }
             foreach (var p in probes)
             {
-                if (text.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) AddCmdlet(p);
+                if (source.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0) AddCmdlet(p);
             }
             if (ordered.Count >= MaxCmdlets) return ordered;
 
-            TryAddScriptHints(text, AddCmdlet, () => ordered.Count < MaxCmdlets);
+            TryAddScriptHints(source, AddCmdlet, () => ordered.Count < MaxCmdlets);
             if (ordered.Count >= MaxCmdlets) return ordered;
 
             int i = 0;
-            while (i < text.Length && ordered.Count < MaxCmdlets)
+            while (i < source.Length && ordered.Count < MaxCmdlets)
             {
-                while (i < text.Length && !IsCmdletStart(text[i])) i++;
+                while (i < source.Length && !IsCmdletStart(source[i])) i++;
                 int start = i;
-                while (i < text.Length && IsCmdletChar(text[i])) i++;
+                while (i < source.Length && IsCmdletChar(source[i])) i++;
                 int len = i - start;
                 if (len >= 4)
                 {
-                    var token = text.Substring(start, len);
+                    var token = source.Substring(start, len);
                     int dash = token.IndexOf('-');
                     if (dash > 0 && dash < token.Length - 1)
                     {

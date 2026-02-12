@@ -646,7 +646,7 @@ public static partial class FileInspector {
                 var psLang = res.ScriptLanguage ?? res.TextSubtype;
                 if (string.Equals(psLang, "powershell", StringComparison.OrdinalIgnoreCase))
                 {
-                    var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
+                    var cmdlets = SecurityHeuristics.GetCmdletsFromText(heuristicsText);
                     if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
                 }
                 // Generic text/log/schema cues
