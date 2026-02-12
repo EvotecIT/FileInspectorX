@@ -51,4 +51,23 @@ public class DetectionDetailsTests
         Assert.True(map.ContainsKey("SecretsTokenFamilyCount"));
         Assert.Equal(2, map["SecretsTokenFamilyCount"]);
     }
+
+    [Fact]
+    public void Markdown_Includes_Secrets_Counts_WhenPresent()
+    {
+        var rv = new ReportView
+        {
+            SecretsPrivateKeyCount = 1,
+            SecretsJwtLikeCount = 2,
+            SecretsKeyPatternCount = 3,
+            SecretsTokenFamilyCount = 4
+        };
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Secrets", md);
+        Assert.Contains("Private key indicators: 1", md);
+        Assert.Contains("JWT-like tokens: 2", md);
+        Assert.Contains("Key/secret patterns: 3", md);
+        Assert.Contains("Token-family secrets: 4", md);
+    }
 }

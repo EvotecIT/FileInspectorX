@@ -45,9 +45,7 @@ public static class Legend
         ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
         ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
         // Containers (best-effort notes)
-        ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
         ["7z:files="]              = new("7z:files=",              "7z files (count)",      "7z archive file count (best‑effort when headers unencoded).",   "Archive", 10),
-        ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
         // Citrix
         ["citrix:ica"]             = new("citrix:ica",           "Citrix ICA file",        "Citrix ICA connection file (INI-like).",                           "Config", 5),
         ["citrix:receiver-config"] = new("citrix:receiver-config","Citrix Receiver config", "Citrix Receiver/Workspace configuration (XML).",                    "Config", 5),
@@ -186,13 +184,6 @@ public static class Legend
                 var val = f.Substring("7z:files=".Length);
                 var shortTxt = $"7z files: {val}";
                 var longTxt  = $"7z archive file count: {val} (best‑effort).";
-                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
-            }
-            else if (f.StartsWith("rar4:enc=", StringComparison.OrdinalIgnoreCase))
-            {
-                var val = f.Substring("rar4:enc=".Length);
-                var shortTxt = $"RAR4 encrypted files: {val}";
-                var longTxt  = $"RAR v4 archive contains password-protected entries: {val}.";
                 friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
             }
             else

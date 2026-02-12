@@ -75,6 +75,15 @@ public static class MarkdownRenderer
         if (!string.IsNullOrEmpty(r.FlagsHumanShort)) sb.AppendLine($"### Analysis Flags\n{r.FlagsHumanShort}\n");
         if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort)) sb.AppendLine($"### Heuristics\n{r.SecurityFindingsHumanShort}\n");
         if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort)) sb.AppendLine($"### Inner Findings\n{r.InnerFindingsHumanShort}\n");
+        if (HasAnySecretCounts(r))
+        {
+            sb.AppendLine("### Secrets");
+            AppendSecretCount(sb, "Private key indicators", r.SecretsPrivateKeyCount);
+            AppendSecretCount(sb, "JWT-like tokens", r.SecretsJwtLikeCount);
+            AppendSecretCount(sb, "Key/secret patterns", r.SecretsKeyPatternCount);
+            AppendSecretCount(sb, "Token-family secrets", r.SecretsTokenFamilyCount);
+            sb.AppendLine();
+        }
 
         // Risk assessment
         if (r.AssessmentScore.HasValue || !string.IsNullOrEmpty(r.AssessmentDecision))
@@ -86,5 +95,17 @@ public static class MarkdownRenderer
             sb.AppendLine();
         }
         return sb.ToString();
+
+        static bool HasAnySecretCounts(ReportView view)
+            => (view.SecretsPrivateKeyCount ?? 0) > 0 ||
+               (view.SecretsJwtLikeCount ?? 0) > 0 ||
+               (view.SecretsKeyPatternCount ?? 0) > 0 ||
+               (view.SecretsTokenFamilyCount ?? 0) > 0;
+
+        static void AppendSecretCount(StringBuilder builder, string label, int? value)
+        {
+            if (!value.HasValue || value.Value <= 0) return;
+            builder.AppendLine($"- {label}: {value.Value}");
+        }
     }
 }

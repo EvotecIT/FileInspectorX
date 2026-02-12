@@ -109,17 +109,44 @@ public class HeuristicsNewTests
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
+            var slackPrefix = "xox" + "b";
+            var stripePrefix = "sk" + "_live_";
             var txt = string.Join("\n", new[]
             {
-                "github_token=ghp_example_not_real",
-                "aws_access_key_id=AKIA_NOT_A_REAL_KEY",
-                "slack=xoxb-123-abc",
-                "placeholder=sk_live_example"
+                "github_token=ghp_EXAMPLEEXAMPLEEXAMPLEEXAMPLEABCD1234",
+                "aws_access_key_id=AKIAEXAMPLEEXAMPLE12",
+                "slack=" + slackPrefix + "-123456789012-EXAMPLEEXAMPLEEXAMPLEEXAMPLE12",
+                "placeholder=" + stripePrefix + "EXAMPLEEXAMPLEEXAMPLE1234"
             });
             File.WriteAllText(p, txt);
             var a = FileInspector.Analyze(p);
             Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
             Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_TokenFamily_AwsWithoutSecretContext_DoesNotDetect()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            File.WriteAllText(p, "identifier AKIAABCDEFGHIJKLMNOP value");
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_TokenFamily_AwsWithSecretContext_IsDetected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            File.WriteAllText(p, "aws_access_key_id=AKIAABCDEFGHIJKLMNOP");
+            var a = FileInspector.Analyze(p);
+            Assert.Contains("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.NotNull(a.Secrets);
+            Assert.True(a.Secrets!.TokenFamilyCount >= 1);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 }

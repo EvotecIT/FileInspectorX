@@ -795,6 +795,16 @@ internal static partial class SecurityHeuristics
         return len >= 20;
     }
 
+    private enum TokenFamilyKind
+    {
+        Unknown = 0,
+        GitHub = 1,
+        GitLab = 2,
+        AwsAccessKeyId = 3,
+        Slack = 4,
+        StripeLive = 5
+    }
+
     private static int CountTokenFamilyIndicators(string text)
     {
         const int MaxMatches = 24;
@@ -802,7 +812,7 @@ internal static partial class SecurityHeuristics
         {
             int max = Math.Min(text.Length, 24 * 1024);
             int i = 0;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             while (i < max && seen.Count < MaxMatches)
             {
                 while (i < max && !IsTokenHeadChar(text[i])) i++;
@@ -810,12 +820,16 @@ internal static partial class SecurityHeuristics
 
                 int start = i;
                 while (i < max && IsTokenBodyChar(text[i])) i++;
-                int len = i - start;
+                int end = i;
+                int len = end - start;
                 if (len < 12) continue;
 
                 var token = TrimTokenNoise(text.Substring(start, len));
                 if (token.Length < 12 || token.Length > 200) continue;
-                if (LooksLikeKnownTokenFamily(token)) seen.Add(token);
+                if (!TryGetTokenFamily(token, out var family)) continue;
+                if (LooksLikePlaceholderToken(token)) continue;
+                if (RequiresContext(family) && !HasSecretLikeContext(text, start, end, family)) continue;
+                seen.Add(token);
             }
             return seen.Count;
         }
@@ -825,13 +839,15 @@ internal static partial class SecurityHeuristics
     private static string TrimTokenNoise(string token)
         => token.Trim(' ', '\t', '\r', '\n', '"', '\'', '`', '(', ')', '[', ']', '{', '}', '<', '>', ',', ';', '.');
 
-    private static bool LooksLikeKnownTokenFamily(string token)
+    private static bool TryGetTokenFamily(string token, out TokenFamilyKind kind)
     {
-        return LooksLikeGitHubToken(token) ||
-               LooksLikeGitLabToken(token) ||
-               LooksLikeAwsAccessKeyId(token) ||
-               LooksLikeSlackToken(token) ||
-               LooksLikeStripeLiveToken(token);
+        if (LooksLikeGitHubToken(token)) { kind = TokenFamilyKind.GitHub; return true; }
+        if (LooksLikeGitLabToken(token)) { kind = TokenFamilyKind.GitLab; return true; }
+        if (LooksLikeAwsAccessKeyId(token)) { kind = TokenFamilyKind.AwsAccessKeyId; return true; }
+        if (LooksLikeSlackToken(token)) { kind = TokenFamilyKind.Slack; return true; }
+        if (LooksLikeStripeLiveToken(token)) { kind = TokenFamilyKind.StripeLive; return true; }
+        kind = TokenFamilyKind.Unknown;
+        return false;
     }
 
     private static bool LooksLikeGitHubToken(string token)
@@ -917,6 +933,51 @@ internal static partial class SecurityHeuristics
             int bodyLen = token.Length - p;
             return bodyLen >= 16 && bodyLen <= 128 && IsAlphaNum(token, p);
         }
+        return false;
+    }
+
+    private static bool RequiresContext(TokenFamilyKind family)
+        => family == TokenFamilyKind.AwsAccessKeyId;
+
+    private static bool LooksLikePlaceholderToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return true;
+        var lower = token.ToLowerInvariant();
+        return lower.IndexOf("example", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("sample", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("placeholder", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("dummy", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("changeme", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("notreal", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("not_real", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("your_", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool HasSecretLikeContext(string text, int start, int end, TokenFamilyKind family)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            int from = Math.Max(0, start - 64);
+            int to = Math.Min(text.Length, end + 64);
+            if (to <= from) return false;
+            var window = text.Substring(from, to - from);
+
+            if (ContainsAnyIgnoreCase(window, new[]
+            {
+                "token", "secret", "api_key", "apikey", "access_key", "accesskey",
+                "authorization", "bearer", "credential", "key=", "token=", "secret=", "password="
+            }))
+            {
+                return true;
+            }
+
+            if (family == TokenFamilyKind.AwsAccessKeyId)
+            {
+                return ContainsAnyIgnoreCase(window, new[] { "aws", "iam", "sts", "x-amz", "accesskeyid" });
+            }
+        }
+        catch { }
         return false;
     }
 
