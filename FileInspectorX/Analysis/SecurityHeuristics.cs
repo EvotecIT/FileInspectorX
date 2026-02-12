@@ -37,7 +37,7 @@ internal static partial class SecurityHeuristics
         catch { return Array.Empty<string>(); }
     }
 
-    internal static IReadOnlyList<string> AssessScriptFromText(string? text, string? declaredExt)
+    internal static IReadOnlyList<string> AssessScriptFromText(string? text, string? declaredExt, bool includeSecrets = true)
     {
         var findings = new List<string>(8);
         try {
@@ -144,7 +144,7 @@ internal static partial class SecurityHeuristics
             }
 
             // Lightweight secrets (privacy-safe): only categories, never values
-            if (Settings.SecretsScanEnabled)
+            if (includeSecrets && Settings.SecretsScanEnabled)
             {
                 var secrets = CountSecretsFromText(source);
                 foreach (var code in GetSecretFindingCodes(secrets))
@@ -357,7 +357,7 @@ internal static partial class SecurityHeuristics
         catch { return Array.Empty<string>(); }
     }
 
-    internal static IReadOnlyList<string> AssessTextGenericFromText(string? text, string? declaredExt)
+    internal static IReadOnlyList<string> AssessTextGenericFromText(string? text, string? declaredExt, bool includeSecrets = true)
     {
         var findings = new List<string>(8);
         try {
@@ -434,7 +434,7 @@ internal static partial class SecurityHeuristics
             }
 
             // Secrets categories (privacy-safe; same as script path)
-            if (Settings.SecretsScanEnabled)
+            if (includeSecrets && Settings.SecretsScanEnabled)
             {
                 var secrets = CountSecretsFromText(source);
                 foreach (var code in GetSecretFindingCodes(secrets))
@@ -849,15 +849,20 @@ internal static partial class SecurityHeuristics
     {
         int i = start;
         while (i < t.Length && (t[i] == ' ' || t[i] == '"' || t[i] == '\'')) i++;
-        int len = 0;
+        int tokenStart = i;
         int max = Math.Min(t.Length, start + 256);
         for (; i < max; i++)
         {
             char c = t[i];
-            if (char.IsLetterOrDigit(c) || c == '+' || c == '/' || c == '=' || c == '-' || c == '_') len++;
+            if (char.IsLetterOrDigit(c) || c == '+' || c == '/' || c == '=' || c == '-' || c == '_') { }
             else break;
         }
-        return len >= 20;
+        int len = i - tokenStart;
+        if (len < 20) return false;
+        var candidate = t.Substring(tokenStart, len);
+        if (LooksLikePlaceholderToken(candidate)) return false;
+        if (IsLowDiversityToken(candidate)) return false;
+        return true;
     }
 
     private enum TokenFamilyKind
@@ -1085,7 +1090,32 @@ internal static partial class SecurityHeuristics
                lower.IndexOf("changeme", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("notreal", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("not_real", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("replace_me", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("replace-with", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("replacewith", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("replace", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("token_here", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("secret_here", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("key_here", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("your_api_key", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("yourapikey", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("your_token", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("yourtoken", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("your_secret", StringComparison.Ordinal) >= 0 ||
+               lower.IndexOf("yoursecret", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("your_", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool IsLowDiversityToken(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return true;
+        var seen = new HashSet<char>();
+        for (int i = 0; i < token.Length; i++)
+        {
+            seen.Add(char.ToLowerInvariant(token[i]));
+            if (seen.Count >= 4) return false;
+        }
+        return true;
     }
 
     private static bool HasSecretLikeContext(string text, int start, int end, TokenFamilyKind family)

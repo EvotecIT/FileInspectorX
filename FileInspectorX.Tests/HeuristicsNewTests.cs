@@ -172,4 +172,24 @@ public class HeuristicsNewTests
             Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
+
+    [Fact]
+    public void Secrets_KeyPattern_PlaceholderValues_DoNotDetect()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var txt = string.Join("\n", new[]
+            {
+                "api_key=YOUR_API_KEY_REPLACE_ME_1234567890",
+                "secret=placeholder_placeholder_value_1234567890",
+                "password=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            });
+            File.WriteAllText(p, txt);
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:keypattern", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.KeyPatternCount == 0);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
 }
