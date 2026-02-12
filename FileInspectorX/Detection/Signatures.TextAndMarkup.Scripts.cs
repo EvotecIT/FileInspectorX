@@ -103,7 +103,17 @@ internal static partial class Signatures
         // JavaScript heuristic (non-minified). Avoid misclassifying Lua where "local function" is common.
         if (LooksLikeJavaScript(headStr, headLower)) {
             if (!(head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')))
-                { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Low", Reason = "text:js-heur" }; }
+                {
+                    int jsStrength = GetJavaScriptCueStrength(headStr, headLower);
+                    string conf = jsStrength >= 5 ? "Medium" : "Low";
+                    result = new ContentTypeDetectionResult {
+                        Extension = "js",
+                        MimeType = "application/javascript",
+                        Confidence = conf,
+                        Reason = "text:js-heur",
+                        ReasonDetails = $"js:cues-{Math.Max(2, jsStrength)}"
+                    };
+                }
             return result != null;
         }
         // Weak shell cues when no shebang
@@ -131,7 +141,7 @@ internal static partial class Signatures
             if (IndexOfToken(head, "def ") >= 0 && head.IndexOf((byte)':') >= 0) pyCues++;
             if (IndexOfToken(head, "class ") >= 0 && head.IndexOf((byte)':') >= 0) pyCues++;
             if (IndexOfToken(head, "if __name__ == '__main__':") >= 0) pyCues += 2;
-            if (pyCues >= 2) { result = new ContentTypeDetectionResult { Extension = "py", MimeType = "text/x-python", Confidence = "Low", Reason = "text:py-heur", ReasonDetails = $"py:cues-{pyCues}" }; return true; }
+            if (pyCues >= 2) { result = new ContentTypeDetectionResult { Extension = "py", MimeType = "text/x-python", Confidence = pyCues >= 4 ? "Medium" : "Low", Reason = "text:py-heur", ReasonDetails = $"py:cues-{pyCues}" }; return true; }
         }
 
         // Ruby heuristic
@@ -143,7 +153,7 @@ internal static partial class Signatures
             if (IndexOfToken(head, "class ") >= 0 && IndexOfToken(head, " end") >= 0) rbCues += 2;
             if (IndexOfToken(head, "module ") >= 0 && IndexOfToken(head, " end") >= 0) rbCues += 2;
             if (IndexOfToken(head, "puts ") >= 0) rbCues++;
-            if (rbCues >= 2) { result = new ContentTypeDetectionResult { Extension = "rb", MimeType = "text/x-ruby", Confidence = "Low", Reason = "text:rb-heur", ReasonDetails = $"rb:cues-{rbCues}" }; return true; }
+            if (rbCues >= 2) { result = new ContentTypeDetectionResult { Extension = "rb", MimeType = "text/x-ruby", Confidence = rbCues >= 4 ? "Medium" : "Low", Reason = "text:rb-heur", ReasonDetails = $"rb:cues-{rbCues}" }; return true; }
         }
 
         // Lua heuristic (placed after JS guard that ignores "local function" cases)
@@ -154,7 +164,7 @@ internal static partial class Signatures
             if (IndexOfToken(head, "function ") >= 0 && IndexOfToken(head, " end") >= 0) luaCues += 2;
             if (IndexOfToken(head, "require(") >= 0 || IndexOfToken(head, "require ") >= 0) luaCues++;
             if (IndexOfToken(head, " then") >= 0 && IndexOfToken(head, " end") >= 0) luaCues++;
-            if (luaCues >= 2) { result = new ContentTypeDetectionResult { Extension = "lua", MimeType = "text/x-lua", Confidence = "Low", Reason = "text:lua-heur", ReasonDetails = $"lua:cues-{luaCues}" }; return true; }
+            if (luaCues >= 2) { result = new ContentTypeDetectionResult { Extension = "lua", MimeType = "text/x-lua", Confidence = luaCues >= 4 ? "Medium" : "Low", Reason = "text:lua-heur", ReasonDetails = $"lua:cues-{luaCues}" }; return true; }
         }
 
         // Fallback: treat as plain text if mostly printable. Include BOM charset when known.
@@ -328,12 +338,17 @@ internal static partial class Signatures
     {
         // Strong cues: shebang, function/arrow, module exports, or call-pattern like obj.method(
         if (sl.Contains("#!/usr/bin/env node") || sl.Contains("#!/usr/bin/node")) return true;
-        if (sl.Contains("local function")) return false; // Lua-specific guard
+        return GetJavaScriptCueStrength(s, sl) >= 2;
+    }
+
+    private static int GetJavaScriptCueStrength(string s, string sl)
+    {
+        if (sl.Contains("local function")) return 0; // Lua-specific guard
         int cues = 0;
-        bool strong = false;
-        if (sl.Contains("function(") || sl.Contains("function ")) { cues++; strong = true; }
-        if (sl.Contains("=>")) { cues++; strong = true; }
-        if (sl.Contains("module.exports") || sl.Contains("exports.")) { cues++; strong = true; }
+        int strong = 0;
+        if (sl.Contains("function(") || sl.Contains("function ")) { cues++; strong++; }
+        if (sl.Contains("=>")) { cues++; strong++; }
+        if (sl.Contains("module.exports") || sl.Contains("exports.")) { cues++; strong++; }
         if (sl.Contains("import ") || sl.Contains("export ")) cues++;
         if (sl.Contains("require(")) cues++;
         if (sl.Contains("document.") || sl.Contains("window.")) cues++;
@@ -341,10 +356,10 @@ internal static partial class Signatures
         if (sl.Contains("const ") || sl.Contains("let ") || sl.Contains("var "))
         {
             cues++;
-            if (sl.Contains("=")) strong = true;
+            if (sl.Contains("=")) strong++;
         }
-        if (LooksLikeJsCallPrefix(s)) { cues++; strong = true; }
-        return (strong && cues >= 1) || cues >= 2;
+        if (LooksLikeJsCallPrefix(s)) { cues++; strong++; }
+        return cues + (strong * 2);
     }
 
     private static bool LooksLikeJsCallPrefix(string s)

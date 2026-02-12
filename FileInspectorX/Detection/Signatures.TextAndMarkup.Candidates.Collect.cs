@@ -416,7 +416,11 @@ internal static partial class Signatures
         if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node"))
             AddCandidate("js", "application/javascript", "Medium", "text:node-shebang", "js:shebang", scriptPenalty);
         else if (LooksLikeJavaScript(headStr, headLower))
-            AddCandidate("js", "application/javascript", "Low", "text:js-heur", scoreAdjust: scriptPenalty);
+        {
+            int jsStrength = GetJavaScriptCueStrength(headStr, headLower);
+            string jsConf = jsStrength >= 5 ? "Medium" : "Low";
+            AddCandidate("js", "application/javascript", jsConf, "text:js-heur", $"js:cues-{Math.Max(2, jsStrength)}", scoreAdjust: scriptPenalty);
+        }
 
         if (batCues)
         {
@@ -433,7 +437,11 @@ internal static partial class Signatures
             if (IndexOfToken(head, "def ") >= 0 && head.IndexOf((byte)':') >= 0) pyCues++;
             if (IndexOfToken(head, "class ") >= 0 && head.IndexOf((byte)':') >= 0) pyCues++;
             if (IndexOfToken(head, "if __name__ == '__main__':") >= 0) pyCues += 2;
-            if (pyCues >= 2) AddCandidate("py", "text/x-python", "Low", "text:py-heur", $"py:cues-{pyCues}", scriptPenalty);
+            if (pyCues >= 2)
+            {
+                string pyConf = pyCues >= 4 ? "Medium" : "Low";
+                AddCandidate("py", "text/x-python", pyConf, "text:py-heur", $"py:cues-{pyCues}", scriptPenalty);
+            }
         }
 
         if (headLower.Contains("#!/usr/bin/env ruby") || headLower.Contains("#!/usr/bin/ruby"))
@@ -446,7 +454,11 @@ internal static partial class Signatures
             if (IndexOfToken(head, "class ") >= 0 && IndexOfToken(head, " end") >= 0) rbCues += 2;
             if (IndexOfToken(head, "module ") >= 0 && IndexOfToken(head, " end") >= 0) rbCues += 2;
             if (IndexOfToken(head, "puts ") >= 0) rbCues++;
-            if (rbCues >= 2) AddCandidate("rb", "text/x-ruby", "Low", "text:rb-heur", $"rb:cues-{rbCues}", scriptPenalty);
+            if (rbCues >= 2)
+            {
+                string rbConf = rbCues >= 4 ? "Medium" : "Low";
+                AddCandidate("rb", "text/x-ruby", rbConf, "text:rb-heur", $"rb:cues-{rbCues}", scriptPenalty);
+            }
         }
 
         if (headLower.Contains("#!/usr/bin/env lua") || headLower.Contains("#!/usr/bin/lua"))
@@ -458,7 +470,11 @@ internal static partial class Signatures
             if (IndexOfToken(head, "function ") >= 0 && IndexOfToken(head, " end") >= 0) luaCues += 2;
             if (IndexOfToken(head, "require(") >= 0 || IndexOfToken(head, "require ") >= 0) luaCues++;
             if (IndexOfToken(head, " then") >= 0 && IndexOfToken(head, " end") >= 0) luaCues++;
-            if (luaCues >= 2) AddCandidate("lua", "text/x-lua", "Low", "text:lua-heur", $"lua:cues-{luaCues}", scriptPenalty);
+            if (luaCues >= 2)
+            {
+                string luaConf = luaCues >= 4 ? "Medium" : "Low";
+                AddCandidate("lua", "text/x-lua", luaConf, "text:lua-heur", $"lua:cues-{luaCues}", scriptPenalty);
+            }
         }
 
         // Plain text candidate (low confidence) for mostly printable text.

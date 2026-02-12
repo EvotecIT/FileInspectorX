@@ -368,6 +368,38 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void JavaScript_StrongCues_Uses_MediumConfidence()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var js = "const fs = require('fs');\nmodule.exports = function(x) { return x + 1; }\n";
+            File.WriteAllText(p, js);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("js", r!.Extension);
+            Assert.Equal("Medium", r.Confidence);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Python_StrongCues_Uses_MediumConfidence()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var py = "import os\nclass App:\n    def run(self):\n        return True\nif __name__ == '__main__':\n    print('ok')\n";
+            File.WriteAllText(p, py);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("py", r!.Extension);
+            Assert.Equal("Medium", r.Confidence);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Html_External_Links_Parsed()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".html");
