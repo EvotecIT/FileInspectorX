@@ -33,6 +33,7 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.DetectedTypeExtension)) type += $" ({r.DetectedTypeExtension})";
             if (!string.IsNullOrEmpty(r.DetectionConfidence)) type += $" — {r.DetectionConfidence}";
             if (!string.IsNullOrEmpty(r.DetectionReason)) type += $" — {r.DetectionReason}";
+            if (!string.IsNullOrEmpty(r.DetectionReasonDetails)) type += $" ({r.DetectionReasonDetails})";
             sb.AppendLine(type);
             sb.AppendLine();
         }

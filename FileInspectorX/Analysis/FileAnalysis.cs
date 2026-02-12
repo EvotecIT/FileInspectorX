@@ -15,6 +15,8 @@ public class FileAnalysis {
     public string? DetectionConfidence { get; set; }
     /// <summary>Detection reason (cached from <see cref="Detection"/>).</summary>
     public string? DetectionReason { get; set; }
+    /// <summary>Optional detailed detection reason (cached from <see cref="Detection"/>).</summary>
+    public string? DetectionReasonDetails { get; set; }
     /// <summary>Detection validation status (cached from <see cref="Detection"/>).</summary>
     public string? DetectionValidationStatus { get; set; }
     /// <summary>Detection score (cached from <see cref="Detection"/>).</summary>

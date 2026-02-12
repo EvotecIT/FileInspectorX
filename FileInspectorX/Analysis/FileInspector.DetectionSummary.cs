@@ -12,6 +12,7 @@ public static partial class FileInspector
         res.DetectedMimeType = string.IsNullOrWhiteSpace(d.MimeType) ? null : d.MimeType;
         res.DetectionConfidence = string.IsNullOrWhiteSpace(d.Confidence) ? null : d.Confidence;
         res.DetectionReason = string.IsNullOrWhiteSpace(d.Reason) ? null : d.Reason;
+        res.DetectionReasonDetails = string.IsNullOrWhiteSpace(d.ReasonDetails) ? null : d.ReasonDetails;
         res.DetectionValidationStatus = string.IsNullOrWhiteSpace(d.ValidationStatus) ? null : d.ValidationStatus;
         res.DetectionScore = d.Score;
         res.DetectionIsDangerous = d.IsDangerous;

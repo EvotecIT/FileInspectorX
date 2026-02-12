@@ -19,6 +19,8 @@ public sealed class ReportView
     public string? DetectionConfidence { get; set; }
     /// <summary>Short textual reason describing the detection.</summary>
     public string? DetectionReason { get; set; }
+    /// <summary>Optional detailed cue description for the detection (e.g., js:cues-6).</summary>
+    public string? DetectionReasonDetails { get; set; }
     /// <summary>Structured validation status when applicable (passed/failed/timeout/skipped).</summary>
     public string? DetectionValidationStatus { get; set; }
     /// <summary>Detection score (0-100) used to rank candidates.</summary>
@@ -265,6 +267,7 @@ public sealed class ReportView
             r.DetectedTypeName = a.Detection.MimeType;
             r.DetectionConfidence = a.Detection.Confidence;
             r.DetectionReason = a.Detection.Reason;
+            r.DetectionReasonDetails = a.Detection.ReasonDetails;
             r.DetectionValidationStatus = a.Detection.ValidationStatus;
             if (a.Detection.Score.HasValue) r.DetectionScore = a.Detection.Score;
             r.DetectionIsDangerous = a.Detection.IsDangerous;
@@ -615,6 +618,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
+        if (DetectionReasonDetails != null) d["DetectionReasonDetails"] = DetectionReasonDetails;
         if (!string.IsNullOrEmpty(DetectionValidationStatus)) d["DetectionValidationStatus"] = DetectionValidationStatus;
         if (DetectionScore.HasValue) d["DetectionScore"] = DetectionScore.Value;
         if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
