@@ -24,6 +24,19 @@ public enum AssessmentDecision
 }
 
 /// <summary>
+/// Assessment profile used for parallel risk decisions over the same scoring factors.
+/// </summary>
+public enum AssessmentProfile
+{
+    /// <summary>More aggressive thresholds (earlier Warn/Block).</summary>
+    Strict = 0,
+    /// <summary>Default thresholds from settings.</summary>
+    Balanced = 1,
+    /// <summary>More permissive thresholds (later Warn/Block).</summary>
+    Lenient = 2
+}
+
+/// <summary>
 /// Compact risk assessment for a single file. Carry a score (0-100), a decision, and stable finding codes.
 /// </summary>
 public sealed class AssessmentResult
@@ -40,8 +53,39 @@ public sealed class AssessmentResult
     public IReadOnlyDictionary<string,int> Factors { get; set; } = new Dictionary<string,int>();
 }
 
+/// <summary>
+/// Multi-profile assessment view over one analyzed file.
+/// Keeps the same score/factors and only varies the decision thresholds by profile.
+/// </summary>
+public sealed class MultiAssessmentResult
+{
+    /// <summary>Strict profile result.</summary>
+    public AssessmentResult Strict { get; set; } = new AssessmentResult();
+    /// <summary>Balanced profile result.</summary>
+    public AssessmentResult Balanced { get; set; } = new AssessmentResult();
+    /// <summary>Lenient profile result.</summary>
+    public AssessmentResult Lenient { get; set; } = new AssessmentResult();
+}
+
 public static partial class FileInspector
 {
+    /// <summary>
+    /// Computes assessment results for strict/balanced/lenient profiles using one shared score/factors baseline.
+    /// </summary>
+    public static MultiAssessmentResult AssessMulti(FileAnalysis a)
+    {
+        var balanced = Assess(a);
+        var strictDecision = DecideForProfile(balanced.Score, AssessmentProfile.Strict);
+        var balancedDecision = DecideForProfile(balanced.Score, AssessmentProfile.Balanced);
+        var lenientDecision = DecideForProfile(balanced.Score, AssessmentProfile.Lenient);
+        return new MultiAssessmentResult
+        {
+            Strict = CloneWithDecision(balanced, strictDecision),
+            Balanced = CloneWithDecision(balanced, balancedDecision),
+            Lenient = CloneWithDecision(balanced, lenientDecision)
+        };
+    }
+
     /// <summary>
     /// Computes a coarse risk score (0-100) and decision from <see cref="FileAnalysis"/>.
     /// The mapping is intentionally generic; consumers can layer their own policy thresholds.
@@ -277,6 +321,63 @@ public static partial class FileInspector
             int volume = Math.Min(maxExtraWeight, extra * perExtraWeight);
             if (volume > 0) Add(baseCode + ".Volume", volume);
         }
+    }
+
+    private static AssessmentResult CloneWithDecision(AssessmentResult source, AssessmentDecision decision)
+    {
+        var factorsCopy = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in source.Factors)
+        {
+            factorsCopy[kvp.Key] = kvp.Value;
+        }
+
+        return new AssessmentResult
+        {
+            Score = source.Score,
+            Decision = decision,
+            Codes = source.Codes.ToArray(),
+            Factors = factorsCopy
+        };
+    }
+
+    private static AssessmentDecision DecideForProfile(int score, AssessmentProfile profile)
+    {
+        var (warn, block) = GetThresholds(profile);
+        return score >= block ? AssessmentDecision.Block :
+               (score >= warn ? AssessmentDecision.Warn : AssessmentDecision.Allow);
+    }
+
+    private static (int warn, int block) GetThresholds(AssessmentProfile profile)
+    {
+        int warn = Settings.AssessmentWarnThreshold;
+        int block = Settings.AssessmentBlockThreshold;
+        switch (profile)
+        {
+            case AssessmentProfile.Strict:
+                warn -= 10;
+                block -= 10;
+                break;
+            case AssessmentProfile.Lenient:
+                warn += 10;
+                block += 10;
+                break;
+        }
+        return NormalizeThresholds(warn, block);
+    }
+
+    private static (int warn, int block) NormalizeThresholds(int warn, int block)
+    {
+        warn = ClampInt(warn, 1, 99);
+        block = ClampInt(block, 2, 100);
+        if (block <= warn) block = Math.Min(100, warn + 1);
+        return (warn, block);
+    }
+
+    private static int ClampInt(int value, int min, int max)
+    {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
     }
 
     private static bool IsAllowedVendor(string? name)

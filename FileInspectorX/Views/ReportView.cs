@@ -132,6 +132,12 @@ public sealed class ReportView
     public int? AssessmentScore { get; set; }
     /// <summary>Decision label (Allow/Warn/Block/Defer).</summary>
     public string? AssessmentDecision { get; set; }
+    /// <summary>Decision label under strict profile thresholds.</summary>
+    public string? AssessmentDecisionStrict { get; set; }
+    /// <summary>Decision label under balanced profile thresholds.</summary>
+    public string? AssessmentDecisionBalanced { get; set; }
+    /// <summary>Decision label under lenient profile thresholds.</summary>
+    public string? AssessmentDecisionLenient { get; set; }
     /// <summary>Finding codes that drove the score.</summary>
     public IReadOnlyList<string>? AssessmentCodes { get; set; }
     /// <summary>Human-friendly summary of assessment codes (short form).</summary>
@@ -412,9 +418,13 @@ public sealed class ReportView
 
         try
         {
-            var assess = FileInspector.Assess(a);
+            var multi = FileInspector.AssessMulti(a);
+            var assess = multi.Balanced;
             r.AssessmentScore = assess.Score;
             r.AssessmentDecision = assess.Decision.ToString();
+            r.AssessmentDecisionStrict = multi.Strict.Decision.ToString();
+            r.AssessmentDecisionBalanced = multi.Balanced.Decision.ToString();
+            r.AssessmentDecisionLenient = multi.Lenient.Decision.ToString();
             r.AssessmentCodes = assess.Codes;
             r.AssessmentFactors = assess.Factors;
             if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0)
@@ -665,6 +675,9 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(CertificateBlobSha256)) d["CertificateBlobSha256"] = CertificateBlobSha256;
         if (AssessmentScore.HasValue) d["AssessmentScore"] = AssessmentScore.Value;
         if (!string.IsNullOrEmpty(AssessmentDecision)) d["AssessmentDecision"] = AssessmentDecision;
+        if (!string.IsNullOrEmpty(AssessmentDecisionStrict)) d["AssessmentDecisionStrict"] = AssessmentDecisionStrict;
+        if (!string.IsNullOrEmpty(AssessmentDecisionBalanced)) d["AssessmentDecisionBalanced"] = AssessmentDecisionBalanced;
+        if (!string.IsNullOrEmpty(AssessmentDecisionLenient)) d["AssessmentDecisionLenient"] = AssessmentDecisionLenient;
         if (AssessmentCodes != null && AssessmentCodes.Count > 0) d["AssessmentCodes"] = AssessmentCodes;
         if (AssessmentFactors != null && AssessmentFactors.Count > 0) d["AssessmentFactors"] = AssessmentFactors;
         if (!string.IsNullOrEmpty(AssessmentCodesHuman)) d["AssessmentCodesHuman"] = AssessmentCodesHuman;

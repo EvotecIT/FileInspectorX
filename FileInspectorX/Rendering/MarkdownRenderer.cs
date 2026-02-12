@@ -91,11 +91,21 @@ public static class MarkdownRenderer
         }
 
         // Risk assessment
-        if (r.AssessmentScore.HasValue || !string.IsNullOrEmpty(r.AssessmentDecision))
+        if (r.AssessmentScore.HasValue ||
+            !string.IsNullOrEmpty(r.AssessmentDecision) ||
+            !string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
+            !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
+            !string.IsNullOrEmpty(r.AssessmentDecisionLenient))
         {
             sb.AppendLine("### Risk Assessment");
             sb.AppendLine($"- Score: {r.AssessmentScore ?? 0}");
             if (!string.IsNullOrEmpty(r.AssessmentDecision)) sb.AppendLine($"- Decision: {r.AssessmentDecision}");
+            if (!string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
+                !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
+                !string.IsNullOrEmpty(r.AssessmentDecisionLenient))
+            {
+                sb.AppendLine($"- Profile decisions: Strict={r.AssessmentDecisionStrict ?? "n/a"}, Balanced={r.AssessmentDecisionBalanced ?? r.AssessmentDecision ?? "n/a"}, Lenient={r.AssessmentDecisionLenient ?? "n/a"}");
+            }
             if (!string.IsNullOrEmpty(r.AssessmentCodesHuman)) sb.AppendLine($"- Drivers: {r.AssessmentCodesHuman}");
             sb.AppendLine();
         }

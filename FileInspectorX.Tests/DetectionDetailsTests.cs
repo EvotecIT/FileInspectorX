@@ -82,4 +82,39 @@ public class DetectionDetailsTests
         Assert.Contains("AWS access key id: 1", md);
         Assert.Contains("Slack token-family: 1", md);
     }
+
+    [Fact]
+    public void Report_And_Markdown_Expose_MultiAssessment_Profile_Decisions()
+    {
+        int oldWarn = Settings.AssessmentWarnThreshold;
+        int oldBlock = Settings.AssessmentBlockThreshold;
+        try
+        {
+            Settings.AssessmentWarnThreshold = 40;
+            Settings.AssessmentBlockThreshold = 70;
+
+            var a = new FileAnalysis
+            {
+                SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
+            };
+
+            var rv = ReportView.From(a);
+            Assert.Equal("Block", rv.AssessmentDecisionStrict);
+            Assert.Equal("Block", rv.AssessmentDecisionBalanced);
+            Assert.Equal("Warn", rv.AssessmentDecisionLenient);
+
+            var map = rv.ToDictionary();
+            Assert.Equal("Block", map["AssessmentDecisionStrict"]);
+            Assert.Equal("Block", map["AssessmentDecisionBalanced"]);
+            Assert.Equal("Warn", map["AssessmentDecisionLenient"]);
+
+            var md = MarkdownRenderer.From(rv);
+            Assert.Contains("Profile decisions: Strict=Block, Balanced=Block, Lenient=Warn", md);
+        }
+        finally
+        {
+            Settings.AssessmentWarnThreshold = oldWarn;
+            Settings.AssessmentBlockThreshold = oldBlock;
+        }
+    }
 }

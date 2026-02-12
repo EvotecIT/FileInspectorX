@@ -640,7 +640,7 @@ public static partial class FileInspector {
                 var heuristicsText = ReadHeadTextCached(heuristicsCap);
 
                 // Lightweight script security assessment
-                var sf = SecurityHeuristics.AssessScriptFromText(heuristicsText, declaredExt);
+                var sf = SecurityHeuristics.AssessScriptFromText(heuristicsText, declaredExt, includeSecrets: false);
                 if (sf.Count > 0) res.SecurityFindings = sf;
                 // Cmdlets: best-effort extraction for presentation (PowerShell only)
                 var psLang = res.ScriptLanguage ?? res.TextSubtype;
@@ -650,7 +650,7 @@ public static partial class FileInspector {
                     if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
                 }
                 // Generic text/log/schema cues
-                var tf = SecurityHeuristics.AssessTextGenericFromText(heuristicsText, declaredExt);
+                var tf = SecurityHeuristics.AssessTextGenericFromText(heuristicsText, declaredExt, includeSecrets: false);
                 if (tf.Count > 0)
                 {
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
