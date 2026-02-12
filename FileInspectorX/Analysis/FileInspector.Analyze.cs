@@ -654,16 +654,6 @@ public static partial class FileInspector {
                     foreach (var x in tf) if (!list.Contains(x, StringComparer.OrdinalIgnoreCase)) list.Add(x);
                     res.SecurityFindings = list;
                 }
-                // Very permissive fallback for common JWT test token
-                try {
-                    var headTxt = ReadHeadTextCached(4096);
-                    if (!string.IsNullOrEmpty(headTxt) && headTxt.IndexOf("header.payload.signature", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                        if (!list.Contains("secret:jwt")) list.Add("secret:jwt");
-                        res.SecurityFindings = list;
-                    }
-                } catch { }
                 if (Settings.SecretsScanEnabled)
                 {
                     var ss = SecurityHeuristics.CountSecrets(path, Settings.DetectionReadBudgetBytes);

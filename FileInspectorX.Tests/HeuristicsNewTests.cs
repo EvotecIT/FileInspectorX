@@ -46,7 +46,8 @@ public class HeuristicsNewTests
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var txt = "-----BEGIN PRIVATE KEY-----\nMIICdTCCAd2...\n-----END PRIVATE KEY-----\nheader.payload.signature\nsecret=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\n";
+            var jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjoyMDAwMDAwMDAwfQ.VGhpcy1pcy1qd3Qtc2ln";
+            var txt = "-----BEGIN PRIVATE KEY-----\nMIICdTCCAd2...\n-----END PRIVATE KEY-----\n" + jwt + "\nsecret=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\n";
             File.WriteAllText(p, txt);
             var a = FileInspector.Analyze(p);
             Assert.Contains("secret:privkey", a.SecurityFindings!);
@@ -54,5 +55,44 @@ public class HeuristicsNewTests
             Assert.Contains("secret:keypattern", a.SecurityFindings!);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
-}
 
+    [Fact]
+    public void Secrets_Jwt_DomainAndVersion_DoNotFalsePositive()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            var txt = "docs host=support.github.com version=10.20.30";
+            File.WriteAllText(p, txt);
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:jwt", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.JwtLikeCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_Counts_MultipleJwtAndKeyPatterns()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            var jwt1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJlMQ";
+            var jwt2 = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJhcGkiLCJpc3MiOiJ0ZXN0In0.c2lnbmF0dXJlMg";
+            var txt = string.Join("\n", new[]
+            {
+                new string('#', 600),
+                "note=this is plain text with embedded tokens",
+                "jwt_one=" + jwt1,
+                "jwt_two=" + jwt2,
+                "key=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+                "secret=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+                "password=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+            });
+            File.WriteAllText(p, txt);
+            var a = FileInspector.Analyze(p);
+            Assert.NotNull(a.Secrets);
+            Assert.True(a.Secrets!.JwtLikeCount >= 2);
+            Assert.True(a.Secrets!.KeyPatternCount >= 3);
+            Assert.Contains("secret:jwt", a.SecurityFindings!);
+            Assert.Contains("secret:keypattern", a.SecurityFindings!);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+}

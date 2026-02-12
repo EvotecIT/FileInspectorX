@@ -136,12 +136,12 @@ internal static partial class SecurityHeuristics
             // Lightweight secrets (privacy-safe): only categories, never values
             if (Settings.SecretsScanEnabled)
             {
-                if (ContainsAny(lower, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"}))
+                if (CountPrivateKeyIndicators(text) > 0)
                     findings.Add("secret:privkey");
 
-                if (LooksLikeJwt(text) || LooksLikeJwtFallback(text) || lower.Contains("header.payload.signature")) findings.Add("secret:jwt");
+                if (CountJwtLikeIndicators(text) > 0) findings.Add("secret:jwt");
 
-                if (LooksLikeKeyPattern(text)) findings.Add("secret:keypattern");
+                if (CountKeyPatternIndicators(text) > 0) findings.Add("secret:keypattern");
             }
         } catch { }
         return findings;
@@ -406,10 +406,10 @@ internal static partial class SecurityHeuristics
             // Secrets categories (privacy-safe; same as script path)
             if (Settings.SecretsScanEnabled)
             {
-                if (lower.Contains("-----begin rsa private key-----") || lower.Contains("-----begin private key-----") || lower.Contains("-----begin dsa private key-----") || lower.Contains("-----begin openssh private key-----"))
+                if (CountPrivateKeyIndicators(text) > 0)
                     findings.Add("secret:privkey");
-                if (LooksLikeJwt(text) || LooksLikeJwtFallback(text) || lower.Contains("header.payload.signature")) findings.Add("secret:jwt");
-                if (LooksLikeKeyPattern(text)) findings.Add("secret:keypattern");
+                if (CountJwtLikeIndicators(text) > 0) findings.Add("secret:jwt");
+                if (CountKeyPatternIndicators(text) > 0) findings.Add("secret:keypattern");
             }
         } catch { }
         return findings;
@@ -474,9 +474,9 @@ internal static partial class SecurityHeuristics
             if (!Settings.SecretsScanEnabled) return s;
             string text = ReadTextHead(path, budgetBytes);
             if (string.IsNullOrEmpty(text)) return s;
-            if (ContainsAnyIgnoreCase(text, new [] {"-----begin rsa private key-----", "-----begin private key-----", "-----begin dsa private key-----", "-----begin openssh private key-----"})) s.PrivateKeyCount++;
-            if (LooksLikeJwt(text) || LooksLikeJwtFallback(text)) s.JwtLikeCount++;
-            if (LooksLikeKeyPattern(text)) s.KeyPatternCount++;
+            s.PrivateKeyCount = CountPrivateKeyIndicators(text);
+            s.JwtLikeCount = CountJwtLikeIndicators(text);
+            s.KeyPatternCount = CountKeyPatternIndicators(text);
         } catch { }
         return s;
     }
@@ -615,90 +615,173 @@ internal static partial class SecurityHeuristics
         return outArr;
     }
 
-    private static bool LooksLikeJwt(string text)
+    private static readonly string[] PrivateKeyMarkers = new[]
     {
+        "-----begin rsa private key-----",
+        "-----begin private key-----",
+        "-----begin dsa private key-----",
+        "-----begin openssh private key-----",
+        "-----begin encrypted private key-----",
+        "-----begin ec private key-----"
+    };
+
+    private static int CountPrivateKeyIndicators(string text)
+    {
+        int hits = 0;
         try
         {
-            int max = Math.Min(text.Length, 4096);
-            int i = 0;
-            while (i < max)
+            for (int i = 0; i < PrivateKeyMarkers.Length; i++)
             {
-                // Skip non base64url chars until a plausible segment starts
-                while (i < max && !IsB64Url(text[i])) { if (char.IsWhiteSpace(text[i])) { /* reset state */ } i++; }
-                int seg1 = 0; while (i < max && IsB64Url(text[i])) { seg1++; i++; }
-                if (seg1 < 3 || i >= max || text[i] != '.') continue;
-                i++; // consume dot
-                int seg2 = 0; while (i < max && IsB64Url(text[i])) { seg2++; i++; }
-                if (seg2 < 3 || i >= max || text[i] != '.') continue;
-                i++; // consume second dot
-                int seg3 = 0; while (i < max && IsB64Url(text[i])) { seg3++; i++; }
-                if (seg3 >= 3) return true; // good enough for heuristic
+                hits += CountTokenIgnoreCase(text, PrivateKeyMarkers[i], maxMatches: 32 - hits);
+                if (hits >= 32) return 32;
             }
         }
         catch { }
-        return false;
-
-        static bool IsB64Url(char c)
-            => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+        return hits;
     }
 
-    // Very permissive fallback: look for three dot-separated base64url-looking segments anywhere in the first 4KB.
-    private static bool LooksLikeJwtFallback(string text)
+    private static int CountJwtLikeIndicators(string text)
     {
-        try {
-            int max = Math.Min(text.Length, 4096);
-            int dots = 0; int seg = 0;
-            for (int i = 0; i < max; i++)
+        const int MaxMatches = 16;
+        try
+        {
+            int max = Math.Min(text.Length, 16 * 1024);
+            int count = 0;
+            int i = 0;
+            while (i < max && count < MaxMatches)
             {
-                char c = text[i];
-                if (c == '.') { if (seg >= 3) { dots++; seg = 0; if (dots >= 2) return true; } else { dots = 0; seg = 0; } continue; }
-                if (char.IsWhiteSpace(c)) { dots = 0; seg = 0; continue; }
-                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') seg++;
-                else { dots = 0; seg = 0; }
+                while (i < max && !IsJwtTokenChar(text[i])) i++;
+                if (i >= max) break;
+                int start = i;
+                while (i < max && IsJwtTokenChar(text[i])) i++;
+                int end = i;
+                int len = end - start;
+                if (len < 24) continue;
+
+                var token = text.Substring(start, len);
+                if (LooksLikeJwtToken(token)) count++;
             }
-        } catch { }
-        return false;
+            return count;
+        }
+        catch { return 0; }
     }
 
-    private static bool LooksLikeKeyPattern(string text)
+    private static bool LooksLikeJwtToken(string token)
     {
-        try {
-            var t = text; int max = Math.Min(t.Length, 4096);
-            for (int i = 0; i < max - 6; i++)
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        int d1 = token.IndexOf('.');
+        if (d1 <= 0) return false;
+        int d2 = token.IndexOf('.', d1 + 1);
+        if (d2 <= d1 + 1) return false;
+        if (token.IndexOf('.', d2 + 1) >= 0) return false;
+
+        var h = token.Substring(0, d1);
+        var p = token.Substring(d1 + 1, d2 - d1 - 1);
+        var s = token.Substring(d2 + 1);
+
+        if (h.Length < 8 || p.Length < 8 || s.Length < 6) return false;
+        if (!TryDecodeBase64Url(h, out var hb) || !TryDecodeBase64Url(p, out var pb)) return false;
+        if (!LooksLikeJsonObject(hb, requireJwtHeaderKeys: true)) return false;
+        if (!LooksLikeJsonObject(pb, requireJwtHeaderKeys: false)) return false;
+        return true;
+    }
+
+    private static bool TryDecodeBase64Url(string segment, out byte[] bytes)
+    {
+        bytes = Array.Empty<byte>();
+        try
+        {
+            if (string.IsNullOrEmpty(segment) || segment.Length > 4096) return false;
+            for (int i = 0; i < segment.Length; i++)
+                if (!IsJwtTokenChar(segment[i])) return false;
+
+            string normalized = segment.Replace('-', '+').Replace('_', '/');
+            int mod = normalized.Length % 4;
+            if (mod == 1) return false;
+            if (mod != 0) normalized = normalized.PadRight(normalized.Length + (4 - mod), '=');
+            bytes = Convert.FromBase64String(normalized);
+            return bytes.Length > 1 && bytes.Length <= 4096;
+        }
+        catch { bytes = Array.Empty<byte>(); return false; }
+    }
+
+    private static bool LooksLikeJsonObject(byte[] utf8, bool requireJwtHeaderKeys)
+    {
+        try
+        {
+            if (utf8 == null || utf8.Length < 2 || utf8.Length > 4096) return false;
+            var json = System.Text.Encoding.UTF8.GetString(utf8).Trim();
+            if (json.Length < 2 || json[0] != '{' || json[json.Length - 1] != '}') return false;
+            if (json.IndexOf(':') < 0 || json.IndexOf('"') < 0) return false;
+
+            var lower = json.ToLowerInvariant();
+            if (requireJwtHeaderKeys)
             {
-                if ((t[i] == 'k' || t[i] == 'K') && t.AsSpan(i, Math.Min(4, max - i)).ToString().Equals("key=", StringComparison.OrdinalIgnoreCase))
+                return lower.Contains("\"alg\"") || lower.Contains("\"typ\"") || lower.Contains("\"kid\"") || lower.Contains("\"enc\"");
+            }
+
+            if (lower.Contains("\"sub\"") || lower.Contains("\"iss\"") || lower.Contains("\"aud\"") || lower.Contains("\"exp\"") ||
+                lower.Contains("\"iat\"") || lower.Contains("\"nbf\"") || lower.Contains("\"jti\"") || lower.Contains("\"scope\""))
+                return true;
+
+            return lower.Contains("\":");
+        }
+        catch { return false; }
+    }
+
+    private static int CountKeyPatternIndicators(string text)
+    {
+        int count = 0;
+        try
+        {
+            var t = text;
+            int max = Math.Min(t.Length, 4096);
+            for (int i = 0; i < max - 6 && count < 32; i++)
+            {
+                if ((t[i] == 'k' || t[i] == 'K') && SpanEqualsIgnoreCase(t, i, "key=", max))
                 {
-                    if (HasLongTokenAfter(t, i + 4)) return true;
+                    if (HasLongTokenAfter(t, i + 4)) count++;
                 }
-                if ((t[i] == 's' || t[i] == 'S') && i + 7 < max && t.AsSpan(i, Math.Min(7, max - i)).ToString().Equals("secret=", StringComparison.OrdinalIgnoreCase))
+                else if ((t[i] == 's' || t[i] == 'S') && SpanEqualsIgnoreCase(t, i, "secret=", max))
                 {
-                    if (HasLongTokenAfter(t, i + 7)) return true;
+                    if (HasLongTokenAfter(t, i + 7)) count++;
                 }
-                if ((t[i] == 'p' || t[i] == 'P') && i + 9 < max && t.AsSpan(i, Math.Min(9, max - i)).ToString().Equals("password=", StringComparison.OrdinalIgnoreCase))
+                else if ((t[i] == 'p' || t[i] == 'P') && SpanEqualsIgnoreCase(t, i, "password=", max))
                 {
-                    if (HasLongTokenAfter(t, i + 9)) return true;
+                    if (HasLongTokenAfter(t, i + 9)) count++;
                 }
-                if ((t[i] == 'p' || t[i] == 'P') && i + 4 < max && t.AsSpan(i, Math.Min(4, max - i)).ToString().Equals("pwd=", StringComparison.OrdinalIgnoreCase))
+                else if ((t[i] == 'p' || t[i] == 'P') && SpanEqualsIgnoreCase(t, i, "pwd=", max))
                 {
-                    if (HasLongTokenAfter(t, i + 4)) return true;
+                    if (HasLongTokenAfter(t, i + 4)) count++;
                 }
-                if ((t[i] == 'c' || t[i] == 'C') && i + 16 < max && t.AsSpan(i, Math.Min(16, max - i)).ToString().Equals("connectionstring=", StringComparison.OrdinalIgnoreCase))
+                else if ((t[i] == 'c' || t[i] == 'C') && SpanEqualsIgnoreCase(t, i, "connectionstring=", max))
                 {
-                    // Look for password/pwd inside a small window after a connection string
                     int window = Math.Min(max, i + 256);
                     var slice = t.Substring(i, window - i);
-                    if (slice.IndexOf("password=", StringComparison.OrdinalIgnoreCase) >= 0 || slice.IndexOf("pwd=", StringComparison.OrdinalIgnoreCase) >= 0)
-                        return true;
+                    if (slice.IndexOf("password=", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        slice.IndexOf("pwd=", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        count++;
+                    }
                 }
             }
-        } catch { }
-        return false;
+        }
+        catch { }
+        return count;
+    }
+
+    private static bool SpanEqualsIgnoreCase(string text, int start, string token, int max)
+    {
+        if (start < 0 || start + token.Length > max || start + token.Length > text.Length) return false;
+        return text.AsSpan(start, token.Length).ToString().Equals(token, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasLongTokenAfter(string t, int start)
     {
-        int i = start; while (i < t.Length && (t[i] == ' ' || t[i] == '"' || t[i] == '\'')) i++;
-        int len = 0; int max = Math.Min(t.Length, start + 256);
+        int i = start;
+        while (i < t.Length && (t[i] == ' ' || t[i] == '"' || t[i] == '\'')) i++;
+        int len = 0;
+        int max = Math.Min(t.Length, start + 256);
         for (; i < max; i++)
         {
             char c = t[i];
@@ -706,6 +789,23 @@ internal static partial class SecurityHeuristics
             else break;
         }
         return len >= 20;
+    }
+
+    private static bool IsJwtTokenChar(char c)
+        => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+
+    private static int CountTokenIgnoreCase(string hay, string token, int maxMatches)
+    {
+        if (string.IsNullOrEmpty(hay) || string.IsNullOrEmpty(token) || maxMatches <= 0) return 0;
+        int c = 0;
+        int idx = 0;
+        while ((idx = hay.IndexOf(token, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            c++;
+            idx += token.Length;
+            if (c >= maxMatches) break;
+        }
+        return c;
     }
 
     private static bool LooksLikeJsonWithKeys(string lower, IEnumerable<string> keys)
