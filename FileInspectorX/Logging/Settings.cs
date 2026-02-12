@@ -473,6 +473,11 @@ public class Settings {
     /// </summary>
     public static bool ReferenceFullListsEnabled { get; set; } = false;
     /// <summary>
+    /// Maximum number of bytes read from reference-bearing text files (html/xml/scripts/ini/url) during reference extraction.
+    /// Default 512 KB. Set to 0 to use the default cap.
+    /// </summary>
+    public static int ReferenceExtractionMaxBytes { get; set; } = 512 * 1024;
+    /// <summary>
     /// Maximum characters for any single exported full reference list. Excess is truncated.
     /// </summary>
     public static int ReferenceFullListsMaxChars { get; set; } = 4000;

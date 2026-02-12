@@ -39,4 +39,33 @@ public class ReferencesTests
             Assert.Contains(a.References!, r => r.Kind == ReferenceKind.Command || r.Kind == ReferenceKind.FilePath);
         } finally { try { File.Delete(p); } catch { } }
     }
+
+    [Fact]
+    public void Extract_TaskScheduler_DoesNotFalsePositive_OnGenericXml()
+    {
+        string xml = "<Config><Command>cmd.exe</Command><Arguments>/c whoami</Arguments></Config>";
+        var p = Path.GetTempFileName() + ".xml";
+        try {
+            File.WriteAllText(p, xml);
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+            Assert.DoesNotContain(refs, r => (r.SourceTag ?? string.Empty).StartsWith("task:", StringComparison.OrdinalIgnoreCase));
+        } finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
+    public void Extract_ScriptReferences_RespectsReadCap()
+    {
+        var p = Path.GetTempFileName() + ".ps1";
+        var early = "https://early.example.com/a";
+        var late = "https://late.example.com/z";
+        try {
+            var text = "$u = '" + early + "'\n" + new string('x', 600_000) + "\n$v = '" + late + "'\n";
+            File.WriteAllText(p, text);
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, early, StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, late, StringComparison.OrdinalIgnoreCase));
+        } finally { try { File.Delete(p); } catch { } }
+    }
 }

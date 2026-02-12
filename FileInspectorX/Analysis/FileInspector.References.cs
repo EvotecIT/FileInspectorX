@@ -17,7 +17,7 @@ public static partial class FileInspector
             // Try for .xml; when ambiguous, a quick shape check happens inside
             if (ext == "xml" || string.IsNullOrEmpty(ext))
             {
-                if (LooksLikeTaskXml(path) || true)
+                if (LooksLikeTaskXml(path))
                     TryExtractTaskSchedulerXml(path, list);
             }
 
@@ -66,7 +66,7 @@ public static partial class FileInspector
     {
         try
         {
-            string text = File.ReadAllText(path);
+            string text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             int dataB64 = 0; var dataExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             // URLs (absolute http/https)
@@ -140,7 +140,7 @@ public static partial class FileInspector
     private static void TryExtractHtmlReferences(string path, List<Reference> refs)
     {
         try {
-            var text = File.ReadAllText(path);
+            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             int cap = Math.Min(text.Length, 512 * 1024);
             var head = text.AsSpan(0, cap);
@@ -341,17 +341,20 @@ public static partial class FileInspector
             int sc = header.IndexOf(';');
             if (sc > 0) mediaType = header.Substring(0, sc);
             string payload = uri.Substring(comma + 1);
-            // Normalize and bound decode
-            var sb = new System.Text.StringBuilder(payload.Length);
+            // Normalize and bound decode to avoid large allocations from untrusted payload size.
+            int maxDecodedBytes = Math.Max(1, Settings.EncodedDecodeMaxBytes);
+            int maxBase64Chars = ((maxDecodedBytes + 2) / 3) * 4 + 8;
+            var sb = new System.Text.StringBuilder(Math.Min(payload.Length, maxBase64Chars));
             foreach (var ch in payload)
             {
+                if (sb.Length >= maxBase64Chars) break;
                 if (ch == '-') sb.Append('+');
                 else if (ch == '_') sb.Append('/');
                 else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '+' || ch == '/' || ch == '=') sb.Append(ch);
             }
             var s = sb.ToString(); int mod = s.Length % 4; if (mod != 0) s = s.PadRight(s.Length + (4 - mod), '=');
             var raw = Convert.FromBase64String(s);
-            int max = Math.Min(raw.Length, Settings.EncodedDecodeMaxBytes);
+            int max = Math.Min(raw.Length, maxDecodedBytes);
             sample = raw.Take(max).ToArray();
             return true;
         } catch { return false; }
@@ -361,7 +364,9 @@ public static partial class FileInspector
     {
         try
         {
-            var lines = File.ReadAllLines(path);
+            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            if (string.IsNullOrWhiteSpace(text)) return;
+            var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
                 var t = line.Trim();
@@ -425,7 +430,7 @@ public static partial class FileInspector
     private static void TryExtractGpoScriptsXml(string path, List<Reference> refs)
     {
         try {
-            var text = File.ReadAllText(path);
+            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
             // Look for <Scripts> ... <Script ...> or <PowerShellScript ...>
             if (IndexOfCI(text, "<Scripts") < 0 && IndexOfCI(text, "<PowerShellScript") < 0) return;
 
@@ -477,7 +482,7 @@ public static partial class FileInspector
         if (!TryExtractTaskSchedulerXmlDoc(path, refs))
         {
             try {
-                var text = File.ReadAllText(path);
+                var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
                 string? ExtractCI(string tag)
                 {
                     var open = "<" + tag + ">"; var close = "</" + tag + ">";
@@ -588,7 +593,7 @@ public static partial class FileInspector
     private static void TryExtractGpoScriptsIni(string path, List<Reference> refs)
     {
         try {
-            var text = File.ReadAllText(path);
+            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             // Very small INI parser: look for lines like nCmd=..., nParameters=...
             // See MS-GPSCR for scripts.ini/psscripts.ini layout.
@@ -633,6 +638,12 @@ public static partial class FileInspector
     private static string ExpandEnv(string value)
     {
         try { return Environment.ExpandEnvironmentVariables(value); } catch { return value; }
+    }
+
+    private static string ReadTextForReferences(string path, int maxBytes)
+    {
+        int cap = maxBytes > 0 ? maxBytes : 512 * 1024;
+        return ReadHeadText(path, cap);
     }
 
     private static bool LooksLikePath(string token)
