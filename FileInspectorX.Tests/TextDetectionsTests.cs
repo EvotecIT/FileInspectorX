@@ -400,6 +400,38 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Ruby_StrongCues_Uses_MediumConfidence()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var rb = "module Demo\nclass App\n  def run\n    puts 'ok'\n  end\nend\nend\n";
+            File.WriteAllText(p, rb);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("rb", r!.Extension);
+            Assert.Equal("Medium", r.Confidence);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Lua_StrongCues_Uses_MediumConfidence()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var lua = "local function run()\n  if true then\n    return require('x')\n  end\nend\n";
+            File.WriteAllText(p, lua);
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("lua", r!.Extension);
+            Assert.Equal("Medium", r.Confidence);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Html_External_Links_Parsed()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".html");

@@ -99,7 +99,7 @@ internal static partial class Signatures
             return true;
         }
         // Node.js shebang
-        if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shhebang", ReasonDetails = "js:shebang" }; return true; }
+        if (headLower.Contains("#!/usr/bin/env node") || headLower.Contains("#!/usr/bin/node")) { result = new ContentTypeDetectionResult { Extension = "js", MimeType = "application/javascript", Confidence = "Medium", Reason = "text:node-shebang", ReasonDetails = "js:shebang" }; return true; }
         // JavaScript heuristic (non-minified). Avoid misclassifying Lua where "local function" is common.
         if (LooksLikeJavaScript(headStr, headLower)) {
             if (!(head.Length > 0 && (head[0] == (byte)'{' || head[0] == (byte)'[')))
