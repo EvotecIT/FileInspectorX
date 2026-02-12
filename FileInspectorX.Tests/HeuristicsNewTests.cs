@@ -149,4 +149,16 @@ public class HeuristicsNewTests
             Assert.True(a.Secrets!.TokenFamilyCount >= 1);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
+
+    [Fact]
+    public void Secrets_TokenFamily_PrefixInsideWord_DoesNotDetect()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            File.WriteAllText(p, "token=Aghp_0123456789abcdef0123456789abcdef0123");
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
 }

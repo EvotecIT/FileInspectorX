@@ -811,29 +811,70 @@ internal static partial class SecurityHeuristics
         try
         {
             int max = Math.Min(text.Length, 24 * 1024);
-            int i = 0;
+            if (max <= 0) return 0;
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            while (i < max && seen.Count < MaxMatches)
-            {
-                while (i < max && !IsTokenHeadChar(text[i])) i++;
-                if (i >= max) break;
 
-                int start = i;
-                while (i < max && IsTokenBodyChar(text[i])) i++;
-                int end = i;
-                int len = end - start;
-                if (len < 12) continue;
+            // Prefix-driven probing keeps scan cost low and avoids classifying generic words.
+            ProbePrefix(text, max, "github_pat_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "ghp_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "gho_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "ghu_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "ghs_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "ghr_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "glpat-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "AKIA", StringComparison.Ordinal, seen, MaxMatches);
+            ProbePrefix(text, max, "ASIA", StringComparison.Ordinal, seen, MaxMatches);
+            ProbePrefix(text, max, "xoxb-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "xoxp-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "xoxa-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "xoxs-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "xoxr-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "sk_live_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
+            ProbePrefix(text, max, "rk_live_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
 
-                var token = TrimTokenNoise(text.Substring(start, len));
-                if (token.Length < 12 || token.Length > 200) continue;
-                if (!TryGetTokenFamily(token, out var family)) continue;
-                if (LooksLikePlaceholderToken(token)) continue;
-                if (RequiresContext(family) && !HasSecretLikeContext(text, start, end, family)) continue;
-                seen.Add(token);
-            }
             return seen.Count;
         }
         catch { return 0; }
+    }
+
+    private static void ProbePrefix(
+        string text,
+        int max,
+        string prefix,
+        StringComparison comparison,
+        HashSet<string> seen,
+        int maxMatches)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(prefix) || max <= 0) return;
+        int i = 0;
+        while (i < max && seen.Count < maxMatches)
+        {
+            int at = text.IndexOf(prefix, i, comparison);
+            if (at < 0 || at >= max) break;
+
+            // Require token boundary before prefix to avoid matching mid-word.
+            if (at > 0 && IsTokenBodyChar(text[at - 1]))
+            {
+                i = at + 1;
+                continue;
+            }
+
+            int end = at + prefix.Length;
+            while (end < max && IsTokenBodyChar(text[end])) end++;
+
+            int len = end - at;
+            if (len >= 12)
+            {
+                var token = TrimTokenNoise(text.Substring(at, len));
+                if (token.Length >= 12 && token.Length <= 200 && TryGetTokenFamily(token, out var family))
+                {
+                    if (!LooksLikePlaceholderToken(token) && (!RequiresContext(family) || HasSecretLikeContext(text, at, end, family)))
+                        seen.Add(token);
+                }
+            }
+
+            i = at + prefix.Length;
+        }
     }
 
     private static string TrimTokenNoise(string token)
