@@ -850,11 +850,7 @@ public static partial class FileInspector {
                                 if (Uri.TryCreate(v, UriKind.Absolute, out var u) && !string.IsNullOrEmpty(u.Host))
                                 {
                                     var host = u.Host.ToLowerInvariant();
-                                    foreach (var dom in Settings.HtmlAllowedDomains)
-                                    {
-                                        var d = (dom ?? string.Empty).Trim().ToLowerInvariant(); if (string.IsNullOrEmpty(d)) continue;
-                                        if (host.Equals(d) || host.EndsWith("." + d)) { allowed++; break; }
-                                    }
+                                    if (SecurityHeuristics.IsHostAllowedByDomains(host, Settings.HtmlAllowedDomains)) allowed++;
                                 }
                             } catch { }
                         }
@@ -1054,16 +1050,7 @@ public static partial class FileInspector {
 
     private static bool IsAllowedDomain(string host)
     {
-        try
-        {
-            var h = (host ?? string.Empty).Trim().ToLowerInvariant(); if (string.IsNullOrEmpty(h)) return false;
-            foreach (var dom in Settings.HtmlAllowedDomains)
-            {
-                var d = (dom ?? string.Empty).Trim().ToLowerInvariant(); if (string.IsNullOrEmpty(d)) continue;
-                if (h.Equals(d) || h.EndsWith("." + d)) return true;
-            }
-        } catch { }
-        return false;
+        return SecurityHeuristics.IsHostAllowedByDomains(host, Settings.HtmlAllowedDomains);
     }
 
     // Counts RAR4 encrypted files by walking file headers quickly under a simple budget.

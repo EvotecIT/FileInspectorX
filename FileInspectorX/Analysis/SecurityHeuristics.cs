@@ -301,12 +301,17 @@ internal static partial class SecurityHeuristics
 
     private static bool IsAllowedHost(string host)
     {
+        return IsHostAllowedByDomains(host, Settings.HtmlAllowedDomains);
+    }
+
+    internal static bool IsHostAllowedByDomains(string host, IEnumerable<string>? allowedDomains)
+    {
         try
         {
-            var allow = Settings.HtmlAllowedDomains;
-            if (allow == null || allow.Length == 0) return false;
+            if (string.IsNullOrWhiteSpace(host)) return false;
+            if (allowedDomains == null) return false;
             var h = host.ToLowerInvariant();
-            foreach (var d in allow)
+            foreach (var d in allowedDomains)
             {
                 if (string.IsNullOrWhiteSpace(d)) continue;
                 var dom = d.Trim().ToLowerInvariant();
@@ -319,6 +324,8 @@ internal static partial class SecurityHeuristics
         } catch { }
         return false;
     }
+
+    internal static bool TryResolveHostForTest(string host, int timeoutMs) => TryResolveHost(host, timeoutMs);
 
     internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)
     {
