@@ -55,6 +55,9 @@ public class HeuristicsNewTests
             Assert.Contains("secret:jwt", a.SecurityFindings!);
             Assert.Contains("secret:keypattern", a.SecurityFindings!);
             Assert.Contains("secret:token", a.SecurityFindings!);
+            Assert.Contains("secret:token:github", a.SecurityFindings!);
+            Assert.NotNull(a.Secrets);
+            Assert.True(a.Secrets!.GitHubTokenCount >= 1);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 
@@ -98,9 +101,13 @@ public class HeuristicsNewTests
             Assert.True(a.Secrets!.JwtLikeCount >= 2);
             Assert.True(a.Secrets!.KeyPatternCount >= 3);
             Assert.True(a.Secrets!.TokenFamilyCount >= 2);
+            Assert.True(a.Secrets!.GitHubTokenCount >= 1);
+            Assert.True(a.Secrets!.AwsAccessKeyIdCount >= 1);
             Assert.Contains("secret:jwt", a.SecurityFindings!);
             Assert.Contains("secret:keypattern", a.SecurityFindings!);
             Assert.Contains("secret:token", a.SecurityFindings!);
+            Assert.Contains("secret:token:github", a.SecurityFindings!);
+            Assert.Contains("secret:token:aws-akid", a.SecurityFindings!);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 
@@ -121,6 +128,8 @@ public class HeuristicsNewTests
             File.WriteAllText(p, txt);
             var a = FileInspector.Analyze(p);
             Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain("secret:token:github", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain("secret:token:aws-akid", a.SecurityFindings ?? Array.Empty<string>());
             Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
@@ -145,8 +154,10 @@ public class HeuristicsNewTests
             File.WriteAllText(p, "aws_access_key_id=AKIAABCDEFGHIJKLMNOP");
             var a = FileInspector.Analyze(p);
             Assert.Contains("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.Contains("secret:token:aws-akid", a.SecurityFindings ?? Array.Empty<string>());
             Assert.NotNull(a.Secrets);
             Assert.True(a.Secrets!.TokenFamilyCount >= 1);
+            Assert.True(a.Secrets!.AwsAccessKeyIdCount >= 1);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 

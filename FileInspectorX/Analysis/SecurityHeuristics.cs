@@ -146,14 +146,12 @@ internal static partial class SecurityHeuristics
             // Lightweight secrets (privacy-safe): only categories, never values
             if (Settings.SecretsScanEnabled)
             {
-                if (CountPrivateKeyIndicators(source) > 0)
-                    findings.Add("secret:privkey");
-
-                if (CountJwtLikeIndicators(source) > 0) findings.Add("secret:jwt");
-
-                if (CountKeyPatternIndicators(source) > 0) findings.Add("secret:keypattern");
-
-                if (CountTokenFamilyIndicators(source) > 0) findings.Add("secret:token");
+                var secrets = CountSecretsFromText(source);
+                foreach (var code in GetSecretFindingCodes(secrets))
+                {
+                    if (!findings.Contains(code, StringComparer.OrdinalIgnoreCase))
+                        findings.Add(code);
+                }
             }
         } catch { }
         return findings;
@@ -438,11 +436,12 @@ internal static partial class SecurityHeuristics
             // Secrets categories (privacy-safe; same as script path)
             if (Settings.SecretsScanEnabled)
             {
-                if (CountPrivateKeyIndicators(source) > 0)
-                    findings.Add("secret:privkey");
-                if (CountJwtLikeIndicators(source) > 0) findings.Add("secret:jwt");
-                if (CountKeyPatternIndicators(source) > 0) findings.Add("secret:keypattern");
-                if (CountTokenFamilyIndicators(source) > 0) findings.Add("secret:token");
+                var secrets = CountSecretsFromText(source);
+                foreach (var code in GetSecretFindingCodes(secrets))
+                {
+                    if (!findings.Contains(code, StringComparer.OrdinalIgnoreCase))
+                        findings.Add(code);
+                }
             }
         } catch { }
         return findings;
@@ -520,9 +519,31 @@ internal static partial class SecurityHeuristics
             s.PrivateKeyCount = CountPrivateKeyIndicators(source);
             s.JwtLikeCount = CountJwtLikeIndicators(source);
             s.KeyPatternCount = CountKeyPatternIndicators(source);
-            s.TokenFamilyCount = CountTokenFamilyIndicators(source);
+            var tokenFamilies = CountTokenFamilyIndicatorsDetailed(source);
+            s.TokenFamilyCount = tokenFamilies.TotalCount;
+            s.GitHubTokenCount = tokenFamilies.GitHubCount;
+            s.GitLabTokenCount = tokenFamilies.GitLabCount;
+            s.AwsAccessKeyIdCount = tokenFamilies.AwsAccessKeyIdCount;
+            s.SlackTokenCount = tokenFamilies.SlackCount;
+            s.StripeLiveKeyCount = tokenFamilies.StripeLiveCount;
         } catch { }
         return s;
+    }
+
+    internal static IReadOnlyList<string> GetSecretFindingCodes(SecretsSummary? secrets)
+    {
+        if (secrets == null) return Array.Empty<string>();
+        var codes = new List<string>(9);
+        if (secrets.PrivateKeyCount > 0) codes.Add("secret:privkey");
+        if (secrets.JwtLikeCount > 0) codes.Add("secret:jwt");
+        if (secrets.KeyPatternCount > 0) codes.Add("secret:keypattern");
+        if (secrets.TokenFamilyCount > 0) codes.Add("secret:token");
+        if (secrets.GitHubTokenCount > 0) codes.Add("secret:token:github");
+        if (secrets.GitLabTokenCount > 0) codes.Add("secret:token:gitlab");
+        if (secrets.AwsAccessKeyIdCount > 0) codes.Add("secret:token:aws-akid");
+        if (secrets.SlackTokenCount > 0) codes.Add("secret:token:slack");
+        if (secrets.StripeLiveKeyCount > 0) codes.Add("secret:token:stripe");
+        return codes;
     }
 
     private static bool ContainsAny(string hay, IEnumerable<string> needles) {
@@ -850,35 +871,64 @@ internal static partial class SecurityHeuristics
     }
 
     private static int CountTokenFamilyIndicators(string text)
+        => CountTokenFamilyIndicatorsDetailed(text).TotalCount;
+
+    private sealed class TokenFamilyCounters
+    {
+        private readonly HashSet<string> _seenTokens = new(StringComparer.OrdinalIgnoreCase);
+
+        public int TotalCount => _seenTokens.Count;
+        public int GitHubCount { get; private set; }
+        public int GitLabCount { get; private set; }
+        public int AwsAccessKeyIdCount { get; private set; }
+        public int SlackCount { get; private set; }
+        public int StripeLiveCount { get; private set; }
+
+        public bool TryAddToken(string token, TokenFamilyKind family)
+        {
+            if (string.IsNullOrWhiteSpace(token) || family == TokenFamilyKind.Unknown) return false;
+            if (!_seenTokens.Add(token)) return false;
+            switch (family)
+            {
+                case TokenFamilyKind.GitHub: GitHubCount++; break;
+                case TokenFamilyKind.GitLab: GitLabCount++; break;
+                case TokenFamilyKind.AwsAccessKeyId: AwsAccessKeyIdCount++; break;
+                case TokenFamilyKind.Slack: SlackCount++; break;
+                case TokenFamilyKind.StripeLive: StripeLiveCount++; break;
+            }
+            return true;
+        }
+    }
+
+    private static TokenFamilyCounters CountTokenFamilyIndicatorsDetailed(string text)
     {
         const int MaxMatches = 24;
+        var counters = new TokenFamilyCounters();
         try
         {
             int max = Math.Min(text.Length, 24 * 1024);
-            if (max <= 0) return 0;
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (max <= 0) return counters;
 
             // Prefix-driven probing keeps scan cost low and avoids classifying generic words.
-            ProbePrefix(text, max, "github_pat_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "ghp_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "gho_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "ghu_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "ghs_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "ghr_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "glpat-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "AKIA", StringComparison.Ordinal, seen, MaxMatches);
-            ProbePrefix(text, max, "ASIA", StringComparison.Ordinal, seen, MaxMatches);
-            ProbePrefix(text, max, "xoxb-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "xoxp-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "xoxa-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "xoxs-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "xoxr-", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "sk_live_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-            ProbePrefix(text, max, "rk_live_", StringComparison.OrdinalIgnoreCase, seen, MaxMatches);
-
-            return seen.Count;
+            ProbePrefix(text, max, "github_pat_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "ghp_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "gho_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "ghu_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "ghs_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "ghr_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "glpat-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "AKIA", StringComparison.Ordinal, counters, MaxMatches);
+            ProbePrefix(text, max, "ASIA", StringComparison.Ordinal, counters, MaxMatches);
+            ProbePrefix(text, max, "xoxb-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "xoxp-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "xoxa-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "xoxs-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "xoxr-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "sk_live_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "rk_live_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
         }
-        catch { return 0; }
+        catch { }
+        return counters;
     }
 
     private static void ProbePrefix(
@@ -886,12 +936,12 @@ internal static partial class SecurityHeuristics
         int max,
         string prefix,
         StringComparison comparison,
-        HashSet<string> seen,
+        TokenFamilyCounters counters,
         int maxMatches)
     {
         if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(prefix) || max <= 0) return;
         int i = 0;
-        while (i < max && seen.Count < maxMatches)
+        while (i < max && counters.TotalCount < maxMatches)
         {
             int at = text.IndexOf(prefix, i, comparison);
             if (at < 0 || at >= max) break;
@@ -913,7 +963,7 @@ internal static partial class SecurityHeuristics
                 if (token.Length >= 12 && token.Length <= 200 && TryGetTokenFamily(token, out var family))
                 {
                     if (!LooksLikePlaceholderToken(token) && (!RequiresContext(family) || HasSecretLikeContext(text, at, end, family)))
-                        seen.Add(token);
+                        counters.TryAddToken(token, family);
                 }
             }
 

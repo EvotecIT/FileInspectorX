@@ -40,16 +40,22 @@ public class DetectionDetailsTests
         {
             Secrets = new SecretsSummary
             {
-                TokenFamilyCount = 2
+                TokenFamilyCount = 2,
+                GitHubTokenCount = 1,
+                AwsAccessKeyIdCount = 1
             }
         };
 
         var rv = ReportView.From(a);
         Assert.Equal(2, rv.SecretsTokenFamilyCount);
+        Assert.Equal(1, rv.SecretsGitHubTokenCount);
+        Assert.Equal(1, rv.SecretsAwsAccessKeyIdCount);
 
         var map = rv.ToDictionary();
         Assert.True(map.ContainsKey("SecretsTokenFamilyCount"));
         Assert.Equal(2, map["SecretsTokenFamilyCount"]);
+        Assert.True(map.ContainsKey("SecretsGitHubTokenCount"));
+        Assert.True(map.ContainsKey("SecretsAwsAccessKeyIdCount"));
     }
 
     [Fact]
@@ -60,7 +66,10 @@ public class DetectionDetailsTests
             SecretsPrivateKeyCount = 1,
             SecretsJwtLikeCount = 2,
             SecretsKeyPatternCount = 3,
-            SecretsTokenFamilyCount = 4
+            SecretsTokenFamilyCount = 4,
+            SecretsGitHubTokenCount = 2,
+            SecretsAwsAccessKeyIdCount = 1,
+            SecretsSlackTokenCount = 1
         };
 
         var md = MarkdownRenderer.From(rv);
@@ -69,5 +78,8 @@ public class DetectionDetailsTests
         Assert.Contains("JWT-like tokens: 2", md);
         Assert.Contains("Key/secret patterns: 3", md);
         Assert.Contains("Token-family secrets: 4", md);
+        Assert.Contains("GitHub token-family: 2", md);
+        Assert.Contains("AWS access key id: 1", md);
+        Assert.Contains("Slack token-family: 1", md);
     }
 }

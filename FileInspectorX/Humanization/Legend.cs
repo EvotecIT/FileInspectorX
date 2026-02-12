@@ -87,6 +87,11 @@ public static class Legend
         ["secret:jwt"]       = new("secret:jwt",       "JWT-like token", "File contains tokens resembling JSON Web Tokens.", "Secrets", 60),
         ["secret:keypattern"] = new("secret:keypattern", "Key/secret pattern", "File contains long high-entropy key= or secret= values.", "Secrets", 50),
         ["secret:token"]     = new("secret:token",     "Token-family secret", "File contains known API token-family formats (e.g., GitHub/AWS/Slack-like).", "Secrets", 70),
+        ["secret:token:github"] = new("secret:token:github", "GitHub token-family", "File contains token patterns matching GitHub token families.", "Secrets", 75),
+        ["secret:token:gitlab"] = new("secret:token:gitlab", "GitLab token-family", "File contains token patterns matching GitLab token families.", "Secrets", 70),
+        ["secret:token:aws-akid"] = new("secret:token:aws-akid", "AWS access key id", "File contains AWS access key id token-family patterns.", "Secrets", 50),
+        ["secret:token:slack"] = new("secret:token:slack", "Slack token-family", "File contains token patterns matching Slack token families.", "Secrets", 75),
+        ["secret:token:stripe"] = new("secret:token:stripe", "Stripe live key", "File contains token patterns matching Stripe live key families.", "Secrets", 75),
         // Pattern-based notes (rendered via HumanizeFindings):
         // tool:<name> and toolhash:<name> are handled dynamically.
     };
