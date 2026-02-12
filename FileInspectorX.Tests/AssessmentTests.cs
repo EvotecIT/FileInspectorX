@@ -35,7 +35,9 @@ public class AssessmentTests
             {
                 PrivateKeyCount = 1,
                 KeyPatternCount = 2,
-                TokenFamilyCount = 3
+                TokenFamilyCount = 3,
+                GitHubTokenCount = 2,
+                AwsAccessKeyIdCount = 1
             }
         };
 
@@ -44,8 +46,9 @@ public class AssessmentTests
         Assert.Contains("Secret.PrivateKey", assessed.Codes);
         Assert.Contains("Secret.KeyPattern", assessed.Codes);
         Assert.Contains("Secret.KeyPattern.Volume", assessed.Codes);
-        Assert.Contains("Secret.TokenFamily", assessed.Codes);
-        Assert.Contains("Secret.TokenFamily.Volume", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.GitHub", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.GitHub.Volume", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.AwsAccessKeyId", assessed.Codes);
     }
 
     [Fact]
@@ -58,5 +61,9 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Secret.KeyPattern");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Volume");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.GitHub");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.AwsAccessKeyId");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Slack");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Stripe");
     }
 }

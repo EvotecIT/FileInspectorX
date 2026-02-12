@@ -256,6 +256,16 @@ public sealed class ReportView
     public int? SecretsKeyPatternCount { get; set; }
     /// <summary>Number of known token-family patterns found (e.g., GitHub/AWS/Slack-like formats).</summary>
     public int? SecretsTokenFamilyCount { get; set; }
+    /// <summary>Number of GitHub token-family matches.</summary>
+    public int? SecretsGitHubTokenCount { get; set; }
+    /// <summary>Number of GitLab token-family matches.</summary>
+    public int? SecretsGitLabTokenCount { get; set; }
+    /// <summary>Number of AWS access key id token-family matches.</summary>
+    public int? SecretsAwsAccessKeyIdCount { get; set; }
+    /// <summary>Number of Slack token-family matches.</summary>
+    public int? SecretsSlackTokenCount { get; set; }
+    /// <summary>Number of Stripe live/rk token-family matches.</summary>
+    public int? SecretsStripeLiveKeyCount { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -484,6 +494,11 @@ public sealed class ReportView
             r.SecretsJwtLikeCount = a.Secrets.JwtLikeCount;
             r.SecretsKeyPatternCount = a.Secrets.KeyPatternCount;
             r.SecretsTokenFamilyCount = a.Secrets.TokenFamilyCount;
+            r.SecretsGitHubTokenCount = a.Secrets.GitHubTokenCount;
+            r.SecretsGitLabTokenCount = a.Secrets.GitLabTokenCount;
+            r.SecretsAwsAccessKeyIdCount = a.Secrets.AwsAccessKeyIdCount;
+            r.SecretsSlackTokenCount = a.Secrets.SlackTokenCount;
+            r.SecretsStripeLiveKeyCount = a.Secrets.StripeLiveKeyCount;
         }
         if (r.SecurityFindings != null && r.SecurityFindings.Count > 0)
         {
@@ -733,6 +748,11 @@ public sealed class ReportView
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;
         if (SecretsKeyPatternCount.HasValue) d["SecretsKeyPatternCount"] = SecretsKeyPatternCount.Value;
         if (SecretsTokenFamilyCount.HasValue) d["SecretsTokenFamilyCount"] = SecretsTokenFamilyCount.Value;
+        if (SecretsGitHubTokenCount.HasValue) d["SecretsGitHubTokenCount"] = SecretsGitHubTokenCount.Value;
+        if (SecretsGitLabTokenCount.HasValue) d["SecretsGitLabTokenCount"] = SecretsGitLabTokenCount.Value;
+        if (SecretsAwsAccessKeyIdCount.HasValue) d["SecretsAwsAccessKeyIdCount"] = SecretsAwsAccessKeyIdCount.Value;
+        if (SecretsSlackTokenCount.HasValue) d["SecretsSlackTokenCount"] = SecretsSlackTokenCount.Value;
+        if (SecretsStripeLiveKeyCount.HasValue) d["SecretsStripeLiveKeyCount"] = SecretsStripeLiveKeyCount.Value;
         if (Advice != null)
         {
             d["Advice"] = new Dictionary<string, object?>

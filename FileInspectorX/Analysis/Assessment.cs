@@ -142,6 +142,9 @@ public static partial class FileInspector
             if (ext is "exe" or "dll") Add("Sig.Absent", 10);
         }
 
+        bool hasSpecificTokenFamilyFinding = (a.SecurityFindings ?? Array.Empty<string>()).Any(f =>
+            f.StartsWith("secret:token:", StringComparison.OrdinalIgnoreCase));
+
         // Scripts/text cues (neutral codes from SecurityFindings)
         foreach (var f in a.SecurityFindings ?? Array.Empty<string>())
         {
@@ -161,7 +164,14 @@ public static partial class FileInspector
                 case "secret:privkey": Add("Secret.PrivateKey", 40); break;
                 case "secret:jwt": Add("Secret.JWT", 25); break;
                 case "secret:keypattern": Add("Secret.KeyPattern", 15); break;
-                case "secret:token": Add("Secret.TokenFamily", 30); break;
+                case "secret:token":
+                    if (!hasSpecificTokenFamilyFinding) Add("Secret.TokenFamily", 30);
+                    break;
+                case "secret:token:github": Add("Secret.TokenFamily.GitHub", 32); break;
+                case "secret:token:gitlab": Add("Secret.TokenFamily.GitLab", 28); break;
+                case "secret:token:aws-akid": Add("Secret.TokenFamily.AwsAccessKeyId", 14); break;
+                case "secret:token:slack": Add("Secret.TokenFamily.Slack", 32); break;
+                case "secret:token:stripe": Add("Secret.TokenFamily.Stripe", 32); break;
             }
         }
 
@@ -172,7 +182,23 @@ public static partial class FileInspector
             ApplySecretCount("Secret.PrivateKey", secrets.PrivateKeyCount, baseWeight: 40, perExtraWeight: 8, maxExtraWeight: 24);
             ApplySecretCount("Secret.JWT", secrets.JwtLikeCount, baseWeight: 25, perExtraWeight: 4, maxExtraWeight: 16);
             ApplySecretCount("Secret.KeyPattern", secrets.KeyPatternCount, baseWeight: 15, perExtraWeight: 2, maxExtraWeight: 12);
-            ApplySecretCount("Secret.TokenFamily", secrets.TokenFamilyCount, baseWeight: 30, perExtraWeight: 4, maxExtraWeight: 20);
+
+            bool hasFamilyBreakdown = secrets.GitHubTokenCount > 0 || secrets.GitLabTokenCount > 0 ||
+                                      secrets.AwsAccessKeyIdCount > 0 || secrets.SlackTokenCount > 0 ||
+                                      secrets.StripeLiveKeyCount > 0;
+
+            if (hasFamilyBreakdown)
+            {
+                ApplySecretCount("Secret.TokenFamily.GitHub", secrets.GitHubTokenCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
+                ApplySecretCount("Secret.TokenFamily.GitLab", secrets.GitLabTokenCount, baseWeight: 28, perExtraWeight: 3, maxExtraWeight: 14);
+                ApplySecretCount("Secret.TokenFamily.AwsAccessKeyId", secrets.AwsAccessKeyIdCount, baseWeight: 14, perExtraWeight: 2, maxExtraWeight: 10);
+                ApplySecretCount("Secret.TokenFamily.Slack", secrets.SlackTokenCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
+                ApplySecretCount("Secret.TokenFamily.Stripe", secrets.StripeLiveKeyCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
+            }
+            else
+            {
+                ApplySecretCount("Secret.TokenFamily", secrets.TokenFamilyCount, baseWeight: 30, perExtraWeight: 4, maxExtraWeight: 20);
+            }
         }
 
         // Name/path issues

@@ -13,4 +13,14 @@ public sealed class SecretsSummary
     public int KeyPatternCount { get; set; }
     /// <summary>Number of known token-family patterns detected (e.g., GitHub/AWS/Slack key formats).</summary>
     public int TokenFamilyCount { get; set; }
+    /// <summary>Number of GitHub token-family matches.</summary>
+    public int GitHubTokenCount { get; set; }
+    /// <summary>Number of GitLab token-family matches.</summary>
+    public int GitLabTokenCount { get; set; }
+    /// <summary>Number of AWS access key id token-family matches.</summary>
+    public int AwsAccessKeyIdCount { get; set; }
+    /// <summary>Number of Slack token-family matches.</summary>
+    public int SlackTokenCount { get; set; }
+    /// <summary>Number of Stripe live/rk token-family matches.</summary>
+    public int StripeLiveKeyCount { get; set; }
 }

@@ -82,6 +82,11 @@ public static class MarkdownRenderer
             AppendSecretCount(sb, "JWT-like tokens", r.SecretsJwtLikeCount);
             AppendSecretCount(sb, "Key/secret patterns", r.SecretsKeyPatternCount);
             AppendSecretCount(sb, "Token-family secrets", r.SecretsTokenFamilyCount);
+            AppendSecretCount(sb, "GitHub token-family", r.SecretsGitHubTokenCount);
+            AppendSecretCount(sb, "GitLab token-family", r.SecretsGitLabTokenCount);
+            AppendSecretCount(sb, "AWS access key id", r.SecretsAwsAccessKeyIdCount);
+            AppendSecretCount(sb, "Slack token-family", r.SecretsSlackTokenCount);
+            AppendSecretCount(sb, "Stripe live key", r.SecretsStripeLiveKeyCount);
             sb.AppendLine();
         }
 
@@ -100,7 +105,12 @@ public static class MarkdownRenderer
             => (view.SecretsPrivateKeyCount ?? 0) > 0 ||
                (view.SecretsJwtLikeCount ?? 0) > 0 ||
                (view.SecretsKeyPatternCount ?? 0) > 0 ||
-               (view.SecretsTokenFamilyCount ?? 0) > 0;
+               (view.SecretsTokenFamilyCount ?? 0) > 0 ||
+               (view.SecretsGitHubTokenCount ?? 0) > 0 ||
+               (view.SecretsGitLabTokenCount ?? 0) > 0 ||
+               (view.SecretsAwsAccessKeyIdCount ?? 0) > 0 ||
+               (view.SecretsSlackTokenCount ?? 0) > 0 ||
+               (view.SecretsStripeLiveKeyCount ?? 0) > 0;
 
         static void AppendSecretCount(StringBuilder builder, string label, int? value)
         {

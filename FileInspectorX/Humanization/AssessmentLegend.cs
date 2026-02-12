@@ -79,6 +79,16 @@ public static class AssessmentLegend
         ["Secret.KeyPattern.Volume"] = new("Secret.KeyPattern.Volume","Multiple key patterns",     "Multiple key/secret patterns increased risk weight.", "Secrets", 60),
         ["Secret.TokenFamily"]      = new("Secret.TokenFamily",      "Token-family secret",       "File contains known API token-family formats (e.g., GitHub/AWS/Slack-like).", "Secrets", 70),
         ["Secret.TokenFamily.Volume"] = new("Secret.TokenFamily.Volume","Multiple token-family secrets","Multiple token-family secret indicators increased risk weight.", "Secrets", 80),
+        ["Secret.TokenFamily.GitHub"] = new("Secret.TokenFamily.GitHub", "GitHub token-family", "File contains token patterns matching GitHub token families.", "Secrets", 75),
+        ["Secret.TokenFamily.GitHub.Volume"] = new("Secret.TokenFamily.GitHub.Volume", "Multiple GitHub token-family indicators", "Multiple GitHub token-family indicators increased risk weight.", "Secrets", 80),
+        ["Secret.TokenFamily.GitLab"] = new("Secret.TokenFamily.GitLab", "GitLab token-family", "File contains token patterns matching GitLab token families.", "Secrets", 70),
+        ["Secret.TokenFamily.GitLab.Volume"] = new("Secret.TokenFamily.GitLab.Volume", "Multiple GitLab token-family indicators", "Multiple GitLab token-family indicators increased risk weight.", "Secrets", 75),
+        ["Secret.TokenFamily.AwsAccessKeyId"] = new("Secret.TokenFamily.AwsAccessKeyId", "AWS access key id", "File contains AWS access key id token-family patterns.", "Secrets", 50),
+        ["Secret.TokenFamily.AwsAccessKeyId.Volume"] = new("Secret.TokenFamily.AwsAccessKeyId.Volume", "Multiple AWS access key ids", "Multiple AWS access key id indicators increased risk weight.", "Secrets", 55),
+        ["Secret.TokenFamily.Slack"] = new("Secret.TokenFamily.Slack", "Slack token-family", "File contains token patterns matching Slack token families.", "Secrets", 75),
+        ["Secret.TokenFamily.Slack.Volume"] = new("Secret.TokenFamily.Slack.Volume", "Multiple Slack token-family indicators", "Multiple Slack token-family indicators increased risk weight.", "Secrets", 80),
+        ["Secret.TokenFamily.Stripe"] = new("Secret.TokenFamily.Stripe", "Stripe live key", "File contains token patterns matching Stripe live key families.", "Secrets", 75),
+        ["Secret.TokenFamily.Stripe.Volume"] = new("Secret.TokenFamily.Stripe.Volume", "Multiple Stripe live key indicators", "Multiple Stripe live key indicators increased risk weight.", "Secrets", 80),
     };
 
     /// <summary>Returns a stable, typed legend for assessment codes.</summary>

@@ -665,10 +665,11 @@ public static partial class FileInspector {
                         res.Secrets = ss;
                         // Ensure corresponding category notes are visible in neutral findings
                         var list2 = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                        if (ss.PrivateKeyCount > 0 && !list2.Contains("secret:privkey")) list2.Add("secret:privkey");
-                        if (ss.JwtLikeCount > 0    && !list2.Contains("secret:jwt"))     list2.Add("secret:jwt");
-                        if (ss.KeyPatternCount > 0 && !list2.Contains("secret:keypattern")) list2.Add("secret:keypattern");
-                        if (ss.TokenFamilyCount > 0 && !list2.Contains("secret:token")) list2.Add("secret:token");
+                        foreach (var code in SecurityHeuristics.GetSecretFindingCodes(ss))
+                        {
+                            if (!list2.Contains(code, StringComparer.OrdinalIgnoreCase))
+                                list2.Add(code);
+                        }
                         res.SecurityFindings = list2;
                     }
                 }
