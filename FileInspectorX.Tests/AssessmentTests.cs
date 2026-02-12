@@ -34,7 +34,8 @@ public class AssessmentTests
             Secrets = new SecretsSummary
             {
                 PrivateKeyCount = 1,
-                KeyPatternCount = 2
+                KeyPatternCount = 2,
+                TokenFamilyCount = 3
             }
         };
 
@@ -43,6 +44,8 @@ public class AssessmentTests
         Assert.Contains("Secret.PrivateKey", assessed.Codes);
         Assert.Contains("Secret.KeyPattern", assessed.Codes);
         Assert.Contains("Secret.KeyPattern.Volume", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.Volume", assessed.Codes);
     }
 
     [Fact]
@@ -53,5 +56,7 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Secret.JWT.Volume");
         Assert.Contains(legend, e => e.Code == "Secret.PrivateKey");
         Assert.Contains(legend, e => e.Code == "Secret.KeyPattern");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Volume");
     }
 }

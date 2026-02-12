@@ -11,5 +11,6 @@ public sealed class SecretsSummary
     public int JwtLikeCount { get; set; }
     /// <summary>Number of generic key= / secret= long-token patterns detected.</summary>
     public int KeyPatternCount { get; set; }
+    /// <summary>Number of known token-family patterns detected (e.g., GitHub/AWS/Slack key formats).</summary>
+    public int TokenFamilyCount { get; set; }
 }
-

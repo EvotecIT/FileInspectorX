@@ -32,4 +32,23 @@ public class DetectionDetailsTests
             if (File.Exists(p)) File.Delete(p);
         }
     }
+
+    [Fact]
+    public void ReportView_ToDictionary_Exports_SecretsTokenFamilyCount()
+    {
+        var a = new FileAnalysis
+        {
+            Secrets = new SecretsSummary
+            {
+                TokenFamilyCount = 2
+            }
+        };
+
+        var rv = ReportView.From(a);
+        Assert.Equal(2, rv.SecretsTokenFamilyCount);
+
+        var map = rv.ToDictionary();
+        Assert.True(map.ContainsKey("SecretsTokenFamilyCount"));
+        Assert.Equal(2, map["SecretsTokenFamilyCount"]);
+    }
 }

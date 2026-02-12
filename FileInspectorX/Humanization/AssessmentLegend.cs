@@ -77,6 +77,8 @@ public static class AssessmentLegend
         ["Secret.JWT.Volume"]       = new("Secret.JWT.Volume",       "Multiple JWT-like tokens",  "Multiple JWT-like tokens increased risk weight.", "Secrets", 70),
         ["Secret.KeyPattern"]       = new("Secret.KeyPattern",       "Key/secret pattern",        "File contains long key=/secret=/password= token patterns.", "Secrets", 50),
         ["Secret.KeyPattern.Volume"] = new("Secret.KeyPattern.Volume","Multiple key patterns",     "Multiple key/secret patterns increased risk weight.", "Secrets", 60),
+        ["Secret.TokenFamily"]      = new("Secret.TokenFamily",      "Token-family secret",       "File contains known API token-family formats (e.g., GitHub/AWS/Slack-like).", "Secrets", 70),
+        ["Secret.TokenFamily.Volume"] = new("Secret.TokenFamily.Volume","Multiple token-family secrets","Multiple token-family secret indicators increased risk weight.", "Secrets", 80),
     };
 
     /// <summary>Returns a stable, typed legend for assessment codes.</summary>

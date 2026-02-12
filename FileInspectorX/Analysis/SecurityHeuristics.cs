@@ -142,6 +142,8 @@ internal static partial class SecurityHeuristics
                 if (CountJwtLikeIndicators(text) > 0) findings.Add("secret:jwt");
 
                 if (CountKeyPatternIndicators(text) > 0) findings.Add("secret:keypattern");
+
+                if (CountTokenFamilyIndicators(text) > 0) findings.Add("secret:token");
             }
         } catch { }
         return findings;
@@ -410,6 +412,7 @@ internal static partial class SecurityHeuristics
                     findings.Add("secret:privkey");
                 if (CountJwtLikeIndicators(text) > 0) findings.Add("secret:jwt");
                 if (CountKeyPatternIndicators(text) > 0) findings.Add("secret:keypattern");
+                if (CountTokenFamilyIndicators(text) > 0) findings.Add("secret:token");
             }
         } catch { }
         return findings;
@@ -477,6 +480,7 @@ internal static partial class SecurityHeuristics
             s.PrivateKeyCount = CountPrivateKeyIndicators(text);
             s.JwtLikeCount = CountJwtLikeIndicators(text);
             s.KeyPatternCount = CountKeyPatternIndicators(text);
+            s.TokenFamilyCount = CountTokenFamilyIndicators(text);
         } catch { }
         return s;
     }
@@ -790,6 +794,190 @@ internal static partial class SecurityHeuristics
         }
         return len >= 20;
     }
+
+    private static int CountTokenFamilyIndicators(string text)
+    {
+        const int MaxMatches = 24;
+        try
+        {
+            int max = Math.Min(text.Length, 24 * 1024);
+            int i = 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            while (i < max && seen.Count < MaxMatches)
+            {
+                while (i < max && !IsTokenHeadChar(text[i])) i++;
+                if (i >= max) break;
+
+                int start = i;
+                while (i < max && IsTokenBodyChar(text[i])) i++;
+                int len = i - start;
+                if (len < 12) continue;
+
+                var token = TrimTokenNoise(text.Substring(start, len));
+                if (token.Length < 12 || token.Length > 200) continue;
+                if (LooksLikeKnownTokenFamily(token)) seen.Add(token);
+            }
+            return seen.Count;
+        }
+        catch { return 0; }
+    }
+
+    private static string TrimTokenNoise(string token)
+        => token.Trim(' ', '\t', '\r', '\n', '"', '\'', '`', '(', ')', '[', ']', '{', '}', '<', '>', ',', ';', '.');
+
+    private static bool LooksLikeKnownTokenFamily(string token)
+    {
+        return LooksLikeGitHubToken(token) ||
+               LooksLikeGitLabToken(token) ||
+               LooksLikeAwsAccessKeyId(token) ||
+               LooksLikeSlackToken(token) ||
+               LooksLikeStripeLiveToken(token);
+    }
+
+    private static bool LooksLikeGitHubToken(string token)
+    {
+        if (token.StartsWith("github_pat_", StringComparison.OrdinalIgnoreCase))
+        {
+            int p = "github_pat_".Length;
+            int bodyLen = token.Length - p;
+            return bodyLen >= 50 && bodyLen <= 180 && IsAlphaNumOrUnderscore(token, p);
+        }
+
+        string[] classic = new[] { "ghp_", "gho_", "ghu_", "ghs_", "ghr_" };
+        for (int i = 0; i < classic.Length; i++)
+        {
+            var prefix = classic[i];
+            if (!token.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            int p = prefix.Length;
+            int bodyLen = token.Length - p;
+            return bodyLen == 36 && IsAlphaNum(token, p);
+        }
+        return false;
+    }
+
+    private static bool LooksLikeGitLabToken(string token)
+    {
+        if (!token.StartsWith("glpat-", StringComparison.OrdinalIgnoreCase)) return false;
+        int p = "glpat-".Length;
+        int bodyLen = token.Length - p;
+        return bodyLen >= 20 && bodyLen <= 160 && IsAlphaNumOrUnderscoreDash(token, p);
+    }
+
+    private static bool LooksLikeAwsAccessKeyId(string token)
+    {
+        if (token.Length != 20) return false;
+        if (!(token.StartsWith("AKIA", StringComparison.Ordinal) || token.StartsWith("ASIA", StringComparison.Ordinal))) return false;
+        return IsUpperAlphaNum(token, 0);
+    }
+
+    private static bool LooksLikeSlackToken(string token)
+    {
+        var parts = token.Split(new[] { '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 4 || parts.Length > 6) return false;
+        if (!(parts[0].Equals("xoxb", StringComparison.OrdinalIgnoreCase) ||
+              parts[0].Equals("xoxp", StringComparison.OrdinalIgnoreCase) ||
+              parts[0].Equals("xoxa", StringComparison.OrdinalIgnoreCase) ||
+              parts[0].Equals("xoxs", StringComparison.OrdinalIgnoreCase) ||
+              parts[0].Equals("xoxr", StringComparison.OrdinalIgnoreCase))) return false;
+
+        int numericSegments = 0;
+        int longAlphaNumSegments = 0;
+        for (int i = 1; i < parts.Length; i++)
+        {
+            var seg = parts[i];
+            if (seg.Length == 0) return false;
+            if (IsDigits(seg))
+            {
+                if (seg.Length >= 6 || (parts[0].Equals("xoxa", StringComparison.OrdinalIgnoreCase) && seg == "2"))
+                    numericSegments++;
+            }
+            else if (seg.Length >= 12 && IsAlphaNum(seg, 0))
+            {
+                longAlphaNumSegments++;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        return numericSegments >= 1 && longAlphaNumSegments >= 1;
+    }
+
+    private static bool LooksLikeStripeLiveToken(string token)
+    {
+        if (token.StartsWith("sk_live_", StringComparison.OrdinalIgnoreCase))
+        {
+            int p = "sk_live_".Length;
+            int bodyLen = token.Length - p;
+            return bodyLen >= 16 && bodyLen <= 128 && IsAlphaNum(token, p);
+        }
+        if (token.StartsWith("rk_live_", StringComparison.OrdinalIgnoreCase))
+        {
+            int p = "rk_live_".Length;
+            int bodyLen = token.Length - p;
+            return bodyLen >= 16 && bodyLen <= 128 && IsAlphaNum(token, p);
+        }
+        return false;
+    }
+
+    private static bool IsDigits(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        for (int i = 0; i < s.Length; i++) if (s[i] < '0' || s[i] > '9') return false;
+        return true;
+    }
+
+    private static bool IsUpperAlphaNum(string s, int start)
+    {
+        if (string.IsNullOrEmpty(s) || start < 0 || start >= s.Length) return false;
+        for (int i = start; i < s.Length; i++)
+        {
+            char c = s[i];
+            bool ok = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static bool IsAlphaNum(string s, int start)
+    {
+        if (string.IsNullOrEmpty(s) || start < 0 || start >= s.Length) return false;
+        for (int i = start; i < s.Length; i++)
+        {
+            char c = s[i];
+            bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static bool IsAlphaNumOrUnderscore(string s, int start)
+    {
+        if (string.IsNullOrEmpty(s) || start < 0 || start >= s.Length) return false;
+        for (int i = start; i < s.Length; i++)
+        {
+            char c = s[i];
+            bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static bool IsAlphaNumOrUnderscoreDash(string s, int start)
+    {
+        if (string.IsNullOrEmpty(s) || start < 0 || start >= s.Length) return false;
+        for (int i = start; i < s.Length; i++)
+        {
+            char c = s[i];
+            bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static bool IsTokenHeadChar(char c) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+
+    private static bool IsTokenBodyChar(char c) => IsTokenHeadChar(c) || c == '_' || c == '-';
 
     private static bool IsJwtTokenChar(char c)
         => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';

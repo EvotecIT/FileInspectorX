@@ -254,6 +254,8 @@ public sealed class ReportView
     public int? SecretsJwtLikeCount { get; set; }
     /// <summary>Number of long key=/secret= value patterns found.</summary>
     public int? SecretsKeyPatternCount { get; set; }
+    /// <summary>Number of known token-family patterns found (e.g., GitHub/AWS/Slack-like formats).</summary>
+    public int? SecretsTokenFamilyCount { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -481,6 +483,7 @@ public sealed class ReportView
             r.SecretsPrivateKeyCount = a.Secrets.PrivateKeyCount;
             r.SecretsJwtLikeCount = a.Secrets.JwtLikeCount;
             r.SecretsKeyPatternCount = a.Secrets.KeyPatternCount;
+            r.SecretsTokenFamilyCount = a.Secrets.TokenFamilyCount;
         }
         if (r.SecurityFindings != null && r.SecurityFindings.Count > 0)
         {
@@ -729,6 +732,7 @@ public sealed class ReportView
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;
         if (SecretsKeyPatternCount.HasValue) d["SecretsKeyPatternCount"] = SecretsKeyPatternCount.Value;
+        if (SecretsTokenFamilyCount.HasValue) d["SecretsTokenFamilyCount"] = SecretsTokenFamilyCount.Value;
         if (Advice != null)
         {
             d["Advice"] = new Dictionary<string, object?>

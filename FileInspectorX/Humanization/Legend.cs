@@ -88,6 +88,7 @@ public static class Legend
         ["secret:privkey"]   = new("secret:privkey",   "Private key material", "File appears to contain private key PEM material.", "Secrets", 90),
         ["secret:jwt"]       = new("secret:jwt",       "JWT-like token", "File contains tokens resembling JSON Web Tokens.", "Secrets", 60),
         ["secret:keypattern"] = new("secret:keypattern", "Key/secret pattern", "File contains long high-entropy key= or secret= values.", "Secrets", 50),
+        ["secret:token"]     = new("secret:token",     "Token-family secret", "File contains known API token-family formats (e.g., GitHub/AWS/Slack-like).", "Secrets", 70),
         // Pattern-based notes (rendered via HumanizeFindings):
         // tool:<name> and toolhash:<name> are handled dynamically.
     };

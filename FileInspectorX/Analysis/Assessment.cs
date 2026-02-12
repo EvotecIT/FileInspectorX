@@ -161,6 +161,7 @@ public static partial class FileInspector
                 case "secret:privkey": Add("Secret.PrivateKey", 40); break;
                 case "secret:jwt": Add("Secret.JWT", 25); break;
                 case "secret:keypattern": Add("Secret.KeyPattern", 15); break;
+                case "secret:token": Add("Secret.TokenFamily", 30); break;
             }
         }
 
@@ -171,6 +172,7 @@ public static partial class FileInspector
             ApplySecretCount("Secret.PrivateKey", secrets.PrivateKeyCount, baseWeight: 40, perExtraWeight: 8, maxExtraWeight: 24);
             ApplySecretCount("Secret.JWT", secrets.JwtLikeCount, baseWeight: 25, perExtraWeight: 4, maxExtraWeight: 16);
             ApplySecretCount("Secret.KeyPattern", secrets.KeyPatternCount, baseWeight: 15, perExtraWeight: 2, maxExtraWeight: 12);
+            ApplySecretCount("Secret.TokenFamily", secrets.TokenFamilyCount, baseWeight: 30, perExtraWeight: 4, maxExtraWeight: 20);
         }
 
         // Name/path issues

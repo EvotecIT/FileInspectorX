@@ -657,7 +657,7 @@ public static partial class FileInspector {
                 if (Settings.SecretsScanEnabled)
                 {
                     var ss = SecurityHeuristics.CountSecrets(path, Settings.DetectionReadBudgetBytes);
-                    if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0)
+                    if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0 || ss.TokenFamilyCount > 0)
                     {
                         res.Secrets = ss;
                         // Ensure corresponding category notes are visible in neutral findings
@@ -665,6 +665,7 @@ public static partial class FileInspector {
                         if (ss.PrivateKeyCount > 0 && !list2.Contains("secret:privkey")) list2.Add("secret:privkey");
                         if (ss.JwtLikeCount > 0    && !list2.Contains("secret:jwt"))     list2.Add("secret:jwt");
                         if (ss.KeyPatternCount > 0 && !list2.Contains("secret:keypattern")) list2.Add("secret:keypattern");
+                        if (ss.TokenFamilyCount > 0 && !list2.Contains("secret:token")) list2.Add("secret:token");
                         res.SecurityFindings = list2;
                     }
                 }
