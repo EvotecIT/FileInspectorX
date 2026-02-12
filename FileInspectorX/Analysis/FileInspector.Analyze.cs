@@ -8,15 +8,6 @@ namespace FileInspectorX;
 /// Analysis routines implemented as part of the <see cref="FileInspector"/> facade.
 /// </summary>
 public static partial class FileInspector {
-    private struct ContainerInnerSample
-    {
-        public int ExecSampled;
-        public int Signed;
-        public int Valid;
-        public Dictionary<string,int> Publishers;
-        public ContainerInnerSample(int e, int s, int v, Dictionary<string,int> p) { ExecSampled = e; Signed = s; Valid = v; Publishers = p; }
-    }
-    private static ContainerInnerSample? _lastContainerInnerSample;
     // thresholds configured via Settings
 
     private static bool TryDecodeEncodedHead(string path, string ext, out byte[] decoded, out string encKind)
@@ -316,25 +307,31 @@ public static partial class FileInspector {
 
             // TAR scan hints
             if ((options?.IncludeContainer != false) && det.Extension == "tar") {
-                TryInspectTar(path, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives, out var tarPreview);
+                TryInspectTar(
+                    path,
+                    out int? count,
+                    out var topExt,
+                    out bool hasExec,
+                    out bool hasScripts,
+                    out bool hasNestedArchives,
+                    out var tarPreview,
+                    out int innerExecSampled,
+                    out int innerSignedSampled,
+                    out int innerValidSignedSampled,
+                    out Dictionary<string, int>? innerPublisherSample);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                 if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
                 if (tarPreview != null && tarPreview.Count > 0) res.ArchivePreviewEntries = tarPreview.Take(Settings.DeepContainerMaxEntries).ToList();
-                // Attach inner signer sampling results if available
-                if (_lastContainerInnerSample.HasValue)
+                if (innerExecSampled > 0)
                 {
-                    var s = _lastContainerInnerSample.Value;
-                    if (s.ExecSampled > 0)
-                    {
-                        res.InnerExecutablesSampled = s.ExecSampled;
-                        res.InnerSignedExecutables = s.Signed;
-                        res.InnerValidSignedExecutables = s.Valid;
-                        if (s.Publishers != null && s.Publishers.Count > 0) res.InnerPublisherCounts = new Dictionary<string,int>(s.Publishers);
-                    }
-                    _lastContainerInnerSample = null;
+                    res.InnerExecutablesSampled = innerExecSampled;
+                    res.InnerSignedExecutables = innerSignedSampled;
+                    res.InnerValidSignedExecutables = innerValidSignedSampled;
+                    if (innerPublisherSample != null && innerPublisherSample.Count > 0)
+                        res.InnerPublisherCounts = new Dictionary<string, int>(innerPublisherSample);
                 }
                 // Lightweight TAR safety preflight for traversal/absolute/symlink
                 try {
@@ -1428,9 +1425,10 @@ public static partial class FileInspector {
                             // Inner signer sampling for executables
                             if (looksExe && e.Length > 0 && e.Length <= deepBytes)
                             {
+                                string? tmp = null;
                                 try
                                 {
-                                    var tmp = System.IO.Path.GetTempFileName();
+                                    tmp = System.IO.Path.GetTempFileName();
                                     // write full entry within deepBytes
                                     // rebuild buffer from es2: ensure full up-to-cap content
                                     using (var fsout = System.IO.File.Create(tmp))
@@ -1444,7 +1442,6 @@ public static partial class FileInspector {
                                         }
                                     }
                                     var ia = FileInspector.Analyze(tmp);
-                                    try { System.IO.File.Delete(tmp); } catch { }
                                     innerExecutablesSampled++;
                                     if (ia?.Authenticode?.Present == true)
                                     {
@@ -1457,6 +1454,7 @@ public static partial class FileInspector {
                                         if (ia.Authenticode.IsSelfSigned == true) { if (innerPublisherSelf.TryGetValue(pub, out var ps)) innerPublisherSelf[pub] = ps + 1; else innerPublisherSelf[pub] = 1; }
                                     }
                                 } catch { }
+                                finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                         }
                     } catch { }
@@ -1807,8 +1805,20 @@ public static partial class FileInspector {
         } catch { return false; }
     }
 
-    private static void TryInspectTar(string path, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives, out List<InnerEntryPreview>? previews) {
+    private static void TryInspectTar(
+        string path,
+        out int? entryCount,
+        out IReadOnlyList<string>? topExtensions,
+        out bool hasExecutables,
+        out bool hasScripts,
+        out bool hasNestedArchives,
+        out List<InnerEntryPreview>? previews,
+        out int innerExecSampled,
+        out int innerSignedSampled,
+        out int innerValidSignedSampled,
+        out Dictionary<string, int>? innerPublisherSample) {
         entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null;
+        innerExecSampled = 0; innerSignedSampled = 0; innerValidSignedSampled = 0; innerPublisherSample = null;
         var localPreviews = new List<InnerEntryPreview>();
         int innerExecutablesSampled = 0, innerSignedExecutables = 0, innerValidSignedExecutables = 0;
         var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
@@ -1864,10 +1874,11 @@ public static partial class FileInspector {
                         // 2) Deep signers sampling for executable entries within budget
                         if (deep && IsExecutableName(name) && size <= deepBytes && deepScanned < deepMax)
                         {
+                            string? tmp = null;
                             try
                             {
                                 int cap = (int)Math.Min(size, deepBytes);
-                                var tmp = System.IO.Path.GetTempFileName();
+                                tmp = System.IO.Path.GetTempFileName();
                                 using (var outFs = System.IO.File.Create(tmp))
                                 {
                                     int left = cap;
@@ -1886,7 +1897,6 @@ public static partial class FileInspector {
                                 if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
 
                                 var ia = FileInspector.Analyze(tmp);
-                                try { System.IO.File.Delete(tmp); } catch { }
                                 deepScanned++;
                                 innerExecutablesSampled++;
                                 if (ia?.Authenticode?.Present == true)
@@ -1906,6 +1916,13 @@ public static partial class FileInspector {
                                 if (toSkipRem > 0) fs.Seek(toSkipRem, SeekOrigin.Current);
                                 continue;
                             }
+                            finally
+                            {
+                                if (!string.IsNullOrEmpty(tmp))
+                                {
+                                    try { System.IO.File.Delete(tmp); } catch { }
+                                }
+                            }
                         }
                         // 3) Not sampled – skip entire entry payload to next header
                         fs.Seek(pad, SeekOrigin.Current);
@@ -1918,11 +1935,10 @@ public static partial class FileInspector {
             entryCount = count;
             topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
             if (localPreviews.Count > 0) previews = localPreviews;
-            // Attach inner signer stats (if used) back to FileAnalysis via the caller
-            if (innerExecutablesSampled > 0)
-            {
-                _lastContainerInnerSample = new(innerExecutablesSampled, innerSignedExecutables, innerValidSignedExecutables, innerPublishers);
-            }
+            innerExecSampled = innerExecutablesSampled;
+            innerSignedSampled = innerSignedExecutables;
+            innerValidSignedSampled = innerValidSignedExecutables;
+            if (innerPublishers.Count > 0) innerPublisherSample = innerPublishers;
             // TAR is not a JAR/APK container; subtype/signing hints handled in ZIP logic.
         } catch { }
     }

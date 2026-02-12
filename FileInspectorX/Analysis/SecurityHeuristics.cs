@@ -310,7 +310,11 @@ internal static partial class SecurityHeuristics
             {
                 if (string.IsNullOrWhiteSpace(d)) continue;
                 var dom = d.Trim().ToLowerInvariant();
-                if (h.EndsWith(dom) || h.Equals(dom, StringComparison.Ordinal)) return true;
+                if (dom.StartsWith("*.", StringComparison.Ordinal)) dom = dom.Substring(2);
+                dom = dom.TrimStart('.');
+                if (dom.Length == 0) continue;
+                if (h.Equals(dom, StringComparison.Ordinal)) return true;
+                if (h.Length > dom.Length && h.EndsWith(dom, StringComparison.Ordinal) && h[h.Length - dom.Length - 1] == '.') return true;
             }
         } catch { }
         return false;
@@ -558,7 +562,36 @@ internal static partial class SecurityHeuristics
     private static bool IsShareChar(char c) => IsHostChar(c) || c == '$';
     private static int CountToken(string hay, string token) { int c = 0, idx = 0; while ((idx = hay.IndexOf(token, idx, StringComparison.Ordinal)) >= 0) { c++; idx += token.Length; if (c > 1000) break; } return c; }
     private static bool TryResolveHost(string host, int timeoutMs)
-    { try { using var cts = new System.Threading.CancellationTokenSource(timeoutMs); var t = System.Threading.Tasks.Task.Run(() => System.Net.Dns.GetHostEntry(host), cts.Token); return t.Wait(timeoutMs) && t.Result != null; } catch { return false; } }
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(host)) return false;
+            timeoutMs = Math.Max(1, timeoutMs);
+#if NET8_0_OR_GREATER
+            using var cts = new System.Threading.CancellationTokenSource(timeoutMs);
+            var addresses = System.Net.Dns.GetHostAddressesAsync(host, cts.Token).GetAwaiter().GetResult();
+            return addresses is { Length: > 0 };
+#else
+            var ar = System.Net.Dns.BeginGetHostEntry(host, null, null);
+            var waitHandle = ar.AsyncWaitHandle;
+            try
+            {
+                if (!waitHandle.WaitOne(timeoutMs)) return false;
+            }
+            finally
+            {
+                waitHandle.Close();
+            }
+
+            var entry = System.Net.Dns.EndGetHostEntry(ar);
+            return entry?.AddressList is { Length: > 0 };
+#endif
+        }
+        catch
+        {
+            return false;
+        }
+    }
     private static bool TryPingHost(string host, int timeoutMs)
     { try { using var ping = new System.Net.NetworkInformation.Ping(); var reply = ping.Send(host, timeoutMs); return reply?.Status == System.Net.NetworkInformation.IPStatus.Success; } catch { return false; } }
 
