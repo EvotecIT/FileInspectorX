@@ -52,7 +52,17 @@ public static partial class FileInspector
 
         void Add(string code, int weight)
         {
-            score += weight; codes.Add(code); factors[code] = weight;
+            if (string.IsNullOrWhiteSpace(code) || weight == 0) return;
+            score += weight;
+            if (factors.TryGetValue(code, out var existing))
+            {
+                factors[code] = existing + weight;
+            }
+            else
+            {
+                codes.Add(code);
+                factors[code] = weight;
+            }
         }
 
         // Containers and archives
@@ -151,7 +161,18 @@ public static partial class FileInspector
                 case "secret:privkey": Add("Secret.PrivateKey", 40); break;
                 case "secret:jwt": Add("Secret.JWT", 25); break;
                 case "secret:keypattern": Add("Secret.KeyPattern", 15); break;
+                case "secret:token": Add("Secret.TokenFamily", 30); break;
             }
+        }
+
+        // Secret counts add volume-aware weighting. This also covers callers that set Secrets directly.
+        var secrets = a.Secrets;
+        if (secrets != null)
+        {
+            ApplySecretCount("Secret.PrivateKey", secrets.PrivateKeyCount, baseWeight: 40, perExtraWeight: 8, maxExtraWeight: 24);
+            ApplySecretCount("Secret.JWT", secrets.JwtLikeCount, baseWeight: 25, perExtraWeight: 4, maxExtraWeight: 16);
+            ApplySecretCount("Secret.KeyPattern", secrets.KeyPatternCount, baseWeight: 15, perExtraWeight: 2, maxExtraWeight: 12);
+            ApplySecretCount("Secret.TokenFamily", secrets.TokenFamilyCount, baseWeight: 30, perExtraWeight: 4, maxExtraWeight: 20);
         }
 
         // Name/path issues
@@ -220,6 +241,16 @@ public static partial class FileInspector
         var decision = score >= Settings.AssessmentBlockThreshold ? AssessmentDecision.Block : (score >= Settings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
 
         return new AssessmentResult { Score = score, Decision = decision, Codes = codes, Factors = factors };
+
+        void ApplySecretCount(string baseCode, int count, int baseWeight, int perExtraWeight, int maxExtraWeight)
+        {
+            if (count <= 0) return;
+            if (!factors.ContainsKey(baseCode)) Add(baseCode, baseWeight);
+            var extra = Math.Max(0, count - 1);
+            if (extra <= 0 || perExtraWeight <= 0 || maxExtraWeight <= 0) return;
+            int volume = Math.Min(maxExtraWeight, extra * perExtraWeight);
+            if (volume > 0) Add(baseCode + ".Volume", volume);
+        }
     }
 
     private static bool IsAllowedVendor(string? name)

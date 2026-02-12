@@ -42,17 +42,123 @@ public class HeuristicsNewTests
     }
 
     [Fact]
-    public void Secrets_PrivKey_Jwt_KeyPattern_Detected()
+    public void Secrets_PrivKey_Jwt_KeyPattern_Token_Detected()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var txt = "-----BEGIN PRIVATE KEY-----\nMIICdTCCAd2...\n-----END PRIVATE KEY-----\nheader.payload.signature\nsecret=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\n";
+            var jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjoyMDAwMDAwMDAwfQ.VGhpcy1pcy1qd3Qtc2ln";
+            var ghp = "ghp_0123456789abcdef0123456789abcdef0123";
+            var txt = "-----BEGIN PRIVATE KEY-----\nMIICdTCCAd2...\n-----END PRIVATE KEY-----\n" + jwt + "\nsecret=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\ngithub_token=" + ghp + "\n";
             File.WriteAllText(p, txt);
             var a = FileInspector.Analyze(p);
             Assert.Contains("secret:privkey", a.SecurityFindings!);
             Assert.Contains("secret:jwt", a.SecurityFindings!);
             Assert.Contains("secret:keypattern", a.SecurityFindings!);
+            Assert.Contains("secret:token", a.SecurityFindings!);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_Jwt_DomainAndVersion_DoNotFalsePositive()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            var txt = "docs host=support.github.com version=10.20.30";
+            File.WriteAllText(p, txt);
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:jwt", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.JwtLikeCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_Counts_MultipleJwtAndKeyPatterns()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            var jwt1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJlMQ";
+            var jwt2 = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJhcGkiLCJpc3MiOiJ0ZXN0In0.c2lnbmF0dXJlMg";
+            var ghp = "ghp_0123456789abcdef0123456789abcdef0123";
+            var aws = "AKIAABCDEFGHIJKLMNOP";
+            var txt = string.Join("\n", new[]
+            {
+                new string('#', 600),
+                "note=this is plain text with embedded tokens",
+                "jwt_one=" + jwt1,
+                "jwt_two=" + jwt2,
+                "key=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+                "secret=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+                "password=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+                "github_token=" + ghp,
+                "aws_access_key_id=" + aws
+            });
+            File.WriteAllText(p, txt);
+            var a = FileInspector.Analyze(p);
+            Assert.NotNull(a.Secrets);
+            Assert.True(a.Secrets!.JwtLikeCount >= 2);
+            Assert.True(a.Secrets!.KeyPatternCount >= 3);
+            Assert.True(a.Secrets!.TokenFamilyCount >= 2);
+            Assert.Contains("secret:jwt", a.SecurityFindings!);
+            Assert.Contains("secret:keypattern", a.SecurityFindings!);
+            Assert.Contains("secret:token", a.SecurityFindings!);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_TokenFamily_Placeholders_DoNotFalsePositive()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            var slackPrefix = "xox" + "b";
+            var stripePrefix = "sk" + "_live_";
+            var txt = string.Join("\n", new[]
+            {
+                "github_token=ghp_EXAMPLEEXAMPLEEXAMPLEEXAMPLEABCD1234",
+                "aws_access_key_id=AKIAEXAMPLEEXAMPLE12",
+                "slack=" + slackPrefix + "-123456789012-EXAMPLEEXAMPLEEXAMPLEEXAMPLE12",
+                "placeholder=" + stripePrefix + "EXAMPLEEXAMPLEEXAMPLE1234"
+            });
+            File.WriteAllText(p, txt);
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_TokenFamily_AwsWithoutSecretContext_DoesNotDetect()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            File.WriteAllText(p, "identifier AKIAABCDEFGHIJKLMNOP value");
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_TokenFamily_AwsWithSecretContext_IsDetected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            File.WriteAllText(p, "aws_access_key_id=AKIAABCDEFGHIJKLMNOP");
+            var a = FileInspector.Analyze(p);
+            Assert.Contains("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.NotNull(a.Secrets);
+            Assert.True(a.Secrets!.TokenFamilyCount >= 1);
+        } finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Secrets_TokenFamily_PrefixInsideWord_DoesNotDetect()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try {
+            File.WriteAllText(p, "token=Aghp_0123456789abcdef0123456789abcdef0123");
+            var a = FileInspector.Analyze(p);
+            Assert.DoesNotContain("secret:token", a.SecurityFindings ?? Array.Empty<string>());
+            Assert.True(a.Secrets == null || a.Secrets.TokenFamilyCount == 0);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 }
-

@@ -19,6 +19,8 @@ public sealed class ReportView
     public string? DetectionConfidence { get; set; }
     /// <summary>Short textual reason describing the detection.</summary>
     public string? DetectionReason { get; set; }
+    /// <summary>Optional detailed cue description for the detection (e.g., js:cues-6).</summary>
+    public string? DetectionReasonDetails { get; set; }
     /// <summary>Structured validation status when applicable (passed/failed/timeout/skipped).</summary>
     public string? DetectionValidationStatus { get; set; }
     /// <summary>Detection score (0-100) used to rank candidates.</summary>
@@ -252,6 +254,8 @@ public sealed class ReportView
     public int? SecretsJwtLikeCount { get; set; }
     /// <summary>Number of long key=/secret= value patterns found.</summary>
     public int? SecretsKeyPatternCount { get; set; }
+    /// <summary>Number of known token-family patterns found (e.g., GitHub/AWS/Slack-like formats).</summary>
+    public int? SecretsTokenFamilyCount { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -265,6 +269,7 @@ public sealed class ReportView
             r.DetectedTypeName = a.Detection.MimeType;
             r.DetectionConfidence = a.Detection.Confidence;
             r.DetectionReason = a.Detection.Reason;
+            r.DetectionReasonDetails = a.Detection.ReasonDetails;
             r.DetectionValidationStatus = a.Detection.ValidationStatus;
             if (a.Detection.Score.HasValue) r.DetectionScore = a.Detection.Score;
             r.DetectionIsDangerous = a.Detection.IsDangerous;
@@ -478,6 +483,7 @@ public sealed class ReportView
             r.SecretsPrivateKeyCount = a.Secrets.PrivateKeyCount;
             r.SecretsJwtLikeCount = a.Secrets.JwtLikeCount;
             r.SecretsKeyPatternCount = a.Secrets.KeyPatternCount;
+            r.SecretsTokenFamilyCount = a.Secrets.TokenFamilyCount;
         }
         if (r.SecurityFindings != null && r.SecurityFindings.Count > 0)
         {
@@ -615,6 +621,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
+        if (DetectionReasonDetails != null) d["DetectionReasonDetails"] = DetectionReasonDetails;
         if (!string.IsNullOrEmpty(DetectionValidationStatus)) d["DetectionValidationStatus"] = DetectionValidationStatus;
         if (DetectionScore.HasValue) d["DetectionScore"] = DetectionScore.Value;
         if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
@@ -725,6 +732,7 @@ public sealed class ReportView
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;
         if (SecretsKeyPatternCount.HasValue) d["SecretsKeyPatternCount"] = SecretsKeyPatternCount.Value;
+        if (SecretsTokenFamilyCount.HasValue) d["SecretsTokenFamilyCount"] = SecretsTokenFamilyCount.Value;
         if (Advice != null)
         {
             d["Advice"] = new Dictionary<string, object?>

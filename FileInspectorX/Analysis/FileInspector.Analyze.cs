@@ -636,38 +636,31 @@ public static partial class FileInspector {
                     }
                 } catch { }
 
+                int heuristicsCap = Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
+                var heuristicsText = ReadHeadTextCached(heuristicsCap);
+
                 // Lightweight script security assessment
-                var sf = SecurityHeuristics.AssessScript(path, declaredExt, Settings.DetectionReadBudgetBytes);
+                var sf = SecurityHeuristics.AssessScriptFromText(heuristicsText, declaredExt);
                 if (sf.Count > 0) res.SecurityFindings = sf;
                 // Cmdlets: best-effort extraction for presentation (PowerShell only)
                 var psLang = res.ScriptLanguage ?? res.TextSubtype;
                 if (string.Equals(psLang, "powershell", StringComparison.OrdinalIgnoreCase))
                 {
-                    var cmdlets = SecurityHeuristics.GetCmdlets(path, Settings.DetectionReadBudgetBytes);
+                    var cmdlets = SecurityHeuristics.GetCmdletsFromText(heuristicsText);
                     if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
                 }
                 // Generic text/log/schema cues
-                var tf = SecurityHeuristics.AssessTextGeneric(path, declaredExt, Settings.DetectionReadBudgetBytes);
+                var tf = SecurityHeuristics.AssessTextGenericFromText(heuristicsText, declaredExt);
                 if (tf.Count > 0)
                 {
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     foreach (var x in tf) if (!list.Contains(x, StringComparer.OrdinalIgnoreCase)) list.Add(x);
                     res.SecurityFindings = list;
                 }
-                // Very permissive fallback for common JWT test token
-                try {
-                    var headTxt = ReadHeadTextCached(4096);
-                    if (!string.IsNullOrEmpty(headTxt) && headTxt.IndexOf("header.payload.signature", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                        if (!list.Contains("secret:jwt")) list.Add("secret:jwt");
-                        res.SecurityFindings = list;
-                    }
-                } catch { }
                 if (Settings.SecretsScanEnabled)
                 {
-                    var ss = SecurityHeuristics.CountSecrets(path, Settings.DetectionReadBudgetBytes);
-                    if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0)
+                    var ss = SecurityHeuristics.CountSecretsFromText(heuristicsText);
+                    if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0 || ss.TokenFamilyCount > 0)
                     {
                         res.Secrets = ss;
                         // Ensure corresponding category notes are visible in neutral findings
@@ -675,6 +668,7 @@ public static partial class FileInspector {
                         if (ss.PrivateKeyCount > 0 && !list2.Contains("secret:privkey")) list2.Add("secret:privkey");
                         if (ss.JwtLikeCount > 0    && !list2.Contains("secret:jwt"))     list2.Add("secret:jwt");
                         if (ss.KeyPatternCount > 0 && !list2.Contains("secret:keypattern")) list2.Add("secret:keypattern");
+                        if (ss.TokenFamilyCount > 0 && !list2.Contains("secret:token")) list2.Add("secret:token");
                         res.SecurityFindings = list2;
                     }
                 }

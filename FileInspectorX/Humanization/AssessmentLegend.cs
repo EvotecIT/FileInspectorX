@@ -69,6 +69,16 @@ public static class AssessmentLegend
         ["Encoded.InnerExecutable"] = new("Encoded.InnerExecutable", "Encoded inner executable",  "Decoded payload contains an executable module.", "Content", 60),
         ["Encoded.InnerScript"]     = new("Encoded.InnerScript",     "Encoded inner script",      "Decoded payload contains a script.", "Content", 50),
         ["Encoded.Embedded"]        = new("Encoded.Embedded",        "Embedded data URIs",        "HTML/script contains embedded base64 data URIs.", "Content", 35),
+
+        // Secrets
+        ["Secret.PrivateKey"]       = new("Secret.PrivateKey",       "Private key material",      "File appears to contain private key material.", "Secrets", 90),
+        ["Secret.PrivateKey.Volume"] = new("Secret.PrivateKey.Volume","Multiple private keys",     "Multiple private key indicators increased risk weight.", "Secrets", 95),
+        ["Secret.JWT"]              = new("Secret.JWT",              "JWT-like token",            "File contains tokens resembling JSON Web Tokens.", "Secrets", 60),
+        ["Secret.JWT.Volume"]       = new("Secret.JWT.Volume",       "Multiple JWT-like tokens",  "Multiple JWT-like tokens increased risk weight.", "Secrets", 70),
+        ["Secret.KeyPattern"]       = new("Secret.KeyPattern",       "Key/secret pattern",        "File contains long key=/secret=/password= token patterns.", "Secrets", 50),
+        ["Secret.KeyPattern.Volume"] = new("Secret.KeyPattern.Volume","Multiple key patterns",     "Multiple key/secret patterns increased risk weight.", "Secrets", 60),
+        ["Secret.TokenFamily"]      = new("Secret.TokenFamily",      "Token-family secret",       "File contains known API token-family formats (e.g., GitHub/AWS/Slack-like).", "Secrets", 70),
+        ["Secret.TokenFamily.Volume"] = new("Secret.TokenFamily.Volume","Multiple token-family secrets","Multiple token-family secret indicators increased risk weight.", "Secrets", 80),
     };
 
     /// <summary>Returns a stable, typed legend for assessment codes.</summary>
