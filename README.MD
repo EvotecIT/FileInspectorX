@@ -10,7 +10,7 @@
 💻 PowerShell Module
 
 [![powershell gallery version](https://img.shields.io/powershellgallery/v/FileInspectorX.svg)](https://www.powershellgallery.com/packages/FileInspectorX)
-[![powershell gallery preview](https://img.shields.io/powershellgallery/vpre/FileInspectorX.svg?label=powershell%20gallery%20preview&colorB=yellow)](https://www.powershellgallery.com/packages/FileInspectorX)
+[![powershell gallery preview](https://img.shields.io/powershellgallery/v/FileInspectorX.svg?label=powershell%20gallery%20preview&colorB=yellow&include_prereleases)](https://www.powershellgallery.com/packages/FileInspectorX)
 [![powershell gallery platforms](https://img.shields.io/powershellgallery/p/FileInspectorX.svg)](https://www.powershellgallery.com/packages/FileInspectorX)
 [![powershell gallery downloads](https://img.shields.io/powershellgallery/dt/FileInspectorX.svg)](https://www.powershellgallery.com/packages/FileInspectorX)
 
