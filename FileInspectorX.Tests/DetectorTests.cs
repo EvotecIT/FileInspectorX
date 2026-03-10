@@ -71,6 +71,32 @@ public class DetectorTests {
     }
 
     [Fact]
+    public void Analyze_Rar5_With_Encrypted_Headers_Flags_Archive() {
+        var rar = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".rar");
+        try {
+            File.WriteAllBytes(rar, CreateMinimalRar5Archive(headersEncrypted: true));
+
+            var analysis = FI.Analyze(rar);
+
+            Assert.Contains("rar5:headers-encrypted", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ArchiveHasEncryptedEntries) != 0);
+        } finally { if (File.Exists(rar)) File.Delete(rar); }
+    }
+
+    [Fact]
+    public void Analyze_Rar5_Without_Encrypted_Headers_DoesNotFlag_HeadersEncrypted() {
+        var rar = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".rar");
+        try {
+            File.WriteAllBytes(rar, CreateMinimalRar5Archive(headersEncrypted: false));
+
+            var analysis = FI.Analyze(rar);
+
+            Assert.DoesNotContain("rar5:headers-encrypted", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ArchiveHasEncryptedEntries) == 0);
+        } finally { if (File.Exists(rar)) File.Delete(rar); }
+    }
+
+    [Fact]
     public void Detect_Text_Json() {
         var json = Path.GetTempFileName();
         try {
@@ -460,4 +486,14 @@ public class DetectorTests {
             Assert.Equal("High", res.Confidence);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
+
+    private static byte[] CreateMinimalRar5Archive(bool headersEncrypted)
+        => new byte[] {
+            0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x03,
+            0x01,
+            headersEncrypted ? (byte)0x04 : (byte)0x00,
+            0x00
+        };
 }

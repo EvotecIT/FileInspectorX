@@ -189,6 +189,55 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void Analyze_Generates_Redacted_Secret_Details_With_LineNumbers()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0IiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJl";
+            var github = "ghp_0123456789abcdef0123456789abcdef0123";
+            var text = string.Join("\n", new[]
+            {
+                "header",
+                jwt,
+                "github_token=" + github
+            });
+            File.WriteAllText(p, text);
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.NotNull(analysis.Secrets);
+            Assert.NotNull(analysis.Secrets!.Findings);
+            Assert.Collection(
+                analysis.Secrets!.Findings!,
+                jwtFinding =>
+                {
+                    Assert.Equal("secret:jwt", jwtFinding.Code);
+                    Assert.Equal("Medium", jwtFinding.Confidence);
+                    Assert.Equal(2, jwtFinding.Line);
+                    Assert.Equal(Redact(jwt, keepHead: 8, keepTail: 6), jwtFinding.Evidence);
+                },
+                githubFinding =>
+                {
+                    Assert.Equal("secret:token:github", githubFinding.Code);
+                    Assert.Equal("High", githubFinding.Confidence);
+                    Assert.Equal(3, githubFinding.Line);
+                    Assert.Equal(Redact(github, keepHead: 9, keepTail: 4), githubFinding.Evidence);
+                });
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+
+        static string Redact(string token, int keepHead, int keepTail)
+        {
+            int middle = token.Length - keepHead - keepTail;
+            return token.Substring(0, keepHead) + new string('*', middle) + token.Substring(token.Length - keepTail, keepTail);
+        }
+    }
+
+    [Fact]
     public void Report_And_Markdown_Expose_MultiAssessment_Profile_Decisions()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;
