@@ -153,6 +153,42 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void CollectMetadata_Exports_New_Secret_Detail_Surface()
+    {
+        var analysis = new FileAnalysis
+        {
+            Secrets = new SecretsSummary
+            {
+                GcpApiKeyCount = 1,
+                NpmTokenCount = 2,
+                AzureSasTokenCount = 1,
+                Findings = new[]
+                {
+                    new SecretFindingDetail
+                    {
+                        Code = "secret:token:azure-sas",
+                        Confidence = "High",
+                        Line = 9,
+                        Evidence = "sv=20...sig=abCD"
+                    }
+                }
+            }
+        };
+
+        var metadata = FileInspector.CollectMetadata(analysis);
+
+        Assert.Equal(1, metadata["SecretsGcpApiKeyCount"]);
+        Assert.Equal(2, metadata["SecretsNpmTokenCount"]);
+        Assert.Equal(1, metadata["SecretsAzureSasTokenCount"]);
+        var findings = Assert.IsAssignableFrom<IReadOnlyList<SecretFindingDetail>>(metadata["SecretsFindings"]);
+        Assert.Single(findings);
+        Assert.Equal("secret:token:azure-sas", findings[0].Code);
+        Assert.Equal("High", findings[0].Confidence);
+        Assert.Equal(9, findings[0].Line);
+        Assert.Equal("sv=20...sig=abCD", findings[0].Evidence);
+    }
+
+    [Fact]
     public void Report_And_Markdown_Expose_MultiAssessment_Profile_Decisions()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;
