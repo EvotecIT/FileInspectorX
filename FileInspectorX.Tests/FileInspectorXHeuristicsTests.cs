@@ -307,6 +307,35 @@ Get-ChildItem -Path . | Out-String
         Xunit.Assert.Contains("alt-danger:ps1", cmp.Reason, StringComparison.Ordinal);
     }
 
+    [Xunit.Fact]
+    public void CompareDeclaredDetailed_Normalizes_Custom_Dangerous_Extension_Set()
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = "txt",
+            MimeType = "text/plain",
+            Confidence = "Low",
+            Reason = "text:plain",
+            Alternatives = new[]
+            {
+                new ContentTypeDetectionCandidate
+                {
+                    Extension = "ps1",
+                    MimeType = "text/x-powershell",
+                    Confidence = "High",
+                    Score = 91,
+                    Reason = "text:ps1"
+                }
+            }
+        };
+
+        var cmp = FileInspector.CompareDeclaredDetailed("txt", det, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ps1" });
+
+        Xunit.Assert.True(cmp.IsDetectedDangerous);
+        Xunit.Assert.NotNull(cmp.StrongDangerousAlternativeExtensions);
+        Xunit.Assert.Equal(new[] { "ps1" }, cmp.StrongDangerousAlternativeExtensions);
+        Xunit.Assert.Contains("alt-danger:ps1", cmp.Reason, StringComparison.Ordinal);
+    }
     private static string WriteTemp(string ext, string content)
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ext);
