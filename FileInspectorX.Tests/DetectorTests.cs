@@ -411,6 +411,36 @@ public class DetectorTests {
     }
 
     [Fact]
+    public void Analyze_Zip_With_Inner_Zip_Flags_Nested_Archive_Subtype() {
+        var p = Path.GetTempFileName();
+        var zip = p + ".zip";
+        try {
+            byte[] innerZipBytes;
+            using (var ms = new MemoryStream())
+            {
+                using (var inner = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    var entry = inner.CreateEntry("payload.txt");
+                    using var s = new StreamWriter(entry.Open());
+                    s.Write("hello");
+                }
+                innerZipBytes = ms.ToArray();
+            }
+
+            using (var fs = File.Create(zip))
+            using (var outer = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: true)) {
+                var nested = outer.CreateEntry("inner.zip");
+                using var nestedStream = nested.Open();
+                nestedStream.Write(innerZipBytes, 0, innerZipBytes.Length);
+            }
+
+            var analysis = FI.Analyze(zip);
+            Assert.Equal("nested-archive", analysis.ContainerSubtype);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsArchives) != 0);
+        } finally { if (File.Exists(p)) File.Delete(p); if (File.Exists(zip)) File.Delete(zip); }
+    }
+
+    [Fact]
     public void Udf_High_When_Bea_Before_Nsr_And_Tea_After() {
         var p = Path.GetTempFileName();
         try {
