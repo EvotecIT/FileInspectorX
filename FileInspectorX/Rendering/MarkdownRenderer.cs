@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace FileInspectorX;
@@ -87,6 +88,20 @@ public static class MarkdownRenderer
             AppendSecretCount(sb, "AWS access key id", r.SecretsAwsAccessKeyIdCount);
             AppendSecretCount(sb, "Slack token-family", r.SecretsSlackTokenCount);
             AppendSecretCount(sb, "Stripe live key", r.SecretsStripeLiveKeyCount);
+            AppendSecretCount(sb, "GCP API key", r.SecretsGcpApiKeyCount);
+            AppendSecretCount(sb, "npm token-family", r.SecretsNpmTokenCount);
+            AppendSecretCount(sb, "Azure SAS token-family", r.SecretsAzureSasTokenCount);
+            if (r.SecretsFindings is { Count: > 0 })
+            {
+                sb.AppendLine("- Findings:");
+                foreach (var f in r.SecretsFindings.Take(6))
+                {
+                    if (f == null) continue;
+                    var linePart = f.Line.HasValue ? $" line {f.Line.Value}" : string.Empty;
+                    var evidence = string.IsNullOrWhiteSpace(f.Evidence) ? string.Empty : $" -> `{f.Evidence}`";
+                    sb.AppendLine($"  - [{f.Confidence}] {f.Code}{linePart}{evidence}");
+                }
+            }
             sb.AppendLine();
         }
 
@@ -120,7 +135,11 @@ public static class MarkdownRenderer
                (view.SecretsGitLabTokenCount ?? 0) > 0 ||
                (view.SecretsAwsAccessKeyIdCount ?? 0) > 0 ||
                (view.SecretsSlackTokenCount ?? 0) > 0 ||
-               (view.SecretsStripeLiveKeyCount ?? 0) > 0;
+               (view.SecretsStripeLiveKeyCount ?? 0) > 0 ||
+               (view.SecretsGcpApiKeyCount ?? 0) > 0 ||
+               (view.SecretsNpmTokenCount ?? 0) > 0 ||
+               (view.SecretsAzureSasTokenCount ?? 0) > 0 ||
+               (view.SecretsFindings != null && view.SecretsFindings.Count > 0);
 
         static void AppendSecretCount(StringBuilder builder, string label, int? value)
         {

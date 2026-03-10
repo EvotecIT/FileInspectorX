@@ -84,6 +84,75 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void Report_And_Markdown_Expose_New_Secret_Details()
+    {
+        var a = new FileAnalysis
+        {
+            Secrets = new SecretsSummary
+            {
+                GcpApiKeyCount = 1,
+                NpmTokenCount = 2,
+                AzureSasTokenCount = 1,
+                Findings = new[]
+                {
+                    new SecretFindingDetail
+                    {
+                        Code = "secret:token:gcp-apikey",
+                        Confidence = "High",
+                        Line = 12,
+                        Evidence = "AIzaSy...9x2Q"
+                    },
+                    new SecretFindingDetail
+                    {
+                        Code = "secret:token:npm",
+                        Confidence = "Medium",
+                        Line = 24,
+                        Evidence = "npm_12...abCD"
+                    }
+                }
+            }
+        };
+
+        var rv = ReportView.From(a);
+        Assert.Equal(1, rv.SecretsGcpApiKeyCount);
+        Assert.Equal(2, rv.SecretsNpmTokenCount);
+        Assert.Equal(1, rv.SecretsAzureSasTokenCount);
+        Assert.NotNull(rv.SecretsFindings);
+        Assert.Collection(
+            rv.SecretsFindings!,
+            finding =>
+            {
+                Assert.Equal("secret:token:gcp-apikey", finding.Code);
+                Assert.Equal("High", finding.Confidence);
+                Assert.Equal(12, finding.Line);
+                Assert.Equal("AIzaSy...9x2Q", finding.Evidence);
+            },
+            finding =>
+            {
+                Assert.Equal("secret:token:npm", finding.Code);
+                Assert.Equal("Medium", finding.Confidence);
+                Assert.Equal(24, finding.Line);
+                Assert.Equal("npm_12...abCD", finding.Evidence);
+            });
+
+        var map = rv.ToDictionary();
+        Assert.Equal(1, map["SecretsGcpApiKeyCount"]);
+        Assert.Equal(2, map["SecretsNpmTokenCount"]);
+        Assert.Equal(1, map["SecretsAzureSasTokenCount"]);
+        var findings = Assert.IsAssignableFrom<IReadOnlyList<SecretFindingDetail>>(map["SecretsFindings"]);
+        Assert.Equal(2, findings.Count);
+        Assert.Equal("secret:token:gcp-apikey", findings[0].Code);
+        Assert.Equal("secret:token:npm", findings[1].Code);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("GCP API key: 1", md);
+        Assert.Contains("npm token-family: 2", md);
+        Assert.Contains("Azure SAS token-family: 1", md);
+        Assert.Contains("[High] secret:token:gcp-apikey line 12 -> `AIzaSy...9x2Q`", md);
+        Assert.Contains("[Medium] secret:token:npm line 24 -> `npm_12...abCD`", md);
+    }
+
+    [Fact]
     public void Report_And_Markdown_Expose_MultiAssessment_Profile_Decisions()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;

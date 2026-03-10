@@ -393,10 +393,13 @@ public static partial class FileInspector {
                     }
                     else
                     {
-                        if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
-                        var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                        list.Add("rar5:headers-encrypted");
-                        res.SecurityFindings = list;
+                        if (TryInspectRarQuick(path))
+                        {
+                            res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
+                            var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                            list.Add("rar5:headers-encrypted");
+                            res.SecurityFindings = list;
+                        }
                     }
                 } catch { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
             }

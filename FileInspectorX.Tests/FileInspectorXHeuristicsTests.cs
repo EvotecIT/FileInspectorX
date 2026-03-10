@@ -173,6 +173,21 @@ Get-ChildItem -Path . | Out-String
     }
 
     [Xunit.Fact]
+    public void CompareDeclared_Txt_Vs_PowerShell_Remains_Mismatch()
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = "ps1",
+            MimeType = "text/x-powershell",
+            Confidence = "High",
+            Reason = "text:ps1"
+        };
+
+        var cmp = FileInspector.CompareDeclared("txt", det);
+        Xunit.Assert.True(cmp.Mismatch);
+    }
+
+    [Xunit.Fact]
     public void Detect_Span_Respects_DeclaredExtension_Bias()
     {
         var xml = "<?xml version=\"1.0\"?><policyDefinitions></policyDefinitions>";
