@@ -526,6 +526,10 @@ internal static partial class SecurityHeuristics
             s.AwsAccessKeyIdCount = tokenFamilies.AwsAccessKeyIdCount;
             s.SlackTokenCount = tokenFamilies.SlackCount;
             s.StripeLiveKeyCount = tokenFamilies.StripeLiveCount;
+            s.GcpApiKeyCount = tokenFamilies.GcpApiKeyCount;
+            s.NpmTokenCount = tokenFamilies.NpmTokenCount;
+            s.AzureSasTokenCount = tokenFamilies.AzureSasCount;
+            s.Findings = BuildSecretFindingDetails(source, s, tokenFamilies);
         } catch { }
         return s;
     }
@@ -533,7 +537,7 @@ internal static partial class SecurityHeuristics
     internal static IReadOnlyList<string> GetSecretFindingCodes(SecretsSummary? secrets)
     {
         if (secrets == null) return Array.Empty<string>();
-        var codes = new List<string>(9);
+        var codes = new List<string>(12);
         if (secrets.PrivateKeyCount > 0) codes.Add("secret:privkey");
         if (secrets.JwtLikeCount > 0) codes.Add("secret:jwt");
         if (secrets.KeyPatternCount > 0) codes.Add("secret:keypattern");
@@ -543,7 +547,68 @@ internal static partial class SecurityHeuristics
         if (secrets.AwsAccessKeyIdCount > 0) codes.Add("secret:token:aws-akid");
         if (secrets.SlackTokenCount > 0) codes.Add("secret:token:slack");
         if (secrets.StripeLiveKeyCount > 0) codes.Add("secret:token:stripe");
+        if (secrets.GcpApiKeyCount > 0) codes.Add("secret:token:gcp-apikey");
+        if (secrets.NpmTokenCount > 0) codes.Add("secret:token:npm");
+        if (secrets.AzureSasTokenCount > 0) codes.Add("secret:token:azure-sas");
         return codes;
+    }
+
+    private static IReadOnlyList<SecretFindingDetail> BuildSecretFindingDetails(string text, SecretsSummary summary, TokenFamilyCounters tokenFamilies)
+    {
+        var details = new List<SecretFindingDetail>(12);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddDetail(string code, string confidence, int index, string evidence)
+        {
+            if (details.Count >= 12) return;
+            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(evidence)) return;
+            string key = code + "|" + evidence;
+            if (!seen.Add(key)) return;
+            details.Add(new SecretFindingDetail
+            {
+                Code = code,
+                Confidence = confidence,
+                Line = GetLineNumber(text, index),
+                Evidence = evidence
+            });
+        }
+
+        if (summary.PrivateKeyCount > 0 && TryFindAnyPrivateKeyMarker(text, out var marker, out var markerIndex))
+            AddDetail("secret:privkey", "High", markerIndex, marker);
+
+        if (summary.JwtLikeCount > 0)
+        {
+            foreach (var token in CollectJwtTokens(text, maxMatches: 3))
+                AddDetail("secret:jwt", "Medium", token.Index, RedactToken(token.Token, keepHead: 8, keepTail: 6));
+        }
+
+        if (summary.KeyPatternCount > 0)
+        {
+            foreach (var m in CollectKeyPatternEvidence(text, maxMatches: 3))
+                AddDetail("secret:keypattern", "Medium", m.Index, m.Evidence);
+        }
+
+        foreach (var match in tokenFamilies.Samples)
+        {
+            var code = SecretCodeFromTokenFamily(match.Family);
+            if (string.IsNullOrEmpty(code)) continue;
+            AddDetail(code, SecretConfidenceFromTokenFamily(match.Family), match.Index, RedactToken(match.Token, keepHead: 9, keepTail: 4));
+            if (details.Count >= 12) break;
+        }
+
+        return details;
+    }
+
+    private sealed class JwtTokenMatch
+    {
+        public string Token { get; set; } = string.Empty;
+        public int Index { get; set; }
+    }
+
+    private sealed class KeyPatternEvidence
+    {
+        public int Index { get; set; }
+        public string Evidence { get; set; } = string.Empty;
     }
 
     private static bool ContainsAny(string hay, IEnumerable<string> needles) {
@@ -731,6 +796,33 @@ internal static partial class SecurityHeuristics
         catch { return 0; }
     }
 
+    private static IEnumerable<JwtTokenMatch> CollectJwtTokens(string text, int maxMatches)
+    {
+        var matches = new List<JwtTokenMatch>(Math.Max(0, maxMatches));
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            int max = Math.Min(text.Length, 16 * 1024);
+            int i = 0;
+            while (i < max && matches.Count < maxMatches)
+            {
+                while (i < max && !IsJwtTokenChar(text[i])) i++;
+                if (i >= max) break;
+
+                int start = i;
+                while (i < max && IsJwtTokenChar(text[i])) i++;
+                int len = i - start;
+                if (len < 24) continue;
+
+                var token = text.Substring(start, len);
+                if (!LooksLikeJwtToken(token) || !seen.Add(token)) continue;
+                matches.Add(new JwtTokenMatch { Token = token, Index = start });
+            }
+        }
+        catch { }
+        return matches;
+    }
+
     private static bool LooksLikeJwtToken(string token)
     {
         if (string.IsNullOrWhiteSpace(token)) return false;
@@ -835,6 +927,78 @@ internal static partial class SecurityHeuristics
         return count;
     }
 
+    private static IEnumerable<KeyPatternEvidence> CollectKeyPatternEvidence(string text, int maxMatches)
+    {
+        var matches = new List<KeyPatternEvidence>(Math.Max(0, maxMatches));
+        try
+        {
+            var t = text;
+            int max = Math.Min(t.Length, 4096);
+            for (int i = 0; i < max - 6 && matches.Count < maxMatches; i++)
+            {
+                string? label = null;
+                int valueStart = -1;
+                bool isConnectionString = false;
+                if ((t[i] == 'k' || t[i] == 'K') && SpanEqualsIgnoreCase(t, i, "key=", max))
+                {
+                    label = "key";
+                    valueStart = i + 4;
+                }
+                else if ((t[i] == 's' || t[i] == 'S') && SpanEqualsIgnoreCase(t, i, "secret=", max))
+                {
+                    label = "secret";
+                    valueStart = i + 7;
+                }
+                else if ((t[i] == 'p' || t[i] == 'P') && SpanEqualsIgnoreCase(t, i, "password=", max))
+                {
+                    label = "password";
+                    valueStart = i + 9;
+                }
+                else if ((t[i] == 'p' || t[i] == 'P') && SpanEqualsIgnoreCase(t, i, "pwd=", max))
+                {
+                    label = "pwd";
+                    valueStart = i + 4;
+                }
+                else if ((t[i] == 'c' || t[i] == 'C') && SpanEqualsIgnoreCase(t, i, "connectionstring=", max))
+                {
+                    label = "connectionstring";
+                    valueStart = i + "connectionstring=".Length;
+                    isConnectionString = true;
+                }
+
+                if (label == null) continue;
+                if (isConnectionString)
+                {
+                    int window = Math.Min(max, i + 256);
+                    var slice = t.Substring(i, window - i);
+                    if (slice.IndexOf("password=", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        slice.IndexOf("pwd=", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+
+                    matches.Add(new KeyPatternEvidence
+                    {
+                        Index = i,
+                        Evidence = "connectionstring=<redacted>"
+                    });
+                    continue;
+                }
+
+                if (!TryGetLongTokenAfter(t, valueStart, out var tokenStart, out var candidate))
+                    continue;
+
+                matches.Add(new KeyPatternEvidence
+                {
+                    Index = i,
+                    Evidence = label + "=" + RedactToken(candidate, keepHead: 4, keepTail: 4)
+                });
+            }
+        }
+        catch { }
+        return matches;
+    }
+
     private static bool SpanEqualsIgnoreCase(string text, int start, string token, int max)
     {
         if (start < 0 || start + token.Length > max || start + token.Length > text.Length) return false;
@@ -847,9 +1011,16 @@ internal static partial class SecurityHeuristics
 
     private static bool HasLongTokenAfter(string t, int start)
     {
+        return TryGetLongTokenAfter(t, start, out _, out _);
+    }
+
+    private static bool TryGetLongTokenAfter(string t, int start, out int tokenStart, out string candidate)
+    {
+        tokenStart = -1;
+        candidate = string.Empty;
         int i = start;
         while (i < t.Length && (t[i] == ' ' || t[i] == '"' || t[i] == '\'')) i++;
-        int tokenStart = i;
+        tokenStart = i;
         int max = Math.Min(t.Length, start + 256);
         for (; i < max; i++)
         {
@@ -859,7 +1030,7 @@ internal static partial class SecurityHeuristics
         }
         int len = i - tokenStart;
         if (len < 20) return false;
-        var candidate = t.Substring(tokenStart, len);
+        candidate = t.Substring(tokenStart, len);
         if (LooksLikePlaceholderToken(candidate)) return false;
         if (IsLowDiversityToken(candidate)) return false;
         return true;
@@ -872,15 +1043,26 @@ internal static partial class SecurityHeuristics
         GitLab = 2,
         AwsAccessKeyId = 3,
         Slack = 4,
-        StripeLive = 5
+        StripeLive = 5,
+        GcpApiKey = 6,
+        NpmToken = 7,
+        AzureSas = 8
     }
 
     private static int CountTokenFamilyIndicators(string text)
         => CountTokenFamilyIndicatorsDetailed(text).TotalCount;
 
+    private sealed class TokenFamilyMatch
+    {
+        public string Token { get; set; } = string.Empty;
+        public TokenFamilyKind Family { get; set; } = TokenFamilyKind.Unknown;
+        public int Index { get; set; }
+    }
+
     private sealed class TokenFamilyCounters
     {
         private readonly HashSet<string> _seenTokens = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<TokenFamilyMatch> _samples = new(8);
 
         public int TotalCount => _seenTokens.Count;
         public int GitHubCount { get; private set; }
@@ -888,8 +1070,12 @@ internal static partial class SecurityHeuristics
         public int AwsAccessKeyIdCount { get; private set; }
         public int SlackCount { get; private set; }
         public int StripeLiveCount { get; private set; }
+        public int GcpApiKeyCount { get; private set; }
+        public int NpmTokenCount { get; private set; }
+        public int AzureSasCount { get; private set; }
+        public IReadOnlyList<TokenFamilyMatch> Samples => _samples;
 
-        public bool TryAddToken(string token, TokenFamilyKind family)
+        public bool TryAddToken(string token, TokenFamilyKind family, int index)
         {
             if (string.IsNullOrWhiteSpace(token) || family == TokenFamilyKind.Unknown) return false;
             if (!_seenTokens.Add(token)) return false;
@@ -900,6 +1086,18 @@ internal static partial class SecurityHeuristics
                 case TokenFamilyKind.AwsAccessKeyId: AwsAccessKeyIdCount++; break;
                 case TokenFamilyKind.Slack: SlackCount++; break;
                 case TokenFamilyKind.StripeLive: StripeLiveCount++; break;
+                case TokenFamilyKind.GcpApiKey: GcpApiKeyCount++; break;
+                case TokenFamilyKind.NpmToken: NpmTokenCount++; break;
+                case TokenFamilyKind.AzureSas: AzureSasCount++; break;
+            }
+            if (_samples.Count < 10)
+            {
+                _samples.Add(new TokenFamilyMatch
+                {
+                    Token = token,
+                    Family = family,
+                    Index = Math.Max(0, index)
+                });
             }
             return true;
         }
@@ -931,6 +1129,9 @@ internal static partial class SecurityHeuristics
             ProbePrefix(text, max, "xoxr-", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
             ProbePrefix(text, max, "sk_live_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
             ProbePrefix(text, max, "rk_live_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbePrefix(text, max, "AIza", StringComparison.Ordinal, counters, MaxMatches);
+            ProbePrefix(text, max, "npm_", StringComparison.OrdinalIgnoreCase, counters, MaxMatches);
+            ProbeAzureSas(text, max, counters, MaxMatches);
         }
         catch { }
         return counters;
@@ -968,7 +1169,7 @@ internal static partial class SecurityHeuristics
                 if (token.Length >= 12 && token.Length <= 200 && TryGetTokenFamily(token, out var family))
                 {
                     if (!LooksLikePlaceholderToken(token) && (!RequiresContext(family) || HasSecretLikeContext(text, at, end, family)))
-                        counters.TryAddToken(token, family);
+                        counters.TryAddToken(token, family, at);
                 }
             }
 
@@ -976,8 +1177,108 @@ internal static partial class SecurityHeuristics
         }
     }
 
+    private static void ProbeAzureSas(string text, int max, TokenFamilyCounters counters, int maxMatches)
+    {
+        if (string.IsNullOrEmpty(text) || max <= 0) return;
+        int i = 0;
+        while (i < max && counters.TotalCount < maxMatches)
+        {
+            int at = text.IndexOf("sig=", i, StringComparison.OrdinalIgnoreCase);
+            if (at < 0 || at >= max) break;
+
+            int start = at;
+            while (start > 0 && !IsSecretDelimiter(text[start - 1])) start--;
+            int end = at;
+            while (end < max && !IsSecretDelimiter(text[end])) end++;
+            if (end > start)
+            {
+                var token = TrimTokenNoise(text.Substring(start, end - start).TrimStart('?', '&'));
+                if (token.Length >= 24 && token.Length <= 512 && LooksLikeAzureSasToken(token))
+                {
+                    if (!LooksLikePlaceholderToken(token) && HasSecretLikeContext(text, start, end, TokenFamilyKind.AzureSas))
+                        counters.TryAddToken(token, TokenFamilyKind.AzureSas, start);
+                }
+            }
+
+            i = at + 4;
+        }
+    }
+
+    private static bool IsSecretDelimiter(char c)
+        => char.IsWhiteSpace(c) || c == '"' || c == '\'' || c == '<' || c == '>' || c == '(' || c == ')' || c == '[' || c == ']';
+
     private static string TrimTokenNoise(string token)
         => token.Trim(' ', '\t', '\r', '\n', '"', '\'', '`', '(', ')', '[', ']', '{', '}', '<', '>', ',', ';', '.');
+
+    private static string RedactToken(string token, int keepHead, int keepTail)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return string.Empty;
+        if (token.Length <= Math.Max(6, keepHead + keepTail)) return "<redacted>";
+        keepHead = Math.Max(0, keepHead);
+        keepTail = Math.Max(0, keepTail);
+        int middle = token.Length - keepHead - keepTail;
+        if (middle <= 0) return "<redacted>";
+        return token.Substring(0, keepHead) + new string('*', middle) + token.Substring(token.Length - keepTail, keepTail);
+    }
+
+    private static bool TryFindAnyPrivateKeyMarker(string text, out string marker, out int index)
+    {
+        marker = string.Empty;
+        index = -1;
+        try
+        {
+            for (int i = 0; i < PrivateKeyMarkers.Length; i++)
+            {
+                int at = text.IndexOf(PrivateKeyMarkers[i], StringComparison.OrdinalIgnoreCase);
+                if (at < 0) continue;
+                marker = PrivateKeyMarkers[i];
+                index = at;
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private static string SecretCodeFromTokenFamily(TokenFamilyKind family)
+    {
+        return family switch
+        {
+            TokenFamilyKind.GitHub => "secret:token:github",
+            TokenFamilyKind.GitLab => "secret:token:gitlab",
+            TokenFamilyKind.AwsAccessKeyId => "secret:token:aws-akid",
+            TokenFamilyKind.Slack => "secret:token:slack",
+            TokenFamilyKind.StripeLive => "secret:token:stripe",
+            TokenFamilyKind.GcpApiKey => "secret:token:gcp-apikey",
+            TokenFamilyKind.NpmToken => "secret:token:npm",
+            TokenFamilyKind.AzureSas => "secret:token:azure-sas",
+            _ => string.Empty
+        };
+    }
+
+    private static string SecretConfidenceFromTokenFamily(TokenFamilyKind family)
+    {
+        return family switch
+        {
+            TokenFamilyKind.AwsAccessKeyId => "High",
+            TokenFamilyKind.AzureSas => "High",
+            TokenFamilyKind.GitHub => "High",
+            TokenFamilyKind.GitLab => "High",
+            _ => "Medium"
+        };
+    }
+
+    private static int? GetLineNumber(string text, int index)
+    {
+        if (string.IsNullOrEmpty(text) || index < 0) return null;
+        if (index > text.Length) index = text.Length;
+        int line = 1;
+        for (int i = 0; i < index; i++)
+        {
+            if (text[i] == '\n') line++;
+        }
+        return line;
+    }
 
     private static bool TryGetTokenFamily(string token, out TokenFamilyKind kind)
     {
@@ -986,6 +1287,9 @@ internal static partial class SecurityHeuristics
         if (LooksLikeAwsAccessKeyId(token)) { kind = TokenFamilyKind.AwsAccessKeyId; return true; }
         if (LooksLikeSlackToken(token)) { kind = TokenFamilyKind.Slack; return true; }
         if (LooksLikeStripeLiveToken(token)) { kind = TokenFamilyKind.StripeLive; return true; }
+        if (LooksLikeGcpApiKey(token)) { kind = TokenFamilyKind.GcpApiKey; return true; }
+        if (LooksLikeNpmToken(token)) { kind = TokenFamilyKind.NpmToken; return true; }
+        if (LooksLikeAzureSasToken(token)) { kind = TokenFamilyKind.AzureSas; return true; }
         kind = TokenFamilyKind.Unknown;
         return false;
     }
@@ -1076,8 +1380,49 @@ internal static partial class SecurityHeuristics
         return false;
     }
 
+    private static bool LooksLikeGcpApiKey(string token)
+    {
+        if (!token.StartsWith("AIza", StringComparison.Ordinal)) return false;
+        if (token.Length != 39) return false;
+        return IsAlphaNumOrUnderscoreDash(token, 4);
+    }
+
+    private static bool LooksLikeNpmToken(string token)
+    {
+        if (!token.StartsWith("npm_", StringComparison.OrdinalIgnoreCase)) return false;
+        int p = "npm_".Length;
+        int bodyLen = token.Length - p;
+        return bodyLen >= 24 && bodyLen <= 128 && IsAlphaNumOrUnderscore(token, p);
+    }
+
+    private static bool LooksLikeAzureSasToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        var lower = token.ToLowerInvariant();
+        if (lower.IndexOf("sv=", StringComparison.Ordinal) < 0) return false;
+        if (lower.IndexOf("sig=", StringComparison.Ordinal) < 0) return false;
+        if (lower.IndexOf("se=", StringComparison.Ordinal) < 0 && lower.IndexOf("sp=", StringComparison.Ordinal) < 0) return false;
+        int sigPos = lower.IndexOf("sig=", StringComparison.Ordinal);
+        if (sigPos < 0 || sigPos + 4 >= token.Length) return false;
+        int sigStart = sigPos + 4;
+        int sigEnd = token.IndexOf('&', sigStart);
+        if (sigEnd < 0) sigEnd = token.Length;
+        int sigLen = sigEnd - sigStart;
+        if (sigLen < 20 || sigLen > 256) return false;
+        for (int i = sigStart; i < sigEnd; i++)
+        {
+            char c = token[i];
+            bool ok = char.IsLetterOrDigit(c) || c == '%' || c == '+' || c == '/' || c == '=' || c == '-' || c == '_' || c == '.';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
     private static bool RequiresContext(TokenFamilyKind family)
-        => family == TokenFamilyKind.AwsAccessKeyId;
+        => family == TokenFamilyKind.AwsAccessKeyId ||
+           family == TokenFamilyKind.GcpApiKey ||
+           family == TokenFamilyKind.NpmToken ||
+           family == TokenFamilyKind.AzureSas;
 
     private static bool LooksLikePlaceholderToken(string token)
     {

@@ -19,10 +19,12 @@ public static partial class FileInspector {
         Func<string, bool>? filter = null,
         DetectionOptions? options = null) {
         if (!Directory.Exists(path)) yield break;
-        var files = Directory.EnumerateFiles(path, "*", searchOption);
+        var files = EnumerateFilesSafe(path, searchOption);
         foreach (var f in files) {
             if (filter != null && !filter(f)) continue;
-            yield return Analyze(f, options);
+            FileAnalysis? analysis = null;
+            try { analysis = Analyze(f, options); } catch { }
+            if (analysis != null) yield return analysis;
         }
     }
 
@@ -63,7 +65,7 @@ public static partial class FileInspector {
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) {
         if (!Directory.Exists(path)) yield break;
 
-        var files = Directory.EnumerateFiles(path, "*", searchOption);
+        var files = EnumerateFilesSafe(path, searchOption);
         if (filter != null) files = files.Where(filter);
 
         var degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
@@ -72,8 +74,10 @@ public static partial class FileInspector {
         var producer = Task.Run(async () => {
             try {
                 await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = ct }, async (file, token) => {
-                    var result = Analyze(file, options);
-                    await channel.Writer.WriteAsync(result, token);
+                    FileAnalysis? result = null;
+                    try { result = Analyze(file, options); } catch { }
+                    if (result != null)
+                        await channel.Writer.WriteAsync(result, token);
                 });
             } catch (OperationCanceledException) {
                 // ignore
@@ -86,4 +90,46 @@ public static partial class FileInspector {
         await producer;
     }
 #endif
+
+    private static IEnumerable<string> EnumerateFilesSafe(string path, SearchOption searchOption)
+    {
+        var pending = new Stack<string>();
+        pending.Push(path);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+            {
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
+            }
+
+            if (searchOption != SearchOption.AllDirectories) continue;
+
+            IEnumerable<string> directories;
+            try
+            {
+                directories = Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+            {
+                continue;
+            }
+
+            foreach (var directory in directories)
+            {
+                pending.Push(directory);
+            }
+        }
+    }
 }

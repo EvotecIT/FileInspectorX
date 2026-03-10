@@ -272,6 +272,14 @@ public sealed class ReportView
     public int? SecretsSlackTokenCount { get; set; }
     /// <summary>Number of Stripe live/rk token-family matches.</summary>
     public int? SecretsStripeLiveKeyCount { get; set; }
+    /// <summary>Number of GCP API key token-family matches.</summary>
+    public int? SecretsGcpApiKeyCount { get; set; }
+    /// <summary>Number of npm token-family matches.</summary>
+    public int? SecretsNpmTokenCount { get; set; }
+    /// <summary>Number of Azure SAS token-family matches.</summary>
+    public int? SecretsAzureSasTokenCount { get; set; }
+    /// <summary>Privacy-safe secret finding details with confidence and redacted evidence.</summary>
+    public IReadOnlyList<SecretFindingDetail>? SecretsFindings { get; set; }
 
     /// <summary>
     /// Creates a report view from a FileAnalysis instance.
@@ -509,6 +517,10 @@ public sealed class ReportView
             r.SecretsAwsAccessKeyIdCount = a.Secrets.AwsAccessKeyIdCount;
             r.SecretsSlackTokenCount = a.Secrets.SlackTokenCount;
             r.SecretsStripeLiveKeyCount = a.Secrets.StripeLiveKeyCount;
+            r.SecretsGcpApiKeyCount = a.Secrets.GcpApiKeyCount;
+            r.SecretsNpmTokenCount = a.Secrets.NpmTokenCount;
+            r.SecretsAzureSasTokenCount = a.Secrets.AzureSasTokenCount;
+            r.SecretsFindings = a.Secrets.Findings;
         }
         if (r.SecurityFindings != null && r.SecurityFindings.Count > 0)
         {
@@ -766,6 +778,10 @@ public sealed class ReportView
         if (SecretsAwsAccessKeyIdCount.HasValue) d["SecretsAwsAccessKeyIdCount"] = SecretsAwsAccessKeyIdCount.Value;
         if (SecretsSlackTokenCount.HasValue) d["SecretsSlackTokenCount"] = SecretsSlackTokenCount.Value;
         if (SecretsStripeLiveKeyCount.HasValue) d["SecretsStripeLiveKeyCount"] = SecretsStripeLiveKeyCount.Value;
+        if (SecretsGcpApiKeyCount.HasValue) d["SecretsGcpApiKeyCount"] = SecretsGcpApiKeyCount.Value;
+        if (SecretsNpmTokenCount.HasValue) d["SecretsNpmTokenCount"] = SecretsNpmTokenCount.Value;
+        if (SecretsAzureSasTokenCount.HasValue) d["SecretsAzureSasTokenCount"] = SecretsAzureSasTokenCount.Value;
+        if (SecretsFindings != null && SecretsFindings.Count > 0) d["SecretsFindings"] = SecretsFindings;
         if (Advice != null)
         {
             d["Advice"] = new Dictionary<string, object?>

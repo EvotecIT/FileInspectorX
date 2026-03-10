@@ -20,6 +20,14 @@ public class SettingsBehaviorTests
     }
 
     [Xunit.Fact]
+    public void JsonValidationCore_Rejects_Invalid_Object_Syntax()
+    {
+        var ok = JsonStructureValidator.TryValidateCoreForTest("{\"a\":,}", null, 0L, out var timedOut);
+        Xunit.Assert.False(ok);
+        Xunit.Assert.False(timedOut);
+    }
+
+    [Xunit.Fact]
     public void DangerousExtensionsOverrideMode_Merge_Keeps_Defaults()
     {
         var prevOverride = Settings.DangerousExtensionsOverride;

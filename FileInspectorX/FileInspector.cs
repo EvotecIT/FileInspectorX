@@ -119,10 +119,6 @@ public static partial class FileInspector {
                 (a.Equals("ole2", StringComparison.OrdinalIgnoreCase) && b.Equals("msi", StringComparison.OrdinalIgnoreCase))) return true;
             // Plain‑text family: treat generic text and note/config/log formats as equivalent
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
-            // Heuristic: PowerShell vs .txt — avoid noisy mismatches for short scripts/changelogs
-            if ((a.Equals("txt", StringComparison.OrdinalIgnoreCase) && (b.Equals("ps1", StringComparison.OrdinalIgnoreCase) || b.Equals("psm1", StringComparison.OrdinalIgnoreCase) || b.Equals("psd1", StringComparison.OrdinalIgnoreCase))) ||
-                (b.Equals("txt", StringComparison.OrdinalIgnoreCase) && (a.Equals("ps1", StringComparison.OrdinalIgnoreCase) || a.Equals("psm1", StringComparison.OrdinalIgnoreCase) || a.Equals("psd1", StringComparison.OrdinalIgnoreCase))))
-                return true;
             return false;
         }
 
