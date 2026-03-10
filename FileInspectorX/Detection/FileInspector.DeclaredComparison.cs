@@ -53,7 +53,7 @@ public static partial class FileInspector
         {
             if (string.IsNullOrWhiteSpace(ext)) return false;
             return dangerousExtensions != null
-                ? dangerousExtensions.Contains(ext!)
+                ? ContainsDangerousExtension(dangerousExtensions, ext!)
                 : DangerousExtensions.IsDangerous(ext);
         }
 
@@ -84,7 +84,6 @@ public static partial class FileInspector
 
         return cmp;
     }
-
     private static List<ContentTypeDetectionCandidate> GetStrongAlternatives(
         ContentTypeDetectionResult detected,
         string? primaryExt)
@@ -137,6 +136,18 @@ public static partial class FileInspector
         if (detected.Candidates != null && detected.Candidates.Count > 0) return detected.Candidates;
         if (detected.Alternatives != null && detected.Alternatives.Count > 0) return detected.Alternatives;
         return detected.Candidates ?? detected.Alternatives;
+    }
+
+    private static bool ContainsDangerousExtension(ISet<string> dangerousExtensions, string extension)
+    {
+        if (dangerousExtensions.Contains(extension)) return true;
+        if (dangerousExtensions.Contains("." + extension)) return true;
+        foreach (var value in dangerousExtensions)
+        {
+            if (string.Equals(NormalizeExtension(value), extension, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private static bool IsPlainTextFamily(string? ext)
