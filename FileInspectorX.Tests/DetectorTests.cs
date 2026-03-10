@@ -97,6 +97,32 @@ public class DetectorTests {
     }
 
     [Fact]
+    public void Analyze_7z_With_Encrypted_Headers_Flags_Archive() {
+        var sevenZip = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".7z");
+        try {
+            File.WriteAllBytes(sevenZip, CreateMinimal7zArchive(headersEncrypted: true));
+
+            var analysis = FI.Analyze(sevenZip);
+
+            Assert.Contains("7z:headers-encrypted", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ArchiveHasEncryptedEntries) != 0);
+        } finally { if (File.Exists(sevenZip)) File.Delete(sevenZip); }
+    }
+
+    [Fact]
+    public void Analyze_7z_Without_Encrypted_Headers_DoesNotFlag_HeadersEncrypted() {
+        var sevenZip = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".7z");
+        try {
+            File.WriteAllBytes(sevenZip, CreateMinimal7zArchive(headersEncrypted: false));
+
+            var analysis = FI.Analyze(sevenZip);
+
+            Assert.DoesNotContain("7z:headers-encrypted", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ArchiveHasEncryptedEntries) == 0);
+        } finally { if (File.Exists(sevenZip)) File.Delete(sevenZip); }
+    }
+
+    [Fact]
     public void Detect_Text_Json() {
         var json = Path.GetTempFileName();
         try {
@@ -496,4 +522,19 @@ public class DetectorTests {
             headersEncrypted ? (byte)0x04 : (byte)0x00,
             0x00
         };
+
+    private static byte[] CreateMinimal7zArchive(bool headersEncrypted) {
+        var bytes = new byte[36];
+        bytes[0] = 0x37;
+        bytes[1] = 0x7A;
+        bytes[2] = 0xBC;
+        bytes[3] = 0xAF;
+        bytes[4] = 0x27;
+        bytes[5] = 0x1C;
+        BitConverter.GetBytes(0L).CopyTo(bytes, 12);
+        BitConverter.GetBytes(4L).CopyTo(bytes, 20);
+        bytes[32] = 0x01;
+        bytes[33] = headersEncrypted ? (byte)0x17 : (byte)0x00;
+        return bytes;
+    }
 }
