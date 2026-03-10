@@ -146,6 +146,7 @@ public static partial class FileInspector
 
     private static void AddFileMetadata(IDictionary<string, object?> dict, FileSystemMetadata meta)
     {
+        dict["Exists"] = meta.Exists;
         if (!string.IsNullOrWhiteSpace(meta.Path)) dict["Path"] = meta.Path;
         if (meta.Size.HasValue) dict["Size"] = meta.Size.Value;
         if (meta.CreatedUtc.HasValue) dict["CreatedUtc"] = meta.CreatedUtc.Value;

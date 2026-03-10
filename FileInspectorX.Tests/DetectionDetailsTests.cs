@@ -189,6 +189,50 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void CollectMetadata_FileMetadataOnly_Exports_Exists_Flag()
+    {
+        var metadata = FileInspector.CollectMetadata(new FileSystemMetadata
+        {
+            Exists = false,
+            Path = @"C:\missing\sample.txt"
+        });
+
+        Assert.True(metadata.ContainsKey("Exists"));
+        Assert.Equal(false, metadata["Exists"]);
+        Assert.Equal(@"C:\missing\sample.txt", metadata["Path"]);
+    }
+
+    [Fact]
+    public void InspectWithMetadata_Exports_Exists_For_Present_File()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "plain text");
+
+            var summary = FileInspector.InspectWithMetadata(
+                p,
+                metadataOptions: new FileMetadataOptions
+                {
+                    IncludePath = true,
+                    IncludeSize = true,
+                    IncludeTimestamps = false
+                });
+
+            Assert.NotNull(summary.FileMetadata);
+            Assert.True(summary.FileMetadata!.Exists);
+            Assert.True(summary.Metadata.ContainsKey("Exists"));
+            Assert.Equal(true, summary.Metadata["Exists"]);
+            Assert.Equal(p, summary.Metadata["Path"]);
+            Assert.Equal(10L, summary.Metadata["Size"]);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
     public void Analyze_Generates_Redacted_Secret_Details_With_LineNumbers()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
