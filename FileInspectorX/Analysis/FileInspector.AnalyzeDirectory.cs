@@ -92,6 +92,24 @@ public static partial class FileInspector {
 #endif
 
     private static IEnumerable<string> EnumerateFilesSafe(string path, SearchOption searchOption)
+        => EnumerateFilesSafeCore(
+            path,
+            searchOption,
+            current => Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly),
+            current => Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly));
+
+    internal static IEnumerable<string> EnumerateFilesSafeForTest(
+        string path,
+        SearchOption searchOption,
+        Func<string, IEnumerable<string>> enumerateFiles,
+        Func<string, IEnumerable<string>> enumerateDirectories)
+        => EnumerateFilesSafeCore(path, searchOption, enumerateFiles, enumerateDirectories);
+
+    private static IEnumerable<string> EnumerateFilesSafeCore(
+        string path,
+        SearchOption searchOption,
+        Func<string, IEnumerable<string>> enumerateFiles,
+        Func<string, IEnumerable<string>> enumerateDirectories)
     {
         var pending = new Stack<string>();
         pending.Push(path);
@@ -102,7 +120,7 @@ public static partial class FileInspector {
             IEnumerable<string> files;
             try
             {
-                files = Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly);
+                files = enumerateFiles(current);
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
             {
@@ -119,7 +137,7 @@ public static partial class FileInspector {
             IEnumerable<string> directories;
             try
             {
-                directories = Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly);
+                directories = enumerateDirectories(current);
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
             {

@@ -47,5 +47,34 @@ public class AnalyzeDirectoryTests {
             Assert.All(list, a => Assert.NotNull(a.Detection));
         } finally { try { dir.Delete(true); } catch { } }
     }
-}
 
+    [Fact]
+    public void EnumerateFilesSafeForTest_Skips_Disappearing_Subtree_And_Continues() {
+        const string root = "root";
+        const string missing = "root\\missing";
+        const string healthy = "root\\healthy";
+
+        static IEnumerable<string> EnumerateFiles(string path) => path switch
+        {
+            root => new[] { "root\\top.txt" },
+            healthy => new[] { "root\\healthy\\child.txt" },
+            missing => throw new DirectoryNotFoundException("subtree disappeared"),
+            _ => Array.Empty<string>()
+        };
+
+        static IEnumerable<string> EnumerateDirectories(string path) => path switch
+        {
+            root => new[] { missing, healthy },
+            healthy => Array.Empty<string>(),
+            missing => throw new DirectoryNotFoundException("subtree disappeared"),
+            _ => Array.Empty<string>()
+        };
+
+        var files = FileInspector.EnumerateFilesSafeForTest(root, SearchOption.AllDirectories, EnumerateFiles, EnumerateDirectories).ToList();
+
+        Assert.Equal(2, files.Count);
+        Assert.Contains("root\\top.txt", files);
+        Assert.Contains("root\\healthy\\child.txt", files);
+        Assert.DoesNotContain(files, f => f.Contains("missing", StringComparison.OrdinalIgnoreCase));
+    }
+}
