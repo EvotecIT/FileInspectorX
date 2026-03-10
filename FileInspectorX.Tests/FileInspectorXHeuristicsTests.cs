@@ -242,6 +242,71 @@ Get-ChildItem -Path . | Out-String
         AssertAcrossInputs(declaredExt, content, declaredExt);
     }
 
+    [Xunit.Fact]
+    public void CompareDeclaredDetailed_Uses_Alternatives_When_Candidates_List_Is_Empty()
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = "txt",
+            MimeType = "text/plain",
+            Confidence = "Low",
+            Reason = "text:plain",
+            Candidates = Array.Empty<ContentTypeDetectionCandidate>(),
+            Alternatives = new[]
+            {
+                new ContentTypeDetectionCandidate
+                {
+                    Extension = "json",
+                    MimeType = "application/json",
+                    Confidence = "High",
+                    Score = 91,
+                    Reason = "text:json"
+                }
+            }
+        };
+
+        var cmp = FileInspector.CompareDeclaredDetailed("json", det);
+
+        Xunit.Assert.False(cmp.Mismatch);
+        Xunit.Assert.True(cmp.DeclaredMatchesAlternative);
+        Xunit.Assert.NotNull(cmp.StrongAlternatives);
+        Xunit.Assert.Single(cmp.StrongAlternatives!);
+        Xunit.Assert.Contains("alt-match:declared", cmp.Reason, StringComparison.Ordinal);
+    }
+
+    [Xunit.Fact]
+    public void CompareDeclaredDetailed_Uses_Dangerous_Alternatives_When_Candidates_List_Is_Empty()
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = "txt",
+            MimeType = "text/plain",
+            Confidence = "Low",
+            Reason = "text:plain",
+            Candidates = Array.Empty<ContentTypeDetectionCandidate>(),
+            Alternatives = new[]
+            {
+                new ContentTypeDetectionCandidate
+                {
+                    Extension = "ps1",
+                    MimeType = "text/x-powershell",
+                    Confidence = "High",
+                    Score = 91,
+                    Reason = "text:ps1"
+                }
+            }
+        };
+
+        var cmp = FileInspector.CompareDeclaredDetailed("txt", det);
+
+        Xunit.Assert.True(cmp.Mismatch);
+        Xunit.Assert.True(cmp.IsDetectedDangerous);
+        Xunit.Assert.NotNull(cmp.StrongDangerousAlternativeExtensions);
+        Xunit.Assert.Equal(new[] { "ps1" }, cmp.StrongDangerousAlternativeExtensions);
+        Xunit.Assert.Contains("declared-bypass:strong-dangerous-alt", cmp.Reason, StringComparison.Ordinal);
+        Xunit.Assert.Contains("alt-danger:ps1", cmp.Reason, StringComparison.Ordinal);
+    }
+
     private static string WriteTemp(string ext, string content)
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ext);

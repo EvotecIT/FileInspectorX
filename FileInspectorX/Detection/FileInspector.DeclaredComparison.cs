@@ -90,7 +90,7 @@ public static partial class FileInspector
         string? primaryExt)
     {
         var list = new List<ContentTypeDetectionCandidate>();
-        var candidates = detected.Candidates ?? detected.Alternatives;
+        var candidates = GetAvailableComparisonCandidates(detected);
         if (candidates == null || candidates.Count == 0) return list;
         foreach (var candidate in candidates)
         {
@@ -130,6 +130,13 @@ public static partial class FileInspector
             candidate.Confidence.Equals("High", StringComparison.OrdinalIgnoreCase))
             return true;
         return false;
+    }
+
+    private static IReadOnlyList<ContentTypeDetectionCandidate>? GetAvailableComparisonCandidates(ContentTypeDetectionResult detected)
+    {
+        if (detected.Candidates != null && detected.Candidates.Count > 0) return detected.Candidates;
+        if (detected.Alternatives != null && detected.Alternatives.Count > 0) return detected.Alternatives;
+        return detected.Candidates ?? detected.Alternatives;
     }
 
     private static bool IsPlainTextFamily(string? ext)

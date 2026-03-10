@@ -1332,7 +1332,7 @@ public static partial class FileInspector {
 
     private static bool HasStrongDangerousCandidate(ContentTypeDetectionResult det)
     {
-        var candidates = det.Candidates ?? det.Alternatives;
+        var candidates = GetAvailableBiasCandidates(det);
         if (candidates == null || candidates.Count == 0) return false;
         foreach (var candidate in candidates)
         {
@@ -1344,6 +1344,13 @@ public static partial class FileInspector {
                 return true;
         }
         return false;
+    }
+
+    private static IReadOnlyList<ContentTypeDetectionCandidate>? GetAvailableBiasCandidates(ContentTypeDetectionResult det)
+    {
+        if (det.Candidates != null && det.Candidates.Count > 0) return det.Candidates;
+        if (det.Alternatives != null && det.Alternatives.Count > 0) return det.Alternatives;
+        return det.Candidates ?? det.Alternatives;
     }
 
     private static string ToLowerHex(byte[] data) {
