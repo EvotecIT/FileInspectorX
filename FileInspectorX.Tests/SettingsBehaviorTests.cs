@@ -27,6 +27,29 @@ public class SettingsBehaviorTests
         Xunit.Assert.False(timedOut);
     }
 
+    [Xunit.Theory]
+    [Xunit.InlineData("{\"a\":01}")]
+    [Xunit.InlineData("{\"a\":\"bad\\xescape\"}")]
+    [Xunit.InlineData("{\"a\":1} trailing")]
+    public void JsonValidationCore_Rejects_Strict_Invalid_Syntax_Cases(string json)
+    {
+        var ok = JsonStructureValidator.TryValidateCoreForTest(json, null, 0L, out var timedOut);
+        Xunit.Assert.False(ok);
+        Xunit.Assert.False(timedOut);
+    }
+
+    [Xunit.Fact]
+    public void JsonValidationCore_Accepts_Exponent_And_Escaped_Unicode()
+    {
+        var ok = JsonStructureValidator.TryValidateCoreForTest(
+            "{\"value\":-1.25e+2,\"label\":\"hi \\u263A\"}",
+            null,
+            0L,
+            out var timedOut);
+        Xunit.Assert.True(ok);
+        Xunit.Assert.False(timedOut);
+    }
+
     [Xunit.Fact]
     public void DangerousExtensionsOverrideMode_Merge_Keeps_Defaults()
     {
