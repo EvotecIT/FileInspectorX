@@ -187,6 +187,24 @@ Get-ChildItem -Path . | Out-String
         Xunit.Assert.True(cmp.Mismatch);
     }
 
+    [Xunit.Theory]
+    [Xunit.InlineData("ps1")]
+    [Xunit.InlineData("psm1")]
+    [Xunit.InlineData("psd1")]
+    public void CompareDeclared_PowerShell_Vs_Text_Remains_Compatible(string declaredExt)
+    {
+        var det = new ContentTypeDetectionResult
+        {
+            Extension = "txt",
+            MimeType = "text/plain",
+            Confidence = "Low",
+            Reason = "text:plain"
+        };
+
+        var cmp = FileInspector.CompareDeclared(declaredExt, det);
+        Xunit.Assert.False(cmp.Mismatch);
+    }
+
     [Xunit.Fact]
     public void Detect_Span_Respects_DeclaredExtension_Bias()
     {

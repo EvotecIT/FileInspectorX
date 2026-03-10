@@ -107,6 +107,10 @@ public static partial class FileInspector {
             // PowerShell family: .ps1 <-> .psm1 <-> .psd1
             if ((a.Equals("ps1", StringComparison.OrdinalIgnoreCase) || a.Equals("psm1", StringComparison.OrdinalIgnoreCase) || a.Equals("psd1", StringComparison.OrdinalIgnoreCase)) &&
                 (b.Equals("ps1", StringComparison.OrdinalIgnoreCase) || b.Equals("psm1", StringComparison.OrdinalIgnoreCase) || b.Equals("psd1", StringComparison.OrdinalIgnoreCase))) return true;
+            // PowerShell scripts are also plain text. If the file is declared as PowerShell but detected as generic text,
+            // treat as match. Do not treat the reverse as match because a .txt detected as PowerShell is a dangerous rename.
+            if ((a.Equals("ps1", StringComparison.OrdinalIgnoreCase) || a.Equals("psm1", StringComparison.OrdinalIgnoreCase) || a.Equals("psd1", StringComparison.OrdinalIgnoreCase)) &&
+                (b.Equals("txt", StringComparison.OrdinalIgnoreCase) || b.Equals("text", StringComparison.OrdinalIgnoreCase) || b.Equals("log", StringComparison.OrdinalIgnoreCase))) return true;
             // Windows scripts: .bat <-> .cmd
             if ((a.Equals("bat", StringComparison.OrdinalIgnoreCase) && b.Equals("cmd", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("cmd", StringComparison.OrdinalIgnoreCase) && b.Equals("bat", StringComparison.OrdinalIgnoreCase))) return true;
