@@ -650,6 +650,38 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void TypeAnalysis_Compact_Includes_DetectionConfidence_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Confidence = "High"
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowTypeAnalysis);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("TypeAnalysis"));
+        Assert.Contains("DetectionConfidence", rv.CompactFields["TypeAnalysis"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowTypeAnalysis"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("TypeAnalysis"));
+        Assert.Contains("DetectionConfidence", compact["TypeAnalysis"]);
+        Assert.Equal("High", map["DetectionConfidence"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### File Type", md);
+        Assert.Contains("High", md);
+    }
+
+    [Fact]
     public void ReportView_Compact_Includes_Assessment_Group_When_Assessment_Is_Present()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;
@@ -795,6 +827,7 @@ public class DetectionDetailsTests
         Assert.Equal("Invoke-Expression, Get-Item", rv.ScriptCmdlets);
         Assert.NotNull(rv.CompactFields);
         Assert.True(rv.CompactFields!.ContainsKey("Script"));
+        Assert.Contains("ScriptLanguage", rv.CompactFields["Script"]);
         Assert.Contains("ScriptLanguageHuman", rv.CompactFields["Script"]);
         Assert.Contains("ScriptCmdlets", rv.CompactFields["Script"]);
 
@@ -803,8 +836,10 @@ public class DetectionDetailsTests
         Assert.Equal(true, advice["ShowScript"]);
         var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
         Assert.True(compact.ContainsKey("Script"));
+        Assert.Contains("ScriptLanguage", compact["Script"]);
         Assert.Contains("ScriptLanguageHuman", compact["Script"]);
         Assert.Contains("ScriptCmdlets", compact["Script"]);
+        Assert.Equal("powershell", map["ScriptLanguage"]);
         Assert.Equal("PowerShell", map["ScriptLanguageHuman"]);
         Assert.Equal("Invoke-Expression, Get-Item", map["ScriptCmdlets"]);
 

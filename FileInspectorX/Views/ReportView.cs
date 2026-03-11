@@ -618,6 +618,7 @@ public sealed class ReportView
         AddField("TypeAnalysis", "DetectedTypeName", r.DetectedTypeName);
         AddField("TypeAnalysis", "DetectedTypeExtension", r.DetectedTypeExtension);
         AddField("TypeAnalysis", "DetectedTypeFriendly", r.DetectedTypeFriendly);
+        AddField("TypeAnalysis", "DetectionConfidence", r.DetectionConfidence);
         AddField("TypeAnalysis", "DetectionReason", r.DetectionReason);
         AddField("TypeAnalysis", "DetectionReasonDetails", r.DetectionReasonDetails);
         AddField("TypeAnalysis", "DetectionValidationStatus", r.DetectionValidationStatus);
@@ -655,6 +656,7 @@ public sealed class ReportView
         AddField("Security", "MotwReferrerUrl", r.MotwReferrerUrl);
         AddField("Security", "MotwHostUrl", r.MotwHostUrl);
         if (r.AlternateStreamCount.HasValue) AddField("Security", "AlternateStreamCount", r.AlternateStreamCount.Value.ToString());
+        AddField("Script", "ScriptLanguage", r.ScriptLanguage);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         AddField("Script", "ScriptCmdlets", r.ScriptCmdlets);
         AddField("References", "HtmlExternalLinksSample", r.HtmlExternalLinksSample);
