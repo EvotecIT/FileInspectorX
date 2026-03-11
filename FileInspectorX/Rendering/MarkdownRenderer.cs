@@ -218,11 +218,13 @@ public static class MarkdownRenderer
         }
 
         // Flags and findings
-        if (!string.IsNullOrEmpty(r.FlagsHumanShort) || !string.IsNullOrEmpty(r.FlagsHumanLong))
+        if (!string.IsNullOrEmpty(r.FlagsHumanShort) || !string.IsNullOrEmpty(r.FlagsHumanLong) || !string.IsNullOrEmpty(r.FlagsCsv))
         {
             sb.AppendLine("### Analysis Flags");
             if (!string.IsNullOrEmpty(r.FlagsHumanShort))
                 sb.AppendLine(r.FlagsHumanShort);
+            else if (!string.IsNullOrEmpty(r.FlagsCsv))
+                sb.AppendLine($"Flags: {r.FlagsCsv}");
             if (!string.IsNullOrEmpty(r.FlagsHumanLong) &&
                 !string.Equals(r.FlagsHumanLong, r.FlagsHumanShort, StringComparison.Ordinal))
             {
@@ -230,11 +232,15 @@ public static class MarkdownRenderer
             }
             sb.AppendLine();
         }
-        if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort) || (r.TopTokens != null && r.TopTokens.Count > 0))
+        if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort) ||
+            (r.SecurityFindings != null && r.SecurityFindings.Count > 0) ||
+            (r.TopTokens != null && r.TopTokens.Count > 0))
         {
             sb.AppendLine("### Heuristics");
             if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort))
                 sb.AppendLine(r.SecurityFindingsHumanShort);
+            else if (r.SecurityFindings is { Count: > 0 })
+                sb.AppendLine($"Findings: {string.Join(", ", r.SecurityFindings.Take(8))}");
             if (!string.IsNullOrEmpty(r.SecurityFindingsHumanLong) &&
                 !string.Equals(r.SecurityFindingsHumanLong, r.SecurityFindingsHumanShort, StringComparison.Ordinal))
             {
@@ -244,11 +250,15 @@ public static class MarkdownRenderer
                 sb.AppendLine($"Top tokens: {string.Join(", ", r.TopTokens.Take(8))}");
             sb.AppendLine();
         }
-        if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort) || !string.IsNullOrEmpty(r.InnerFindingsHumanLong))
+        if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort) ||
+            !string.IsNullOrEmpty(r.InnerFindingsHumanLong) ||
+            (r.InnerFindings != null && r.InnerFindings.Count > 0))
         {
             sb.AppendLine("### Inner Findings");
             if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort))
                 sb.AppendLine(r.InnerFindingsHumanShort);
+            else if (r.InnerFindings is { Count: > 0 })
+                sb.AppendLine($"Findings: {string.Join(", ", r.InnerFindings.Take(8))}");
             if (!string.IsNullOrEmpty(r.InnerFindingsHumanLong) &&
                 !string.Equals(r.InnerFindingsHumanLong, r.InnerFindingsHumanShort, StringComparison.Ordinal))
             {

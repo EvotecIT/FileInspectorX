@@ -985,6 +985,20 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void Markdown_Includes_Raw_FlagsCsv_When_Humanized_Flags_Are_Missing()
+    {
+        var rv = new ReportView
+        {
+            FlagsCsv = "macro,encoded"
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Analysis Flags", md);
+        Assert.Contains("Flags: macro,encoded", md);
+    }
+
+    [Fact]
     public void Markdown_Includes_TopTokens_For_Heuristics_Only_Analysis()
     {
         var analysis = new FileAnalysis
@@ -1010,6 +1024,23 @@ public class DetectionDetailsTests
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Heuristics", md);
         Assert.Contains("Top tokens: downloadstring, invoke-expression, frombase64string", md);
+    }
+
+    [Fact]
+    public void Markdown_Includes_Raw_Finding_Lists_When_Humanized_Text_Is_Missing()
+    {
+        var rv = new ReportView
+        {
+            SecurityFindings = new[] { "ps:encoded", "js:eval" },
+            InnerFindings = new[] { "inner:exe", "inner:macro" }
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Heuristics", md);
+        Assert.Contains("Findings: ps:encoded, js:eval", md);
+        Assert.Contains("### Inner Findings", md);
+        Assert.Contains("Findings: inner:exe, inner:macro", md);
     }
 
     [Fact]
