@@ -781,6 +781,28 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void Markdown_Assessment_Includes_Driver_Only_Data_Without_Defaulting_Score()
+    {
+        var rv = new ReportView
+        {
+            AssessmentCodesHuman = "WinTrust invalid",
+            AssessmentCodesHumanLong = "WinTrust policy validation failed for the analyzed file",
+            AssessmentFactors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Sig.WinTrustInvalid"] = 25
+            }
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Risk Assessment", md);
+        Assert.DoesNotContain("Score: 0", md);
+        Assert.Contains("Drivers: WinTrust invalid", md);
+        Assert.Contains("Drivers (long): WinTrust policy validation failed for the analyzed file", md);
+        Assert.Contains("Factors: Sig.WinTrustInvalid=25", md);
+    }
+
+    [Fact]
     public void ReportView_Installer_Presentation_And_Markdown_Include_Installer_Only_Analysis()
     {
         var analysis = new FileAnalysis

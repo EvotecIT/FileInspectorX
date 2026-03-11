@@ -721,7 +721,7 @@ public sealed class ReportView
             ShowScript = HasAnyScriptSignals(r),
             ShowReferences = HasAnyReferenceSignals(r),
             ShowInstaller = HasAnyInstallerSignals(r),
-            ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
+            ShowAssessment = HasAnyAssessmentSignals(r),
             ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) ||
                              (r.InnerFindings != null && r.InnerFindings.Count > 0) ||
                              (r.TopTokens != null && r.TopTokens.Count > 0) ||
@@ -837,6 +837,17 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.FileVersion) ||
            !string.IsNullOrEmpty(r.ProductVersion) ||
            !string.IsNullOrEmpty(r.OriginalFilename);
+
+    private static bool HasAnyAssessmentSignals(ReportView r)
+        => r.AssessmentScore.HasValue ||
+           !string.IsNullOrEmpty(r.AssessmentDecision) ||
+           !string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
+           !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
+           !string.IsNullOrEmpty(r.AssessmentDecisionLenient) ||
+           (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0) ||
+           (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0) ||
+           !string.IsNullOrEmpty(r.AssessmentCodesHuman) ||
+           !string.IsNullOrEmpty(r.AssessmentCodesHumanLong);
 
     private static bool HasAnyArchiveSignals(ReportView r)
         => r.EncryptedEntryCount.HasValue ||

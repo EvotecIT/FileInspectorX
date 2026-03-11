@@ -319,10 +319,15 @@ public static class MarkdownRenderer
             !string.IsNullOrEmpty(r.AssessmentDecision) ||
             !string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
             !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
-            !string.IsNullOrEmpty(r.AssessmentDecisionLenient))
+            !string.IsNullOrEmpty(r.AssessmentDecisionLenient) ||
+            (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0) ||
+            !string.IsNullOrEmpty(r.AssessmentCodesHuman) ||
+            !string.IsNullOrEmpty(r.AssessmentCodesHumanLong) ||
+            (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0))
         {
             sb.AppendLine("### Risk Assessment");
-            sb.AppendLine($"- Score: {r.AssessmentScore ?? 0}");
+            if (r.AssessmentScore.HasValue)
+                sb.AppendLine($"- Score: {r.AssessmentScore.Value}");
             if (!string.IsNullOrEmpty(r.AssessmentDecision)) sb.AppendLine($"- Decision: {r.AssessmentDecision}");
             if (!string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
                 !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
