@@ -1006,6 +1006,36 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_References_Presentation_Includes_Office_External_Link_Count_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            OfficeExternalLinksCount = 3
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowReferences);
+        Assert.Equal(3, rv.OfficeExternalLinksCount);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("References"));
+        Assert.Contains("OfficeExternalLinksCount", rv.CompactFields["References"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowReferences"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("References"));
+        Assert.Contains("OfficeExternalLinksCount", compact["References"]);
+        Assert.Equal(3, map["OfficeExternalLinksCount"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### References", md);
+        Assert.Contains("Office external links: 3", md);
+    }
+
+    [Fact]
     public void Markdown_Includes_Long_Heuristics_And_Inner_Findings_Details()
     {
         var rv = new ReportView

@@ -175,6 +175,7 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.HtmlUncSample)) sb.AppendLine($"- HTML UNC paths: {r.HtmlUncSample}");
             if (!string.IsNullOrEmpty(r.ScriptUrlsSample)) sb.AppendLine($"- Script URLs: {r.ScriptUrlsSample}");
             if (!string.IsNullOrEmpty(r.ScriptUncSample)) sb.AppendLine($"- Script UNC paths: {r.ScriptUncSample}");
+            if (r.OfficeExternalLinksCount.HasValue) sb.AppendLine($"- Office external links: {r.OfficeExternalLinksCount.Value}");
             if (!string.IsNullOrEmpty(r.HtmlExternalLinksFull)) sb.AppendLine($"- HTML external links (full): {r.HtmlExternalLinksFull}");
             if (!string.IsNullOrEmpty(r.HtmlUncFull)) sb.AppendLine($"- HTML UNC paths (full): {r.HtmlUncFull}");
             if (!string.IsNullOrEmpty(r.ScriptUrlsFull)) sb.AppendLine($"- Script URLs (full): {r.ScriptUrlsFull}");
@@ -434,6 +435,7 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.HtmlUncSample) ||
                !string.IsNullOrEmpty(view.ScriptUrlsSample) ||
                !string.IsNullOrEmpty(view.ScriptUncSample) ||
+               view.OfficeExternalLinksCount.HasValue ||
                !string.IsNullOrEmpty(view.HtmlExternalLinksFull) ||
                !string.IsNullOrEmpty(view.HtmlUncFull) ||
                !string.IsNullOrEmpty(view.ScriptUrlsFull) ||

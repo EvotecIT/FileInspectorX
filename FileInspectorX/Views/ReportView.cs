@@ -182,6 +182,8 @@ public sealed class ReportView
     public string? ScriptUrlsSample { get; set; }
     /// <summary>Comma-separated sample of UNC share roots found in scripts.</summary>
     public string? ScriptUncSample { get; set; }
+    /// <summary>Number of external link definitions detected in Office documents, when applicable.</summary>
+    public int? OfficeExternalLinksCount { get; set; }
     /// <summary>Full list of external URLs found in HTML (newline-separated), truncated by settings.</summary>
     public string? HtmlExternalLinksFull { get; set; }
     /// <summary>Full list of UNC roots found in HTML (newline-separated), truncated by settings.</summary>
@@ -391,6 +393,8 @@ public sealed class ReportView
             r.ScriptLanguage = a.ScriptLanguage;
             r.ScriptLanguageHuman = ScriptLanguageLegend.Humanize(a.ScriptLanguage, HumanizeStyle.Short);
         }
+        if (a.OfficeExternalLinksCount.HasValue)
+            r.OfficeExternalLinksCount = a.OfficeExternalLinksCount;
         // Flags → compact CSV codes for presentation layers to humanize
         var codes = new List<string>(12);
         var f = a.Flags;
@@ -664,6 +668,7 @@ public sealed class ReportView
         AddField("References", "HtmlUncSample", r.HtmlUncSample);
         AddField("References", "ScriptUrlsSample", r.ScriptUrlsSample);
         AddField("References", "ScriptUncSample", r.ScriptUncSample);
+        if (r.OfficeExternalLinksCount.HasValue) AddField("References", "OfficeExternalLinksCount", r.OfficeExternalLinksCount.Value.ToString());
         AddField("References", "HtmlExternalLinksFull", r.HtmlExternalLinksFull);
         AddField("References", "HtmlUncFull", r.HtmlUncFull);
         AddField("References", "ScriptUrlsFull", r.ScriptUrlsFull);
@@ -818,6 +823,7 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.HtmlUncSample) ||
            !string.IsNullOrEmpty(r.ScriptUrlsSample) ||
            !string.IsNullOrEmpty(r.ScriptUncSample) ||
+           r.OfficeExternalLinksCount.HasValue ||
            !string.IsNullOrEmpty(r.HtmlExternalLinksFull) ||
            !string.IsNullOrEmpty(r.HtmlUncFull) ||
            !string.IsNullOrEmpty(r.ScriptUrlsFull) ||
@@ -973,6 +979,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(HtmlUncSample)) d["HtmlUncSample"] = HtmlUncSample;
         if (!string.IsNullOrEmpty(ScriptUrlsSample)) d["ScriptUrlsSample"] = ScriptUrlsSample;
         if (!string.IsNullOrEmpty(ScriptUncSample)) d["ScriptUncSample"] = ScriptUncSample;
+        if (OfficeExternalLinksCount.HasValue) d["OfficeExternalLinksCount"] = OfficeExternalLinksCount.Value;
         if (!string.IsNullOrEmpty(ScriptCmdlets)) d["ScriptCmdlets"] = ScriptCmdlets;
         if (!string.IsNullOrEmpty(HtmlExternalLinksFull)) d["HtmlExternalLinksFull"] = HtmlExternalLinksFull;
         if (!string.IsNullOrEmpty(HtmlUncFull)) d["HtmlUncFull"] = HtmlUncFull;
