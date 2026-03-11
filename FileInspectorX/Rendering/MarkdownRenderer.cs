@@ -30,7 +30,7 @@ public static class MarkdownRenderer
         if (HasTypeAnalysis(r))
         {
             sb.AppendLine($"### File Type");
-            var type = (r.DetectedTypeName ?? "").Trim();
+            var type = (r.DetectedTypeName ?? r.DetectedTypeFriendly ?? "").Trim();
             if (!string.IsNullOrEmpty(r.DetectedTypeExtension)) type += $" ({r.DetectedTypeExtension})";
             if (!string.IsNullOrEmpty(r.DetectionConfidence)) type += $" — {r.DetectionConfidence}";
             if (!string.IsNullOrEmpty(r.DetectionReason)) type += $" — {r.DetectionReason}";
@@ -39,6 +39,10 @@ public static class MarkdownRenderer
                 sb.AppendLine(type);
             if (!string.IsNullOrEmpty(r.DetectionValidationStatus))
                 sb.AppendLine($"- Validation: {r.DetectionValidationStatus}");
+            if (r.DetectionScore.HasValue)
+                sb.AppendLine($"- Score: {r.DetectionScore.Value}");
+            if (r.DetectionIsDangerous.HasValue)
+                sb.AppendLine($"- Dangerous type: {(r.DetectionIsDangerous.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.GuessedExtension))
                 sb.AppendLine($"- Guessed extension: {r.GuessedExtension}");
             if (!string.IsNullOrEmpty(r.EncodedKind))
@@ -68,10 +72,16 @@ public static class MarkdownRenderer
                 var ok = r.IsTrustedWindowsPolicy == true ? "Trusted" : "Untrusted";
                 sb.AppendLine($"- WinTrust: {ok} (Status={r.WinTrustStatusCode})");
             }
+            else if (r.IsTrustedWindowsPolicy.HasValue)
+            {
+                sb.AppendLine($"- WinTrust policy trusted: {(r.IsTrustedWindowsPolicy.Value ? "yes" : "no")}");
+            }
             if (r.CertificateTableSize.HasValue)
                 sb.AppendLine($"- Certificate Table: {r.CertificateTableSize} bytes");
             if (!string.IsNullOrEmpty(r.CertificateBlobSha256))
                 sb.AppendLine($"- PKCS#7 SHA-256: `{r.CertificateBlobSha256}`");
+            if (r.DotNetStrongNameSigned.HasValue)
+                sb.AppendLine($"- .NET strong-name signed: {(r.DotNetStrongNameSigned.Value ? "yes" : "no")}");
             if (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0)
                 sb.AppendLine($"- EKUs: {string.Join(", ", r.EnhancedKeyUsages)}");
             if (!string.IsNullOrEmpty(r.TimestampAuthorityCN))
@@ -84,8 +94,22 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Certificate subject: {r.CertSubject}");
             if (!string.IsNullOrEmpty(r.CertIssuer))
                 sb.AppendLine($"- Certificate issuer: {r.CertIssuer}");
+            if (r.CertNotBefore.HasValue)
+                sb.AppendLine($"- Certificate not before: {r.CertNotBefore.Value:u}");
+            if (r.CertNotAfter.HasValue)
+                sb.AppendLine($"- Certificate not after: {r.CertNotAfter.Value:u}");
             if (!string.IsNullOrEmpty(r.CertThumbprint))
                 sb.AppendLine($"- Certificate thumbprint: {r.CertThumbprint}");
+            if (!string.IsNullOrEmpty(r.CertKeyAlgorithm))
+                sb.AppendLine($"- Certificate key algorithm: {r.CertKeyAlgorithm}");
+            if (r.CertSelfSigned.HasValue)
+                sb.AppendLine($"- Certificate self-signed: {(r.CertSelfSigned.Value ? "yes" : "no")}");
+            if (r.CertChainTrusted.HasValue)
+                sb.AppendLine($"- Certificate chain trusted: {(r.CertChainTrusted.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.CertRootSubject))
+                sb.AppendLine($"- Certificate root subject: {r.CertRootSubject}");
+            if (r.CertSanPresent.HasValue)
+                sb.AppendLine($"- Certificate SAN present: {(r.CertSanPresent.Value ? "yes" : "no")}");
             if (r.CertBundleCount.HasValue)
                 sb.AppendLine($"- Certificate bundle count: {r.CertBundleCount.Value}");
             if (r.CertBundleSubjects != null && r.CertBundleSubjects.Count > 0)
@@ -103,6 +127,39 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.FileVersion)) sb.AppendLine($"- FileVersion: {r.FileVersion}");
             if (!string.IsNullOrEmpty(r.ProductVersion)) sb.AppendLine($"- ProductVersion: {r.ProductVersion}");
             if (!string.IsNullOrEmpty(r.OriginalFilename)) sb.AppendLine($"- OriginalFilename: {r.OriginalFilename}");
+            sb.AppendLine();
+        }
+
+        if (HasSecurityData(r))
+        {
+            sb.AppendLine("### Security");
+            if (r.MotwZoneId.HasValue) sb.AppendLine($"- MOTW ZoneId: {r.MotwZoneId.Value}");
+            if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
+            if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendLine($"- MOTW Host URL: {r.MotwHostUrl}");
+            if (r.AlternateStreamCount.HasValue) sb.AppendLine($"- Alternate stream count: {r.AlternateStreamCount.Value}");
+            sb.AppendLine();
+        }
+
+        if (HasScriptData(r))
+        {
+            sb.AppendLine("### Script");
+            if (!string.IsNullOrEmpty(r.ScriptLanguageHuman)) sb.AppendLine($"- Language: {r.ScriptLanguageHuman}");
+            else if (!string.IsNullOrEmpty(r.ScriptLanguage)) sb.AppendLine($"- Language: {r.ScriptLanguage}");
+            if (!string.IsNullOrEmpty(r.ScriptCmdlets)) sb.AppendLine($"- Cmdlets: {r.ScriptCmdlets}");
+            sb.AppendLine();
+        }
+
+        if (HasReferenceData(r))
+        {
+            sb.AppendLine("### References");
+            if (!string.IsNullOrEmpty(r.HtmlExternalLinksSample)) sb.AppendLine($"- HTML external links: {r.HtmlExternalLinksSample}");
+            if (!string.IsNullOrEmpty(r.HtmlUncSample)) sb.AppendLine($"- HTML UNC paths: {r.HtmlUncSample}");
+            if (!string.IsNullOrEmpty(r.ScriptUrlsSample)) sb.AppendLine($"- Script URLs: {r.ScriptUrlsSample}");
+            if (!string.IsNullOrEmpty(r.ScriptUncSample)) sb.AppendLine($"- Script UNC paths: {r.ScriptUncSample}");
+            if (!string.IsNullOrEmpty(r.HtmlExternalLinksFull)) sb.AppendLine($"- HTML external links (full): {r.HtmlExternalLinksFull}");
+            if (!string.IsNullOrEmpty(r.HtmlUncFull)) sb.AppendLine($"- HTML UNC paths (full): {r.HtmlUncFull}");
+            if (!string.IsNullOrEmpty(r.ScriptUrlsFull)) sb.AppendLine($"- Script URLs (full): {r.ScriptUrlsFull}");
+            if (!string.IsNullOrEmpty(r.ScriptUncFull)) sb.AppendLine($"- Script UNC paths (full): {r.ScriptUncFull}");
             sb.AppendLine();
         }
 
@@ -137,6 +194,17 @@ public static class MarkdownRenderer
             if (r.ArchiveEntryCount.HasValue) sb.AppendLine($"- Entry count: {r.ArchiveEntryCount.Value}");
             if (r.ArchiveTopExtensions != null && r.ArchiveTopExtensions.Count > 0)
                 sb.AppendLine($"- Top extensions: {string.Join(", ", r.ArchiveTopExtensions)}");
+            if (!string.IsNullOrEmpty(r.InnerPublishersHuman))
+                sb.AppendLine($"- Inner publishers: {r.InnerPublishersHuman}");
+            if (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0)
+            {
+                var topExts = r.InnerExecutableExtCounts
+                    .OrderByDescending(kv => kv.Value)
+                    .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                    .Take(6)
+                    .Select(kv => $"{kv.Key}={kv.Value}");
+                sb.AppendLine($"- Inner executable types: {string.Join(", ", topExts)}");
+            }
             if (!string.IsNullOrEmpty(r.InnerBinariesSummary))
                 sb.AppendLine($"- {r.InnerBinariesSummary}");
             if (r.ArchivePreview != null && r.ArchivePreview.Count > 0)
@@ -145,17 +213,44 @@ public static class MarkdownRenderer
         }
 
         // Flags and findings
-        if (!string.IsNullOrEmpty(r.FlagsHumanShort)) sb.AppendLine($"### Analysis Flags\n{r.FlagsHumanShort}\n");
+        if (!string.IsNullOrEmpty(r.FlagsHumanShort) || !string.IsNullOrEmpty(r.FlagsHumanLong))
+        {
+            sb.AppendLine("### Analysis Flags");
+            if (!string.IsNullOrEmpty(r.FlagsHumanShort))
+                sb.AppendLine(r.FlagsHumanShort);
+            if (!string.IsNullOrEmpty(r.FlagsHumanLong) &&
+                !string.Equals(r.FlagsHumanLong, r.FlagsHumanShort, StringComparison.Ordinal))
+            {
+                sb.AppendLine($"Details: {r.FlagsHumanLong}");
+            }
+            sb.AppendLine();
+        }
         if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort) || (r.TopTokens != null && r.TopTokens.Count > 0))
         {
             sb.AppendLine("### Heuristics");
             if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort))
                 sb.AppendLine(r.SecurityFindingsHumanShort);
+            if (!string.IsNullOrEmpty(r.SecurityFindingsHumanLong) &&
+                !string.Equals(r.SecurityFindingsHumanLong, r.SecurityFindingsHumanShort, StringComparison.Ordinal))
+            {
+                sb.AppendLine($"Details: {r.SecurityFindingsHumanLong}");
+            }
             if (r.TopTokens is { Count: > 0 })
                 sb.AppendLine($"Top tokens: {string.Join(", ", r.TopTokens.Take(8))}");
             sb.AppendLine();
         }
-        if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort)) sb.AppendLine($"### Inner Findings\n{r.InnerFindingsHumanShort}\n");
+        if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort) || !string.IsNullOrEmpty(r.InnerFindingsHumanLong))
+        {
+            sb.AppendLine("### Inner Findings");
+            if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort))
+                sb.AppendLine(r.InnerFindingsHumanShort);
+            if (!string.IsNullOrEmpty(r.InnerFindingsHumanLong) &&
+                !string.Equals(r.InnerFindingsHumanLong, r.InnerFindingsHumanShort, StringComparison.Ordinal))
+            {
+                sb.AppendLine($"Details: {r.InnerFindingsHumanLong}");
+            }
+            sb.AppendLine();
+        }
         if (HasAnySecretCounts(r))
         {
             sb.AppendLine("### Secrets");
@@ -202,6 +297,16 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Profile decisions: Strict={r.AssessmentDecisionStrict ?? "n/a"}, Balanced={r.AssessmentDecisionBalanced ?? r.AssessmentDecision ?? "n/a"}, Lenient={r.AssessmentDecisionLenient ?? "n/a"}");
             }
             if (!string.IsNullOrEmpty(r.AssessmentCodesHuman)) sb.AppendLine($"- Drivers: {r.AssessmentCodesHuman}");
+            if (!string.IsNullOrEmpty(r.AssessmentCodesHumanLong)) sb.AppendLine($"- Drivers (long): {r.AssessmentCodesHumanLong}");
+            if (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0)
+            {
+                var topFactors = r.AssessmentFactors
+                    .OrderByDescending(kv => Math.Abs(kv.Value))
+                    .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+                    .Take(6)
+                    .Select(kv => $"{kv.Key}={kv.Value}");
+                sb.AppendLine($"- Factors: {string.Join(", ", topFactors)}");
+            }
             sb.AppendLine();
         }
         return sb.ToString();
@@ -229,12 +334,17 @@ public static class MarkdownRenderer
 
         static bool HasTypeAnalysis(ReportView view)
             => !string.IsNullOrEmpty(view.DetectedTypeName) ||
+               !string.IsNullOrEmpty(view.DetectedTypeFriendly) ||
                !string.IsNullOrEmpty(view.DetectedTypeExtension) ||
                !string.IsNullOrEmpty(view.DetectionConfidence) ||
                !string.IsNullOrEmpty(view.DetectionReason) ||
                !string.IsNullOrEmpty(view.DetectionReasonDetails) ||
                !string.IsNullOrEmpty(view.DetectionValidationStatus) ||
+               view.DetectionScore.HasValue ||
+               view.DetectionIsDangerous.HasValue ||
                !string.IsNullOrEmpty(view.GuessedExtension) ||
+               (view.DetectionAlternatives != null && view.DetectionAlternatives.Count > 0) ||
+               (view.DetectionCandidates != null && view.DetectionCandidates.Count > 0) ||
                !string.IsNullOrEmpty(view.EncodedKind) ||
                !string.IsNullOrEmpty(view.EncodedInnerDetectedExtension) ||
                !string.IsNullOrEmpty(view.EncodedInnerDetectedName) ||
@@ -269,24 +379,56 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.ProductVersion) ||
                !string.IsNullOrEmpty(view.OriginalFilename);
 
+        static bool HasSecurityData(ReportView view)
+            => view.MotwZoneId.HasValue ||
+               !string.IsNullOrEmpty(view.MotwReferrerUrl) ||
+               !string.IsNullOrEmpty(view.MotwHostUrl) ||
+               view.AlternateStreamCount.HasValue;
+
+        static bool HasScriptData(ReportView view)
+            => !string.IsNullOrEmpty(view.ScriptLanguage) ||
+               !string.IsNullOrEmpty(view.ScriptLanguageHuman) ||
+               !string.IsNullOrEmpty(view.ScriptCmdlets);
+
+        static bool HasReferenceData(ReportView view)
+            => !string.IsNullOrEmpty(view.HtmlExternalLinksSample) ||
+               !string.IsNullOrEmpty(view.HtmlUncSample) ||
+               !string.IsNullOrEmpty(view.ScriptUrlsSample) ||
+               !string.IsNullOrEmpty(view.ScriptUncSample) ||
+               !string.IsNullOrEmpty(view.HtmlExternalLinksFull) ||
+               !string.IsNullOrEmpty(view.HtmlUncFull) ||
+               !string.IsNullOrEmpty(view.ScriptUrlsFull) ||
+               !string.IsNullOrEmpty(view.ScriptUncFull);
+
         static bool HasArchiveData(ReportView view)
             => view.EncryptedEntryCount.HasValue ||
                view.ArchiveEntryCount.HasValue ||
                (view.ArchiveTopExtensions != null && view.ArchiveTopExtensions.Count > 0) ||
+               !string.IsNullOrEmpty(view.InnerPublishersHuman) ||
+               (view.InnerExecutableExtCounts != null && view.InnerExecutableExtCounts.Count > 0) ||
                !string.IsNullOrEmpty(view.InnerBinariesSummary) ||
                (view.ArchivePreview != null && view.ArchivePreview.Count > 0);
 
         static bool HasSignatureData(ReportView view)
-            => view.WinTrustStatusCode.HasValue ||
-               view.CertificateTableSize.HasValue ||
+            => view.CertificateTableSize.HasValue ||
                !string.IsNullOrEmpty(view.CertificateBlobSha256) ||
+               view.DotNetStrongNameSigned.HasValue ||
+               view.IsTrustedWindowsPolicy.HasValue ||
+               view.WinTrustStatusCode.HasValue ||
                (view.EnhancedKeyUsages != null && view.EnhancedKeyUsages.Count > 0) ||
                !string.IsNullOrEmpty(view.TimestampAuthorityCN) ||
                !string.IsNullOrEmpty(view.SignerIssuerCN) ||
                !string.IsNullOrEmpty(view.SignerIssuerO) ||
                !string.IsNullOrEmpty(view.CertSubject) ||
                !string.IsNullOrEmpty(view.CertIssuer) ||
+               view.CertNotBefore.HasValue ||
+               view.CertNotAfter.HasValue ||
                !string.IsNullOrEmpty(view.CertThumbprint) ||
+               !string.IsNullOrEmpty(view.CertKeyAlgorithm) ||
+               view.CertSelfSigned.HasValue ||
+               view.CertChainTrusted.HasValue ||
+               !string.IsNullOrEmpty(view.CertRootSubject) ||
+               view.CertSanPresent.HasValue ||
                view.CertBundleCount.HasValue ||
                (view.CertBundleSubjects != null && view.CertBundleSubjects.Count > 0);
 

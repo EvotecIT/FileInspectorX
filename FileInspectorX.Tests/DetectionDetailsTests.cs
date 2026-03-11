@@ -233,7 +233,20 @@ public class DetectionDetailsTests
             {
                 new InnerEntryPreview { Name = "setup.exe", DetectedExtension = "exe" }
             },
-            InnerExecutablesSampled = 1
+            InnerExecutablesSampled = 1,
+            InnerPublisherCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Contoso"] = 2
+            },
+            InnerPublisherValidCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Contoso"] = 2
+            },
+            InnerExecutableExtCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["exe"] = 1,
+                ["dll"] = 2
+            }
         };
 
         var rv = ReportView.From(analysis);
@@ -246,6 +259,8 @@ public class DetectionDetailsTests
         Assert.True(rv.CompactFields!.ContainsKey("Archive"));
         Assert.Contains("Preview", rv.CompactFields["Archive"]);
         Assert.Contains("InnerBinariesSummary", rv.CompactFields["Archive"]);
+        Assert.Contains("InnerPublishersHuman", rv.CompactFields["Archive"]);
+        Assert.Contains("InnerExecutableExtCounts", rv.CompactFields["Archive"]);
 
         var map = rv.ToDictionary();
         var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
@@ -254,13 +269,23 @@ public class DetectionDetailsTests
         Assert.True(compact.ContainsKey("Archive"));
         Assert.Contains("Preview", compact["Archive"]);
         Assert.Contains("InnerBinariesSummary", compact["Archive"]);
+        Assert.Contains("InnerPublishersHuman", compact["Archive"]);
+        Assert.Contains("InnerExecutableExtCounts", compact["Archive"]);
         var preview = Assert.IsAssignableFrom<IReadOnlyList<string>>(map["ArchivePreview"]);
         Assert.Contains("setup.exe (exe)", preview);
-        Assert.Equal("Binaries: 1", map["InnerBinariesSummary"]);
+        var innerSummary = Assert.IsType<string>(map["InnerBinariesSummary"]);
+        Assert.StartsWith("Binaries: 1", innerSummary, StringComparison.Ordinal);
+        Assert.Contains("Top: Contoso (2 files", innerSummary, StringComparison.Ordinal);
+        Assert.Equal("Contoso (2 files, valid)", map["InnerPublishersHuman"]);
+        var extCounts = Assert.IsAssignableFrom<IReadOnlyDictionary<string, int>>(map["InnerExecutableExtCounts"]);
+        Assert.Equal(1, extCounts["exe"]);
+        Assert.Equal(2, extCounts["dll"]);
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Archive", md);
         Assert.Contains("Binaries: 1", md);
+        Assert.Contains("Inner publishers: Contoso (2 files, valid)", md);
+        Assert.Contains("Inner executable types: dll=2, exe=1", md);
         Assert.Contains("Preview: setup.exe (exe)", md);
     }
 
@@ -300,6 +325,166 @@ public class DetectionDetailsTests
         Assert.Contains("### Signature", md);
         Assert.Contains("Certificate bundle count: 2", md);
         Assert.Contains("Certificate bundle subjects: CN=Leaf, CN=Root", md);
+    }
+
+    [Fact]
+    public void ReportView_Signature_Presentation_Includes_Certificate_Metadata_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Certificate = new CertificateInfo
+            {
+                Subject = "CN=Leaf",
+                Issuer = "CN=Root",
+                NotBeforeUtc = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                NotAfterUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                KeyAlgorithm = "RSA",
+                SelfSigned = false,
+                ChainTrusted = true,
+                RootSubject = "CN=Root",
+                SanPresent = true
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("CertSubject", rv.CompactFields["Signature"]);
+        Assert.Contains("CertNotBefore", rv.CompactFields["Signature"]);
+        Assert.Contains("CertKeyAlgorithm", rv.CompactFields["Signature"]);
+        Assert.Contains("CertChainTrusted", rv.CompactFields["Signature"]);
+        Assert.Contains("CertSanPresent", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("CertNotAfter", compact["Signature"]);
+        Assert.Contains("CertRootSubject", compact["Signature"]);
+        Assert.Equal("RSA", map["CertKeyAlgorithm"]);
+        Assert.Equal(true, map["CertChainTrusted"]);
+        Assert.Equal(true, map["CertSanPresent"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains("Certificate subject: CN=Leaf", md);
+        Assert.Contains("Certificate issuer: CN=Root", md);
+        Assert.Contains("Certificate not before: 2024-01-01 00:00:00Z", md);
+        Assert.Contains("Certificate not after: 2026-01-01 00:00:00Z", md);
+        Assert.Contains("Certificate key algorithm: RSA", md);
+        Assert.Contains("Certificate self-signed: no", md);
+        Assert.Contains("Certificate chain trusted: yes", md);
+        Assert.Contains("Certificate root subject: CN=Root", md);
+        Assert.Contains("Certificate SAN present: yes", md);
+    }
+
+    [Fact]
+    public void ReportView_Security_Presentation_And_Markdown_Include_Motw_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Security = new FileSecurity
+            {
+                MotwZoneId = 3,
+                MotwReferrerUrl = "https://contoso.example/ref",
+                MotwHostUrl = "https://download.contoso.example/file.exe",
+                AlternateStreamCount = 2
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSecurity);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Security"));
+        Assert.Contains("MotwZoneId", rv.CompactFields["Security"]);
+        Assert.Contains("MotwReferrerUrl", rv.CompactFields["Security"]);
+        Assert.Contains("MotwHostUrl", rv.CompactFields["Security"]);
+        Assert.Contains("AlternateStreamCount", rv.CompactFields["Security"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSecurity"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Security"));
+        Assert.Contains("MotwZoneId", compact["Security"]);
+        Assert.Contains("AlternateStreamCount", compact["Security"]);
+        Assert.Equal(3, map["MotwZoneId"]);
+        Assert.Equal(2, map["AlternateStreamCount"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Security", md);
+        Assert.Contains("MOTW ZoneId: 3", md);
+        Assert.Contains("MOTW Referrer URL: https://contoso.example/ref", md);
+        Assert.Contains("MOTW Host URL: https://download.contoso.example/file.exe", md);
+        Assert.Contains("Alternate stream count: 2", md);
+    }
+
+    [Fact]
+    public void ReportView_Signature_Presentation_Includes_StrongName_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            DotNetStrongNameSigned = true
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("DotNetStrongNameSigned", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("DotNetStrongNameSigned", compact["Signature"]);
+        Assert.Equal(true, map["DotNetStrongNameSigned"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains(".NET strong-name signed: yes", md);
+    }
+
+    [Fact]
+    public void ReportView_Signature_Presentation_Includes_WinTrust_Policy_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Authenticode = new AuthenticodeInfo
+            {
+                IsTrustedWindowsPolicy = true
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.Equal(true, rv.IsTrustedWindowsPolicy);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("IsTrustedWindowsPolicy", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("IsTrustedWindowsPolicy", compact["Signature"]);
+        Assert.Equal(true, map["IsTrustedWindowsPolicy"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains("WinTrust policy trusted: yes", md);
     }
 
     [Fact]
@@ -405,6 +590,63 @@ public class DetectionDetailsTests
         Assert.Contains("### File Type", md);
         Assert.Contains("Candidates: ps1 High 92 dangerous (text:ps1)", md);
         Assert.Contains("Alternatives: cmd Medium 61 dangerous (text:cmd)", md);
+    }
+
+    [Fact]
+    public void TypeAnalysis_Compact_And_Markdown_Include_Score_And_Dangerous_Status()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                MimeType = "text/x-powershell",
+                Confidence = "High",
+                Reason = "text:ps1",
+                Score = 97,
+                IsDangerous = true
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowTypeAnalysis);
+        Assert.Equal(97, rv.DetectionScore);
+        Assert.Equal(true, rv.DetectionIsDangerous);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("TypeAnalysis"));
+        Assert.Contains("DetectionScore", rv.CompactFields["TypeAnalysis"]);
+        Assert.Contains("DetectionIsDangerous", rv.CompactFields["TypeAnalysis"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowTypeAnalysis"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("TypeAnalysis"));
+        Assert.Contains("DetectionScore", compact["TypeAnalysis"]);
+        Assert.Contains("DetectionIsDangerous", compact["TypeAnalysis"]);
+        Assert.Equal(97, map["DetectionScore"]);
+        Assert.Equal(true, map["DetectionIsDangerous"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### File Type", md);
+        Assert.Contains("Score: 97", md);
+        Assert.Contains("Dangerous type: yes", md);
+    }
+
+    [Fact]
+    public void Markdown_TypeAnalysis_Includes_Friendly_Name_Only_ReportView()
+    {
+        var rv = new ReportView
+        {
+            DetectedTypeFriendly = "PowerShell script"
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### File Type", md);
+        Assert.Contains("PowerShell script", md);
     }
 
     [Fact]
@@ -533,6 +775,125 @@ public class DetectionDetailsTests
         Assert.Contains("FileVersion: 2.1.0", md);
         Assert.Contains("ProductVersion: 2.1", md);
         Assert.Contains("OriginalFilename: agent.exe", md);
+    }
+
+    [Fact]
+    public void ReportView_Script_Presentation_And_Markdown_Include_Script_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            ScriptLanguage = "powershell",
+            ScriptCmdlets = new[] { "invoke-expression", "get-item" }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowScript);
+        Assert.Equal("powershell", rv.ScriptLanguage);
+        Assert.Equal("PowerShell", rv.ScriptLanguageHuman);
+        Assert.Equal("Invoke-Expression, Get-Item", rv.ScriptCmdlets);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Script"));
+        Assert.Contains("ScriptLanguageHuman", rv.CompactFields["Script"]);
+        Assert.Contains("ScriptCmdlets", rv.CompactFields["Script"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowScript"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Script"));
+        Assert.Contains("ScriptLanguageHuman", compact["Script"]);
+        Assert.Contains("ScriptCmdlets", compact["Script"]);
+        Assert.Equal("PowerShell", map["ScriptLanguageHuman"]);
+        Assert.Equal("Invoke-Expression, Get-Item", map["ScriptCmdlets"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Script", md);
+        Assert.Contains("Language: PowerShell", md);
+        Assert.Contains("Cmdlets: Invoke-Expression, Get-Item", md);
+    }
+
+    [Fact]
+    public void ReportView_References_Presentation_And_Markdown_Include_Reference_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            References = new[]
+            {
+                new Reference { Kind = ReferenceKind.Url, Value = "https://contoso.example/a", SourceTag = "html:a" },
+                new Reference { Kind = ReferenceKind.FilePath, Value = "\\\\server\\share", SourceTag = "html:img", Issues = ReferenceIssue.UncPath },
+                new Reference { Kind = ReferenceKind.Url, Value = "https://contoso.example/script.js", SourceTag = "script:ps1" },
+                new Reference { Kind = ReferenceKind.FilePath, Value = "\\\\server\\scripts", SourceTag = "script:ps1", Issues = ReferenceIssue.UncPath }
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowReferences);
+        Assert.Equal("https://contoso.example/a", rv.HtmlExternalLinksSample);
+        Assert.Equal("\\\\server\\share", rv.HtmlUncSample);
+        Assert.Equal("https://contoso.example/script.js", rv.ScriptUrlsSample);
+        Assert.Equal("\\\\server\\scripts", rv.ScriptUncSample);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("References"));
+        Assert.Contains("HtmlExternalLinksSample", rv.CompactFields["References"]);
+        Assert.Contains("ScriptUrlsSample", rv.CompactFields["References"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowReferences"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("References"));
+        Assert.Contains("HtmlExternalLinksSample", compact["References"]);
+        Assert.Contains("ScriptUrlsSample", compact["References"]);
+        Assert.Equal("https://contoso.example/a", map["HtmlExternalLinksSample"]);
+        Assert.Equal("\\\\server\\scripts", map["ScriptUncSample"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### References", md);
+        Assert.Contains("HTML external links: https://contoso.example/a", md);
+        Assert.Contains("HTML UNC paths: \\\\server\\share", md);
+        Assert.Contains("Script URLs: https://contoso.example/script.js", md);
+        Assert.Contains("Script UNC paths: \\\\server\\scripts", md);
+    }
+
+    [Fact]
+    public void Markdown_Includes_Long_Heuristics_And_Inner_Findings_Details()
+    {
+        var rv = new ReportView
+        {
+            SecurityFindingsHumanShort = "Suspicious script indicators",
+            SecurityFindingsHumanLong = "Suspicious script indicators including encoded command usage and remote URL execution",
+            InnerFindingsHumanShort = "Archive contains risky entries",
+            InnerFindingsHumanLong = "Archive contains risky entries including signed and unsigned executable payloads"
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Heuristics", md);
+        Assert.Contains("Suspicious script indicators", md);
+        Assert.Contains("Details: Suspicious script indicators including encoded command usage and remote URL execution", md);
+        Assert.Contains("### Inner Findings", md);
+        Assert.Contains("Archive contains risky entries", md);
+        Assert.Contains("Details: Archive contains risky entries including signed and unsigned executable payloads", md);
+    }
+
+    [Fact]
+    public void Markdown_Includes_Long_Analysis_Flag_Details()
+    {
+        var rv = new ReportView
+        {
+            FlagsHumanShort = "Macros, encoded payload",
+            FlagsHumanLong = "Contains Office macros and encoded payload indicators discovered during analysis"
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Analysis Flags", md);
+        Assert.Contains("Macros, encoded payload", md);
+        Assert.Contains("Details: Contains Office macros and encoded payload indicators discovered during analysis", md);
     }
 
     [Fact]
@@ -689,5 +1050,33 @@ public class DetectionDetailsTests
             Settings.AssessmentWarnThreshold = oldWarn;
             Settings.AssessmentBlockThreshold = oldBlock;
         }
+    }
+
+    [Fact]
+    public void Markdown_Includes_Assessment_Long_Drivers_And_Factors()
+    {
+        var rv = new ReportView
+        {
+            AssessmentScore = 85,
+            AssessmentDecision = "Block",
+            AssessmentDecisionStrict = "Block",
+            AssessmentDecisionBalanced = "Block",
+            AssessmentDecisionLenient = "Warn",
+            AssessmentCodesHuman = "JWT tokens, key patterns",
+            AssessmentCodesHumanLong = "JWT-like tokens found, long key/secret assignment patterns detected",
+            AssessmentFactors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["secret:jwt"] = 40,
+                ["secret:keypattern"] = 25,
+                ["inner:signed"] = -5
+            }
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Risk Assessment", md);
+        Assert.Contains("Drivers: JWT tokens, key patterns", md);
+        Assert.Contains("Drivers (long): JWT-like tokens found, long key/secret assignment patterns detected", md);
+        Assert.Contains("Factors: secret:jwt=40, secret:keypattern=25, inner:signed=-5", md);
     }
 }
