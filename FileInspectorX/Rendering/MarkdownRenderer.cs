@@ -141,6 +141,9 @@ public static class MarkdownRenderer
         if (HasPropertiesData(r))
         {
             sb.AppendLine("### Properties");
+            if (r.ShellPropertyCount.HasValue) sb.AppendLine($"- Shell properties: {r.ShellPropertyCount.Value}");
+            if (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0)
+                sb.AppendLine($"- Shell property preview: {string.Join("; ", r.ShellPropertyPreview.Take(4))}");
             if (!string.IsNullOrEmpty(r.CompanyName)) sb.AppendLine($"- Company: {r.CompanyName}");
             if (!string.IsNullOrEmpty(r.ProductName)) sb.AppendLine($"- Product: {r.ProductName}");
             if (!string.IsNullOrEmpty(r.FileDescription)) sb.AppendLine($"- Description: {r.FileDescription}");
@@ -463,6 +466,8 @@ public static class MarkdownRenderer
 
         static bool HasPropertiesData(ReportView view)
             => (view.VersionInfo != null && view.VersionInfo.Count > 0) ||
+               view.ShellPropertyCount.HasValue ||
+               (view.ShellPropertyPreview != null && view.ShellPropertyPreview.Count > 0) ||
                !string.IsNullOrEmpty(view.CompanyName) ||
                !string.IsNullOrEmpty(view.ProductName) ||
                !string.IsNullOrEmpty(view.FileDescription) ||

@@ -1251,6 +1251,54 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Properties_Presentation_Includes_Shell_Property_Summary()
+    {
+        var analysis = new FileAnalysis
+        {
+            ShellProperties = new List<ShellProperty>
+            {
+                new ShellProperty { DisplayName = "Title", Value = "Contoso Agent" },
+                new ShellProperty { CanonicalName = "System.Author", Value = "Ops Team" },
+                new ShellProperty { Key = "fmtid:12", Value = "Utility" },
+                new ShellProperty { DisplayName = "Empty", Value = "" }
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowProperties);
+        Assert.Equal(3, rv.ShellPropertyCount);
+        Assert.NotNull(rv.ShellPropertyPreview);
+        Assert.Equal(3, rv.ShellPropertyPreview!.Count);
+        Assert.Contains("Title: Contoso Agent", rv.ShellPropertyPreview);
+        Assert.Contains("System.Author: Ops Team", rv.ShellPropertyPreview);
+        Assert.Contains("fmtid:12: Utility", rv.ShellPropertyPreview);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Properties"));
+        Assert.Contains("ShellPropertyCount", rv.CompactFields["Properties"]);
+        Assert.Contains("ShellPropertyPreview", rv.CompactFields["Properties"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowProperties"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Properties"));
+        Assert.Contains("ShellPropertyCount", compact["Properties"]);
+        Assert.Contains("ShellPropertyPreview", compact["Properties"]);
+        Assert.Equal(3, map["ShellPropertyCount"]);
+        var preview = Assert.IsAssignableFrom<IReadOnlyList<string>>(map["ShellPropertyPreview"]);
+        Assert.Contains("Title: Contoso Agent", preview);
+        Assert.Contains("System.Author: Ops Team", preview);
+        Assert.Contains("fmtid:12: Utility", preview);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Properties", md);
+        Assert.Contains("Shell properties: 3", md);
+        Assert.Contains("Shell property preview: Title: Contoso Agent; System.Author: Ops Team; fmtid:12: Utility", md);
+    }
+
+    [Fact]
     public void ReportView_Script_Presentation_And_Markdown_Include_Script_Only_Analysis()
     {
         var analysis = new FileAnalysis

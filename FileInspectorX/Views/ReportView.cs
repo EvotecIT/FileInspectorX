@@ -69,6 +69,10 @@ public sealed class ReportView
 
     /// <summary>Raw version information as a name/value map.</summary>
     public IReadOnlyDictionary<string,string>? VersionInfo { get; set; }
+    /// <summary>Count of non-empty shell properties captured from Explorer details.</summary>
+    public int? ShellPropertyCount { get; set; }
+    /// <summary>Preview of non-empty shell properties as "Name: Value" lines.</summary>
+    public IReadOnlyList<string>? ShellPropertyPreview { get; set; }
     /// <summary>Company name from version info.</summary>
     public string? CompanyName { get; set; }
     /// <summary>Product name from version info.</summary>
@@ -443,6 +447,28 @@ public sealed class ReportView
             a.VersionInfo.TryGetValue("OriginalFilename", out var origFile);
             r.CompanyName = company; r.ProductName = product; r.FileDescription = fileDesc; r.FileVersion = fver; r.ProductVersion = pver; r.OriginalFilename = origFile;
         }
+        if (a.ShellProperties != null && a.ShellProperties.Count > 0)
+        {
+            var nonEmpty = a.ShellProperties
+                .Where(p => !string.IsNullOrWhiteSpace(p?.Value))
+                .Select(p => new
+                {
+                    Name = !string.IsNullOrWhiteSpace(p!.DisplayName) ? p.DisplayName :
+                           !string.IsNullOrWhiteSpace(p.CanonicalName) ? p.CanonicalName :
+                           p.Key,
+                    Value = p.Value
+                })
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name) && !string.IsNullOrWhiteSpace(p.Value))
+                .ToList();
+            if (nonEmpty.Count > 0)
+            {
+                r.ShellPropertyCount = nonEmpty.Count;
+                r.ShellPropertyPreview = nonEmpty
+                    .Take(6)
+                    .Select(p => $"{p.Name}: {p.Value}")
+                    .ToArray();
+            }
+        }
         // Installer summary
         if (a.Installer != null)
         {
@@ -716,6 +742,8 @@ public sealed class ReportView
             list.Add(key);
         }
         if (r.VersionInfo != null && r.VersionInfo.Count > 0) AddField("Properties", "VersionInfo", "1");
+        if (r.ShellPropertyCount.HasValue) AddField("Properties", "ShellPropertyCount", r.ShellPropertyCount.Value.ToString());
+        if (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0) AddField("Properties", "ShellPropertyPreview", "1");
         AddField("Properties", "CompanyName", r.CompanyName);
         AddField("Properties", "ProductName", r.ProductName);
         AddField("Properties", "FileDescription", r.FileDescription);
@@ -1007,6 +1035,8 @@ public sealed class ReportView
 
     private static bool HasAnyPropertySignals(ReportView r)
         => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
+           r.ShellPropertyCount.HasValue ||
+           (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0) ||
            !string.IsNullOrEmpty(r.CompanyName) ||
            !string.IsNullOrEmpty(r.ProductName) ||
            !string.IsNullOrEmpty(r.FileDescription) ||
@@ -1075,6 +1105,8 @@ public sealed class ReportView
         if (IsTrustedWindowsPolicy.HasValue) d["IsTrustedWindowsPolicy"] = IsTrustedWindowsPolicy.Value;
         if (WinTrustStatusCode.HasValue) d["WinTrustStatusCode"] = WinTrustStatusCode.Value;
         if (VersionInfo != null) d["VersionInfo"] = VersionInfo;
+        if (ShellPropertyCount.HasValue) d["ShellPropertyCount"] = ShellPropertyCount.Value;
+        if (ShellPropertyPreview != null && ShellPropertyPreview.Count > 0) d["ShellPropertyPreview"] = ShellPropertyPreview;
         if (CompanyName != null) d["CompanyName"] = CompanyName;
         if (ProductName != null) d["ProductName"] = ProductName;
         if (FileDescription != null) d["FileDescription"] = FileDescription;
