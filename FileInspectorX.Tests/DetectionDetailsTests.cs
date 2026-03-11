@@ -519,12 +519,25 @@ public class DetectionDetailsTests
                 IsHidden = true,
                 IsReadOnly = true,
                 Owner = "CONTOSO\\svc-deploy",
+                OwnerId = "S-1-5-21-1000",
+                Group = "CONTOSO\\Deployment",
+                GroupId = "S-1-5-32-544",
                 ModeOctal = "0755",
                 ModeSymbolic = "rwxr-xr-x",
                 IsExecutable = true,
                 IsWorldWritable = false,
                 EveryoneWriteAllowed = true,
-                HasDenyEntries = true
+                AuthenticatedUsersWriteAllowed = false,
+                EveryoneReadAllowed = true,
+                BuiltinUsersWriteAllowed = false,
+                BuiltinUsersReadAllowed = true,
+                AdministratorsWriteAllowed = true,
+                AdministratorsReadAllowed = true,
+                HasDenyEntries = true,
+                TotalAllowCount = 6,
+                TotalDenyCount = 2,
+                ExplicitAllowCount = 4,
+                ExplicitDenyCount = 1
             }
         };
 
@@ -533,6 +546,9 @@ public class DetectionDetailsTests
         Assert.NotNull(rv.Advice);
         Assert.True(rv.Advice.ShowSecurity);
         Assert.Equal("CONTOSO\\svc-deploy", rv.Owner);
+        Assert.Equal("S-1-5-21-1000", rv.OwnerId);
+        Assert.Equal("CONTOSO\\Deployment", rv.Group);
+        Assert.Equal("S-1-5-32-544", rv.GroupId);
         Assert.Equal("0755", rv.ModeOctal);
         Assert.Equal("rwxr-xr-x", rv.ModeSymbolic);
         Assert.Equal(true, rv.IsExecutable);
@@ -540,9 +556,22 @@ public class DetectionDetailsTests
         Assert.True(rv.CompactFields!.ContainsKey("Security"));
         Assert.Contains("IsHidden", rv.CompactFields["Security"]);
         Assert.Contains("Owner", rv.CompactFields["Security"]);
+        Assert.Contains("OwnerId", rv.CompactFields["Security"]);
+        Assert.Contains("Group", rv.CompactFields["Security"]);
+        Assert.Contains("GroupId", rv.CompactFields["Security"]);
         Assert.Contains("ModeSymbolic", rv.CompactFields["Security"]);
         Assert.Contains("EveryoneWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("AuthenticatedUsersWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("EveryoneReadAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("BuiltinUsersWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("BuiltinUsersReadAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("AdministratorsWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("AdministratorsReadAllowed", rv.CompactFields["Security"]);
         Assert.Contains("HasDenyEntries", rv.CompactFields["Security"]);
+        Assert.Contains("TotalAllowCount", rv.CompactFields["Security"]);
+        Assert.Contains("TotalDenyCount", rv.CompactFields["Security"]);
+        Assert.Contains("ExplicitAllowCount", rv.CompactFields["Security"]);
+        Assert.Contains("ExplicitDenyCount", rv.CompactFields["Security"]);
 
         var map = rv.ToDictionary();
         var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
@@ -551,28 +580,67 @@ public class DetectionDetailsTests
         Assert.True(compact.ContainsKey("Security"));
         Assert.Contains("IsHidden", compact["Security"]);
         Assert.Contains("Owner", compact["Security"]);
+        Assert.Contains("OwnerId", compact["Security"]);
+        Assert.Contains("Group", compact["Security"]);
+        Assert.Contains("GroupId", compact["Security"]);
         Assert.Contains("ModeSymbolic", compact["Security"]);
         Assert.Contains("EveryoneWriteAllowed", compact["Security"]);
+        Assert.Contains("AuthenticatedUsersWriteAllowed", compact["Security"]);
+        Assert.Contains("EveryoneReadAllowed", compact["Security"]);
+        Assert.Contains("BuiltinUsersWriteAllowed", compact["Security"]);
+        Assert.Contains("BuiltinUsersReadAllowed", compact["Security"]);
+        Assert.Contains("AdministratorsWriteAllowed", compact["Security"]);
+        Assert.Contains("AdministratorsReadAllowed", compact["Security"]);
         Assert.Contains("HasDenyEntries", compact["Security"]);
+        Assert.Contains("TotalAllowCount", compact["Security"]);
+        Assert.Contains("TotalDenyCount", compact["Security"]);
+        Assert.Contains("ExplicitAllowCount", compact["Security"]);
+        Assert.Contains("ExplicitDenyCount", compact["Security"]);
         Assert.Equal(true, map["IsHidden"]);
         Assert.Equal("CONTOSO\\svc-deploy", map["Owner"]);
+        Assert.Equal("S-1-5-21-1000", map["OwnerId"]);
+        Assert.Equal("CONTOSO\\Deployment", map["Group"]);
+        Assert.Equal("S-1-5-32-544", map["GroupId"]);
         Assert.Equal("0755", map["ModeOctal"]);
         Assert.Equal("rwxr-xr-x", map["ModeSymbolic"]);
         Assert.Equal(true, map["IsExecutable"]);
         Assert.Equal(true, map["EveryoneWriteAllowed"]);
+        Assert.Equal(false, map["AuthenticatedUsersWriteAllowed"]);
+        Assert.Equal(true, map["EveryoneReadAllowed"]);
+        Assert.Equal(false, map["BuiltinUsersWriteAllowed"]);
+        Assert.Equal(true, map["BuiltinUsersReadAllowed"]);
+        Assert.Equal(true, map["AdministratorsWriteAllowed"]);
+        Assert.Equal(true, map["AdministratorsReadAllowed"]);
         Assert.Equal(true, map["HasDenyEntries"]);
+        Assert.Equal(6, map["TotalAllowCount"]);
+        Assert.Equal(2, map["TotalDenyCount"]);
+        Assert.Equal(4, map["ExplicitAllowCount"]);
+        Assert.Equal(1, map["ExplicitDenyCount"]);
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Security", md);
         Assert.Contains("Hidden: yes", md);
         Assert.Contains("Read-only: yes", md);
         Assert.Contains("Owner: CONTOSO\\svc-deploy", md);
+        Assert.Contains("Owner ID: S-1-5-21-1000", md);
+        Assert.Contains("Group: CONTOSO\\Deployment", md);
+        Assert.Contains("Group ID: S-1-5-32-544", md);
         Assert.Contains("Mode (octal): 0755", md);
         Assert.Contains("Mode (symbolic): rwxr-xr-x", md);
         Assert.Contains("Executable: yes", md);
         Assert.Contains("World-writable: no", md);
         Assert.Contains("Everyone write allowed: yes", md);
+        Assert.Contains("Authenticated Users write allowed: no", md);
+        Assert.Contains("Everyone read allowed: yes", md);
+        Assert.Contains("BUILTIN\\Users write allowed: no", md);
+        Assert.Contains("BUILTIN\\Users read allowed: yes", md);
+        Assert.Contains("BUILTIN\\Administrators write allowed: yes", md);
+        Assert.Contains("BUILTIN\\Administrators read allowed: yes", md);
         Assert.Contains("Has deny ACEs: yes", md);
+        Assert.Contains("Total allow ACEs: 6", md);
+        Assert.Contains("Total deny ACEs: 2", md);
+        Assert.Contains("Explicit allow ACEs: 4", md);
+        Assert.Contains("Explicit deny ACEs: 1", md);
     }
 
     [Fact]

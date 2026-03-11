@@ -284,6 +284,12 @@ public sealed class ReportView
     public bool? IsReadOnly { get; set; }
     /// <summary>Owner name when available.</summary>
     public string? Owner { get; set; }
+    /// <summary>Owner identifier when available.</summary>
+    public string? OwnerId { get; set; }
+    /// <summary>Group name when available.</summary>
+    public string? Group { get; set; }
+    /// <summary>Group identifier when available.</summary>
+    public string? GroupId { get; set; }
     /// <summary>Unix mode in octal form when available.</summary>
     public string? ModeOctal { get; set; }
     /// <summary>Unix mode in symbolic form when available.</summary>
@@ -294,8 +300,28 @@ public sealed class ReportView
     public bool? IsWorldWritable { get; set; }
     /// <summary>True when Everyone has write access on Windows.</summary>
     public bool? EveryoneWriteAllowed { get; set; }
+    /// <summary>True when Authenticated Users have write access on Windows.</summary>
+    public bool? AuthenticatedUsersWriteAllowed { get; set; }
+    /// <summary>True when Everyone has read access on Windows.</summary>
+    public bool? EveryoneReadAllowed { get; set; }
+    /// <summary>True when BUILTIN\Users have write access on Windows.</summary>
+    public bool? BuiltinUsersWriteAllowed { get; set; }
+    /// <summary>True when BUILTIN\Users have read access on Windows.</summary>
+    public bool? BuiltinUsersReadAllowed { get; set; }
+    /// <summary>True when BUILTIN\Administrators have write access on Windows.</summary>
+    public bool? AdministratorsWriteAllowed { get; set; }
+    /// <summary>True when BUILTIN\Administrators have read access on Windows.</summary>
+    public bool? AdministratorsReadAllowed { get; set; }
     /// <summary>True when explicit deny ACEs are present on Windows.</summary>
     public bool? HasDenyEntries { get; set; }
+    /// <summary>Total allow ACE count when available.</summary>
+    public int? TotalAllowCount { get; set; }
+    /// <summary>Total deny ACE count when available.</summary>
+    public int? TotalDenyCount { get; set; }
+    /// <summary>Explicit allow ACE count when available.</summary>
+    public int? ExplicitAllowCount { get; set; }
+    /// <summary>Explicit deny ACE count when available.</summary>
+    public int? ExplicitDenyCount { get; set; }
 
     // Secrets (category counts)
     /// <summary>Number of private key indicators found.</summary>
@@ -559,12 +585,25 @@ public sealed class ReportView
             r.IsHidden = a.Security.IsHidden;
             r.IsReadOnly = a.Security.IsReadOnly;
             r.Owner = a.Security.Owner;
+            r.OwnerId = a.Security.OwnerId;
+            r.Group = a.Security.Group;
+            r.GroupId = a.Security.GroupId;
             r.ModeOctal = a.Security.ModeOctal;
             r.ModeSymbolic = a.Security.ModeSymbolic;
             r.IsExecutable = a.Security.IsExecutable;
             r.IsWorldWritable = a.Security.IsWorldWritable;
             r.EveryoneWriteAllowed = a.Security.EveryoneWriteAllowed;
+            r.AuthenticatedUsersWriteAllowed = a.Security.AuthenticatedUsersWriteAllowed;
+            r.EveryoneReadAllowed = a.Security.EveryoneReadAllowed;
+            r.BuiltinUsersWriteAllowed = a.Security.BuiltinUsersWriteAllowed;
+            r.BuiltinUsersReadAllowed = a.Security.BuiltinUsersReadAllowed;
+            r.AdministratorsWriteAllowed = a.Security.AdministratorsWriteAllowed;
+            r.AdministratorsReadAllowed = a.Security.AdministratorsReadAllowed;
             r.HasDenyEntries = a.Security.HasDenyEntries;
+            r.TotalAllowCount = a.Security.TotalAllowCount;
+            r.TotalDenyCount = a.Security.TotalDenyCount;
+            r.ExplicitAllowCount = a.Security.ExplicitAllowCount;
+            r.ExplicitDenyCount = a.Security.ExplicitDenyCount;
             r.MotwZoneId = a.Security.MotwZoneId;
             r.MotwReferrerUrl = a.Security.MotwReferrerUrl;
             r.MotwHostUrl = a.Security.MotwHostUrl;
@@ -739,12 +778,25 @@ public sealed class ReportView
         if (r.IsHidden.HasValue) AddField("Security", "IsHidden", r.IsHidden.Value ? "true" : "false");
         if (r.IsReadOnly.HasValue) AddField("Security", "IsReadOnly", r.IsReadOnly.Value ? "true" : "false");
         AddField("Security", "Owner", r.Owner);
+        AddField("Security", "OwnerId", r.OwnerId);
+        AddField("Security", "Group", r.Group);
+        AddField("Security", "GroupId", r.GroupId);
         AddField("Security", "ModeOctal", r.ModeOctal);
         AddField("Security", "ModeSymbolic", r.ModeSymbolic);
         if (r.IsExecutable.HasValue) AddField("Security", "IsExecutable", r.IsExecutable.Value ? "true" : "false");
         if (r.IsWorldWritable.HasValue) AddField("Security", "IsWorldWritable", r.IsWorldWritable.Value ? "true" : "false");
         if (r.EveryoneWriteAllowed.HasValue) AddField("Security", "EveryoneWriteAllowed", r.EveryoneWriteAllowed.Value ? "true" : "false");
+        if (r.AuthenticatedUsersWriteAllowed.HasValue) AddField("Security", "AuthenticatedUsersWriteAllowed", r.AuthenticatedUsersWriteAllowed.Value ? "true" : "false");
+        if (r.EveryoneReadAllowed.HasValue) AddField("Security", "EveryoneReadAllowed", r.EveryoneReadAllowed.Value ? "true" : "false");
+        if (r.BuiltinUsersWriteAllowed.HasValue) AddField("Security", "BuiltinUsersWriteAllowed", r.BuiltinUsersWriteAllowed.Value ? "true" : "false");
+        if (r.BuiltinUsersReadAllowed.HasValue) AddField("Security", "BuiltinUsersReadAllowed", r.BuiltinUsersReadAllowed.Value ? "true" : "false");
+        if (r.AdministratorsWriteAllowed.HasValue) AddField("Security", "AdministratorsWriteAllowed", r.AdministratorsWriteAllowed.Value ? "true" : "false");
+        if (r.AdministratorsReadAllowed.HasValue) AddField("Security", "AdministratorsReadAllowed", r.AdministratorsReadAllowed.Value ? "true" : "false");
         if (r.HasDenyEntries.HasValue) AddField("Security", "HasDenyEntries", r.HasDenyEntries.Value ? "true" : "false");
+        if (r.TotalAllowCount.HasValue) AddField("Security", "TotalAllowCount", r.TotalAllowCount.Value.ToString());
+        if (r.TotalDenyCount.HasValue) AddField("Security", "TotalDenyCount", r.TotalDenyCount.Value.ToString());
+        if (r.ExplicitAllowCount.HasValue) AddField("Security", "ExplicitAllowCount", r.ExplicitAllowCount.Value.ToString());
+        if (r.ExplicitDenyCount.HasValue) AddField("Security", "ExplicitDenyCount", r.ExplicitDenyCount.Value.ToString());
         AddField("Script", "ScriptLanguage", r.ScriptLanguage);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         AddField("Script", "ScriptCmdlets", r.ScriptCmdlets);
@@ -933,12 +985,25 @@ public sealed class ReportView
            r.IsHidden.HasValue ||
            r.IsReadOnly.HasValue ||
            !string.IsNullOrEmpty(r.Owner) ||
+           !string.IsNullOrEmpty(r.OwnerId) ||
+           !string.IsNullOrEmpty(r.Group) ||
+           !string.IsNullOrEmpty(r.GroupId) ||
            !string.IsNullOrEmpty(r.ModeOctal) ||
            !string.IsNullOrEmpty(r.ModeSymbolic) ||
            r.IsExecutable.HasValue ||
            r.IsWorldWritable.HasValue ||
            r.EveryoneWriteAllowed.HasValue ||
-           r.HasDenyEntries.HasValue;
+           r.AuthenticatedUsersWriteAllowed.HasValue ||
+           r.EveryoneReadAllowed.HasValue ||
+           r.BuiltinUsersWriteAllowed.HasValue ||
+           r.BuiltinUsersReadAllowed.HasValue ||
+           r.AdministratorsWriteAllowed.HasValue ||
+           r.AdministratorsReadAllowed.HasValue ||
+           r.HasDenyEntries.HasValue ||
+           r.TotalAllowCount.HasValue ||
+           r.TotalDenyCount.HasValue ||
+           r.ExplicitAllowCount.HasValue ||
+           r.ExplicitDenyCount.HasValue;
 
     private static bool HasAnyPropertySignals(ReportView r)
         => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
@@ -1113,12 +1178,25 @@ public sealed class ReportView
         if (IsHidden.HasValue) d["IsHidden"] = IsHidden.Value;
         if (IsReadOnly.HasValue) d["IsReadOnly"] = IsReadOnly.Value;
         if (!string.IsNullOrEmpty(Owner)) d["Owner"] = Owner;
+        if (!string.IsNullOrEmpty(OwnerId)) d["OwnerId"] = OwnerId;
+        if (!string.IsNullOrEmpty(Group)) d["Group"] = Group;
+        if (!string.IsNullOrEmpty(GroupId)) d["GroupId"] = GroupId;
         if (!string.IsNullOrEmpty(ModeOctal)) d["ModeOctal"] = ModeOctal;
         if (!string.IsNullOrEmpty(ModeSymbolic)) d["ModeSymbolic"] = ModeSymbolic;
         if (IsExecutable.HasValue) d["IsExecutable"] = IsExecutable.Value;
         if (IsWorldWritable.HasValue) d["IsWorldWritable"] = IsWorldWritable.Value;
         if (EveryoneWriteAllowed.HasValue) d["EveryoneWriteAllowed"] = EveryoneWriteAllowed.Value;
+        if (AuthenticatedUsersWriteAllowed.HasValue) d["AuthenticatedUsersWriteAllowed"] = AuthenticatedUsersWriteAllowed.Value;
+        if (EveryoneReadAllowed.HasValue) d["EveryoneReadAllowed"] = EveryoneReadAllowed.Value;
+        if (BuiltinUsersWriteAllowed.HasValue) d["BuiltinUsersWriteAllowed"] = BuiltinUsersWriteAllowed.Value;
+        if (BuiltinUsersReadAllowed.HasValue) d["BuiltinUsersReadAllowed"] = BuiltinUsersReadAllowed.Value;
+        if (AdministratorsWriteAllowed.HasValue) d["AdministratorsWriteAllowed"] = AdministratorsWriteAllowed.Value;
+        if (AdministratorsReadAllowed.HasValue) d["AdministratorsReadAllowed"] = AdministratorsReadAllowed.Value;
         if (HasDenyEntries.HasValue) d["HasDenyEntries"] = HasDenyEntries.Value;
+        if (TotalAllowCount.HasValue) d["TotalAllowCount"] = TotalAllowCount.Value;
+        if (TotalDenyCount.HasValue) d["TotalDenyCount"] = TotalDenyCount.Value;
+        if (ExplicitAllowCount.HasValue) d["ExplicitAllowCount"] = ExplicitAllowCount.Value;
+        if (ExplicitDenyCount.HasValue) d["ExplicitDenyCount"] = ExplicitDenyCount.Value;
         // Secrets
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;

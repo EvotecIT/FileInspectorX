@@ -176,12 +176,25 @@ public static class MarkdownRenderer
             if (r.IsHidden.HasValue) sb.AppendLine($"- Hidden: {(r.IsHidden.Value ? "yes" : "no")}");
             if (r.IsReadOnly.HasValue) sb.AppendLine($"- Read-only: {(r.IsReadOnly.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.Owner)) sb.AppendLine($"- Owner: {r.Owner}");
+            if (!string.IsNullOrEmpty(r.OwnerId)) sb.AppendLine($"- Owner ID: {r.OwnerId}");
+            if (!string.IsNullOrEmpty(r.Group)) sb.AppendLine($"- Group: {r.Group}");
+            if (!string.IsNullOrEmpty(r.GroupId)) sb.AppendLine($"- Group ID: {r.GroupId}");
             if (!string.IsNullOrEmpty(r.ModeOctal)) sb.AppendLine($"- Mode (octal): {r.ModeOctal}");
             if (!string.IsNullOrEmpty(r.ModeSymbolic)) sb.AppendLine($"- Mode (symbolic): {r.ModeSymbolic}");
             if (r.IsExecutable.HasValue) sb.AppendLine($"- Executable: {(r.IsExecutable.Value ? "yes" : "no")}");
             if (r.IsWorldWritable.HasValue) sb.AppendLine($"- World-writable: {(r.IsWorldWritable.Value ? "yes" : "no")}");
             if (r.EveryoneWriteAllowed.HasValue) sb.AppendLine($"- Everyone write allowed: {(r.EveryoneWriteAllowed.Value ? "yes" : "no")}");
+            if (r.AuthenticatedUsersWriteAllowed.HasValue) sb.AppendLine($"- Authenticated Users write allowed: {(r.AuthenticatedUsersWriteAllowed.Value ? "yes" : "no")}");
+            if (r.EveryoneReadAllowed.HasValue) sb.AppendLine($"- Everyone read allowed: {(r.EveryoneReadAllowed.Value ? "yes" : "no")}");
+            if (r.BuiltinUsersWriteAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Users write allowed: {(r.BuiltinUsersWriteAllowed.Value ? "yes" : "no")}");
+            if (r.BuiltinUsersReadAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Users read allowed: {(r.BuiltinUsersReadAllowed.Value ? "yes" : "no")}");
+            if (r.AdministratorsWriteAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Administrators write allowed: {(r.AdministratorsWriteAllowed.Value ? "yes" : "no")}");
+            if (r.AdministratorsReadAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Administrators read allowed: {(r.AdministratorsReadAllowed.Value ? "yes" : "no")}");
             if (r.HasDenyEntries.HasValue) sb.AppendLine($"- Has deny ACEs: {(r.HasDenyEntries.Value ? "yes" : "no")}");
+            if (r.TotalAllowCount.HasValue) sb.AppendLine($"- Total allow ACEs: {r.TotalAllowCount.Value}");
+            if (r.TotalDenyCount.HasValue) sb.AppendLine($"- Total deny ACEs: {r.TotalDenyCount.Value}");
+            if (r.ExplicitAllowCount.HasValue) sb.AppendLine($"- Explicit allow ACEs: {r.ExplicitAllowCount.Value}");
+            if (r.ExplicitDenyCount.HasValue) sb.AppendLine($"- Explicit deny ACEs: {r.ExplicitDenyCount.Value}");
             if (r.MotwZoneId.HasValue) sb.AppendLine($"- MOTW ZoneId: {r.MotwZoneId.Value}");
             if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
             if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendLine($"- MOTW Host URL: {r.MotwHostUrl}");
@@ -462,12 +475,25 @@ public static class MarkdownRenderer
                view.IsHidden.HasValue ||
                view.IsReadOnly.HasValue ||
                !string.IsNullOrEmpty(view.Owner) ||
+               !string.IsNullOrEmpty(view.OwnerId) ||
+               !string.IsNullOrEmpty(view.Group) ||
+               !string.IsNullOrEmpty(view.GroupId) ||
                !string.IsNullOrEmpty(view.ModeOctal) ||
                !string.IsNullOrEmpty(view.ModeSymbolic) ||
                view.IsExecutable.HasValue ||
                view.IsWorldWritable.HasValue ||
                view.EveryoneWriteAllowed.HasValue ||
+               view.AuthenticatedUsersWriteAllowed.HasValue ||
+               view.EveryoneReadAllowed.HasValue ||
+               view.BuiltinUsersWriteAllowed.HasValue ||
+               view.BuiltinUsersReadAllowed.HasValue ||
+               view.AdministratorsWriteAllowed.HasValue ||
+               view.AdministratorsReadAllowed.HasValue ||
                view.HasDenyEntries.HasValue ||
+               view.TotalAllowCount.HasValue ||
+               view.TotalDenyCount.HasValue ||
+               view.ExplicitAllowCount.HasValue ||
+               view.ExplicitDenyCount.HasValue ||
                view.MotwZoneId.HasValue ||
                !string.IsNullOrEmpty(view.MotwReferrerUrl) ||
                !string.IsNullOrEmpty(view.MotwHostUrl) ||
