@@ -276,6 +276,26 @@ public sealed class ReportView
     public int? AlternateStreamCount { get; set; }
     /// <summary>Stable CSV of suspicious name/path issues detected for the file.</summary>
     public string? NameIssuesCsv { get; set; }
+    /// <summary>True when the file is a symlink.</summary>
+    public bool? IsSymlink { get; set; }
+    /// <summary>True when the file is hidden.</summary>
+    public bool? IsHidden { get; set; }
+    /// <summary>True when the file is read-only.</summary>
+    public bool? IsReadOnly { get; set; }
+    /// <summary>Owner name when available.</summary>
+    public string? Owner { get; set; }
+    /// <summary>Unix mode in octal form when available.</summary>
+    public string? ModeOctal { get; set; }
+    /// <summary>Unix mode in symbolic form when available.</summary>
+    public string? ModeSymbolic { get; set; }
+    /// <summary>True when the file is executable.</summary>
+    public bool? IsExecutable { get; set; }
+    /// <summary>True when the file is world-writable.</summary>
+    public bool? IsWorldWritable { get; set; }
+    /// <summary>True when Everyone has write access on Windows.</summary>
+    public bool? EveryoneWriteAllowed { get; set; }
+    /// <summary>True when explicit deny ACEs are present on Windows.</summary>
+    public bool? HasDenyEntries { get; set; }
 
     // Secrets (category counts)
     /// <summary>Number of private key indicators found.</summary>
@@ -535,6 +555,16 @@ public sealed class ReportView
         if (a.InnerExecutableExtCounts != null && a.InnerExecutableExtCounts.Count > 0) r.InnerExecutableExtCounts = a.InnerExecutableExtCounts;
         if (a.Security != null)
         {
+            r.IsSymlink = a.Security.IsSymlink;
+            r.IsHidden = a.Security.IsHidden;
+            r.IsReadOnly = a.Security.IsReadOnly;
+            r.Owner = a.Security.Owner;
+            r.ModeOctal = a.Security.ModeOctal;
+            r.ModeSymbolic = a.Security.ModeSymbolic;
+            r.IsExecutable = a.Security.IsExecutable;
+            r.IsWorldWritable = a.Security.IsWorldWritable;
+            r.EveryoneWriteAllowed = a.Security.EveryoneWriteAllowed;
+            r.HasDenyEntries = a.Security.HasDenyEntries;
             r.MotwZoneId = a.Security.MotwZoneId;
             r.MotwReferrerUrl = a.Security.MotwReferrerUrl;
             r.MotwHostUrl = a.Security.MotwHostUrl;
@@ -705,6 +735,16 @@ public sealed class ReportView
         AddField("Security", "MotwHostUrl", r.MotwHostUrl);
         if (r.AlternateStreamCount.HasValue) AddField("Security", "AlternateStreamCount", r.AlternateStreamCount.Value.ToString());
         AddField("Security", "NameIssues", r.NameIssuesCsv);
+        if (r.IsSymlink.HasValue) AddField("Security", "IsSymlink", r.IsSymlink.Value ? "true" : "false");
+        if (r.IsHidden.HasValue) AddField("Security", "IsHidden", r.IsHidden.Value ? "true" : "false");
+        if (r.IsReadOnly.HasValue) AddField("Security", "IsReadOnly", r.IsReadOnly.Value ? "true" : "false");
+        AddField("Security", "Owner", r.Owner);
+        AddField("Security", "ModeOctal", r.ModeOctal);
+        AddField("Security", "ModeSymbolic", r.ModeSymbolic);
+        if (r.IsExecutable.HasValue) AddField("Security", "IsExecutable", r.IsExecutable.Value ? "true" : "false");
+        if (r.IsWorldWritable.HasValue) AddField("Security", "IsWorldWritable", r.IsWorldWritable.Value ? "true" : "false");
+        if (r.EveryoneWriteAllowed.HasValue) AddField("Security", "EveryoneWriteAllowed", r.EveryoneWriteAllowed.Value ? "true" : "false");
+        if (r.HasDenyEntries.HasValue) AddField("Security", "HasDenyEntries", r.HasDenyEntries.Value ? "true" : "false");
         AddField("Script", "ScriptLanguage", r.ScriptLanguage);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         AddField("Script", "ScriptCmdlets", r.ScriptCmdlets);
@@ -888,7 +928,17 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.MotwReferrerUrl) ||
            !string.IsNullOrEmpty(r.MotwHostUrl) ||
            r.AlternateStreamCount.HasValue ||
-           !string.IsNullOrEmpty(r.NameIssuesCsv);
+           !string.IsNullOrEmpty(r.NameIssuesCsv) ||
+           r.IsSymlink.HasValue ||
+           r.IsHidden.HasValue ||
+           r.IsReadOnly.HasValue ||
+           !string.IsNullOrEmpty(r.Owner) ||
+           !string.IsNullOrEmpty(r.ModeOctal) ||
+           !string.IsNullOrEmpty(r.ModeSymbolic) ||
+           r.IsExecutable.HasValue ||
+           r.IsWorldWritable.HasValue ||
+           r.EveryoneWriteAllowed.HasValue ||
+           r.HasDenyEntries.HasValue;
 
     private static bool HasAnyPropertySignals(ReportView r)
         => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
@@ -1059,6 +1109,16 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(MotwHostUrl)) d["MotwHostUrl"] = MotwHostUrl;
         if (AlternateStreamCount.HasValue) d["AlternateStreamCount"] = AlternateStreamCount.Value;
         if (!string.IsNullOrEmpty(NameIssuesCsv)) d["NameIssues"] = NameIssuesCsv;
+        if (IsSymlink.HasValue) d["IsSymlink"] = IsSymlink.Value;
+        if (IsHidden.HasValue) d["IsHidden"] = IsHidden.Value;
+        if (IsReadOnly.HasValue) d["IsReadOnly"] = IsReadOnly.Value;
+        if (!string.IsNullOrEmpty(Owner)) d["Owner"] = Owner;
+        if (!string.IsNullOrEmpty(ModeOctal)) d["ModeOctal"] = ModeOctal;
+        if (!string.IsNullOrEmpty(ModeSymbolic)) d["ModeSymbolic"] = ModeSymbolic;
+        if (IsExecutable.HasValue) d["IsExecutable"] = IsExecutable.Value;
+        if (IsWorldWritable.HasValue) d["IsWorldWritable"] = IsWorldWritable.Value;
+        if (EveryoneWriteAllowed.HasValue) d["EveryoneWriteAllowed"] = EveryoneWriteAllowed.Value;
+        if (HasDenyEntries.HasValue) d["HasDenyEntries"] = HasDenyEntries.Value;
         // Secrets
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;

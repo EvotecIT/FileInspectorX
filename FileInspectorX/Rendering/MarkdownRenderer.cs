@@ -172,6 +172,16 @@ public static class MarkdownRenderer
         if (HasSecurityData(r))
         {
             sb.AppendLine("### Security");
+            if (r.IsSymlink.HasValue) sb.AppendLine($"- Symlink: {(r.IsSymlink.Value ? "yes" : "no")}");
+            if (r.IsHidden.HasValue) sb.AppendLine($"- Hidden: {(r.IsHidden.Value ? "yes" : "no")}");
+            if (r.IsReadOnly.HasValue) sb.AppendLine($"- Read-only: {(r.IsReadOnly.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.Owner)) sb.AppendLine($"- Owner: {r.Owner}");
+            if (!string.IsNullOrEmpty(r.ModeOctal)) sb.AppendLine($"- Mode (octal): {r.ModeOctal}");
+            if (!string.IsNullOrEmpty(r.ModeSymbolic)) sb.AppendLine($"- Mode (symbolic): {r.ModeSymbolic}");
+            if (r.IsExecutable.HasValue) sb.AppendLine($"- Executable: {(r.IsExecutable.Value ? "yes" : "no")}");
+            if (r.IsWorldWritable.HasValue) sb.AppendLine($"- World-writable: {(r.IsWorldWritable.Value ? "yes" : "no")}");
+            if (r.EveryoneWriteAllowed.HasValue) sb.AppendLine($"- Everyone write allowed: {(r.EveryoneWriteAllowed.Value ? "yes" : "no")}");
+            if (r.HasDenyEntries.HasValue) sb.AppendLine($"- Has deny ACEs: {(r.HasDenyEntries.Value ? "yes" : "no")}");
             if (r.MotwZoneId.HasValue) sb.AppendLine($"- MOTW ZoneId: {r.MotwZoneId.Value}");
             if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
             if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendLine($"- MOTW Host URL: {r.MotwHostUrl}");
@@ -448,7 +458,17 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.OriginalFilename);
 
         static bool HasSecurityData(ReportView view)
-            => view.MotwZoneId.HasValue ||
+            => view.IsSymlink.HasValue ||
+               view.IsHidden.HasValue ||
+               view.IsReadOnly.HasValue ||
+               !string.IsNullOrEmpty(view.Owner) ||
+               !string.IsNullOrEmpty(view.ModeOctal) ||
+               !string.IsNullOrEmpty(view.ModeSymbolic) ||
+               view.IsExecutable.HasValue ||
+               view.IsWorldWritable.HasValue ||
+               view.EveryoneWriteAllowed.HasValue ||
+               view.HasDenyEntries.HasValue ||
+               view.MotwZoneId.HasValue ||
                !string.IsNullOrEmpty(view.MotwReferrerUrl) ||
                !string.IsNullOrEmpty(view.MotwHostUrl) ||
                view.AlternateStreamCount.HasValue ||

@@ -509,6 +509,73 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Security_Presentation_Includes_Permission_And_Ownership_Metadata()
+    {
+        var analysis = new FileAnalysis
+        {
+            Security = new FileSecurity
+            {
+                IsSymlink = false,
+                IsHidden = true,
+                IsReadOnly = true,
+                Owner = "CONTOSO\\svc-deploy",
+                ModeOctal = "0755",
+                ModeSymbolic = "rwxr-xr-x",
+                IsExecutable = true,
+                IsWorldWritable = false,
+                EveryoneWriteAllowed = true,
+                HasDenyEntries = true
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSecurity);
+        Assert.Equal("CONTOSO\\svc-deploy", rv.Owner);
+        Assert.Equal("0755", rv.ModeOctal);
+        Assert.Equal("rwxr-xr-x", rv.ModeSymbolic);
+        Assert.Equal(true, rv.IsExecutable);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Security"));
+        Assert.Contains("IsHidden", rv.CompactFields["Security"]);
+        Assert.Contains("Owner", rv.CompactFields["Security"]);
+        Assert.Contains("ModeSymbolic", rv.CompactFields["Security"]);
+        Assert.Contains("EveryoneWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("HasDenyEntries", rv.CompactFields["Security"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSecurity"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Security"));
+        Assert.Contains("IsHidden", compact["Security"]);
+        Assert.Contains("Owner", compact["Security"]);
+        Assert.Contains("ModeSymbolic", compact["Security"]);
+        Assert.Contains("EveryoneWriteAllowed", compact["Security"]);
+        Assert.Contains("HasDenyEntries", compact["Security"]);
+        Assert.Equal(true, map["IsHidden"]);
+        Assert.Equal("CONTOSO\\svc-deploy", map["Owner"]);
+        Assert.Equal("0755", map["ModeOctal"]);
+        Assert.Equal("rwxr-xr-x", map["ModeSymbolic"]);
+        Assert.Equal(true, map["IsExecutable"]);
+        Assert.Equal(true, map["EveryoneWriteAllowed"]);
+        Assert.Equal(true, map["HasDenyEntries"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Security", md);
+        Assert.Contains("Hidden: yes", md);
+        Assert.Contains("Read-only: yes", md);
+        Assert.Contains("Owner: CONTOSO\\svc-deploy", md);
+        Assert.Contains("Mode (octal): 0755", md);
+        Assert.Contains("Mode (symbolic): rwxr-xr-x", md);
+        Assert.Contains("Executable: yes", md);
+        Assert.Contains("World-writable: no", md);
+        Assert.Contains("Everyone write allowed: yes", md);
+        Assert.Contains("Has deny ACEs: yes", md);
+    }
+
+    [Fact]
     public void ReportView_Signature_Presentation_Includes_StrongName_Only_Analysis()
     {
         var analysis = new FileAnalysis
