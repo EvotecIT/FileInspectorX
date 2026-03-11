@@ -863,6 +863,42 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Properties_Presentation_Includes_VersionInfo_Map_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            VersionInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["InternalName"] = "ContosoAgent",
+                ["LegalCopyright"] = "Copyright Contoso"
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowProperties);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Properties"));
+        Assert.Contains("VersionInfo", rv.CompactFields["Properties"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowProperties"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Properties"));
+        Assert.Contains("VersionInfo", compact["Properties"]);
+        var versionInfo = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(map["VersionInfo"]);
+        Assert.Equal("ContosoAgent", versionInfo["InternalName"]);
+        Assert.Equal("Copyright Contoso", versionInfo["LegalCopyright"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Properties", md);
+        Assert.Contains("InternalName: ContosoAgent", md);
+        Assert.Contains("LegalCopyright: Copyright Contoso", md);
+    }
+
+    [Fact]
     public void ReportView_Script_Presentation_And_Markdown_Include_Script_Only_Analysis()
     {
         var analysis = new FileAnalysis

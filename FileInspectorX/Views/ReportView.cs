@@ -609,6 +609,7 @@ public sealed class ReportView
             if (!groups.TryGetValue(group, out var list)) { list = new List<string>(); groups[group] = list; }
             list.Add(key);
         }
+        if (r.VersionInfo != null && r.VersionInfo.Count > 0) AddField("Properties", "VersionInfo", "1");
         AddField("Properties", "CompanyName", r.CompanyName);
         AddField("Properties", "ProductName", r.ProductName);
         AddField("Properties", "FileDescription", r.FileDescription);
@@ -714,7 +715,7 @@ public sealed class ReportView
         r.Advice = new PresentationAdvice
         {
             ShowTypeAnalysis = HasAnyTypeSignals(r),
-            ShowProperties = r.CompactFields.TryGetValue("Properties", out var pf) && pf.Count > 0,
+            ShowProperties = HasAnyPropertySignals(r),
             ShowSignature = HasAnySignatureSignals(r),
             ShowSecurity = HasAnySecuritySignals(r),
             ShowScript = HasAnyScriptSignals(r),
@@ -827,6 +828,15 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.MotwReferrerUrl) ||
            !string.IsNullOrEmpty(r.MotwHostUrl) ||
            r.AlternateStreamCount.HasValue;
+
+    private static bool HasAnyPropertySignals(ReportView r)
+        => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
+           !string.IsNullOrEmpty(r.CompanyName) ||
+           !string.IsNullOrEmpty(r.ProductName) ||
+           !string.IsNullOrEmpty(r.FileDescription) ||
+           !string.IsNullOrEmpty(r.FileVersion) ||
+           !string.IsNullOrEmpty(r.ProductVersion) ||
+           !string.IsNullOrEmpty(r.OriginalFilename);
 
     private static bool HasAnyArchiveSignals(ReportView r)
         => r.EncryptedEntryCount.HasValue ||

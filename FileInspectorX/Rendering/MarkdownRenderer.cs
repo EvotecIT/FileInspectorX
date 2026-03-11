@@ -127,6 +127,25 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.FileVersion)) sb.AppendLine($"- FileVersion: {r.FileVersion}");
             if (!string.IsNullOrEmpty(r.ProductVersion)) sb.AppendLine($"- ProductVersion: {r.ProductVersion}");
             if (!string.IsNullOrEmpty(r.OriginalFilename)) sb.AppendLine($"- OriginalFilename: {r.OriginalFilename}");
+            if (r.VersionInfo != null && r.VersionInfo.Count > 0)
+            {
+                var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "CompanyName",
+                    "ProductName",
+                    "FileDescription",
+                    "FileVersion",
+                    "ProductVersion",
+                    "OriginalFilename"
+                };
+                foreach (var entry in r.VersionInfo
+                    .Where(kv => !string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value) && !emitted.Contains(kv.Key))
+                    .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                    .Take(12))
+                {
+                    sb.AppendLine($"- {entry.Key}: {entry.Value}");
+                }
+            }
             sb.AppendLine();
         }
 
