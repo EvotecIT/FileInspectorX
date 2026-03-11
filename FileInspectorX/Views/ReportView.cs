@@ -615,36 +615,154 @@ public sealed class ReportView
         AddField("Properties", "FileVersion", r.FileVersion);
         AddField("Properties", "ProductVersion", r.ProductVersion);
         AddField("Properties", "OriginalFilename", r.OriginalFilename);
+        AddField("TypeAnalysis", "DetectedTypeName", r.DetectedTypeName);
+        AddField("TypeAnalysis", "DetectedTypeExtension", r.DetectedTypeExtension);
+        AddField("TypeAnalysis", "DetectedTypeFriendly", r.DetectedTypeFriendly);
+        AddField("TypeAnalysis", "DetectionReason", r.DetectionReason);
+        AddField("TypeAnalysis", "DetectionReasonDetails", r.DetectionReasonDetails);
+        AddField("TypeAnalysis", "DetectionValidationStatus", r.DetectionValidationStatus);
+        AddField("TypeAnalysis", "GuessedExtension", r.GuessedExtension);
+        AddField("TypeAnalysis", "EncodedKind", r.EncodedKind);
+        AddField("TypeAnalysis", "EncodedInnerDetectedExtension", r.EncodedInnerDetectedExtension);
+        AddField("TypeAnalysis", "EncodedInnerDetectedName", r.EncodedInnerDetectedName);
+        AddField("TypeAnalysis", "EncodedInnerDetectedFriendly", r.EncodedInnerDetectedFriendly);
+        if (r.DetectionCandidates != null && r.DetectionCandidates.Count > 0) AddField("TypeAnalysis", "DetectionCandidates", "1");
+        if (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) AddField("TypeAnalysis", "DetectionAlternatives", "1");
         AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
         AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
         AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
+        AddField("Signature", "SignerIssuerCN", r.SignerIssuerCN);
+        AddField("Signature", "SignerIssuerO", r.SignerIssuerO);
         AddField("Signature", "CertSubject", r.CertSubject);
         AddField("Signature", "CertIssuer", r.CertIssuer);
         AddField("Signature", "CertThumbprint", r.CertThumbprint);
+        if (r.CertBundleCount.HasValue) AddField("Signature", "CertBundleCount", r.CertBundleCount.Value.ToString());
+        if (r.CertBundleSubjects != null && r.CertBundleSubjects.Count > 0) AddField("Signature", "CertBundleSubjects", string.Join(", ", r.CertBundleSubjects));
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
+        AddField("Installer", "InstallerKind", r.InstallerKind);
+        AddField("Installer", "InstallerName", r.InstallerName);
+        AddField("Installer", "InstallerManufacturer", r.InstallerManufacturer);
+        AddField("Installer", "InstallerVersion", r.InstallerVersion);
+        AddField("Installer", "InstallerProductCode", r.InstallerProductCode);
+        AddField("Installer", "InstallerUpgradeCode", r.InstallerUpgradeCode);
+        AddField("Installer", "InstallerScope", r.InstallerScope);
+        AddField("Installer", "InstallerUrlInfoAbout", r.InstallerUrlInfoAbout);
+        AddField("Installer", "InstallerUrlUpdateInfo", r.InstallerUrlUpdateInfo);
+        AddField("Installer", "InstallerHelpLink", r.InstallerHelpLink);
+        AddField("Installer", "InstallerSupportUrl", r.InstallerSupportUrl);
+        AddField("Installer", "InstallerContact", r.InstallerContact);
+        AddField("Installer", "InstallerCreated", r.InstallerCreated);
+        AddField("Installer", "InstallerLastSaved", r.InstallerLastSaved);
+        if (r._MsiCAExe.HasValue) AddField("Installer", "MsiCAExe", r._MsiCAExe.Value.ToString());
+        if (r._MsiCADll.HasValue) AddField("Installer", "MsiCADll", r._MsiCADll.Value.ToString());
+        if (r._MsiCAScript.HasValue) AddField("Installer", "MsiCAScript", r._MsiCAScript.Value.ToString());
+        AddField("Installer", "MsiCASamples", r._MsiCASamples);
+        if (r.AssessmentScore.HasValue) AddField("Assessment", "AssessmentScore", r.AssessmentScore.Value.ToString());
+        AddField("Assessment", "AssessmentDecision", r.AssessmentDecision);
+        AddField("Assessment", "AssessmentDecisionStrict", r.AssessmentDecisionStrict);
+        AddField("Assessment", "AssessmentDecisionBalanced", r.AssessmentDecisionBalanced);
+        AddField("Assessment", "AssessmentDecisionLenient", r.AssessmentDecisionLenient);
+        if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0) AddField("Assessment", "AssessmentCodes", "1");
+        if (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0) AddField("Assessment", "AssessmentFactors", "1");
+        AddField("Assessment", "AssessmentCodesHuman", r.AssessmentCodesHuman);
+        AddField("Assessment", "AssessmentCodesHumanLong", r.AssessmentCodesHumanLong);
         if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
         if (a.ContainerEntryCount.HasValue) AddField("Archive", "EntryCount", a.ContainerEntryCount.Value.ToString());
         if (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) AddField("Archive", "TopExtensions", string.Join(", ", a.ContainerTopExtensions));
-        if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 } || r.TopTokens is { Count: > 0 })
+        if (!string.IsNullOrWhiteSpace(r.InnerBinariesSummary)) AddField("Archive", "InnerBinariesSummary", r.InnerBinariesSummary);
+        if (r.ArchivePreview != null && r.ArchivePreview.Count > 0) AddField("Archive", "Preview", "1");
+        if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 } || r.TopTokens is { Count: > 0 } || HasAnySecretSignals(r))
             AddField("Heuristics", "Findings", "1");
         if (r.TopTokens is { Count: > 0 }) AddField("Heuristics", "TopTokens", "1");
         r.CompactFields = groups.ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value);
         r.Advice = new PresentationAdvice
         {
-            ShowTypeAnalysis = !string.IsNullOrEmpty(r.DetectedTypeName) || !string.IsNullOrEmpty(r.DetectedTypeExtension) || !string.IsNullOrEmpty(r.DetectedTypeFriendly),
+            ShowTypeAnalysis = HasAnyTypeSignals(r),
             ShowProperties = r.CompactFields.TryGetValue("Properties", out var pf) && pf.Count > 0,
-            ShowSignature = (!string.IsNullOrEmpty(r.CertificateBlobSha256)) || r.WinTrustStatusCode.HasValue || (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) || !string.IsNullOrEmpty(r.CertSubject),
+            ShowSignature = HasAnySignatureSignals(r),
             ShowScript = !string.IsNullOrEmpty(r.ScriptLanguageHuman),
+            ShowInstaller = HasAnyInstallerSignals(r),
             ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
             ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) ||
                              (r.InnerFindings != null && r.InnerFindings.Count > 0) ||
-                             (r.TopTokens != null && r.TopTokens.Count > 0),
-            ShowArchiveDetails = r.EncryptedEntryCount.HasValue || a.ContainerEntryCount.HasValue || (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0)
+                             (r.TopTokens != null && r.TopTokens.Count > 0) ||
+                             HasAnySecretSignals(r),
+            ShowArchiveDetails = r.EncryptedEntryCount.HasValue ||
+                                 a.ContainerEntryCount.HasValue ||
+                                 (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) ||
+                                 !string.IsNullOrWhiteSpace(r.InnerBinariesSummary) ||
+                                 (r.ArchivePreview != null && r.ArchivePreview.Count > 0)
         };
 
         return r;
     }
+
+    private static bool HasAnySecretSignals(ReportView r)
+        => (r.SecretsPrivateKeyCount ?? 0) > 0 ||
+           (r.SecretsJwtLikeCount ?? 0) > 0 ||
+           (r.SecretsKeyPatternCount ?? 0) > 0 ||
+           (r.SecretsTokenFamilyCount ?? 0) > 0 ||
+           (r.SecretsGitHubTokenCount ?? 0) > 0 ||
+           (r.SecretsGitLabTokenCount ?? 0) > 0 ||
+           (r.SecretsAwsAccessKeyIdCount ?? 0) > 0 ||
+           (r.SecretsSlackTokenCount ?? 0) > 0 ||
+           (r.SecretsStripeLiveKeyCount ?? 0) > 0 ||
+           (r.SecretsGcpApiKeyCount ?? 0) > 0 ||
+           (r.SecretsNpmTokenCount ?? 0) > 0 ||
+           (r.SecretsAzureSasTokenCount ?? 0) > 0 ||
+           (r.SecretsFindings != null && r.SecretsFindings.Count > 0);
+
+    private static bool HasAnySignatureSignals(ReportView r)
+        => !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
+           r.WinTrustStatusCode.HasValue ||
+           (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ||
+           !string.IsNullOrEmpty(r.TimestampAuthorityCN) ||
+           !string.IsNullOrEmpty(r.SignerIssuerCN) ||
+           !string.IsNullOrEmpty(r.SignerIssuerO) ||
+           !string.IsNullOrEmpty(r.CertSubject) ||
+           !string.IsNullOrEmpty(r.CertIssuer) ||
+           !string.IsNullOrEmpty(r.CertThumbprint) ||
+           r.CertBundleCount.HasValue ||
+           (r.CertBundleSubjects != null && r.CertBundleSubjects.Count > 0);
+
+    private static bool HasAnyTypeSignals(ReportView r)
+        => !string.IsNullOrEmpty(r.DetectedTypeName) ||
+           !string.IsNullOrEmpty(r.DetectedTypeExtension) ||
+           !string.IsNullOrEmpty(r.DetectedTypeFriendly) ||
+           !string.IsNullOrEmpty(r.DetectionConfidence) ||
+           !string.IsNullOrEmpty(r.DetectionReason) ||
+           !string.IsNullOrEmpty(r.DetectionReasonDetails) ||
+           !string.IsNullOrEmpty(r.DetectionValidationStatus) ||
+           r.DetectionScore.HasValue ||
+           r.DetectionIsDangerous.HasValue ||
+           !string.IsNullOrEmpty(r.GuessedExtension) ||
+           (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) ||
+           (r.DetectionCandidates != null && r.DetectionCandidates.Count > 0) ||
+           !string.IsNullOrEmpty(r.EncodedKind) ||
+           !string.IsNullOrEmpty(r.EncodedInnerDetectedExtension) ||
+           !string.IsNullOrEmpty(r.EncodedInnerDetectedName) ||
+           !string.IsNullOrEmpty(r.EncodedInnerDetectedFriendly);
+
+    private static bool HasAnyInstallerSignals(ReportView r)
+        => !string.IsNullOrEmpty(r.InstallerKind) ||
+           !string.IsNullOrEmpty(r.InstallerName) ||
+           !string.IsNullOrEmpty(r.InstallerManufacturer) ||
+           !string.IsNullOrEmpty(r.InstallerVersion) ||
+           !string.IsNullOrEmpty(r.InstallerProductCode) ||
+           !string.IsNullOrEmpty(r.InstallerUpgradeCode) ||
+           !string.IsNullOrEmpty(r.InstallerScope) ||
+           !string.IsNullOrEmpty(r.InstallerUrlInfoAbout) ||
+           !string.IsNullOrEmpty(r.InstallerUrlUpdateInfo) ||
+           !string.IsNullOrEmpty(r.InstallerHelpLink) ||
+           !string.IsNullOrEmpty(r.InstallerSupportUrl) ||
+           !string.IsNullOrEmpty(r.InstallerContact) ||
+           !string.IsNullOrEmpty(r.InstallerCreated) ||
+           !string.IsNullOrEmpty(r.InstallerLastSaved) ||
+           r._MsiCAExe.HasValue ||
+           r._MsiCADll.HasValue ||
+           r._MsiCAScript.HasValue ||
+           !string.IsNullOrEmpty(r._MsiCASamples);
 
     /// <summary>
     /// Exports the report as a dictionary compatible with typical templating and logging sinks.
@@ -790,6 +908,7 @@ public sealed class ReportView
                 ["ShowProperties"] = Advice.ShowProperties,
                 ["ShowSignature"] = Advice.ShowSignature,
                 ["ShowScript"] = Advice.ShowScript,
+                ["ShowInstaller"] = Advice.ShowInstaller,
                 ["ShowAssessment"] = Advice.ShowAssessment,
                 ["ShowHeuristics"] = Advice.ShowHeuristics,
                 ["ShowArchiveDetails"] = Advice.ShowArchiveDetails,
@@ -814,6 +933,8 @@ public sealed class PresentationAdvice
     public bool ShowSignature { get; set; }
     /// <summary>Include script section when a script language is detected.</summary>
     public bool ShowScript { get; set; }
+    /// <summary>Include installer/package section when installer metadata is available.</summary>
+    public bool ShowInstaller { get; set; }
     /// <summary>Include risk assessment section (score, decision, findings).</summary>
     public bool ShowAssessment { get; set; }
     /// <summary>Include heuristics section (security findings, inner findings).</summary>
