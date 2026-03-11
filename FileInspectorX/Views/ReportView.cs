@@ -60,6 +60,12 @@ public sealed class ReportView
     public bool? IsTrustedWindowsPolicy { get; set; }
     /// <summary>Raw WinVerifyTrust status code (0 = success).</summary>
     public int? WinTrustStatusCode { get; set; }
+    /// <summary>True when an Authenticode signature is present.</summary>
+    public bool? AuthenticodePresent { get; set; }
+    /// <summary>True when the Authenticode certificate chain validated.</summary>
+    public bool? AuthenticodeChainValid { get; set; }
+    /// <summary>True when an Authenticode timestamp countersignature is present.</summary>
+    public bool? AuthenticodeTimestampPresent { get; set; }
 
     /// <summary>Raw version information as a name/value map.</summary>
     public IReadOnlyDictionary<string,string>? VersionInfo { get; set; }
@@ -338,6 +344,9 @@ public sealed class ReportView
         }
         if (a.Authenticode != null)
         {
+            r.AuthenticodePresent = a.Authenticode.Present;
+            r.AuthenticodeChainValid = a.Authenticode.ChainValid;
+            r.AuthenticodeTimestampPresent = a.Authenticode.TimestampPresent;
             r.IsTrustedWindowsPolicy = a.Authenticode.IsTrustedWindowsPolicy;
             r.WinTrustStatusCode = a.Authenticode.WinTrustStatusCode;
             r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
@@ -667,6 +676,9 @@ public sealed class ReportView
         if (r.CertificateTableSize.HasValue) AddField("Signature", "CertificateTableSize", r.CertificateTableSize.Value.ToString());
         AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
         if (r.DotNetStrongNameSigned.HasValue) AddField("Signature", "DotNetStrongNameSigned", r.DotNetStrongNameSigned.Value ? "true" : "false");
+        if (r.AuthenticodePresent.HasValue) AddField("Signature", "AuthenticodePresent", r.AuthenticodePresent.Value ? "true" : "false");
+        if (r.AuthenticodeChainValid.HasValue) AddField("Signature", "AuthenticodeChainValid", r.AuthenticodeChainValid.Value ? "true" : "false");
+        if (r.AuthenticodeTimestampPresent.HasValue) AddField("Signature", "AuthenticodeTimestampPresent", r.AuthenticodeTimestampPresent.Value ? "true" : "false");
         if (r.IsTrustedWindowsPolicy.HasValue) AddField("Signature", "IsTrustedWindowsPolicy", r.IsTrustedWindowsPolicy.Value ? "true" : "false");
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
         AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
@@ -785,6 +797,9 @@ public sealed class ReportView
         => r.CertificateTableSize.HasValue ||
            !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
            r.DotNetStrongNameSigned.HasValue ||
+           r.AuthenticodePresent.HasValue ||
+           r.AuthenticodeChainValid.HasValue ||
+           r.AuthenticodeTimestampPresent.HasValue ||
            r.IsTrustedWindowsPolicy.HasValue ||
            r.WinTrustStatusCode.HasValue ||
            (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ||
@@ -935,6 +950,9 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(EncodedInnerDetectedExtension)) d["EncodedInnerDetectedExtension"] = EncodedInnerDetectedExtension;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedFriendly)) d["EncodedInnerDetectedFriendly"] = EncodedInnerDetectedFriendly;
+        if (AuthenticodePresent.HasValue) d["AuthenticodePresent"] = AuthenticodePresent.Value;
+        if (AuthenticodeChainValid.HasValue) d["AuthenticodeChainValid"] = AuthenticodeChainValid.Value;
+        if (AuthenticodeTimestampPresent.HasValue) d["AuthenticodeTimestampPresent"] = AuthenticodeTimestampPresent.Value;
         if (IsTrustedWindowsPolicy.HasValue) d["IsTrustedWindowsPolicy"] = IsTrustedWindowsPolicy.Value;
         if (WinTrustStatusCode.HasValue) d["WinTrustStatusCode"] = WinTrustStatusCode.Value;
         if (VersionInfo != null) d["VersionInfo"] = VersionInfo;

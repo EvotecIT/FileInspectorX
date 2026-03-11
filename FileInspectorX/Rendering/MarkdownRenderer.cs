@@ -79,6 +79,12 @@ public static class MarkdownRenderer
         if (HasSignatureData(r))
         {
             sb.AppendLine("### Signature");
+            if (r.AuthenticodePresent.HasValue)
+                sb.AppendLine($"- Authenticode present: {(r.AuthenticodePresent.Value ? "yes" : "no")}");
+            if (r.AuthenticodeChainValid.HasValue)
+                sb.AppendLine($"- Authenticode chain valid: {(r.AuthenticodeChainValid.Value ? "yes" : "no")}");
+            if (r.AuthenticodeTimestampPresent.HasValue)
+                sb.AppendLine($"- Authenticode timestamp present: {(r.AuthenticodeTimestampPresent.Value ? "yes" : "no")}");
             if (r.WinTrustStatusCode.HasValue)
             {
                 var ok = r.IsTrustedWindowsPolicy == true ? "Trusted" : "Untrusted";
@@ -480,6 +486,9 @@ public static class MarkdownRenderer
             => view.CertificateTableSize.HasValue ||
                !string.IsNullOrEmpty(view.CertificateBlobSha256) ||
                view.DotNetStrongNameSigned.HasValue ||
+               view.AuthenticodePresent.HasValue ||
+               view.AuthenticodeChainValid.HasValue ||
+               view.AuthenticodeTimestampPresent.HasValue ||
                view.IsTrustedWindowsPolicy.HasValue ||
                view.WinTrustStatusCode.HasValue ||
                (view.EnhancedKeyUsages != null && view.EnhancedKeyUsages.Count > 0) ||

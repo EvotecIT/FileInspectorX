@@ -571,6 +571,51 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Signature_Presentation_Includes_Authenticode_State_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = true,
+                ChainValid = false,
+                TimestampPresent = true
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.Equal(true, rv.AuthenticodePresent);
+        Assert.Equal(false, rv.AuthenticodeChainValid);
+        Assert.Equal(true, rv.AuthenticodeTimestampPresent);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("AuthenticodePresent", rv.CompactFields["Signature"]);
+        Assert.Contains("AuthenticodeChainValid", rv.CompactFields["Signature"]);
+        Assert.Contains("AuthenticodeTimestampPresent", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("AuthenticodePresent", compact["Signature"]);
+        Assert.Contains("AuthenticodeChainValid", compact["Signature"]);
+        Assert.Contains("AuthenticodeTimestampPresent", compact["Signature"]);
+        Assert.Equal(true, map["AuthenticodePresent"]);
+        Assert.Equal(false, map["AuthenticodeChainValid"]);
+        Assert.Equal(true, map["AuthenticodeTimestampPresent"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains("Authenticode present: yes", md);
+        Assert.Contains("Authenticode chain valid: no", md);
+        Assert.Contains("Authenticode timestamp present: yes", md);
+    }
+
+    [Fact]
     public void ReportView_TypeAnalysis_Presentation_Includes_Encoded_Only_Analysis()
     {
         var analysis = new FileAnalysis
