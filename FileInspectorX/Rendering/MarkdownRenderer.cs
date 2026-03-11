@@ -45,6 +45,18 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Dangerous type: {(r.DetectionIsDangerous.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.GuessedExtension))
                 sb.AppendLine($"- Guessed extension: {r.GuessedExtension}");
+            if (!string.IsNullOrEmpty(r.ContainerSubtype))
+                sb.AppendLine($"- Container subtype: {r.ContainerSubtype}");
+            if (!string.IsNullOrEmpty(r.TextSubtype))
+                sb.AppendLine($"- Text subtype: {r.TextSubtype}");
+            if (r.EstimatedLineCount.HasValue)
+                sb.AppendLine($"- Estimated lines: {r.EstimatedLineCount.Value}");
+            if (!string.IsNullOrEmpty(r.PeMachine))
+                sb.AppendLine($"- PE machine: {r.PeMachine}");
+            if (!string.IsNullOrEmpty(r.PeSubsystem))
+                sb.AppendLine($"- PE subsystem: {r.PeSubsystem}");
+            if (!string.IsNullOrEmpty(r.PeKind))
+                sb.AppendLine($"- PE kind: {r.PeKind}");
             if (!string.IsNullOrEmpty(r.EncodedKind))
             {
                 var encoded = $"- Encoded payload: {r.EncodedKind}";
@@ -383,6 +395,12 @@ public static class MarkdownRenderer
                view.DetectionScore.HasValue ||
                view.DetectionIsDangerous.HasValue ||
                !string.IsNullOrEmpty(view.GuessedExtension) ||
+               !string.IsNullOrEmpty(view.ContainerSubtype) ||
+               !string.IsNullOrEmpty(view.TextSubtype) ||
+               view.EstimatedLineCount.HasValue ||
+               !string.IsNullOrEmpty(view.PeMachine) ||
+               !string.IsNullOrEmpty(view.PeSubsystem) ||
+               !string.IsNullOrEmpty(view.PeKind) ||
                (view.DetectionAlternatives != null && view.DetectionAlternatives.Count > 0) ||
                (view.DetectionCandidates != null && view.DetectionCandidates.Count > 0) ||
                !string.IsNullOrEmpty(view.EncodedKind) ||

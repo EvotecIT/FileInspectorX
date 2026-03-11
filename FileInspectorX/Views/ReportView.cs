@@ -29,6 +29,18 @@ public sealed class ReportView
     public bool? DetectionIsDangerous { get; set; }
     /// <summary>Best-guess extension when ambiguous.</summary>
     public string? GuessedExtension { get; set; }
+    /// <summary>Detected container subtype when known (e.g., apk, jar, msix).</summary>
+    public string? ContainerSubtype { get; set; }
+    /// <summary>Subtype for text-like content when known (e.g., json, log, powershell).</summary>
+    public string? TextSubtype { get; set; }
+    /// <summary>Estimated line count for text-like content.</summary>
+    public int? EstimatedLineCount { get; set; }
+    /// <summary>PE machine architecture when applicable.</summary>
+    public string? PeMachine { get; set; }
+    /// <summary>PE subsystem when applicable.</summary>
+    public string? PeSubsystem { get; set; }
+    /// <summary>PE kind when applicable (exe/dll/sys).</summary>
+    public string? PeKind { get; set; }
     /// <summary>Alternative detection candidates when multiple formats are plausible.</summary>
     public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionAlternatives { get; set; }
     /// <summary>Ranked detection candidates including the primary, when available.</summary>
@@ -304,6 +316,12 @@ public sealed class ReportView
             // Additional friendliness for PE is handled in detection; nothing to do here
             if (!string.IsNullOrEmpty(a.Detection.GuessedExtension)) r.GuessedExtension = a.Detection.GuessedExtension;
         }
+        r.ContainerSubtype = a.ContainerSubtype;
+        r.TextSubtype = a.TextSubtype;
+        r.EstimatedLineCount = a.EstimatedLineCount;
+        r.PeMachine = a.PeMachine;
+        r.PeSubsystem = a.PeSubsystem;
+        r.PeKind = a.PeKind;
         // Encoded payload presentation
         if (!string.IsNullOrWhiteSpace(a.EncodedKind))
         {
@@ -630,6 +648,12 @@ public sealed class ReportView
         if (r.DetectionScore.HasValue) AddField("TypeAnalysis", "DetectionScore", r.DetectionScore.Value.ToString());
         if (r.DetectionIsDangerous.HasValue) AddField("TypeAnalysis", "DetectionIsDangerous", r.DetectionIsDangerous.Value ? "true" : "false");
         AddField("TypeAnalysis", "GuessedExtension", r.GuessedExtension);
+        AddField("TypeAnalysis", "ContainerSubtype", r.ContainerSubtype);
+        AddField("TypeAnalysis", "TextSubtype", r.TextSubtype);
+        if (r.EstimatedLineCount.HasValue) AddField("TypeAnalysis", "EstimatedLineCount", r.EstimatedLineCount.Value.ToString());
+        AddField("TypeAnalysis", "PeMachine", r.PeMachine);
+        AddField("TypeAnalysis", "PeSubsystem", r.PeSubsystem);
+        AddField("TypeAnalysis", "PeKind", r.PeKind);
         AddField("TypeAnalysis", "EncodedKind", r.EncodedKind);
         AddField("TypeAnalysis", "EncodedInnerDetectedExtension", r.EncodedInnerDetectedExtension);
         AddField("TypeAnalysis", "EncodedInnerDetectedName", r.EncodedInnerDetectedName);
@@ -786,6 +810,12 @@ public sealed class ReportView
            r.DetectionScore.HasValue ||
            r.DetectionIsDangerous.HasValue ||
            !string.IsNullOrEmpty(r.GuessedExtension) ||
+           !string.IsNullOrEmpty(r.ContainerSubtype) ||
+           !string.IsNullOrEmpty(r.TextSubtype) ||
+           r.EstimatedLineCount.HasValue ||
+           !string.IsNullOrEmpty(r.PeMachine) ||
+           !string.IsNullOrEmpty(r.PeSubsystem) ||
+           !string.IsNullOrEmpty(r.PeKind) ||
            (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) ||
            (r.DetectionCandidates != null && r.DetectionCandidates.Count > 0) ||
            !string.IsNullOrEmpty(r.EncodedKind) ||
@@ -887,6 +917,12 @@ public sealed class ReportView
         if (DetectionScore.HasValue) d["DetectionScore"] = DetectionScore.Value;
         if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;
+        if (!string.IsNullOrEmpty(ContainerSubtype)) d["ContainerSubtype"] = ContainerSubtype;
+        if (!string.IsNullOrEmpty(TextSubtype)) d["TextSubtype"] = TextSubtype;
+        if (EstimatedLineCount.HasValue) d["EstimatedLineCount"] = EstimatedLineCount.Value;
+        if (!string.IsNullOrEmpty(PeMachine)) d["PeMachine"] = PeMachine;
+        if (!string.IsNullOrEmpty(PeSubsystem)) d["PeSubsystem"] = PeSubsystem;
+        if (!string.IsNullOrEmpty(PeKind)) d["PeKind"] = PeKind;
         if (DetectionAlternatives != null && DetectionAlternatives.Count > 0) d["DetectionAlternatives"] = DetectionAlternatives;
         if (DetectionCandidates != null && DetectionCandidates.Count > 0) d["DetectionCandidates"] = DetectionCandidates;
         if (!string.IsNullOrEmpty(EncodedKind)) d["EncodedKind"] = EncodedKind;

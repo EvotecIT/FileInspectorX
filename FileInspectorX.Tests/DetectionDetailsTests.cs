@@ -689,6 +689,66 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void TypeAnalysis_Compact_And_Markdown_Include_Text_Container_And_Pe_Metadata()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "exe",
+                MimeType = "application/x-msdownload",
+                Confidence = "High"
+            },
+            ContainerSubtype = "msix",
+            TextSubtype = "powershell",
+            EstimatedLineCount = 42,
+            PeMachine = "x64",
+            PeSubsystem = "Windows CUI",
+            PeKind = "exe"
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowTypeAnalysis);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("TypeAnalysis"));
+        Assert.Contains("ContainerSubtype", rv.CompactFields["TypeAnalysis"]);
+        Assert.Contains("TextSubtype", rv.CompactFields["TypeAnalysis"]);
+        Assert.Contains("EstimatedLineCount", rv.CompactFields["TypeAnalysis"]);
+        Assert.Contains("PeMachine", rv.CompactFields["TypeAnalysis"]);
+        Assert.Contains("PeSubsystem", rv.CompactFields["TypeAnalysis"]);
+        Assert.Contains("PeKind", rv.CompactFields["TypeAnalysis"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowTypeAnalysis"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("TypeAnalysis"));
+        Assert.Contains("ContainerSubtype", compact["TypeAnalysis"]);
+        Assert.Contains("TextSubtype", compact["TypeAnalysis"]);
+        Assert.Contains("EstimatedLineCount", compact["TypeAnalysis"]);
+        Assert.Contains("PeMachine", compact["TypeAnalysis"]);
+        Assert.Contains("PeSubsystem", compact["TypeAnalysis"]);
+        Assert.Contains("PeKind", compact["TypeAnalysis"]);
+        Assert.Equal("msix", map["ContainerSubtype"]);
+        Assert.Equal("powershell", map["TextSubtype"]);
+        Assert.Equal(42, map["EstimatedLineCount"]);
+        Assert.Equal("x64", map["PeMachine"]);
+        Assert.Equal("Windows CUI", map["PeSubsystem"]);
+        Assert.Equal("exe", map["PeKind"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### File Type", md);
+        Assert.Contains("Container subtype: msix", md);
+        Assert.Contains("Text subtype: powershell", md);
+        Assert.Contains("Estimated lines: 42", md);
+        Assert.Contains("PE machine: x64", md);
+        Assert.Contains("PE subsystem: Windows CUI", md);
+        Assert.Contains("PE kind: exe", md);
+    }
+
+    [Fact]
     public void Markdown_TypeAnalysis_Includes_Friendly_Name_Only_ReportView()
     {
         var rv = new ReportView
