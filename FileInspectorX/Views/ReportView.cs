@@ -260,14 +260,22 @@ public sealed class ReportView
     public string? InstallerName { get; set; }
     /// <summary>Installer manufacturer/publisher.</summary>
     public string? InstallerManufacturer { get; set; }
+    /// <summary>Installer identity/package name when available.</summary>
+    public string? InstallerIdentityName { get; set; }
     /// <summary>Installer version string.</summary>
     public string? InstallerVersion { get; set; }
     /// <summary>MSI ProductCode (GUID) when applicable.</summary>
     public string? InstallerProductCode { get; set; }
     /// <summary>MSI UpgradeCode (GUID) when applicable.</summary>
     public string? InstallerUpgradeCode { get; set; }
+    /// <summary>MSI PackageCode (GUID) when applicable.</summary>
+    public string? InstallerPackageCode { get; set; }
     /// <summary>Installer scope (PerUser/PerMachine) when applicable.</summary>
     public string? InstallerScope { get; set; }
+    /// <summary>Installer author when available.</summary>
+    public string? InstallerAuthor { get; set; }
+    /// <summary>Installer comments or description when available.</summary>
+    public string? InstallerComments { get; set; }
     /// <summary>Installer URLs (About/Update/Help/Support) when available.</summary>
     public string? InstallerUrlInfoAbout { get; set; }
     /// <summary>Installer update information URL when available.</summary>
@@ -282,10 +290,15 @@ public sealed class ReportView
     public string? InstallerCreated { get; set; }
     /// <summary>Installer last saved time (UTC) when available.</summary>
     public string? InstallerLastSaved { get; set; }
+    /// <summary>Compact capability summary for app packages when available.</summary>
+    public string? InstallerCapabilities { get; set; }
+    /// <summary>Compact extension summary for app packages when available.</summary>
+    public string? InstallerExtensions { get; set; }
     // Flattened MSI Custom Action counters for templating
     internal int? _MsiCAExe { get; set; }
     internal int? _MsiCADll { get; set; }
     internal int? _MsiCAScript { get; set; }
+    internal int? _MsiCAOther { get; set; }
     internal string? _MsiCASamples { get; set; }
     
 
@@ -511,10 +524,14 @@ public sealed class ReportView
             r.InstallerKind = a.Installer.Kind.ToString();
             r.InstallerName = a.Installer.Name;
             r.InstallerManufacturer = a.Installer.Manufacturer ?? a.Installer.Publisher ?? a.Installer.PublisherDisplayName;
+            r.InstallerIdentityName = a.Installer.IdentityName;
             r.InstallerVersion = a.Installer.Version;
             r.InstallerProductCode = a.Installer.ProductCode;
             r.InstallerUpgradeCode = a.Installer.UpgradeCode;
+            r.InstallerPackageCode = a.Installer.PackageCode;
             r.InstallerScope = a.Installer.Scope;
+            r.InstallerAuthor = a.Installer.Author;
+            r.InstallerComments = a.Installer.Comments;
             r.InstallerUrlInfoAbout = a.Installer.UrlInfoAbout;
             r.InstallerUrlUpdateInfo = a.Installer.UrlUpdateInfo;
             r.InstallerHelpLink = a.Installer.HelpLink;
@@ -522,12 +539,17 @@ public sealed class ReportView
             r.InstallerContact = a.Installer.Contact;
             if (a.Installer.CreatedUtc.HasValue) r.InstallerCreated = a.Installer.CreatedUtc.Value.ToString("u");
             if (a.Installer.LastSavedUtc.HasValue) r.InstallerLastSaved = a.Installer.LastSavedUtc.Value.ToString("u");
+            if (a.Installer.Capabilities != null && a.Installer.Capabilities.Count > 0)
+                r.InstallerCapabilities = string.Join(", ", a.Installer.Capabilities.Take(6));
+            if (a.Installer.Extensions != null && a.Installer.Extensions.Count > 0)
+                r.InstallerExtensions = string.Join(", ", a.Installer.Extensions.Take(6));
             // MSI Custom Action counts (flatten)
             if (a.Installer.MsiCustomActions != null)
             {
                 r._MsiCAExe = a.Installer.MsiCustomActions.CountExe;
                 r._MsiCADll = a.Installer.MsiCustomActions.CountDll;
                 r._MsiCAScript = a.Installer.MsiCustomActions.CountScript;
+                r._MsiCAOther = a.Installer.MsiCustomActions.CountOther;
                 r._MsiCASamples = a.Installer.MsiCustomActions.Samples != null && a.Installer.MsiCustomActions.Samples.Count > 0
                     ? string.Join(", ", a.Installer.MsiCustomActions.Samples)
                     : null;
@@ -888,10 +910,14 @@ public sealed class ReportView
         AddField("Installer", "InstallerKind", r.InstallerKind);
         AddField("Installer", "InstallerName", r.InstallerName);
         AddField("Installer", "InstallerManufacturer", r.InstallerManufacturer);
+        AddField("Installer", "InstallerIdentityName", r.InstallerIdentityName);
         AddField("Installer", "InstallerVersion", r.InstallerVersion);
         AddField("Installer", "InstallerProductCode", r.InstallerProductCode);
         AddField("Installer", "InstallerUpgradeCode", r.InstallerUpgradeCode);
+        AddField("Installer", "InstallerPackageCode", r.InstallerPackageCode);
         AddField("Installer", "InstallerScope", r.InstallerScope);
+        AddField("Installer", "InstallerAuthor", r.InstallerAuthor);
+        AddField("Installer", "InstallerComments", r.InstallerComments);
         AddField("Installer", "InstallerUrlInfoAbout", r.InstallerUrlInfoAbout);
         AddField("Installer", "InstallerUrlUpdateInfo", r.InstallerUrlUpdateInfo);
         AddField("Installer", "InstallerHelpLink", r.InstallerHelpLink);
@@ -899,9 +925,12 @@ public sealed class ReportView
         AddField("Installer", "InstallerContact", r.InstallerContact);
         AddField("Installer", "InstallerCreated", r.InstallerCreated);
         AddField("Installer", "InstallerLastSaved", r.InstallerLastSaved);
+        AddField("Installer", "InstallerCapabilities", r.InstallerCapabilities);
+        AddField("Installer", "InstallerExtensions", r.InstallerExtensions);
         if (r._MsiCAExe.HasValue) AddField("Installer", "MsiCAExe", r._MsiCAExe.Value.ToString());
         if (r._MsiCADll.HasValue) AddField("Installer", "MsiCADll", r._MsiCADll.Value.ToString());
         if (r._MsiCAScript.HasValue) AddField("Installer", "MsiCAScript", r._MsiCAScript.Value.ToString());
+        if (r._MsiCAOther.HasValue) AddField("Installer", "MsiCAOther", r._MsiCAOther.Value.ToString());
         AddField("Installer", "MsiCASamples", r._MsiCASamples);
         if (r.AssessmentScore.HasValue) AddField("Assessment", "AssessmentScore", r.AssessmentScore.Value.ToString());
         AddField("Assessment", "AssessmentDecision", r.AssessmentDecision);
@@ -1031,10 +1060,14 @@ public sealed class ReportView
         => !string.IsNullOrEmpty(r.InstallerKind) ||
            !string.IsNullOrEmpty(r.InstallerName) ||
            !string.IsNullOrEmpty(r.InstallerManufacturer) ||
+           !string.IsNullOrEmpty(r.InstallerIdentityName) ||
            !string.IsNullOrEmpty(r.InstallerVersion) ||
            !string.IsNullOrEmpty(r.InstallerProductCode) ||
            !string.IsNullOrEmpty(r.InstallerUpgradeCode) ||
+           !string.IsNullOrEmpty(r.InstallerPackageCode) ||
            !string.IsNullOrEmpty(r.InstallerScope) ||
+           !string.IsNullOrEmpty(r.InstallerAuthor) ||
+           !string.IsNullOrEmpty(r.InstallerComments) ||
            !string.IsNullOrEmpty(r.InstallerUrlInfoAbout) ||
            !string.IsNullOrEmpty(r.InstallerUrlUpdateInfo) ||
            !string.IsNullOrEmpty(r.InstallerHelpLink) ||
@@ -1042,9 +1075,12 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.InstallerContact) ||
            !string.IsNullOrEmpty(r.InstallerCreated) ||
            !string.IsNullOrEmpty(r.InstallerLastSaved) ||
+           !string.IsNullOrEmpty(r.InstallerCapabilities) ||
+           !string.IsNullOrEmpty(r.InstallerExtensions) ||
            r._MsiCAExe.HasValue ||
            r._MsiCADll.HasValue ||
            r._MsiCAScript.HasValue ||
+           r._MsiCAOther.HasValue ||
            !string.IsNullOrEmpty(r._MsiCASamples);
 
     private static bool HasAnyScriptSignals(ReportView r)
@@ -1223,10 +1259,14 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InstallerKind)) d["InstallerKind"] = InstallerKind;
         if (!string.IsNullOrEmpty(InstallerName)) d["InstallerName"] = InstallerName;
         if (!string.IsNullOrEmpty(InstallerManufacturer)) d["InstallerManufacturer"] = InstallerManufacturer;
+        if (!string.IsNullOrEmpty(InstallerIdentityName)) d["InstallerIdentityName"] = InstallerIdentityName;
         if (!string.IsNullOrEmpty(InstallerVersion)) d["InstallerVersion"] = InstallerVersion;
         if (!string.IsNullOrEmpty(InstallerProductCode)) d["InstallerProductCode"] = InstallerProductCode;
         if (!string.IsNullOrEmpty(InstallerUpgradeCode)) d["InstallerUpgradeCode"] = InstallerUpgradeCode;
+        if (!string.IsNullOrEmpty(InstallerPackageCode)) d["InstallerPackageCode"] = InstallerPackageCode;
         if (!string.IsNullOrEmpty(InstallerScope)) d["InstallerScope"] = InstallerScope;
+        if (!string.IsNullOrEmpty(InstallerAuthor)) d["InstallerAuthor"] = InstallerAuthor;
+        if (!string.IsNullOrEmpty(InstallerComments)) d["InstallerComments"] = InstallerComments;
         if (!string.IsNullOrEmpty(InstallerUrlInfoAbout)) d["InstallerUrlInfoAbout"] = InstallerUrlInfoAbout;
         if (!string.IsNullOrEmpty(InstallerUrlUpdateInfo)) d["InstallerUrlUpdateInfo"] = InstallerUrlUpdateInfo;
         if (!string.IsNullOrEmpty(InstallerHelpLink)) d["InstallerHelpLink"] = InstallerHelpLink;
@@ -1234,9 +1274,12 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InstallerContact)) d["InstallerContact"] = InstallerContact;
         if (!string.IsNullOrEmpty(InstallerCreated)) d["InstallerCreated"] = InstallerCreated;
         if (!string.IsNullOrEmpty(InstallerLastSaved)) d["InstallerLastSaved"] = InstallerLastSaved;
+        if (!string.IsNullOrEmpty(InstallerCapabilities)) d["InstallerCapabilities"] = InstallerCapabilities;
+        if (!string.IsNullOrEmpty(InstallerExtensions)) d["InstallerExtensions"] = InstallerExtensions;
         if (_MsiCAExe.HasValue) d["MsiCAExe"] = _MsiCAExe.Value;
         if (_MsiCADll.HasValue) d["MsiCADll"] = _MsiCADll.Value;
         if (_MsiCAScript.HasValue) d["MsiCAScript"] = _MsiCAScript.Value;
+        if (_MsiCAOther.HasValue) d["MsiCAOther"] = _MsiCAOther.Value;
         if (!string.IsNullOrEmpty(_MsiCASamples)) d["MsiCASamples"] = _MsiCASamples;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         // Archive inventory

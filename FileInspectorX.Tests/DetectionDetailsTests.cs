@@ -1232,15 +1232,22 @@ public class DetectionDetailsTests
                 Kind = InstallerKind.Msi,
                 Name = "Contoso Agent",
                 Manufacturer = "Contoso",
+                IdentityName = "Contoso.Agent.Desktop",
                 Version = "1.2.3",
                 ProductCode = "{11111111-1111-1111-1111-111111111111}",
+                PackageCode = "{33333333-3333-3333-3333-333333333333}",
                 Scope = "PerMachine",
+                Author = "Release Engineering",
+                Comments = "Installs the Contoso background agent.",
                 UrlInfoAbout = "https://contoso.example/info",
+                Capabilities = new[] { "runFullTrust", "internetClient", "documentsLibrary" },
+                Extensions = new[] { "windows.protocol:contoso-agent", "windows.fileTypeAssociation:.ctg" },
                 MsiCustomActions = new MsiCustomActionSummary
                 {
                     CountExe = 1,
                     CountDll = 2,
                     CountScript = 3,
+                    CountOther = 4,
                     Samples = new[] { "3073:BinaryKey/InstallAgent" }
                 }
             }
@@ -1252,11 +1259,24 @@ public class DetectionDetailsTests
         Assert.True(rv.Advice.ShowInstaller);
         Assert.Equal("Msi", rv.InstallerKind);
         Assert.Equal("Contoso Agent", rv.InstallerName);
+        Assert.Equal("Contoso.Agent.Desktop", rv.InstallerIdentityName);
+        Assert.Equal("{33333333-3333-3333-3333-333333333333}", rv.InstallerPackageCode);
+        Assert.Equal("Release Engineering", rv.InstallerAuthor);
+        Assert.Equal("Installs the Contoso background agent.", rv.InstallerComments);
+        Assert.Equal("runFullTrust, internetClient, documentsLibrary", rv.InstallerCapabilities);
+        Assert.Equal("windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", rv.InstallerExtensions);
         Assert.NotNull(rv.CompactFields);
         Assert.True(rv.CompactFields!.ContainsKey("Installer"));
         Assert.Contains("InstallerKind", rv.CompactFields["Installer"]);
         Assert.Contains("InstallerName", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerIdentityName", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerPackageCode", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerAuthor", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerComments", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerCapabilities", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerExtensions", rv.CompactFields["Installer"]);
         Assert.Contains("MsiCAExe", rv.CompactFields["Installer"]);
+        Assert.Contains("MsiCAOther", rv.CompactFields["Installer"]);
         Assert.Contains("MsiCASamples", rv.CompactFields["Installer"]);
 
         var map = rv.ToDictionary();
@@ -1265,17 +1285,33 @@ public class DetectionDetailsTests
         var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
         Assert.True(compact.ContainsKey("Installer"));
         Assert.Contains("InstallerKind", compact["Installer"]);
+        Assert.Contains("InstallerIdentityName", compact["Installer"]);
         Assert.Contains("MsiCAExe", compact["Installer"]);
+        Assert.Contains("MsiCAOther", compact["Installer"]);
         Assert.Equal("Msi", map["InstallerKind"]);
         Assert.Equal("Contoso Agent", map["InstallerName"]);
+        Assert.Equal("Contoso.Agent.Desktop", map["InstallerIdentityName"]);
+        Assert.Equal("{33333333-3333-3333-3333-333333333333}", map["InstallerPackageCode"]);
+        Assert.Equal("Release Engineering", map["InstallerAuthor"]);
+        Assert.Equal("Installs the Contoso background agent.", map["InstallerComments"]);
+        Assert.Equal("runFullTrust, internetClient, documentsLibrary", map["InstallerCapabilities"]);
+        Assert.Equal("windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", map["InstallerExtensions"]);
         Assert.Equal(1, map["MsiCAExe"]);
+        Assert.Equal(4, map["MsiCAOther"]);
         Assert.Equal("3073:BinaryKey/InstallAgent", map["MsiCASamples"]);
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Installer", md);
         Assert.Contains("Kind: Msi", md);
         Assert.Contains("Name: Contoso Agent", md);
+        Assert.Contains("Identity: Contoso.Agent.Desktop", md);
+        Assert.Contains("PackageCode: {33333333-3333-3333-3333-333333333333}", md);
+        Assert.Contains("Author: Release Engineering", md);
+        Assert.Contains("Comments: Installs the Contoso background agent.", md);
+        Assert.Contains("Capabilities: runFullTrust, internetClient, documentsLibrary", md);
+        Assert.Contains("Extensions: windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", md);
         Assert.Contains("MSI custom actions (EXE): 1", md);
+        Assert.Contains("MSI custom actions (other): 4", md);
         Assert.Contains("MSI custom action samples: 3073:BinaryKey/InstallAgent", md);
     }
 

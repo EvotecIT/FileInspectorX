@@ -260,10 +260,14 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.InstallerKind)) sb.AppendLine($"- Kind: {r.InstallerKind}");
             if (!string.IsNullOrEmpty(r.InstallerName)) sb.AppendLine($"- Name: {r.InstallerName}");
             if (!string.IsNullOrEmpty(r.InstallerManufacturer)) sb.AppendLine($"- Manufacturer: {r.InstallerManufacturer}");
+            if (!string.IsNullOrEmpty(r.InstallerIdentityName)) sb.AppendLine($"- Identity: {r.InstallerIdentityName}");
             if (!string.IsNullOrEmpty(r.InstallerVersion)) sb.AppendLine($"- Version: {r.InstallerVersion}");
             if (!string.IsNullOrEmpty(r.InstallerProductCode)) sb.AppendLine($"- ProductCode: {r.InstallerProductCode}");
             if (!string.IsNullOrEmpty(r.InstallerUpgradeCode)) sb.AppendLine($"- UpgradeCode: {r.InstallerUpgradeCode}");
+            if (!string.IsNullOrEmpty(r.InstallerPackageCode)) sb.AppendLine($"- PackageCode: {r.InstallerPackageCode}");
             if (!string.IsNullOrEmpty(r.InstallerScope)) sb.AppendLine($"- Scope: {r.InstallerScope}");
+            if (!string.IsNullOrEmpty(r.InstallerAuthor)) sb.AppendLine($"- Author: {r.InstallerAuthor}");
+            if (!string.IsNullOrEmpty(r.InstallerComments)) sb.AppendLine($"- Comments: {r.InstallerComments}");
             if (!string.IsNullOrEmpty(r.InstallerUrlInfoAbout)) sb.AppendLine($"- Info URL: {r.InstallerUrlInfoAbout}");
             if (!string.IsNullOrEmpty(r.InstallerUrlUpdateInfo)) sb.AppendLine($"- Update URL: {r.InstallerUrlUpdateInfo}");
             if (!string.IsNullOrEmpty(r.InstallerHelpLink)) sb.AppendLine($"- Help link: {r.InstallerHelpLink}");
@@ -271,9 +275,12 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.InstallerContact)) sb.AppendLine($"- Contact: {r.InstallerContact}");
             if (!string.IsNullOrEmpty(r.InstallerCreated)) sb.AppendLine($"- Created: {r.InstallerCreated}");
             if (!string.IsNullOrEmpty(r.InstallerLastSaved)) sb.AppendLine($"- Last saved: {r.InstallerLastSaved}");
+            if (!string.IsNullOrEmpty(r.InstallerCapabilities)) sb.AppendLine($"- Capabilities: {r.InstallerCapabilities}");
+            if (!string.IsNullOrEmpty(r.InstallerExtensions)) sb.AppendLine($"- Extensions: {r.InstallerExtensions}");
             if (r._MsiCAExe.HasValue) sb.AppendLine($"- MSI custom actions (EXE): {r._MsiCAExe.Value}");
             if (r._MsiCADll.HasValue) sb.AppendLine($"- MSI custom actions (DLL): {r._MsiCADll.Value}");
             if (r._MsiCAScript.HasValue) sb.AppendLine($"- MSI custom actions (script): {r._MsiCAScript.Value}");
+            if (r._MsiCAOther.HasValue) sb.AppendLine($"- MSI custom actions (other): {r._MsiCAOther.Value}");
             if (!string.IsNullOrEmpty(r._MsiCASamples)) sb.AppendLine($"- MSI custom action samples: {r._MsiCASamples}");
             sb.AppendLine();
         }
@@ -472,10 +479,14 @@ public static class MarkdownRenderer
             => !string.IsNullOrEmpty(view.InstallerKind) ||
                !string.IsNullOrEmpty(view.InstallerName) ||
                !string.IsNullOrEmpty(view.InstallerManufacturer) ||
+               !string.IsNullOrEmpty(view.InstallerIdentityName) ||
                !string.IsNullOrEmpty(view.InstallerVersion) ||
                !string.IsNullOrEmpty(view.InstallerProductCode) ||
                !string.IsNullOrEmpty(view.InstallerUpgradeCode) ||
+               !string.IsNullOrEmpty(view.InstallerPackageCode) ||
                !string.IsNullOrEmpty(view.InstallerScope) ||
+               !string.IsNullOrEmpty(view.InstallerAuthor) ||
+               !string.IsNullOrEmpty(view.InstallerComments) ||
                !string.IsNullOrEmpty(view.InstallerUrlInfoAbout) ||
                !string.IsNullOrEmpty(view.InstallerUrlUpdateInfo) ||
                !string.IsNullOrEmpty(view.InstallerHelpLink) ||
@@ -483,9 +494,12 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.InstallerContact) ||
                !string.IsNullOrEmpty(view.InstallerCreated) ||
                !string.IsNullOrEmpty(view.InstallerLastSaved) ||
+               !string.IsNullOrEmpty(view.InstallerCapabilities) ||
+               !string.IsNullOrEmpty(view.InstallerExtensions) ||
                view._MsiCAExe.HasValue ||
                view._MsiCADll.HasValue ||
                view._MsiCAScript.HasValue ||
+               view._MsiCAOther.HasValue ||
                !string.IsNullOrEmpty(view._MsiCASamples);
 
         static bool HasPropertiesData(ReportView view)
