@@ -83,10 +83,16 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Signature blob present: {(r.SignatureIsSigned.Value ? "yes" : "no")}");
             if (r.AuthenticodePresent.HasValue)
                 sb.AppendLine($"- Authenticode present: {(r.AuthenticodePresent.Value ? "yes" : "no")}");
+            if (r.AuthenticodeEnvelopeValid.HasValue)
+                sb.AppendLine($"- Authenticode envelope valid: {(r.AuthenticodeEnvelopeValid.Value ? "yes" : "no")}");
             if (r.AuthenticodeChainValid.HasValue)
                 sb.AppendLine($"- Authenticode chain valid: {(r.AuthenticodeChainValid.Value ? "yes" : "no")}");
             if (r.AuthenticodeTimestampPresent.HasValue)
                 sb.AppendLine($"- Authenticode timestamp present: {(r.AuthenticodeTimestampPresent.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeDigestAlgorithm))
+                sb.AppendLine($"- Authenticode digest algorithm: {r.AuthenticodeDigestAlgorithm}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm))
+                sb.AppendLine($"- File digest algorithm: {r.AuthenticodeFileDigestAlgorithm}");
             if (r.WinTrustStatusCode.HasValue)
             {
                 var ok = r.IsTrustedWindowsPolicy == true ? "Trusted" : "Untrusted";
@@ -104,12 +110,30 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- .NET strong-name signed: {(r.DotNetStrongNameSigned.Value ? "yes" : "no")}");
             if (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0)
                 sb.AppendLine($"- EKUs: {string.Join(", ", r.EnhancedKeyUsages)}");
+            if (!string.IsNullOrEmpty(r.SignerSubjectCN))
+                sb.AppendLine($"- Signer subject CN: {r.SignerSubjectCN}");
+            if (!string.IsNullOrEmpty(r.SignerSubjectO))
+                sb.AppendLine($"- Signer subject O: {r.SignerSubjectO}");
             if (!string.IsNullOrEmpty(r.TimestampAuthorityCN))
                 sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthorityCN}");
+            else if (!string.IsNullOrEmpty(r.TimestampAuthority))
+                sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthority}");
+            if (r.TimestampTime.HasValue)
+                sb.AppendLine($"- Timestamp time: {r.TimestampTime.Value:u}");
             if (!string.IsNullOrEmpty(r.SignerIssuerCN))
                 sb.AppendLine($"- Signer issuer CN: {r.SignerIssuerCN}");
             if (!string.IsNullOrEmpty(r.SignerIssuerO))
                 sb.AppendLine($"- Signer issuer O: {r.SignerIssuerO}");
+            if (r.SignerSelfSigned.HasValue)
+                sb.AppendLine($"- Signer self-signed: {(r.SignerSelfSigned.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.SignerThumbprint))
+                sb.AppendLine($"- Signer thumbprint: {r.SignerThumbprint}");
+            if (!string.IsNullOrEmpty(r.SignerSignatureAlgorithm))
+                sb.AppendLine($"- Signer signature algorithm: {r.SignerSignatureAlgorithm}");
+            if (r.AuthenticodeFileHashMatches.HasValue)
+                sb.AppendLine($"- Authenticode file hash matches: {(r.AuthenticodeFileHashMatches.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeVerificationNote))
+                sb.AppendLine($"- Verification note: {r.AuthenticodeVerificationNote}");
             if (!string.IsNullOrEmpty(r.CertSubject))
                 sb.AppendLine($"- Certificate subject: {r.CertSubject}");
             if (!string.IsNullOrEmpty(r.CertIssuer))
@@ -542,10 +566,22 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.CertificateBlobSha256) ||
                view.DotNetStrongNameSigned.HasValue ||
                view.AuthenticodePresent.HasValue ||
+               view.AuthenticodeEnvelopeValid.HasValue ||
                view.AuthenticodeChainValid.HasValue ||
                view.AuthenticodeTimestampPresent.HasValue ||
+               !string.IsNullOrEmpty(view.AuthenticodeDigestAlgorithm) ||
+               !string.IsNullOrEmpty(view.AuthenticodeFileDigestAlgorithm) ||
                view.IsTrustedWindowsPolicy.HasValue ||
                view.WinTrustStatusCode.HasValue ||
+               !string.IsNullOrEmpty(view.SignerSubjectCN) ||
+               !string.IsNullOrEmpty(view.SignerSubjectO) ||
+               view.SignerSelfSigned.HasValue ||
+               !string.IsNullOrEmpty(view.SignerThumbprint) ||
+               !string.IsNullOrEmpty(view.SignerSignatureAlgorithm) ||
+               view.TimestampTime.HasValue ||
+               !string.IsNullOrEmpty(view.TimestampAuthority) ||
+               !string.IsNullOrEmpty(view.AuthenticodeVerificationNote) ||
+               view.AuthenticodeFileHashMatches.HasValue ||
                (view.EnhancedKeyUsages != null && view.EnhancedKeyUsages.Count > 0) ||
                !string.IsNullOrEmpty(view.TimestampAuthorityCN) ||
                !string.IsNullOrEmpty(view.SignerIssuerCN) ||

@@ -62,10 +62,34 @@ public sealed class ReportView
     public int? WinTrustStatusCode { get; set; }
     /// <summary>True when an Authenticode signature is present.</summary>
     public bool? AuthenticodePresent { get; set; }
+    /// <summary>True when the PKCS#7 Authenticode envelope validated.</summary>
+    public bool? AuthenticodeEnvelopeValid { get; set; }
     /// <summary>True when the Authenticode certificate chain validated.</summary>
     public bool? AuthenticodeChainValid { get; set; }
     /// <summary>True when an Authenticode timestamp countersignature is present.</summary>
     public bool? AuthenticodeTimestampPresent { get; set; }
+    /// <summary>Digest algorithm used by the Authenticode signature.</summary>
+    public string? AuthenticodeDigestAlgorithm { get; set; }
+    /// <summary>Digest algorithm used for the file content digest.</summary>
+    public string? AuthenticodeFileDigestAlgorithm { get; set; }
+    /// <summary>Signer subject common name when available.</summary>
+    public string? SignerSubjectCN { get; set; }
+    /// <summary>Signer subject organization when available.</summary>
+    public string? SignerSubjectO { get; set; }
+    /// <summary>True when the signer certificate is self-signed.</summary>
+    public bool? SignerSelfSigned { get; set; }
+    /// <summary>Signer certificate thumbprint.</summary>
+    public string? SignerThumbprint { get; set; }
+    /// <summary>Signer certificate signature algorithm.</summary>
+    public string? SignerSignatureAlgorithm { get; set; }
+    /// <summary>Timestamp time reported by the timestamp authority.</summary>
+    public DateTimeOffset? TimestampTime { get; set; }
+    /// <summary>Timestamp authority display name or URL.</summary>
+    public string? TimestampAuthority { get; set; }
+    /// <summary>Authenticode verification note describing what was checked.</summary>
+    public string? AuthenticodeVerificationNote { get; set; }
+    /// <summary>True when the recomputed file hash matches the Authenticode digest.</summary>
+    public bool? AuthenticodeFileHashMatches { get; set; }
 
     /// <summary>Raw version information as a name/value map.</summary>
     public IReadOnlyDictionary<string,string>? VersionInfo { get; set; }
@@ -397,10 +421,22 @@ public sealed class ReportView
         if (a.Authenticode != null)
         {
             r.AuthenticodePresent = a.Authenticode.Present;
+            r.AuthenticodeEnvelopeValid = a.Authenticode.EnvelopeSignatureValid;
             r.AuthenticodeChainValid = a.Authenticode.ChainValid;
             r.AuthenticodeTimestampPresent = a.Authenticode.TimestampPresent;
+            r.AuthenticodeDigestAlgorithm = a.Authenticode.DigestAlgorithm;
+            r.AuthenticodeFileDigestAlgorithm = a.Authenticode.FileDigestAlgorithm;
+            r.SignerSubjectCN = a.Authenticode.SignerSubjectCN;
+            r.SignerSubjectO = a.Authenticode.SignerSubjectO;
+            r.SignerSelfSigned = a.Authenticode.IsSelfSigned;
+            r.SignerThumbprint = a.Authenticode.SignerThumbprint;
+            r.SignerSignatureAlgorithm = a.Authenticode.SignatureAlgorithm;
+            r.TimestampTime = a.Authenticode.TimestampTime;
+            r.TimestampAuthority = a.Authenticode.TimestampAuthority;
+            r.AuthenticodeVerificationNote = a.Authenticode.VerificationNote;
             r.IsTrustedWindowsPolicy = a.Authenticode.IsTrustedWindowsPolicy;
             r.WinTrustStatusCode = a.Authenticode.WinTrustStatusCode;
+            r.AuthenticodeFileHashMatches = a.Authenticode.FileHashMatches;
             r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
             r.TimestampAuthorityCN = a.Authenticode.TimestampAuthorityCN;
             r.SignerIssuerCN = a.Authenticode.IssuerCN;
@@ -777,10 +813,22 @@ public sealed class ReportView
         if (r.SignatureIsSigned.HasValue) AddField("Signature", "SignatureIsSigned", r.SignatureIsSigned.Value ? "true" : "false");
         if (r.DotNetStrongNameSigned.HasValue) AddField("Signature", "DotNetStrongNameSigned", r.DotNetStrongNameSigned.Value ? "true" : "false");
         if (r.AuthenticodePresent.HasValue) AddField("Signature", "AuthenticodePresent", r.AuthenticodePresent.Value ? "true" : "false");
+        if (r.AuthenticodeEnvelopeValid.HasValue) AddField("Signature", "AuthenticodeEnvelopeValid", r.AuthenticodeEnvelopeValid.Value ? "true" : "false");
         if (r.AuthenticodeChainValid.HasValue) AddField("Signature", "AuthenticodeChainValid", r.AuthenticodeChainValid.Value ? "true" : "false");
         if (r.AuthenticodeTimestampPresent.HasValue) AddField("Signature", "AuthenticodeTimestampPresent", r.AuthenticodeTimestampPresent.Value ? "true" : "false");
+        AddField("Signature", "AuthenticodeDigestAlgorithm", r.AuthenticodeDigestAlgorithm);
+        AddField("Signature", "AuthenticodeFileDigestAlgorithm", r.AuthenticodeFileDigestAlgorithm);
+        AddField("Signature", "SignerSubjectCN", r.SignerSubjectCN);
+        AddField("Signature", "SignerSubjectO", r.SignerSubjectO);
+        if (r.SignerSelfSigned.HasValue) AddField("Signature", "SignerSelfSigned", r.SignerSelfSigned.Value ? "true" : "false");
+        AddField("Signature", "SignerThumbprint", r.SignerThumbprint);
+        AddField("Signature", "SignerSignatureAlgorithm", r.SignerSignatureAlgorithm);
+        if (r.TimestampTime.HasValue) AddField("Signature", "TimestampTime", r.TimestampTime.Value.ToString("u"));
+        AddField("Signature", "TimestampAuthority", r.TimestampAuthority);
+        AddField("Signature", "AuthenticodeVerificationNote", r.AuthenticodeVerificationNote);
         if (r.IsTrustedWindowsPolicy.HasValue) AddField("Signature", "IsTrustedWindowsPolicy", r.IsTrustedWindowsPolicy.Value ? "true" : "false");
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
+        if (r.AuthenticodeFileHashMatches.HasValue) AddField("Signature", "AuthenticodeFileHashMatches", r.AuthenticodeFileHashMatches.Value ? "true" : "false");
         AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
         AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
         AddField("Signature", "SignerIssuerCN", r.SignerIssuerCN);
@@ -922,10 +970,22 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
            r.DotNetStrongNameSigned.HasValue ||
            r.AuthenticodePresent.HasValue ||
+           r.AuthenticodeEnvelopeValid.HasValue ||
            r.AuthenticodeChainValid.HasValue ||
            r.AuthenticodeTimestampPresent.HasValue ||
+           !string.IsNullOrEmpty(r.AuthenticodeDigestAlgorithm) ||
+           !string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm) ||
+           !string.IsNullOrEmpty(r.SignerSubjectCN) ||
+           !string.IsNullOrEmpty(r.SignerSubjectO) ||
+           r.SignerSelfSigned.HasValue ||
+           !string.IsNullOrEmpty(r.SignerThumbprint) ||
+           !string.IsNullOrEmpty(r.SignerSignatureAlgorithm) ||
+           r.TimestampTime.HasValue ||
+           !string.IsNullOrEmpty(r.TimestampAuthority) ||
+           !string.IsNullOrEmpty(r.AuthenticodeVerificationNote) ||
            r.IsTrustedWindowsPolicy.HasValue ||
            r.WinTrustStatusCode.HasValue ||
+           r.AuthenticodeFileHashMatches.HasValue ||
            (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ||
            !string.IsNullOrEmpty(r.TimestampAuthorityCN) ||
            !string.IsNullOrEmpty(r.SignerIssuerCN) ||
@@ -1100,10 +1160,22 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedFriendly)) d["EncodedInnerDetectedFriendly"] = EncodedInnerDetectedFriendly;
         if (AuthenticodePresent.HasValue) d["AuthenticodePresent"] = AuthenticodePresent.Value;
+        if (AuthenticodeEnvelopeValid.HasValue) d["AuthenticodeEnvelopeValid"] = AuthenticodeEnvelopeValid.Value;
         if (AuthenticodeChainValid.HasValue) d["AuthenticodeChainValid"] = AuthenticodeChainValid.Value;
         if (AuthenticodeTimestampPresent.HasValue) d["AuthenticodeTimestampPresent"] = AuthenticodeTimestampPresent.Value;
+        if (!string.IsNullOrEmpty(AuthenticodeDigestAlgorithm)) d["AuthenticodeDigestAlgorithm"] = AuthenticodeDigestAlgorithm;
+        if (!string.IsNullOrEmpty(AuthenticodeFileDigestAlgorithm)) d["AuthenticodeFileDigestAlgorithm"] = AuthenticodeFileDigestAlgorithm;
+        if (!string.IsNullOrEmpty(SignerSubjectCN)) d["SignerSubjectCN"] = SignerSubjectCN;
+        if (!string.IsNullOrEmpty(SignerSubjectO)) d["SignerSubjectO"] = SignerSubjectO;
+        if (SignerSelfSigned.HasValue) d["SignerSelfSigned"] = SignerSelfSigned.Value;
+        if (!string.IsNullOrEmpty(SignerThumbprint)) d["SignerThumbprint"] = SignerThumbprint;
+        if (!string.IsNullOrEmpty(SignerSignatureAlgorithm)) d["SignerSignatureAlgorithm"] = SignerSignatureAlgorithm;
+        if (TimestampTime.HasValue) d["TimestampTime"] = TimestampTime.Value;
+        if (!string.IsNullOrEmpty(TimestampAuthority)) d["TimestampAuthority"] = TimestampAuthority;
+        if (!string.IsNullOrEmpty(AuthenticodeVerificationNote)) d["AuthenticodeVerificationNote"] = AuthenticodeVerificationNote;
         if (IsTrustedWindowsPolicy.HasValue) d["IsTrustedWindowsPolicy"] = IsTrustedWindowsPolicy.Value;
         if (WinTrustStatusCode.HasValue) d["WinTrustStatusCode"] = WinTrustStatusCode.Value;
+        if (AuthenticodeFileHashMatches.HasValue) d["AuthenticodeFileHashMatches"] = AuthenticodeFileHashMatches.Value;
         if (VersionInfo != null) d["VersionInfo"] = VersionInfo;
         if (ShellPropertyCount.HasValue) d["ShellPropertyCount"] = ShellPropertyCount.Value;
         if (ShellPropertyPreview != null && ShellPropertyPreview.Count > 0) d["ShellPropertyPreview"] = ShellPropertyPreview;
