@@ -290,6 +290,59 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Archive_Presentation_Includes_Raw_Inner_Binary_Counts()
+    {
+        var analysis = new FileAnalysis
+        {
+            InnerExecutablesSampled = 3,
+            InnerSignedExecutables = 2,
+            InnerValidSignedExecutables = 1,
+            InnerPublisherCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Contoso"] = 2,
+                ["Fabrikam"] = 1
+            },
+            InnerPublisherValidCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Contoso"] = 2
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowArchiveDetails);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Archive"));
+        Assert.Contains("InnerExecutablesSampled", rv.CompactFields["Archive"]);
+        Assert.Contains("InnerSignedExecutables", rv.CompactFields["Archive"]);
+        Assert.Contains("InnerValidSignedExecutables", rv.CompactFields["Archive"]);
+        Assert.Contains("InnerPublisherCounts", rv.CompactFields["Archive"]);
+        Assert.Contains("InnerPublisherValidCounts", rv.CompactFields["Archive"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowArchiveDetails"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Archive"));
+        Assert.Contains("InnerExecutablesSampled", compact["Archive"]);
+        Assert.Contains("InnerSignedExecutables", compact["Archive"]);
+        Assert.Contains("InnerValidSignedExecutables", compact["Archive"]);
+        Assert.Contains("InnerPublisherCounts", compact["Archive"]);
+        Assert.Contains("InnerPublisherValidCounts", compact["Archive"]);
+        Assert.Equal(3, map["InnerExecutablesSampled"]);
+        Assert.Equal(2, map["InnerSignedExecutables"]);
+        Assert.Equal(1, map["InnerValidSignedExecutables"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Archive", md);
+        Assert.Contains("Inner binaries sampled: 3", md);
+        Assert.Contains("Inner signed binaries: 2", md);
+        Assert.Contains("Inner validly signed binaries: 1", md);
+        Assert.Contains("Inner publishers: Contoso (2 files, valid), Fabrikam (1 file, signed)", md);
+    }
+
+    [Fact]
     public void ReportView_Signature_Presentation_Includes_Certificate_Bundle_Only_Analysis()
     {
         var analysis = new FileAnalysis
@@ -1113,5 +1166,37 @@ public class DetectionDetailsTests
         Assert.Contains("Drivers: JWT tokens, key patterns", md);
         Assert.Contains("Drivers (long): JWT-like tokens found, long key/secret assignment patterns detected", md);
         Assert.Contains("Factors: secret:jwt=40, secret:keypattern=25, inner:signed=-5", md);
+    }
+
+    [Fact]
+    public void Markdown_Archive_Uses_Raw_Publisher_And_Count_Fields_When_Summaries_Are_Missing()
+    {
+        var rv = new ReportView
+        {
+            InnerExecutablesSampled = 4,
+            InnerSignedExecutables = 3,
+            InnerValidSignedExecutables = 2,
+            InnerPublisherCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Contoso"] = 2,
+                ["Fabrikam"] = 2
+            },
+            InnerPublisherValidCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Contoso"] = 2
+            },
+            InnerPublisherSelfSignedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Fabrikam"] = 1
+            }
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Archive", md);
+        Assert.Contains("Inner binaries sampled: 4", md);
+        Assert.Contains("Inner signed binaries: 3", md);
+        Assert.Contains("Inner validly signed binaries: 2", md);
+        Assert.Contains("Inner publishers: Contoso (2 files, valid), Fabrikam (2 files, self-signed)", md);
     }
 }

@@ -697,7 +697,13 @@ public sealed class ReportView
         if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
         if (a.ContainerEntryCount.HasValue) AddField("Archive", "EntryCount", a.ContainerEntryCount.Value.ToString());
         if (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) AddField("Archive", "TopExtensions", string.Join(", ", a.ContainerTopExtensions));
+        if (r.InnerExecutablesSampled.HasValue) AddField("Archive", "InnerExecutablesSampled", r.InnerExecutablesSampled.Value.ToString());
+        if (r.InnerSignedExecutables.HasValue) AddField("Archive", "InnerSignedExecutables", r.InnerSignedExecutables.Value.ToString());
+        if (r.InnerValidSignedExecutables.HasValue) AddField("Archive", "InnerValidSignedExecutables", r.InnerValidSignedExecutables.Value.ToString());
         AddField("Archive", "InnerPublishersHuman", r.InnerPublishersHuman);
+        if (r.InnerPublisherCounts != null && r.InnerPublisherCounts.Count > 0) AddField("Archive", "InnerPublisherCounts", "1");
+        if (r.InnerPublisherValidCounts != null && r.InnerPublisherValidCounts.Count > 0) AddField("Archive", "InnerPublisherValidCounts", "1");
+        if (r.InnerPublisherSelfSignedCounts != null && r.InnerPublisherSelfSignedCounts.Count > 0) AddField("Archive", "InnerPublisherSelfSignedCounts", "1");
         if (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0) AddField("Archive", "InnerExecutableExtCounts", "1");
         if (!string.IsNullOrWhiteSpace(r.InnerBinariesSummary)) AddField("Archive", "InnerBinariesSummary", r.InnerBinariesSummary);
         if (r.ArchivePreview != null && r.ArchivePreview.Count > 0) AddField("Archive", "Preview", "1");
@@ -719,11 +725,7 @@ public sealed class ReportView
                              (r.InnerFindings != null && r.InnerFindings.Count > 0) ||
                              (r.TopTokens != null && r.TopTokens.Count > 0) ||
                              HasAnySecretSignals(r),
-            ShowArchiveDetails = r.EncryptedEntryCount.HasValue ||
-                                 a.ContainerEntryCount.HasValue ||
-                                 (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) ||
-                                 !string.IsNullOrWhiteSpace(r.InnerBinariesSummary) ||
-                                 (r.ArchivePreview != null && r.ArchivePreview.Count > 0)
+            ShowArchiveDetails = HasAnyArchiveSignals(r)
         };
 
         return r;
@@ -825,6 +827,21 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.MotwReferrerUrl) ||
            !string.IsNullOrEmpty(r.MotwHostUrl) ||
            r.AlternateStreamCount.HasValue;
+
+    private static bool HasAnyArchiveSignals(ReportView r)
+        => r.EncryptedEntryCount.HasValue ||
+           r.ArchiveEntryCount.HasValue ||
+           (r.ArchiveTopExtensions != null && r.ArchiveTopExtensions.Count > 0) ||
+           r.InnerExecutablesSampled.HasValue ||
+           r.InnerSignedExecutables.HasValue ||
+           r.InnerValidSignedExecutables.HasValue ||
+           !string.IsNullOrEmpty(r.InnerPublishersHuman) ||
+           (r.InnerPublisherCounts != null && r.InnerPublisherCounts.Count > 0) ||
+           (r.InnerPublisherValidCounts != null && r.InnerPublisherValidCounts.Count > 0) ||
+           (r.InnerPublisherSelfSignedCounts != null && r.InnerPublisherSelfSignedCounts.Count > 0) ||
+           (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0) ||
+           !string.IsNullOrWhiteSpace(r.InnerBinariesSummary) ||
+           (r.ArchivePreview != null && r.ArchivePreview.Count > 0);
 
     /// <summary>
     /// Exports the report as a dictionary compatible with typical templating and logging sinks.

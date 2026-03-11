@@ -194,8 +194,13 @@ public static class MarkdownRenderer
             if (r.ArchiveEntryCount.HasValue) sb.AppendLine($"- Entry count: {r.ArchiveEntryCount.Value}");
             if (r.ArchiveTopExtensions != null && r.ArchiveTopExtensions.Count > 0)
                 sb.AppendLine($"- Top extensions: {string.Join(", ", r.ArchiveTopExtensions)}");
+            if (r.InnerExecutablesSampled.HasValue) sb.AppendLine($"- Inner binaries sampled: {r.InnerExecutablesSampled.Value}");
+            if (r.InnerSignedExecutables.HasValue) sb.AppendLine($"- Inner signed binaries: {r.InnerSignedExecutables.Value}");
+            if (r.InnerValidSignedExecutables.HasValue) sb.AppendLine($"- Inner validly signed binaries: {r.InnerValidSignedExecutables.Value}");
             if (!string.IsNullOrEmpty(r.InnerPublishersHuman))
                 sb.AppendLine($"- Inner publishers: {r.InnerPublishersHuman}");
+            else if (r.InnerPublisherCounts != null && r.InnerPublisherCounts.Count > 0)
+                sb.AppendLine($"- Inner publishers: {string.Join(", ", FormatInnerPublishers(r).Take(5))}");
             if (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0)
             {
                 var topExts = r.InnerExecutableExtCounts
@@ -404,7 +409,13 @@ public static class MarkdownRenderer
             => view.EncryptedEntryCount.HasValue ||
                view.ArchiveEntryCount.HasValue ||
                (view.ArchiveTopExtensions != null && view.ArchiveTopExtensions.Count > 0) ||
+               view.InnerExecutablesSampled.HasValue ||
+               view.InnerSignedExecutables.HasValue ||
+               view.InnerValidSignedExecutables.HasValue ||
                !string.IsNullOrEmpty(view.InnerPublishersHuman) ||
+               (view.InnerPublisherCounts != null && view.InnerPublisherCounts.Count > 0) ||
+               (view.InnerPublisherValidCounts != null && view.InnerPublisherValidCounts.Count > 0) ||
+               (view.InnerPublisherSelfSignedCounts != null && view.InnerPublisherSelfSignedCounts.Count > 0) ||
                (view.InnerExecutableExtCounts != null && view.InnerExecutableExtCounts.Count > 0) ||
                !string.IsNullOrEmpty(view.InnerBinariesSummary) ||
                (view.ArchivePreview != null && view.ArchivePreview.Count > 0);
@@ -443,5 +454,20 @@ public static class MarkdownRenderer
             var head = string.Join(" ", parts);
             return string.IsNullOrEmpty(head) ? candidate.Reason : $"{head} ({candidate.Reason})";
         }
+
+        static IEnumerable<string> FormatInnerPublishers(ReportView view)
+            => view.InnerPublisherCounts!
+                .OrderByDescending(kv => kv.Value)
+                .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(kv =>
+                {
+                    int valid = 0;
+                    int self = 0;
+                    if (view.InnerPublisherValidCounts != null) view.InnerPublisherValidCounts.TryGetValue(kv.Key, out valid);
+                    if (view.InnerPublisherSelfSignedCounts != null) view.InnerPublisherSelfSignedCounts.TryGetValue(kv.Key, out self);
+                    var files = kv.Value == 1 ? "1 file" : $"{kv.Value} files";
+                    var qualifier = self > 0 ? "self-signed" : (valid >= kv.Value && kv.Value > 0 ? "valid" : "signed");
+                    return $"{kv.Key} ({files}, {qualifier})";
+                });
     }
 }
