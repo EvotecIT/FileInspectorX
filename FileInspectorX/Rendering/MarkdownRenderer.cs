@@ -79,6 +79,8 @@ public static class MarkdownRenderer
         if (HasSignatureData(r))
         {
             sb.AppendLine("### Signature");
+            if (r.SignatureIsSigned.HasValue)
+                sb.AppendLine($"- Signature blob present: {(r.SignatureIsSigned.Value ? "yes" : "no")}");
             if (r.AuthenticodePresent.HasValue)
                 sb.AppendLine($"- Authenticode present: {(r.AuthenticodePresent.Value ? "yes" : "no")}");
             if (r.AuthenticodeChainValid.HasValue)
@@ -484,7 +486,8 @@ public static class MarkdownRenderer
                (view.ArchivePreview != null && view.ArchivePreview.Count > 0);
 
         static bool HasSignatureData(ReportView view)
-            => view.CertificateTableSize.HasValue ||
+            => view.SignatureIsSigned.HasValue ||
+               view.CertificateTableSize.HasValue ||
                !string.IsNullOrEmpty(view.CertificateBlobSha256) ||
                view.DotNetStrongNameSigned.HasValue ||
                view.AuthenticodePresent.HasValue ||

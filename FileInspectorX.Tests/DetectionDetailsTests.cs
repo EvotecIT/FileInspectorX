@@ -616,6 +616,51 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Signature_Presentation_Includes_Signature_Summary_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Signature = new SignatureSummary
+            {
+                IsSigned = true,
+                CertificateTableSize = 4096,
+                CertificateBlobSha256 = "abc123"
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.Equal(true, rv.SignatureIsSigned);
+        Assert.Equal(4096, rv.CertificateTableSize);
+        Assert.Equal("abc123", rv.CertificateBlobSha256);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("SignatureIsSigned", rv.CompactFields["Signature"]);
+        Assert.Contains("CertificateTableSize", rv.CompactFields["Signature"]);
+        Assert.Contains("CertificateBlobSha256", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("SignatureIsSigned", compact["Signature"]);
+        Assert.Contains("CertificateTableSize", compact["Signature"]);
+        Assert.Contains("CertificateBlobSha256", compact["Signature"]);
+        Assert.Equal(true, map["SignatureIsSigned"]);
+        Assert.Equal(4096, map["CertificateTableSize"]);
+        Assert.Equal("abc123", map["CertificateBlobSha256"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains("Signature blob present: yes", md);
+        Assert.Contains("Certificate Table: 4096 bytes", md);
+        Assert.Contains("PKCS#7 SHA-256: `abc123`", md);
+    }
+
+    [Fact]
     public void ReportView_TypeAnalysis_Presentation_Includes_Encoded_Only_Analysis()
     {
         var analysis = new FileAnalysis

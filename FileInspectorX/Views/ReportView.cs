@@ -105,6 +105,8 @@ public sealed class ReportView
     public int? CertificateTableSize { get; set; }
     /// <summary>SHA-256 of the raw certificate blob (PE) when present.</summary>
     public string? CertificateBlobSha256 { get; set; }
+    /// <summary>True when a signature blob is present in the file.</summary>
+    public bool? SignatureIsSigned { get; set; }
     /// <summary>Enhanced key usages (EKUs) from signer certificate.</summary>
     public IReadOnlyList<string>? EnhancedKeyUsages { get; set; }
     /// <summary>Timestamp authority common name.</summary>
@@ -354,6 +356,13 @@ public sealed class ReportView
             r.SignerIssuerCN = a.Authenticode.IssuerCN;
             r.SignerIssuerO  = a.Authenticode.IssuerO;
         }
+        if (a.Signature != null)
+        {
+            r.SignatureIsSigned = a.Signature.IsSigned;
+            r.CertificateTableSize = a.Signature.CertificateTableSize;
+            if (!string.IsNullOrEmpty(a.Signature.CertificateBlobSha256))
+                r.CertificateBlobSha256 = a.Signature.CertificateBlobSha256;
+        }
         // .NET strong name (when available)
         if (a.DotNetStrongNameSigned.HasValue)
             r.DotNetStrongNameSigned = a.DotNetStrongNameSigned;
@@ -450,13 +459,6 @@ public sealed class ReportView
             r.FlagsHumanShort = Legend.HumanizeFlagsCsv(r.FlagsCsv, HumanizeStyle.Short);
             r.FlagsHumanLong  = Legend.HumanizeFlagsCsv(r.FlagsCsv, HumanizeStyle.Long);
         }
-
-        if (a.Signature != null)
-        {
-            r.CertificateTableSize = a.Signature.CertificateTableSize;
-            if (!string.IsNullOrEmpty(a.Signature.CertificateBlobSha256)) r.CertificateBlobSha256 = a.Signature.CertificateBlobSha256;
-        }
-
         try
         {
             var multi = FileInspector.AssessMulti(a);
@@ -675,6 +677,7 @@ public sealed class ReportView
         if (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) AddField("TypeAnalysis", "DetectionAlternatives", "1");
         if (r.CertificateTableSize.HasValue) AddField("Signature", "CertificateTableSize", r.CertificateTableSize.Value.ToString());
         AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
+        if (r.SignatureIsSigned.HasValue) AddField("Signature", "SignatureIsSigned", r.SignatureIsSigned.Value ? "true" : "false");
         if (r.DotNetStrongNameSigned.HasValue) AddField("Signature", "DotNetStrongNameSigned", r.DotNetStrongNameSigned.Value ? "true" : "false");
         if (r.AuthenticodePresent.HasValue) AddField("Signature", "AuthenticodePresent", r.AuthenticodePresent.Value ? "true" : "false");
         if (r.AuthenticodeChainValid.HasValue) AddField("Signature", "AuthenticodeChainValid", r.AuthenticodeChainValid.Value ? "true" : "false");
@@ -794,7 +797,8 @@ public sealed class ReportView
            (r.SecretsFindings != null && r.SecretsFindings.Count > 0);
 
     private static bool HasAnySignatureSignals(ReportView r)
-        => r.CertificateTableSize.HasValue ||
+        => r.SignatureIsSigned.HasValue ||
+           r.CertificateTableSize.HasValue ||
            !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
            r.DotNetStrongNameSigned.HasValue ||
            r.AuthenticodePresent.HasValue ||
@@ -969,6 +973,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(ScriptLanguageHuman)) d["ScriptLanguageHuman"] = ScriptLanguageHuman;
         if (CertificateTableSize.HasValue) d["CertificateTableSize"] = CertificateTableSize.Value;
         if (!string.IsNullOrEmpty(CertificateBlobSha256)) d["CertificateBlobSha256"] = CertificateBlobSha256;
+        if (SignatureIsSigned.HasValue) d["SignatureIsSigned"] = SignatureIsSigned.Value;
         if (AssessmentScore.HasValue) d["AssessmentScore"] = AssessmentScore.Value;
         if (!string.IsNullOrEmpty(AssessmentDecision)) d["AssessmentDecision"] = AssessmentDecision;
         if (!string.IsNullOrEmpty(AssessmentDecisionStrict)) d["AssessmentDecisionStrict"] = AssessmentDecisionStrict;
