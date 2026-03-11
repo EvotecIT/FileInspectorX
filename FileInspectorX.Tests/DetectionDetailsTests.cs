@@ -938,6 +938,21 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void Markdown_Assessment_Includes_Raw_Codes_When_Humanized_Drivers_Are_Missing()
+    {
+        var rv = new ReportView
+        {
+            AssessmentCodes = new[] { "Sig.WinTrustInvalid", "Name.DoubleExtension" }
+        };
+
+        var md = MarkdownRenderer.From(rv);
+
+        Assert.Contains("### Risk Assessment", md);
+        Assert.DoesNotContain("Score: 0", md);
+        Assert.Contains("Codes: Sig.WinTrustInvalid, Name.DoubleExtension", md);
+    }
+
+    [Fact]
     public void ReportView_Installer_Presentation_And_Markdown_Include_Installer_Only_Analysis()
     {
         var analysis = new FileAnalysis

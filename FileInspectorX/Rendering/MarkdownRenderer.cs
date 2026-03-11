@@ -356,6 +356,7 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Profile decisions: Strict={r.AssessmentDecisionStrict ?? "n/a"}, Balanced={r.AssessmentDecisionBalanced ?? r.AssessmentDecision ?? "n/a"}, Lenient={r.AssessmentDecisionLenient ?? "n/a"}");
             }
             if (!string.IsNullOrEmpty(r.AssessmentCodesHuman)) sb.AppendLine($"- Drivers: {r.AssessmentCodesHuman}");
+            else if (r.AssessmentCodes is { Count: > 0 }) sb.AppendLine($"- Codes: {string.Join(", ", r.AssessmentCodes)}");
             if (!string.IsNullOrEmpty(r.AssessmentCodesHumanLong)) sb.AppendLine($"- Drivers (long): {r.AssessmentCodesHumanLong}");
             if (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0)
             {
