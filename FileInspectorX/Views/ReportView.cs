@@ -29,6 +29,18 @@ public sealed class ReportView
     public bool? DetectionIsDangerous { get; set; }
     /// <summary>Best-guess extension when ambiguous.</summary>
     public string? GuessedExtension { get; set; }
+    /// <summary>Detected container subtype when known (e.g., apk, jar, msix).</summary>
+    public string? ContainerSubtype { get; set; }
+    /// <summary>Subtype for text-like content when known (e.g., json, log, powershell).</summary>
+    public string? TextSubtype { get; set; }
+    /// <summary>Estimated line count for text-like content.</summary>
+    public int? EstimatedLineCount { get; set; }
+    /// <summary>PE machine architecture when applicable.</summary>
+    public string? PeMachine { get; set; }
+    /// <summary>PE subsystem when applicable.</summary>
+    public string? PeSubsystem { get; set; }
+    /// <summary>PE kind when applicable (exe/dll/sys).</summary>
+    public string? PeKind { get; set; }
     /// <summary>Alternative detection candidates when multiple formats are plausible.</summary>
     public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionAlternatives { get; set; }
     /// <summary>Ranked detection candidates including the primary, when available.</summary>
@@ -48,6 +60,12 @@ public sealed class ReportView
     public bool? IsTrustedWindowsPolicy { get; set; }
     /// <summary>Raw WinVerifyTrust status code (0 = success).</summary>
     public int? WinTrustStatusCode { get; set; }
+    /// <summary>True when an Authenticode signature is present.</summary>
+    public bool? AuthenticodePresent { get; set; }
+    /// <summary>True when the Authenticode certificate chain validated.</summary>
+    public bool? AuthenticodeChainValid { get; set; }
+    /// <summary>True when an Authenticode timestamp countersignature is present.</summary>
+    public bool? AuthenticodeTimestampPresent { get; set; }
 
     /// <summary>Raw version information as a name/value map.</summary>
     public IReadOnlyDictionary<string,string>? VersionInfo { get; set; }
@@ -182,6 +200,8 @@ public sealed class ReportView
     public string? ScriptUrlsSample { get; set; }
     /// <summary>Comma-separated sample of UNC share roots found in scripts.</summary>
     public string? ScriptUncSample { get; set; }
+    /// <summary>Number of external link definitions detected in Office documents, when applicable.</summary>
+    public int? OfficeExternalLinksCount { get; set; }
     /// <summary>Full list of external URLs found in HTML (newline-separated), truncated by settings.</summary>
     public string? HtmlExternalLinksFull { get; set; }
     /// <summary>Full list of UNC roots found in HTML (newline-separated), truncated by settings.</summary>
@@ -252,6 +272,8 @@ public sealed class ReportView
     public string? MotwHostUrl { get; set; }
     /// <summary>Windows: number of alternate data streams on the file.</summary>
     public int? AlternateStreamCount { get; set; }
+    /// <summary>Stable CSV of suspicious name/path issues detected for the file.</summary>
+    public string? NameIssuesCsv { get; set; }
 
     // Secrets (category counts)
     /// <summary>Number of private key indicators found.</summary>
@@ -302,6 +324,12 @@ public sealed class ReportView
             // Additional friendliness for PE is handled in detection; nothing to do here
             if (!string.IsNullOrEmpty(a.Detection.GuessedExtension)) r.GuessedExtension = a.Detection.GuessedExtension;
         }
+        r.ContainerSubtype = a.ContainerSubtype;
+        r.TextSubtype = a.TextSubtype;
+        r.EstimatedLineCount = a.EstimatedLineCount;
+        r.PeMachine = a.PeMachine;
+        r.PeSubsystem = a.PeSubsystem;
+        r.PeKind = a.PeKind;
         // Encoded payload presentation
         if (!string.IsNullOrWhiteSpace(a.EncodedKind))
         {
@@ -316,6 +344,9 @@ public sealed class ReportView
         }
         if (a.Authenticode != null)
         {
+            r.AuthenticodePresent = a.Authenticode.Present;
+            r.AuthenticodeChainValid = a.Authenticode.ChainValid;
+            r.AuthenticodeTimestampPresent = a.Authenticode.TimestampPresent;
             r.IsTrustedWindowsPolicy = a.Authenticode.IsTrustedWindowsPolicy;
             r.WinTrustStatusCode = a.Authenticode.WinTrustStatusCode;
             r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
@@ -391,6 +422,8 @@ public sealed class ReportView
             r.ScriptLanguage = a.ScriptLanguage;
             r.ScriptLanguageHuman = ScriptLanguageLegend.Humanize(a.ScriptLanguage, HumanizeStyle.Short);
         }
+        if (a.OfficeExternalLinksCount.HasValue)
+            r.OfficeExternalLinksCount = a.OfficeExternalLinksCount;
         // Flags → compact CSV codes for presentation layers to humanize
         var codes = new List<string>(12);
         var f = a.Flags;
@@ -505,6 +538,8 @@ public sealed class ReportView
             r.MotwHostUrl = a.Security.MotwHostUrl;
             r.AlternateStreamCount = a.Security.AlternateStreamCount;
         }
+        if (a.NameIssues != NameIssues.None)
+            r.NameIssuesCsv = FormatNameIssuesCsv(a.NameIssues);
         // Secrets summary
         if (a.Secrets != null)
         {
@@ -609,6 +644,7 @@ public sealed class ReportView
             if (!groups.TryGetValue(group, out var list)) { list = new List<string>(); groups[group] = list; }
             list.Add(key);
         }
+        if (r.VersionInfo != null && r.VersionInfo.Count > 0) AddField("Properties", "VersionInfo", "1");
         AddField("Properties", "CompanyName", r.CompanyName);
         AddField("Properties", "ProductName", r.ProductName);
         AddField("Properties", "FileDescription", r.FileDescription);
@@ -618,17 +654,32 @@ public sealed class ReportView
         AddField("TypeAnalysis", "DetectedTypeName", r.DetectedTypeName);
         AddField("TypeAnalysis", "DetectedTypeExtension", r.DetectedTypeExtension);
         AddField("TypeAnalysis", "DetectedTypeFriendly", r.DetectedTypeFriendly);
+        AddField("TypeAnalysis", "DetectionConfidence", r.DetectionConfidence);
         AddField("TypeAnalysis", "DetectionReason", r.DetectionReason);
         AddField("TypeAnalysis", "DetectionReasonDetails", r.DetectionReasonDetails);
         AddField("TypeAnalysis", "DetectionValidationStatus", r.DetectionValidationStatus);
+        if (r.DetectionScore.HasValue) AddField("TypeAnalysis", "DetectionScore", r.DetectionScore.Value.ToString());
+        if (r.DetectionIsDangerous.HasValue) AddField("TypeAnalysis", "DetectionIsDangerous", r.DetectionIsDangerous.Value ? "true" : "false");
         AddField("TypeAnalysis", "GuessedExtension", r.GuessedExtension);
+        AddField("TypeAnalysis", "ContainerSubtype", r.ContainerSubtype);
+        AddField("TypeAnalysis", "TextSubtype", r.TextSubtype);
+        if (r.EstimatedLineCount.HasValue) AddField("TypeAnalysis", "EstimatedLineCount", r.EstimatedLineCount.Value.ToString());
+        AddField("TypeAnalysis", "PeMachine", r.PeMachine);
+        AddField("TypeAnalysis", "PeSubsystem", r.PeSubsystem);
+        AddField("TypeAnalysis", "PeKind", r.PeKind);
         AddField("TypeAnalysis", "EncodedKind", r.EncodedKind);
         AddField("TypeAnalysis", "EncodedInnerDetectedExtension", r.EncodedInnerDetectedExtension);
         AddField("TypeAnalysis", "EncodedInnerDetectedName", r.EncodedInnerDetectedName);
         AddField("TypeAnalysis", "EncodedInnerDetectedFriendly", r.EncodedInnerDetectedFriendly);
         if (r.DetectionCandidates != null && r.DetectionCandidates.Count > 0) AddField("TypeAnalysis", "DetectionCandidates", "1");
         if (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) AddField("TypeAnalysis", "DetectionAlternatives", "1");
+        if (r.CertificateTableSize.HasValue) AddField("Signature", "CertificateTableSize", r.CertificateTableSize.Value.ToString());
         AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
+        if (r.DotNetStrongNameSigned.HasValue) AddField("Signature", "DotNetStrongNameSigned", r.DotNetStrongNameSigned.Value ? "true" : "false");
+        if (r.AuthenticodePresent.HasValue) AddField("Signature", "AuthenticodePresent", r.AuthenticodePresent.Value ? "true" : "false");
+        if (r.AuthenticodeChainValid.HasValue) AddField("Signature", "AuthenticodeChainValid", r.AuthenticodeChainValid.Value ? "true" : "false");
+        if (r.AuthenticodeTimestampPresent.HasValue) AddField("Signature", "AuthenticodeTimestampPresent", r.AuthenticodeTimestampPresent.Value ? "true" : "false");
+        if (r.IsTrustedWindowsPolicy.HasValue) AddField("Signature", "IsTrustedWindowsPolicy", r.IsTrustedWindowsPolicy.Value ? "true" : "false");
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
         AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
         AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
@@ -636,10 +687,33 @@ public sealed class ReportView
         AddField("Signature", "SignerIssuerO", r.SignerIssuerO);
         AddField("Signature", "CertSubject", r.CertSubject);
         AddField("Signature", "CertIssuer", r.CertIssuer);
+        if (r.CertNotBefore.HasValue) AddField("Signature", "CertNotBefore", r.CertNotBefore.Value.ToString("u"));
+        if (r.CertNotAfter.HasValue) AddField("Signature", "CertNotAfter", r.CertNotAfter.Value.ToString("u"));
         AddField("Signature", "CertThumbprint", r.CertThumbprint);
+        AddField("Signature", "CertKeyAlgorithm", r.CertKeyAlgorithm);
+        if (r.CertSelfSigned.HasValue) AddField("Signature", "CertSelfSigned", r.CertSelfSigned.Value ? "true" : "false");
+        if (r.CertChainTrusted.HasValue) AddField("Signature", "CertChainTrusted", r.CertChainTrusted.Value ? "true" : "false");
+        AddField("Signature", "CertRootSubject", r.CertRootSubject);
+        if (r.CertSanPresent.HasValue) AddField("Signature", "CertSanPresent", r.CertSanPresent.Value ? "true" : "false");
         if (r.CertBundleCount.HasValue) AddField("Signature", "CertBundleCount", r.CertBundleCount.Value.ToString());
         if (r.CertBundleSubjects != null && r.CertBundleSubjects.Count > 0) AddField("Signature", "CertBundleSubjects", string.Join(", ", r.CertBundleSubjects));
+        if (r.MotwZoneId.HasValue) AddField("Security", "MotwZoneId", r.MotwZoneId.Value.ToString());
+        AddField("Security", "MotwReferrerUrl", r.MotwReferrerUrl);
+        AddField("Security", "MotwHostUrl", r.MotwHostUrl);
+        if (r.AlternateStreamCount.HasValue) AddField("Security", "AlternateStreamCount", r.AlternateStreamCount.Value.ToString());
+        AddField("Security", "NameIssues", r.NameIssuesCsv);
+        AddField("Script", "ScriptLanguage", r.ScriptLanguage);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
+        AddField("Script", "ScriptCmdlets", r.ScriptCmdlets);
+        AddField("References", "HtmlExternalLinksSample", r.HtmlExternalLinksSample);
+        AddField("References", "HtmlUncSample", r.HtmlUncSample);
+        AddField("References", "ScriptUrlsSample", r.ScriptUrlsSample);
+        AddField("References", "ScriptUncSample", r.ScriptUncSample);
+        if (r.OfficeExternalLinksCount.HasValue) AddField("References", "OfficeExternalLinksCount", r.OfficeExternalLinksCount.Value.ToString());
+        AddField("References", "HtmlExternalLinksFull", r.HtmlExternalLinksFull);
+        AddField("References", "HtmlUncFull", r.HtmlUncFull);
+        AddField("References", "ScriptUrlsFull", r.ScriptUrlsFull);
+        AddField("References", "ScriptUncFull", r.ScriptUncFull);
         AddField("Installer", "InstallerKind", r.InstallerKind);
         AddField("Installer", "InstallerName", r.InstallerName);
         AddField("Installer", "InstallerManufacturer", r.InstallerManufacturer);
@@ -670,6 +744,14 @@ public sealed class ReportView
         if (r.EncryptedEntryCount.HasValue) AddField("Archive", "EncryptedEntryCount", r.EncryptedEntryCount.Value.ToString());
         if (a.ContainerEntryCount.HasValue) AddField("Archive", "EntryCount", a.ContainerEntryCount.Value.ToString());
         if (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) AddField("Archive", "TopExtensions", string.Join(", ", a.ContainerTopExtensions));
+        if (r.InnerExecutablesSampled.HasValue) AddField("Archive", "InnerExecutablesSampled", r.InnerExecutablesSampled.Value.ToString());
+        if (r.InnerSignedExecutables.HasValue) AddField("Archive", "InnerSignedExecutables", r.InnerSignedExecutables.Value.ToString());
+        if (r.InnerValidSignedExecutables.HasValue) AddField("Archive", "InnerValidSignedExecutables", r.InnerValidSignedExecutables.Value.ToString());
+        AddField("Archive", "InnerPublishersHuman", r.InnerPublishersHuman);
+        if (r.InnerPublisherCounts != null && r.InnerPublisherCounts.Count > 0) AddField("Archive", "InnerPublisherCounts", "1");
+        if (r.InnerPublisherValidCounts != null && r.InnerPublisherValidCounts.Count > 0) AddField("Archive", "InnerPublisherValidCounts", "1");
+        if (r.InnerPublisherSelfSignedCounts != null && r.InnerPublisherSelfSignedCounts.Count > 0) AddField("Archive", "InnerPublisherSelfSignedCounts", "1");
+        if (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0) AddField("Archive", "InnerExecutableExtCounts", "1");
         if (!string.IsNullOrWhiteSpace(r.InnerBinariesSummary)) AddField("Archive", "InnerBinariesSummary", r.InnerBinariesSummary);
         if (r.ArchivePreview != null && r.ArchivePreview.Count > 0) AddField("Archive", "Preview", "1");
         if (r.SecurityFindings is { Count: > 0 } || r.InnerFindings is { Count: > 0 } || r.TopTokens is { Count: > 0 } || HasAnySecretSignals(r))
@@ -679,20 +761,18 @@ public sealed class ReportView
         r.Advice = new PresentationAdvice
         {
             ShowTypeAnalysis = HasAnyTypeSignals(r),
-            ShowProperties = r.CompactFields.TryGetValue("Properties", out var pf) && pf.Count > 0,
+            ShowProperties = HasAnyPropertySignals(r),
             ShowSignature = HasAnySignatureSignals(r),
-            ShowScript = !string.IsNullOrEmpty(r.ScriptLanguageHuman),
+            ShowSecurity = HasAnySecuritySignals(r),
+            ShowScript = HasAnyScriptSignals(r),
+            ShowReferences = HasAnyReferenceSignals(r),
             ShowInstaller = HasAnyInstallerSignals(r),
-            ShowAssessment = r.AssessmentScore.HasValue || (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0),
+            ShowAssessment = HasAnyAssessmentSignals(r),
             ShowHeuristics = (r.SecurityFindings != null && r.SecurityFindings.Count > 0) ||
                              (r.InnerFindings != null && r.InnerFindings.Count > 0) ||
                              (r.TopTokens != null && r.TopTokens.Count > 0) ||
                              HasAnySecretSignals(r),
-            ShowArchiveDetails = r.EncryptedEntryCount.HasValue ||
-                                 a.ContainerEntryCount.HasValue ||
-                                 (a.ContainerTopExtensions != null && a.ContainerTopExtensions.Count > 0) ||
-                                 !string.IsNullOrWhiteSpace(r.InnerBinariesSummary) ||
-                                 (r.ArchivePreview != null && r.ArchivePreview.Count > 0)
+            ShowArchiveDetails = HasAnyArchiveSignals(r)
         };
 
         return r;
@@ -714,7 +794,13 @@ public sealed class ReportView
            (r.SecretsFindings != null && r.SecretsFindings.Count > 0);
 
     private static bool HasAnySignatureSignals(ReportView r)
-        => !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
+        => r.CertificateTableSize.HasValue ||
+           !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
+           r.DotNetStrongNameSigned.HasValue ||
+           r.AuthenticodePresent.HasValue ||
+           r.AuthenticodeChainValid.HasValue ||
+           r.AuthenticodeTimestampPresent.HasValue ||
+           r.IsTrustedWindowsPolicy.HasValue ||
            r.WinTrustStatusCode.HasValue ||
            (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ||
            !string.IsNullOrEmpty(r.TimestampAuthorityCN) ||
@@ -722,7 +808,14 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.SignerIssuerO) ||
            !string.IsNullOrEmpty(r.CertSubject) ||
            !string.IsNullOrEmpty(r.CertIssuer) ||
+           r.CertNotBefore.HasValue ||
+           r.CertNotAfter.HasValue ||
            !string.IsNullOrEmpty(r.CertThumbprint) ||
+           !string.IsNullOrEmpty(r.CertKeyAlgorithm) ||
+           r.CertSelfSigned.HasValue ||
+           r.CertChainTrusted.HasValue ||
+           !string.IsNullOrEmpty(r.CertRootSubject) ||
+           r.CertSanPresent.HasValue ||
            r.CertBundleCount.HasValue ||
            (r.CertBundleSubjects != null && r.CertBundleSubjects.Count > 0);
 
@@ -737,6 +830,12 @@ public sealed class ReportView
            r.DetectionScore.HasValue ||
            r.DetectionIsDangerous.HasValue ||
            !string.IsNullOrEmpty(r.GuessedExtension) ||
+           !string.IsNullOrEmpty(r.ContainerSubtype) ||
+           !string.IsNullOrEmpty(r.TextSubtype) ||
+           r.EstimatedLineCount.HasValue ||
+           !string.IsNullOrEmpty(r.PeMachine) ||
+           !string.IsNullOrEmpty(r.PeSubsystem) ||
+           !string.IsNullOrEmpty(r.PeKind) ||
            (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) ||
            (r.DetectionCandidates != null && r.DetectionCandidates.Count > 0) ||
            !string.IsNullOrEmpty(r.EncodedKind) ||
@@ -764,6 +863,64 @@ public sealed class ReportView
            r._MsiCAScript.HasValue ||
            !string.IsNullOrEmpty(r._MsiCASamples);
 
+    private static bool HasAnyScriptSignals(ReportView r)
+        => !string.IsNullOrEmpty(r.ScriptLanguage) ||
+           !string.IsNullOrEmpty(r.ScriptLanguageHuman) ||
+           !string.IsNullOrEmpty(r.ScriptCmdlets);
+
+    private static bool HasAnyReferenceSignals(ReportView r)
+        => !string.IsNullOrEmpty(r.HtmlExternalLinksSample) ||
+           !string.IsNullOrEmpty(r.HtmlUncSample) ||
+           !string.IsNullOrEmpty(r.ScriptUrlsSample) ||
+           !string.IsNullOrEmpty(r.ScriptUncSample) ||
+           r.OfficeExternalLinksCount.HasValue ||
+           !string.IsNullOrEmpty(r.HtmlExternalLinksFull) ||
+           !string.IsNullOrEmpty(r.HtmlUncFull) ||
+           !string.IsNullOrEmpty(r.ScriptUrlsFull) ||
+           !string.IsNullOrEmpty(r.ScriptUncFull);
+
+    private static bool HasAnySecuritySignals(ReportView r)
+        => r.MotwZoneId.HasValue ||
+           !string.IsNullOrEmpty(r.MotwReferrerUrl) ||
+           !string.IsNullOrEmpty(r.MotwHostUrl) ||
+           r.AlternateStreamCount.HasValue ||
+           !string.IsNullOrEmpty(r.NameIssuesCsv);
+
+    private static bool HasAnyPropertySignals(ReportView r)
+        => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
+           !string.IsNullOrEmpty(r.CompanyName) ||
+           !string.IsNullOrEmpty(r.ProductName) ||
+           !string.IsNullOrEmpty(r.FileDescription) ||
+           !string.IsNullOrEmpty(r.FileVersion) ||
+           !string.IsNullOrEmpty(r.ProductVersion) ||
+           !string.IsNullOrEmpty(r.OriginalFilename);
+
+    private static bool HasAnyAssessmentSignals(ReportView r)
+        => r.AssessmentScore.HasValue ||
+           !string.IsNullOrEmpty(r.AssessmentDecision) ||
+           !string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
+           !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
+           !string.IsNullOrEmpty(r.AssessmentDecisionLenient) ||
+           (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0) ||
+           (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0) ||
+           !string.IsNullOrEmpty(r.AssessmentCodesHuman) ||
+           !string.IsNullOrEmpty(r.AssessmentCodesHumanLong);
+
+    private static bool HasAnyArchiveSignals(ReportView r)
+        => r.EncryptedEntryCount.HasValue ||
+           r.ArchiveEntryCount.HasValue ||
+           (r.ArchiveTopExtensions != null && r.ArchiveTopExtensions.Count > 0) ||
+           r.InnerExecutablesSampled.HasValue ||
+           r.InnerSignedExecutables.HasValue ||
+           r.InnerValidSignedExecutables.HasValue ||
+           !string.IsNullOrEmpty(r.InnerPublishersHuman) ||
+           (r.InnerPublisherCounts != null && r.InnerPublisherCounts.Count > 0) ||
+           (r.InnerPublisherValidCounts != null && r.InnerPublisherValidCounts.Count > 0) ||
+           (r.InnerPublisherSelfSignedCounts != null && r.InnerPublisherSelfSignedCounts.Count > 0) ||
+           (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0) ||
+           !string.IsNullOrWhiteSpace(r.InnerBinariesSummary) ||
+           (r.ArchivePreview != null && r.ArchivePreview.Count > 0);
+
     /// <summary>
     /// Exports the report as a dictionary compatible with typical templating and logging sinks.
     /// </summary>
@@ -781,12 +938,21 @@ public sealed class ReportView
         if (DetectionScore.HasValue) d["DetectionScore"] = DetectionScore.Value;
         if (DetectionIsDangerous.HasValue) d["DetectionIsDangerous"] = DetectionIsDangerous.Value;
         if (!string.IsNullOrEmpty(GuessedExtension)) d["GuessedExtension"] = GuessedExtension;
+        if (!string.IsNullOrEmpty(ContainerSubtype)) d["ContainerSubtype"] = ContainerSubtype;
+        if (!string.IsNullOrEmpty(TextSubtype)) d["TextSubtype"] = TextSubtype;
+        if (EstimatedLineCount.HasValue) d["EstimatedLineCount"] = EstimatedLineCount.Value;
+        if (!string.IsNullOrEmpty(PeMachine)) d["PeMachine"] = PeMachine;
+        if (!string.IsNullOrEmpty(PeSubsystem)) d["PeSubsystem"] = PeSubsystem;
+        if (!string.IsNullOrEmpty(PeKind)) d["PeKind"] = PeKind;
         if (DetectionAlternatives != null && DetectionAlternatives.Count > 0) d["DetectionAlternatives"] = DetectionAlternatives;
         if (DetectionCandidates != null && DetectionCandidates.Count > 0) d["DetectionCandidates"] = DetectionCandidates;
         if (!string.IsNullOrEmpty(EncodedKind)) d["EncodedKind"] = EncodedKind;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedExtension)) d["EncodedInnerDetectedExtension"] = EncodedInnerDetectedExtension;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedFriendly)) d["EncodedInnerDetectedFriendly"] = EncodedInnerDetectedFriendly;
+        if (AuthenticodePresent.HasValue) d["AuthenticodePresent"] = AuthenticodePresent.Value;
+        if (AuthenticodeChainValid.HasValue) d["AuthenticodeChainValid"] = AuthenticodeChainValid.Value;
+        if (AuthenticodeTimestampPresent.HasValue) d["AuthenticodeTimestampPresent"] = AuthenticodeTimestampPresent.Value;
         if (IsTrustedWindowsPolicy.HasValue) d["IsTrustedWindowsPolicy"] = IsTrustedWindowsPolicy.Value;
         if (WinTrustStatusCode.HasValue) d["WinTrustStatusCode"] = WinTrustStatusCode.Value;
         if (VersionInfo != null) d["VersionInfo"] = VersionInfo;
@@ -873,6 +1039,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(HtmlUncSample)) d["HtmlUncSample"] = HtmlUncSample;
         if (!string.IsNullOrEmpty(ScriptUrlsSample)) d["ScriptUrlsSample"] = ScriptUrlsSample;
         if (!string.IsNullOrEmpty(ScriptUncSample)) d["ScriptUncSample"] = ScriptUncSample;
+        if (OfficeExternalLinksCount.HasValue) d["OfficeExternalLinksCount"] = OfficeExternalLinksCount.Value;
         if (!string.IsNullOrEmpty(ScriptCmdlets)) d["ScriptCmdlets"] = ScriptCmdlets;
         if (!string.IsNullOrEmpty(HtmlExternalLinksFull)) d["HtmlExternalLinksFull"] = HtmlExternalLinksFull;
         if (!string.IsNullOrEmpty(HtmlUncFull)) d["HtmlUncFull"] = HtmlUncFull;
@@ -886,6 +1053,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(MotwReferrerUrl)) d["MotwReferrerUrl"] = MotwReferrerUrl;
         if (!string.IsNullOrEmpty(MotwHostUrl)) d["MotwHostUrl"] = MotwHostUrl;
         if (AlternateStreamCount.HasValue) d["AlternateStreamCount"] = AlternateStreamCount.Value;
+        if (!string.IsNullOrEmpty(NameIssuesCsv)) d["NameIssues"] = NameIssuesCsv;
         // Secrets
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;
@@ -907,7 +1075,9 @@ public sealed class ReportView
                 ["ShowTypeAnalysis"] = Advice.ShowTypeAnalysis,
                 ["ShowProperties"] = Advice.ShowProperties,
                 ["ShowSignature"] = Advice.ShowSignature,
+                ["ShowSecurity"] = Advice.ShowSecurity,
                 ["ShowScript"] = Advice.ShowScript,
+                ["ShowReferences"] = Advice.ShowReferences,
                 ["ShowInstaller"] = Advice.ShowInstaller,
                 ["ShowAssessment"] = Advice.ShowAssessment,
                 ["ShowHeuristics"] = Advice.ShowHeuristics,
@@ -917,6 +1087,17 @@ public sealed class ReportView
         }
         if (CompactFields != null && CompactFields.Count > 0) d["Compact"] = CompactFields;
         return d;
+    }
+
+    private static string FormatNameIssuesCsv(NameIssues issues)
+    {
+        var parts = new List<string>(5);
+        if ((issues & NameIssues.DoubleExtension) != 0) parts.Add("double-extension");
+        if ((issues & NameIssues.BiDiOverride) != 0) parts.Add("bidi-override");
+        if ((issues & NameIssues.SuspiciousWhitespace) != 0) parts.Add("suspicious-whitespace");
+        if ((issues & NameIssues.LeadingDotHidden) != 0) parts.Add("leading-dot-hidden");
+        if ((issues & NameIssues.ExtensionMismatch) != 0) parts.Add("extension-mismatch");
+        return string.Join(",", parts);
     }
 }
 
@@ -931,8 +1112,12 @@ public sealed class PresentationAdvice
     public bool ShowProperties { get; set; }
     /// <summary>Include signature section (publisher, thumbprint, EKUs, TSA CN).</summary>
     public bool ShowSignature { get; set; }
+    /// <summary>Include file security metadata section (MOTW / alternate streams).</summary>
+    public bool ShowSecurity { get; set; }
     /// <summary>Include script section when a script language is detected.</summary>
     public bool ShowScript { get; set; }
+    /// <summary>Include references section when HTML or script URLs/UNC paths are present.</summary>
+    public bool ShowReferences { get; set; }
     /// <summary>Include installer/package section when installer metadata is available.</summary>
     public bool ShowInstaller { get; set; }
     /// <summary>Include risk assessment section (score, decision, findings).</summary>
