@@ -479,6 +479,36 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Security_Presentation_Includes_Name_Issues_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            NameIssues = NameIssues.DoubleExtension | NameIssues.ExtensionMismatch
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSecurity);
+        Assert.Equal("double-extension,extension-mismatch", rv.NameIssuesCsv);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Security"));
+        Assert.Contains("NameIssues", rv.CompactFields["Security"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSecurity"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Security"));
+        Assert.Contains("NameIssues", compact["Security"]);
+        Assert.Equal("double-extension,extension-mismatch", map["NameIssues"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Security", md);
+        Assert.Contains("Name issues: double-extension,extension-mismatch", md);
+    }
+
+    [Fact]
     public void ReportView_Signature_Presentation_Includes_StrongName_Only_Analysis()
     {
         var analysis = new FileAnalysis

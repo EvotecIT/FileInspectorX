@@ -266,6 +266,8 @@ public sealed class ReportView
     public string? MotwHostUrl { get; set; }
     /// <summary>Windows: number of alternate data streams on the file.</summary>
     public int? AlternateStreamCount { get; set; }
+    /// <summary>Stable CSV of suspicious name/path issues detected for the file.</summary>
+    public string? NameIssuesCsv { get; set; }
 
     // Secrets (category counts)
     /// <summary>Number of private key indicators found.</summary>
@@ -527,6 +529,8 @@ public sealed class ReportView
             r.MotwHostUrl = a.Security.MotwHostUrl;
             r.AlternateStreamCount = a.Security.AlternateStreamCount;
         }
+        if (a.NameIssues != NameIssues.None)
+            r.NameIssuesCsv = FormatNameIssuesCsv(a.NameIssues);
         // Secrets summary
         if (a.Secrets != null)
         {
@@ -685,6 +689,7 @@ public sealed class ReportView
         AddField("Security", "MotwReferrerUrl", r.MotwReferrerUrl);
         AddField("Security", "MotwHostUrl", r.MotwHostUrl);
         if (r.AlternateStreamCount.HasValue) AddField("Security", "AlternateStreamCount", r.AlternateStreamCount.Value.ToString());
+        AddField("Security", "NameIssues", r.NameIssuesCsv);
         AddField("Script", "ScriptLanguage", r.ScriptLanguage);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         AddField("Script", "ScriptCmdlets", r.ScriptCmdlets);
@@ -863,7 +868,8 @@ public sealed class ReportView
         => r.MotwZoneId.HasValue ||
            !string.IsNullOrEmpty(r.MotwReferrerUrl) ||
            !string.IsNullOrEmpty(r.MotwHostUrl) ||
-           r.AlternateStreamCount.HasValue;
+           r.AlternateStreamCount.HasValue ||
+           !string.IsNullOrEmpty(r.NameIssuesCsv);
 
     private static bool HasAnyPropertySignals(ReportView r)
         => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
@@ -1029,6 +1035,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(MotwReferrerUrl)) d["MotwReferrerUrl"] = MotwReferrerUrl;
         if (!string.IsNullOrEmpty(MotwHostUrl)) d["MotwHostUrl"] = MotwHostUrl;
         if (AlternateStreamCount.HasValue) d["AlternateStreamCount"] = AlternateStreamCount.Value;
+        if (!string.IsNullOrEmpty(NameIssuesCsv)) d["NameIssues"] = NameIssuesCsv;
         // Secrets
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;
@@ -1062,6 +1069,17 @@ public sealed class ReportView
         }
         if (CompactFields != null && CompactFields.Count > 0) d["Compact"] = CompactFields;
         return d;
+    }
+
+    private static string FormatNameIssuesCsv(NameIssues issues)
+    {
+        var parts = new List<string>(5);
+        if ((issues & NameIssues.DoubleExtension) != 0) parts.Add("double-extension");
+        if ((issues & NameIssues.BiDiOverride) != 0) parts.Add("bidi-override");
+        if ((issues & NameIssues.SuspiciousWhitespace) != 0) parts.Add("suspicious-whitespace");
+        if ((issues & NameIssues.LeadingDotHidden) != 0) parts.Add("leading-dot-hidden");
+        if ((issues & NameIssues.ExtensionMismatch) != 0) parts.Add("extension-mismatch");
+        return string.Join(",", parts);
     }
 }
 

@@ -168,6 +168,7 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
             if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendLine($"- MOTW Host URL: {r.MotwHostUrl}");
             if (r.AlternateStreamCount.HasValue) sb.AppendLine($"- Alternate stream count: {r.AlternateStreamCount.Value}");
+            if (!string.IsNullOrEmpty(r.NameIssuesCsv)) sb.AppendLine($"- Name issues: {r.NameIssuesCsv}");
             sb.AppendLine();
         }
 
@@ -441,7 +442,8 @@ public static class MarkdownRenderer
             => view.MotwZoneId.HasValue ||
                !string.IsNullOrEmpty(view.MotwReferrerUrl) ||
                !string.IsNullOrEmpty(view.MotwHostUrl) ||
-               view.AlternateStreamCount.HasValue;
+               view.AlternateStreamCount.HasValue ||
+               !string.IsNullOrEmpty(view.NameIssuesCsv);
 
         static bool HasScriptData(ReportView view)
             => !string.IsNullOrEmpty(view.ScriptLanguage) ||
