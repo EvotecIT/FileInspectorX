@@ -62,13 +62,53 @@ public sealed class ReportView
     public int? WinTrustStatusCode { get; set; }
     /// <summary>True when an Authenticode signature is present.</summary>
     public bool? AuthenticodePresent { get; set; }
+    /// <summary>True when the PKCS#7 Authenticode envelope validated.</summary>
+    public bool? AuthenticodeEnvelopeValid { get; set; }
     /// <summary>True when the Authenticode certificate chain validated.</summary>
     public bool? AuthenticodeChainValid { get; set; }
     /// <summary>True when an Authenticode timestamp countersignature is present.</summary>
     public bool? AuthenticodeTimestampPresent { get; set; }
+    /// <summary>Digest algorithm used by the Authenticode signature.</summary>
+    public string? AuthenticodeDigestAlgorithm { get; set; }
+    /// <summary>Digest algorithm used for the file content digest.</summary>
+    public string? AuthenticodeFileDigestAlgorithm { get; set; }
+    /// <summary>OID of the file content digest algorithm.</summary>
+    public string? AuthenticodeFileDigestAlgorithmOid { get; set; }
+    /// <summary>Signer subject distinguished name.</summary>
+    public string? SignerSubject { get; set; }
+    /// <summary>Signer issuer distinguished name.</summary>
+    public string? SignerIssuer { get; set; }
+    /// <summary>Signer subject common name when available.</summary>
+    public string? SignerSubjectCN { get; set; }
+    /// <summary>Signer subject organization when available.</summary>
+    public string? SignerSubjectO { get; set; }
+    /// <summary>True when the signer certificate is self-signed.</summary>
+    public bool? SignerSelfSigned { get; set; }
+    /// <summary>Signer certificate thumbprint.</summary>
+    public string? SignerThumbprint { get; set; }
+    /// <summary>Signer certificate serial number.</summary>
+    public string? SignerSerialHex { get; set; }
+    /// <summary>Signer certificate signature algorithm.</summary>
+    public string? SignerSignatureAlgorithm { get; set; }
+    /// <summary>Signer certificate not-before time.</summary>
+    public DateTimeOffset? SignerNotBefore { get; set; }
+    /// <summary>Signer certificate not-after time.</summary>
+    public DateTimeOffset? SignerNotAfter { get; set; }
+    /// <summary>Timestamp time reported by the timestamp authority.</summary>
+    public DateTimeOffset? TimestampTime { get; set; }
+    /// <summary>Timestamp authority display name or URL.</summary>
+    public string? TimestampAuthority { get; set; }
+    /// <summary>Authenticode verification note describing what was checked.</summary>
+    public string? AuthenticodeVerificationNote { get; set; }
+    /// <summary>True when the recomputed file hash matches the Authenticode digest.</summary>
+    public bool? AuthenticodeFileHashMatches { get; set; }
 
     /// <summary>Raw version information as a name/value map.</summary>
     public IReadOnlyDictionary<string,string>? VersionInfo { get; set; }
+    /// <summary>Count of non-empty shell properties captured from Explorer details.</summary>
+    public int? ShellPropertyCount { get; set; }
+    /// <summary>Preview of non-empty shell properties as "Name: Value" lines.</summary>
+    public IReadOnlyList<string>? ShellPropertyPreview { get; set; }
     /// <summary>Company name from version info.</summary>
     public string? CompanyName { get; set; }
     /// <summary>Product name from version info.</summary>
@@ -105,6 +145,8 @@ public sealed class ReportView
     public int? CertificateTableSize { get; set; }
     /// <summary>SHA-256 of the raw certificate blob (PE) when present.</summary>
     public string? CertificateBlobSha256 { get; set; }
+    /// <summary>True when a signature blob is present in the file.</summary>
+    public bool? SignatureIsSigned { get; set; }
     /// <summary>Enhanced key usages (EKUs) from signer certificate.</summary>
     public IReadOnlyList<string>? EnhancedKeyUsages { get; set; }
     /// <summary>Timestamp authority common name.</summary>
@@ -230,14 +272,22 @@ public sealed class ReportView
     public string? InstallerName { get; set; }
     /// <summary>Installer manufacturer/publisher.</summary>
     public string? InstallerManufacturer { get; set; }
+    /// <summary>Installer identity/package name when available.</summary>
+    public string? InstallerIdentityName { get; set; }
     /// <summary>Installer version string.</summary>
     public string? InstallerVersion { get; set; }
     /// <summary>MSI ProductCode (GUID) when applicable.</summary>
     public string? InstallerProductCode { get; set; }
     /// <summary>MSI UpgradeCode (GUID) when applicable.</summary>
     public string? InstallerUpgradeCode { get; set; }
+    /// <summary>MSI PackageCode (GUID) when applicable.</summary>
+    public string? InstallerPackageCode { get; set; }
     /// <summary>Installer scope (PerUser/PerMachine) when applicable.</summary>
     public string? InstallerScope { get; set; }
+    /// <summary>Installer author when available.</summary>
+    public string? InstallerAuthor { get; set; }
+    /// <summary>Installer comments or description when available.</summary>
+    public string? InstallerComments { get; set; }
     /// <summary>Installer URLs (About/Update/Help/Support) when available.</summary>
     public string? InstallerUrlInfoAbout { get; set; }
     /// <summary>Installer update information URL when available.</summary>
@@ -252,10 +302,15 @@ public sealed class ReportView
     public string? InstallerCreated { get; set; }
     /// <summary>Installer last saved time (UTC) when available.</summary>
     public string? InstallerLastSaved { get; set; }
+    /// <summary>Compact capability summary for app packages when available.</summary>
+    public string? InstallerCapabilities { get; set; }
+    /// <summary>Compact extension summary for app packages when available.</summary>
+    public string? InstallerExtensions { get; set; }
     // Flattened MSI Custom Action counters for templating
     internal int? _MsiCAExe { get; set; }
     internal int? _MsiCADll { get; set; }
     internal int? _MsiCAScript { get; set; }
+    internal int? _MsiCAOther { get; set; }
     internal string? _MsiCASamples { get; set; }
     
 
@@ -274,6 +329,52 @@ public sealed class ReportView
     public int? AlternateStreamCount { get; set; }
     /// <summary>Stable CSV of suspicious name/path issues detected for the file.</summary>
     public string? NameIssuesCsv { get; set; }
+    /// <summary>True when the file is a symlink.</summary>
+    public bool? IsSymlink { get; set; }
+    /// <summary>True when the file is hidden.</summary>
+    public bool? IsHidden { get; set; }
+    /// <summary>True when the file is read-only.</summary>
+    public bool? IsReadOnly { get; set; }
+    /// <summary>Owner name when available.</summary>
+    public string? Owner { get; set; }
+    /// <summary>Owner identifier when available.</summary>
+    public string? OwnerId { get; set; }
+    /// <summary>Group name when available.</summary>
+    public string? Group { get; set; }
+    /// <summary>Group identifier when available.</summary>
+    public string? GroupId { get; set; }
+    /// <summary>Unix mode in octal form when available.</summary>
+    public string? ModeOctal { get; set; }
+    /// <summary>Unix mode in symbolic form when available.</summary>
+    public string? ModeSymbolic { get; set; }
+    /// <summary>True when the file is executable.</summary>
+    public bool? IsExecutable { get; set; }
+    /// <summary>True when the file is world-writable.</summary>
+    public bool? IsWorldWritable { get; set; }
+    /// <summary>True when Everyone has write access on Windows.</summary>
+    public bool? EveryoneWriteAllowed { get; set; }
+    /// <summary>True when Authenticated Users have write access on Windows.</summary>
+    public bool? AuthenticatedUsersWriteAllowed { get; set; }
+    /// <summary>True when Everyone has read access on Windows.</summary>
+    public bool? EveryoneReadAllowed { get; set; }
+    /// <summary>True when BUILTIN\Users have write access on Windows.</summary>
+    public bool? BuiltinUsersWriteAllowed { get; set; }
+    /// <summary>True when BUILTIN\Users have read access on Windows.</summary>
+    public bool? BuiltinUsersReadAllowed { get; set; }
+    /// <summary>True when BUILTIN\Administrators have write access on Windows.</summary>
+    public bool? AdministratorsWriteAllowed { get; set; }
+    /// <summary>True when BUILTIN\Administrators have read access on Windows.</summary>
+    public bool? AdministratorsReadAllowed { get; set; }
+    /// <summary>True when explicit deny ACEs are present on Windows.</summary>
+    public bool? HasDenyEntries { get; set; }
+    /// <summary>Total allow ACE count when available.</summary>
+    public int? TotalAllowCount { get; set; }
+    /// <summary>Total deny ACE count when available.</summary>
+    public int? TotalDenyCount { get; set; }
+    /// <summary>Explicit allow ACE count when available.</summary>
+    public int? ExplicitAllowCount { get; set; }
+    /// <summary>Explicit deny ACE count when available.</summary>
+    public int? ExplicitDenyCount { get; set; }
 
     // Secrets (category counts)
     /// <summary>Number of private key indicators found.</summary>
@@ -345,14 +446,39 @@ public sealed class ReportView
         if (a.Authenticode != null)
         {
             r.AuthenticodePresent = a.Authenticode.Present;
+            r.AuthenticodeEnvelopeValid = a.Authenticode.EnvelopeSignatureValid;
             r.AuthenticodeChainValid = a.Authenticode.ChainValid;
             r.AuthenticodeTimestampPresent = a.Authenticode.TimestampPresent;
+            r.AuthenticodeDigestAlgorithm = a.Authenticode.DigestAlgorithm;
+            r.AuthenticodeFileDigestAlgorithm = a.Authenticode.FileDigestAlgorithm;
+            r.AuthenticodeFileDigestAlgorithmOid = a.Authenticode.FileDigestAlgorithmOid;
+            r.SignerSubject = a.Authenticode.SignerSubject;
+            r.SignerIssuer = a.Authenticode.SignerIssuer;
+            r.SignerSubjectCN = a.Authenticode.SignerSubjectCN;
+            r.SignerSubjectO = a.Authenticode.SignerSubjectO;
+            r.SignerSelfSigned = a.Authenticode.IsSelfSigned;
+            r.SignerThumbprint = a.Authenticode.SignerThumbprint;
+            r.SignerSerialHex = a.Authenticode.SignerSerialHex;
+            r.SignerSignatureAlgorithm = a.Authenticode.SignatureAlgorithm;
+            r.SignerNotBefore = a.Authenticode.NotBefore;
+            r.SignerNotAfter = a.Authenticode.NotAfter;
+            r.TimestampTime = a.Authenticode.TimestampTime;
+            r.TimestampAuthority = a.Authenticode.TimestampAuthority;
+            r.AuthenticodeVerificationNote = a.Authenticode.VerificationNote;
             r.IsTrustedWindowsPolicy = a.Authenticode.IsTrustedWindowsPolicy;
             r.WinTrustStatusCode = a.Authenticode.WinTrustStatusCode;
+            r.AuthenticodeFileHashMatches = a.Authenticode.FileHashMatches;
             r.EnhancedKeyUsages = a.Authenticode.EnhancedKeyUsages;
             r.TimestampAuthorityCN = a.Authenticode.TimestampAuthorityCN;
             r.SignerIssuerCN = a.Authenticode.IssuerCN;
             r.SignerIssuerO  = a.Authenticode.IssuerO;
+        }
+        if (a.Signature != null)
+        {
+            r.SignatureIsSigned = a.Signature.IsSigned;
+            r.CertificateTableSize = a.Signature.CertificateTableSize;
+            if (!string.IsNullOrEmpty(a.Signature.CertificateBlobSha256))
+                r.CertificateBlobSha256 = a.Signature.CertificateBlobSha256;
         }
         // .NET strong name (when available)
         if (a.DotNetStrongNameSigned.HasValue)
@@ -388,16 +514,42 @@ public sealed class ReportView
             a.VersionInfo.TryGetValue("OriginalFilename", out var origFile);
             r.CompanyName = company; r.ProductName = product; r.FileDescription = fileDesc; r.FileVersion = fver; r.ProductVersion = pver; r.OriginalFilename = origFile;
         }
+        if (a.ShellProperties != null && a.ShellProperties.Count > 0)
+        {
+            var nonEmpty = a.ShellProperties
+                .Where(p => !string.IsNullOrWhiteSpace(p?.Value))
+                .Select(p => new
+                {
+                    Name = !string.IsNullOrWhiteSpace(p!.DisplayName) ? p.DisplayName :
+                           !string.IsNullOrWhiteSpace(p.CanonicalName) ? p.CanonicalName :
+                           p.Key,
+                    Value = p.Value
+                })
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name) && !string.IsNullOrWhiteSpace(p.Value))
+                .ToList();
+            if (nonEmpty.Count > 0)
+            {
+                r.ShellPropertyCount = nonEmpty.Count;
+                r.ShellPropertyPreview = nonEmpty
+                    .Take(6)
+                    .Select(p => $"{p.Name}: {p.Value}")
+                    .ToArray();
+            }
+        }
         // Installer summary
         if (a.Installer != null)
         {
             r.InstallerKind = a.Installer.Kind.ToString();
             r.InstallerName = a.Installer.Name;
             r.InstallerManufacturer = a.Installer.Manufacturer ?? a.Installer.Publisher ?? a.Installer.PublisherDisplayName;
+            r.InstallerIdentityName = a.Installer.IdentityName;
             r.InstallerVersion = a.Installer.Version;
             r.InstallerProductCode = a.Installer.ProductCode;
             r.InstallerUpgradeCode = a.Installer.UpgradeCode;
+            r.InstallerPackageCode = a.Installer.PackageCode;
             r.InstallerScope = a.Installer.Scope;
+            r.InstallerAuthor = a.Installer.Author;
+            r.InstallerComments = a.Installer.Comments;
             r.InstallerUrlInfoAbout = a.Installer.UrlInfoAbout;
             r.InstallerUrlUpdateInfo = a.Installer.UrlUpdateInfo;
             r.InstallerHelpLink = a.Installer.HelpLink;
@@ -405,12 +557,17 @@ public sealed class ReportView
             r.InstallerContact = a.Installer.Contact;
             if (a.Installer.CreatedUtc.HasValue) r.InstallerCreated = a.Installer.CreatedUtc.Value.ToString("u");
             if (a.Installer.LastSavedUtc.HasValue) r.InstallerLastSaved = a.Installer.LastSavedUtc.Value.ToString("u");
+            if (a.Installer.Capabilities != null && a.Installer.Capabilities.Count > 0)
+                r.InstallerCapabilities = string.Join(", ", a.Installer.Capabilities.Take(6));
+            if (a.Installer.Extensions != null && a.Installer.Extensions.Count > 0)
+                r.InstallerExtensions = string.Join(", ", a.Installer.Extensions.Take(6));
             // MSI Custom Action counts (flatten)
             if (a.Installer.MsiCustomActions != null)
             {
                 r._MsiCAExe = a.Installer.MsiCustomActions.CountExe;
                 r._MsiCADll = a.Installer.MsiCustomActions.CountDll;
                 r._MsiCAScript = a.Installer.MsiCustomActions.CountScript;
+                r._MsiCAOther = a.Installer.MsiCustomActions.CountOther;
                 r._MsiCASamples = a.Installer.MsiCustomActions.Samples != null && a.Installer.MsiCustomActions.Samples.Count > 0
                     ? string.Join(", ", a.Installer.MsiCustomActions.Samples)
                     : null;
@@ -450,13 +607,6 @@ public sealed class ReportView
             r.FlagsHumanShort = Legend.HumanizeFlagsCsv(r.FlagsCsv, HumanizeStyle.Short);
             r.FlagsHumanLong  = Legend.HumanizeFlagsCsv(r.FlagsCsv, HumanizeStyle.Long);
         }
-
-        if (a.Signature != null)
-        {
-            r.CertificateTableSize = a.Signature.CertificateTableSize;
-            if (!string.IsNullOrEmpty(a.Signature.CertificateBlobSha256)) r.CertificateBlobSha256 = a.Signature.CertificateBlobSha256;
-        }
-
         try
         {
             var multi = FileInspector.AssessMulti(a);
@@ -533,6 +683,29 @@ public sealed class ReportView
         if (a.InnerExecutableExtCounts != null && a.InnerExecutableExtCounts.Count > 0) r.InnerExecutableExtCounts = a.InnerExecutableExtCounts;
         if (a.Security != null)
         {
+            r.IsSymlink = a.Security.IsSymlink;
+            r.IsHidden = a.Security.IsHidden;
+            r.IsReadOnly = a.Security.IsReadOnly;
+            r.Owner = a.Security.Owner;
+            r.OwnerId = a.Security.OwnerId;
+            r.Group = a.Security.Group;
+            r.GroupId = a.Security.GroupId;
+            r.ModeOctal = a.Security.ModeOctal;
+            r.ModeSymbolic = a.Security.ModeSymbolic;
+            r.IsExecutable = a.Security.IsExecutable;
+            r.IsWorldWritable = a.Security.IsWorldWritable;
+            r.EveryoneWriteAllowed = a.Security.EveryoneWriteAllowed;
+            r.AuthenticatedUsersWriteAllowed = a.Security.AuthenticatedUsersWriteAllowed;
+            r.EveryoneReadAllowed = a.Security.EveryoneReadAllowed;
+            r.BuiltinUsersWriteAllowed = a.Security.BuiltinUsersWriteAllowed;
+            r.BuiltinUsersReadAllowed = a.Security.BuiltinUsersReadAllowed;
+            r.AdministratorsWriteAllowed = a.Security.AdministratorsWriteAllowed;
+            r.AdministratorsReadAllowed = a.Security.AdministratorsReadAllowed;
+            r.HasDenyEntries = a.Security.HasDenyEntries;
+            r.TotalAllowCount = a.Security.TotalAllowCount;
+            r.TotalDenyCount = a.Security.TotalDenyCount;
+            r.ExplicitAllowCount = a.Security.ExplicitAllowCount;
+            r.ExplicitDenyCount = a.Security.ExplicitDenyCount;
             r.MotwZoneId = a.Security.MotwZoneId;
             r.MotwReferrerUrl = a.Security.MotwReferrerUrl;
             r.MotwHostUrl = a.Security.MotwHostUrl;
@@ -645,6 +818,8 @@ public sealed class ReportView
             list.Add(key);
         }
         if (r.VersionInfo != null && r.VersionInfo.Count > 0) AddField("Properties", "VersionInfo", "1");
+        if (r.ShellPropertyCount.HasValue) AddField("Properties", "ShellPropertyCount", r.ShellPropertyCount.Value.ToString());
+        if (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0) AddField("Properties", "ShellPropertyPreview", "1");
         AddField("Properties", "CompanyName", r.CompanyName);
         AddField("Properties", "ProductName", r.ProductName);
         AddField("Properties", "FileDescription", r.FileDescription);
@@ -675,12 +850,31 @@ public sealed class ReportView
         if (r.DetectionAlternatives != null && r.DetectionAlternatives.Count > 0) AddField("TypeAnalysis", "DetectionAlternatives", "1");
         if (r.CertificateTableSize.HasValue) AddField("Signature", "CertificateTableSize", r.CertificateTableSize.Value.ToString());
         AddField("Signature", "CertificateBlobSha256", r.CertificateBlobSha256);
+        if (r.SignatureIsSigned.HasValue) AddField("Signature", "SignatureIsSigned", r.SignatureIsSigned.Value ? "true" : "false");
         if (r.DotNetStrongNameSigned.HasValue) AddField("Signature", "DotNetStrongNameSigned", r.DotNetStrongNameSigned.Value ? "true" : "false");
         if (r.AuthenticodePresent.HasValue) AddField("Signature", "AuthenticodePresent", r.AuthenticodePresent.Value ? "true" : "false");
+        if (r.AuthenticodeEnvelopeValid.HasValue) AddField("Signature", "AuthenticodeEnvelopeValid", r.AuthenticodeEnvelopeValid.Value ? "true" : "false");
         if (r.AuthenticodeChainValid.HasValue) AddField("Signature", "AuthenticodeChainValid", r.AuthenticodeChainValid.Value ? "true" : "false");
         if (r.AuthenticodeTimestampPresent.HasValue) AddField("Signature", "AuthenticodeTimestampPresent", r.AuthenticodeTimestampPresent.Value ? "true" : "false");
+        AddField("Signature", "AuthenticodeDigestAlgorithm", r.AuthenticodeDigestAlgorithm);
+        AddField("Signature", "AuthenticodeFileDigestAlgorithm", r.AuthenticodeFileDigestAlgorithm);
+        AddField("Signature", "AuthenticodeFileDigestAlgorithmOid", r.AuthenticodeFileDigestAlgorithmOid);
+        AddField("Signature", "SignerSubject", r.SignerSubject);
+        AddField("Signature", "SignerIssuer", r.SignerIssuer);
+        AddField("Signature", "SignerSubjectCN", r.SignerSubjectCN);
+        AddField("Signature", "SignerSubjectO", r.SignerSubjectO);
+        if (r.SignerSelfSigned.HasValue) AddField("Signature", "SignerSelfSigned", r.SignerSelfSigned.Value ? "true" : "false");
+        AddField("Signature", "SignerThumbprint", r.SignerThumbprint);
+        AddField("Signature", "SignerSerialHex", r.SignerSerialHex);
+        AddField("Signature", "SignerSignatureAlgorithm", r.SignerSignatureAlgorithm);
+        if (r.SignerNotBefore.HasValue) AddField("Signature", "SignerNotBefore", r.SignerNotBefore.Value.ToString("u"));
+        if (r.SignerNotAfter.HasValue) AddField("Signature", "SignerNotAfter", r.SignerNotAfter.Value.ToString("u"));
+        if (r.TimestampTime.HasValue) AddField("Signature", "TimestampTime", r.TimestampTime.Value.ToString("u"));
+        AddField("Signature", "TimestampAuthority", r.TimestampAuthority);
+        AddField("Signature", "AuthenticodeVerificationNote", r.AuthenticodeVerificationNote);
         if (r.IsTrustedWindowsPolicy.HasValue) AddField("Signature", "IsTrustedWindowsPolicy", r.IsTrustedWindowsPolicy.Value ? "true" : "false");
         AddField("Signature", "WinTrustStatusCode", r.WinTrustStatusCode?.ToString());
+        if (r.AuthenticodeFileHashMatches.HasValue) AddField("Signature", "AuthenticodeFileHashMatches", r.AuthenticodeFileHashMatches.Value ? "true" : "false");
         AddField("Signature", "EnhancedKeyUsages", (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ? string.Join(", ", r.EnhancedKeyUsages) : null);
         AddField("Signature", "TimestampAuthorityCN", r.TimestampAuthorityCN);
         AddField("Signature", "SignerIssuerCN", r.SignerIssuerCN);
@@ -702,6 +896,29 @@ public sealed class ReportView
         AddField("Security", "MotwHostUrl", r.MotwHostUrl);
         if (r.AlternateStreamCount.HasValue) AddField("Security", "AlternateStreamCount", r.AlternateStreamCount.Value.ToString());
         AddField("Security", "NameIssues", r.NameIssuesCsv);
+        if (r.IsSymlink.HasValue) AddField("Security", "IsSymlink", r.IsSymlink.Value ? "true" : "false");
+        if (r.IsHidden.HasValue) AddField("Security", "IsHidden", r.IsHidden.Value ? "true" : "false");
+        if (r.IsReadOnly.HasValue) AddField("Security", "IsReadOnly", r.IsReadOnly.Value ? "true" : "false");
+        AddField("Security", "Owner", r.Owner);
+        AddField("Security", "OwnerId", r.OwnerId);
+        AddField("Security", "Group", r.Group);
+        AddField("Security", "GroupId", r.GroupId);
+        AddField("Security", "ModeOctal", r.ModeOctal);
+        AddField("Security", "ModeSymbolic", r.ModeSymbolic);
+        if (r.IsExecutable.HasValue) AddField("Security", "IsExecutable", r.IsExecutable.Value ? "true" : "false");
+        if (r.IsWorldWritable.HasValue) AddField("Security", "IsWorldWritable", r.IsWorldWritable.Value ? "true" : "false");
+        if (r.EveryoneWriteAllowed.HasValue) AddField("Security", "EveryoneWriteAllowed", r.EveryoneWriteAllowed.Value ? "true" : "false");
+        if (r.AuthenticatedUsersWriteAllowed.HasValue) AddField("Security", "AuthenticatedUsersWriteAllowed", r.AuthenticatedUsersWriteAllowed.Value ? "true" : "false");
+        if (r.EveryoneReadAllowed.HasValue) AddField("Security", "EveryoneReadAllowed", r.EveryoneReadAllowed.Value ? "true" : "false");
+        if (r.BuiltinUsersWriteAllowed.HasValue) AddField("Security", "BuiltinUsersWriteAllowed", r.BuiltinUsersWriteAllowed.Value ? "true" : "false");
+        if (r.BuiltinUsersReadAllowed.HasValue) AddField("Security", "BuiltinUsersReadAllowed", r.BuiltinUsersReadAllowed.Value ? "true" : "false");
+        if (r.AdministratorsWriteAllowed.HasValue) AddField("Security", "AdministratorsWriteAllowed", r.AdministratorsWriteAllowed.Value ? "true" : "false");
+        if (r.AdministratorsReadAllowed.HasValue) AddField("Security", "AdministratorsReadAllowed", r.AdministratorsReadAllowed.Value ? "true" : "false");
+        if (r.HasDenyEntries.HasValue) AddField("Security", "HasDenyEntries", r.HasDenyEntries.Value ? "true" : "false");
+        if (r.TotalAllowCount.HasValue) AddField("Security", "TotalAllowCount", r.TotalAllowCount.Value.ToString());
+        if (r.TotalDenyCount.HasValue) AddField("Security", "TotalDenyCount", r.TotalDenyCount.Value.ToString());
+        if (r.ExplicitAllowCount.HasValue) AddField("Security", "ExplicitAllowCount", r.ExplicitAllowCount.Value.ToString());
+        if (r.ExplicitDenyCount.HasValue) AddField("Security", "ExplicitDenyCount", r.ExplicitDenyCount.Value.ToString());
         AddField("Script", "ScriptLanguage", r.ScriptLanguage);
         AddField("Script", "ScriptLanguageHuman", r.ScriptLanguageHuman);
         AddField("Script", "ScriptCmdlets", r.ScriptCmdlets);
@@ -717,10 +934,14 @@ public sealed class ReportView
         AddField("Installer", "InstallerKind", r.InstallerKind);
         AddField("Installer", "InstallerName", r.InstallerName);
         AddField("Installer", "InstallerManufacturer", r.InstallerManufacturer);
+        AddField("Installer", "InstallerIdentityName", r.InstallerIdentityName);
         AddField("Installer", "InstallerVersion", r.InstallerVersion);
         AddField("Installer", "InstallerProductCode", r.InstallerProductCode);
         AddField("Installer", "InstallerUpgradeCode", r.InstallerUpgradeCode);
+        AddField("Installer", "InstallerPackageCode", r.InstallerPackageCode);
         AddField("Installer", "InstallerScope", r.InstallerScope);
+        AddField("Installer", "InstallerAuthor", r.InstallerAuthor);
+        AddField("Installer", "InstallerComments", r.InstallerComments);
         AddField("Installer", "InstallerUrlInfoAbout", r.InstallerUrlInfoAbout);
         AddField("Installer", "InstallerUrlUpdateInfo", r.InstallerUrlUpdateInfo);
         AddField("Installer", "InstallerHelpLink", r.InstallerHelpLink);
@@ -728,9 +949,12 @@ public sealed class ReportView
         AddField("Installer", "InstallerContact", r.InstallerContact);
         AddField("Installer", "InstallerCreated", r.InstallerCreated);
         AddField("Installer", "InstallerLastSaved", r.InstallerLastSaved);
+        AddField("Installer", "InstallerCapabilities", r.InstallerCapabilities);
+        AddField("Installer", "InstallerExtensions", r.InstallerExtensions);
         if (r._MsiCAExe.HasValue) AddField("Installer", "MsiCAExe", r._MsiCAExe.Value.ToString());
         if (r._MsiCADll.HasValue) AddField("Installer", "MsiCADll", r._MsiCADll.Value.ToString());
         if (r._MsiCAScript.HasValue) AddField("Installer", "MsiCAScript", r._MsiCAScript.Value.ToString());
+        if (r._MsiCAOther.HasValue) AddField("Installer", "MsiCAOther", r._MsiCAOther.Value.ToString());
         AddField("Installer", "MsiCASamples", r._MsiCASamples);
         if (r.AssessmentScore.HasValue) AddField("Assessment", "AssessmentScore", r.AssessmentScore.Value.ToString());
         AddField("Assessment", "AssessmentDecision", r.AssessmentDecision);
@@ -794,14 +1018,33 @@ public sealed class ReportView
            (r.SecretsFindings != null && r.SecretsFindings.Count > 0);
 
     private static bool HasAnySignatureSignals(ReportView r)
-        => r.CertificateTableSize.HasValue ||
+        => r.SignatureIsSigned.HasValue ||
+           r.CertificateTableSize.HasValue ||
            !string.IsNullOrEmpty(r.CertificateBlobSha256) ||
            r.DotNetStrongNameSigned.HasValue ||
            r.AuthenticodePresent.HasValue ||
+           r.AuthenticodeEnvelopeValid.HasValue ||
            r.AuthenticodeChainValid.HasValue ||
            r.AuthenticodeTimestampPresent.HasValue ||
+           !string.IsNullOrEmpty(r.AuthenticodeDigestAlgorithm) ||
+           !string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm) ||
+           !string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithmOid) ||
+           !string.IsNullOrEmpty(r.SignerSubject) ||
+           !string.IsNullOrEmpty(r.SignerIssuer) ||
+           !string.IsNullOrEmpty(r.SignerSubjectCN) ||
+           !string.IsNullOrEmpty(r.SignerSubjectO) ||
+           r.SignerSelfSigned.HasValue ||
+           !string.IsNullOrEmpty(r.SignerThumbprint) ||
+           !string.IsNullOrEmpty(r.SignerSerialHex) ||
+           !string.IsNullOrEmpty(r.SignerSignatureAlgorithm) ||
+           r.SignerNotBefore.HasValue ||
+           r.SignerNotAfter.HasValue ||
+           r.TimestampTime.HasValue ||
+           !string.IsNullOrEmpty(r.TimestampAuthority) ||
+           !string.IsNullOrEmpty(r.AuthenticodeVerificationNote) ||
            r.IsTrustedWindowsPolicy.HasValue ||
            r.WinTrustStatusCode.HasValue ||
+           r.AuthenticodeFileHashMatches.HasValue ||
            (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0) ||
            !string.IsNullOrEmpty(r.TimestampAuthorityCN) ||
            !string.IsNullOrEmpty(r.SignerIssuerCN) ||
@@ -847,10 +1090,14 @@ public sealed class ReportView
         => !string.IsNullOrEmpty(r.InstallerKind) ||
            !string.IsNullOrEmpty(r.InstallerName) ||
            !string.IsNullOrEmpty(r.InstallerManufacturer) ||
+           !string.IsNullOrEmpty(r.InstallerIdentityName) ||
            !string.IsNullOrEmpty(r.InstallerVersion) ||
            !string.IsNullOrEmpty(r.InstallerProductCode) ||
            !string.IsNullOrEmpty(r.InstallerUpgradeCode) ||
+           !string.IsNullOrEmpty(r.InstallerPackageCode) ||
            !string.IsNullOrEmpty(r.InstallerScope) ||
+           !string.IsNullOrEmpty(r.InstallerAuthor) ||
+           !string.IsNullOrEmpty(r.InstallerComments) ||
            !string.IsNullOrEmpty(r.InstallerUrlInfoAbout) ||
            !string.IsNullOrEmpty(r.InstallerUrlUpdateInfo) ||
            !string.IsNullOrEmpty(r.InstallerHelpLink) ||
@@ -858,9 +1105,12 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.InstallerContact) ||
            !string.IsNullOrEmpty(r.InstallerCreated) ||
            !string.IsNullOrEmpty(r.InstallerLastSaved) ||
+           !string.IsNullOrEmpty(r.InstallerCapabilities) ||
+           !string.IsNullOrEmpty(r.InstallerExtensions) ||
            r._MsiCAExe.HasValue ||
            r._MsiCADll.HasValue ||
            r._MsiCAScript.HasValue ||
+           r._MsiCAOther.HasValue ||
            !string.IsNullOrEmpty(r._MsiCASamples);
 
     private static bool HasAnyScriptSignals(ReportView r)
@@ -884,10 +1134,35 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.MotwReferrerUrl) ||
            !string.IsNullOrEmpty(r.MotwHostUrl) ||
            r.AlternateStreamCount.HasValue ||
-           !string.IsNullOrEmpty(r.NameIssuesCsv);
+           !string.IsNullOrEmpty(r.NameIssuesCsv) ||
+           r.IsSymlink.HasValue ||
+           r.IsHidden.HasValue ||
+           r.IsReadOnly.HasValue ||
+           !string.IsNullOrEmpty(r.Owner) ||
+           !string.IsNullOrEmpty(r.OwnerId) ||
+           !string.IsNullOrEmpty(r.Group) ||
+           !string.IsNullOrEmpty(r.GroupId) ||
+           !string.IsNullOrEmpty(r.ModeOctal) ||
+           !string.IsNullOrEmpty(r.ModeSymbolic) ||
+           r.IsExecutable.HasValue ||
+           r.IsWorldWritable.HasValue ||
+           r.EveryoneWriteAllowed.HasValue ||
+           r.AuthenticatedUsersWriteAllowed.HasValue ||
+           r.EveryoneReadAllowed.HasValue ||
+           r.BuiltinUsersWriteAllowed.HasValue ||
+           r.BuiltinUsersReadAllowed.HasValue ||
+           r.AdministratorsWriteAllowed.HasValue ||
+           r.AdministratorsReadAllowed.HasValue ||
+           r.HasDenyEntries.HasValue ||
+           r.TotalAllowCount.HasValue ||
+           r.TotalDenyCount.HasValue ||
+           r.ExplicitAllowCount.HasValue ||
+           r.ExplicitDenyCount.HasValue;
 
     private static bool HasAnyPropertySignals(ReportView r)
         => (r.VersionInfo != null && r.VersionInfo.Count > 0) ||
+           r.ShellPropertyCount.HasValue ||
+           (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0) ||
            !string.IsNullOrEmpty(r.CompanyName) ||
            !string.IsNullOrEmpty(r.ProductName) ||
            !string.IsNullOrEmpty(r.FileDescription) ||
@@ -951,11 +1226,31 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedFriendly)) d["EncodedInnerDetectedFriendly"] = EncodedInnerDetectedFriendly;
         if (AuthenticodePresent.HasValue) d["AuthenticodePresent"] = AuthenticodePresent.Value;
+        if (AuthenticodeEnvelopeValid.HasValue) d["AuthenticodeEnvelopeValid"] = AuthenticodeEnvelopeValid.Value;
         if (AuthenticodeChainValid.HasValue) d["AuthenticodeChainValid"] = AuthenticodeChainValid.Value;
         if (AuthenticodeTimestampPresent.HasValue) d["AuthenticodeTimestampPresent"] = AuthenticodeTimestampPresent.Value;
+        if (!string.IsNullOrEmpty(AuthenticodeDigestAlgorithm)) d["AuthenticodeDigestAlgorithm"] = AuthenticodeDigestAlgorithm;
+        if (!string.IsNullOrEmpty(AuthenticodeFileDigestAlgorithm)) d["AuthenticodeFileDigestAlgorithm"] = AuthenticodeFileDigestAlgorithm;
+        if (!string.IsNullOrEmpty(AuthenticodeFileDigestAlgorithmOid)) d["AuthenticodeFileDigestAlgorithmOid"] = AuthenticodeFileDigestAlgorithmOid;
+        if (!string.IsNullOrEmpty(SignerSubject)) d["SignerSubject"] = SignerSubject;
+        if (!string.IsNullOrEmpty(SignerIssuer)) d["SignerIssuer"] = SignerIssuer;
+        if (!string.IsNullOrEmpty(SignerSubjectCN)) d["SignerSubjectCN"] = SignerSubjectCN;
+        if (!string.IsNullOrEmpty(SignerSubjectO)) d["SignerSubjectO"] = SignerSubjectO;
+        if (SignerSelfSigned.HasValue) d["SignerSelfSigned"] = SignerSelfSigned.Value;
+        if (!string.IsNullOrEmpty(SignerThumbprint)) d["SignerThumbprint"] = SignerThumbprint;
+        if (!string.IsNullOrEmpty(SignerSerialHex)) d["SignerSerialHex"] = SignerSerialHex;
+        if (!string.IsNullOrEmpty(SignerSignatureAlgorithm)) d["SignerSignatureAlgorithm"] = SignerSignatureAlgorithm;
+        if (SignerNotBefore.HasValue) d["SignerNotBefore"] = SignerNotBefore.Value;
+        if (SignerNotAfter.HasValue) d["SignerNotAfter"] = SignerNotAfter.Value;
+        if (TimestampTime.HasValue) d["TimestampTime"] = TimestampTime.Value;
+        if (!string.IsNullOrEmpty(TimestampAuthority)) d["TimestampAuthority"] = TimestampAuthority;
+        if (!string.IsNullOrEmpty(AuthenticodeVerificationNote)) d["AuthenticodeVerificationNote"] = AuthenticodeVerificationNote;
         if (IsTrustedWindowsPolicy.HasValue) d["IsTrustedWindowsPolicy"] = IsTrustedWindowsPolicy.Value;
         if (WinTrustStatusCode.HasValue) d["WinTrustStatusCode"] = WinTrustStatusCode.Value;
+        if (AuthenticodeFileHashMatches.HasValue) d["AuthenticodeFileHashMatches"] = AuthenticodeFileHashMatches.Value;
         if (VersionInfo != null) d["VersionInfo"] = VersionInfo;
+        if (ShellPropertyCount.HasValue) d["ShellPropertyCount"] = ShellPropertyCount.Value;
+        if (ShellPropertyPreview != null && ShellPropertyPreview.Count > 0) d["ShellPropertyPreview"] = ShellPropertyPreview;
         if (CompanyName != null) d["CompanyName"] = CompanyName;
         if (ProductName != null) d["ProductName"] = ProductName;
         if (FileDescription != null) d["FileDescription"] = FileDescription;
@@ -969,6 +1264,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(ScriptLanguageHuman)) d["ScriptLanguageHuman"] = ScriptLanguageHuman;
         if (CertificateTableSize.HasValue) d["CertificateTableSize"] = CertificateTableSize.Value;
         if (!string.IsNullOrEmpty(CertificateBlobSha256)) d["CertificateBlobSha256"] = CertificateBlobSha256;
+        if (SignatureIsSigned.HasValue) d["SignatureIsSigned"] = SignatureIsSigned.Value;
         if (AssessmentScore.HasValue) d["AssessmentScore"] = AssessmentScore.Value;
         if (!string.IsNullOrEmpty(AssessmentDecision)) d["AssessmentDecision"] = AssessmentDecision;
         if (!string.IsNullOrEmpty(AssessmentDecisionStrict)) d["AssessmentDecisionStrict"] = AssessmentDecisionStrict;
@@ -999,10 +1295,14 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InstallerKind)) d["InstallerKind"] = InstallerKind;
         if (!string.IsNullOrEmpty(InstallerName)) d["InstallerName"] = InstallerName;
         if (!string.IsNullOrEmpty(InstallerManufacturer)) d["InstallerManufacturer"] = InstallerManufacturer;
+        if (!string.IsNullOrEmpty(InstallerIdentityName)) d["InstallerIdentityName"] = InstallerIdentityName;
         if (!string.IsNullOrEmpty(InstallerVersion)) d["InstallerVersion"] = InstallerVersion;
         if (!string.IsNullOrEmpty(InstallerProductCode)) d["InstallerProductCode"] = InstallerProductCode;
         if (!string.IsNullOrEmpty(InstallerUpgradeCode)) d["InstallerUpgradeCode"] = InstallerUpgradeCode;
+        if (!string.IsNullOrEmpty(InstallerPackageCode)) d["InstallerPackageCode"] = InstallerPackageCode;
         if (!string.IsNullOrEmpty(InstallerScope)) d["InstallerScope"] = InstallerScope;
+        if (!string.IsNullOrEmpty(InstallerAuthor)) d["InstallerAuthor"] = InstallerAuthor;
+        if (!string.IsNullOrEmpty(InstallerComments)) d["InstallerComments"] = InstallerComments;
         if (!string.IsNullOrEmpty(InstallerUrlInfoAbout)) d["InstallerUrlInfoAbout"] = InstallerUrlInfoAbout;
         if (!string.IsNullOrEmpty(InstallerUrlUpdateInfo)) d["InstallerUrlUpdateInfo"] = InstallerUrlUpdateInfo;
         if (!string.IsNullOrEmpty(InstallerHelpLink)) d["InstallerHelpLink"] = InstallerHelpLink;
@@ -1010,9 +1310,12 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InstallerContact)) d["InstallerContact"] = InstallerContact;
         if (!string.IsNullOrEmpty(InstallerCreated)) d["InstallerCreated"] = InstallerCreated;
         if (!string.IsNullOrEmpty(InstallerLastSaved)) d["InstallerLastSaved"] = InstallerLastSaved;
+        if (!string.IsNullOrEmpty(InstallerCapabilities)) d["InstallerCapabilities"] = InstallerCapabilities;
+        if (!string.IsNullOrEmpty(InstallerExtensions)) d["InstallerExtensions"] = InstallerExtensions;
         if (_MsiCAExe.HasValue) d["MsiCAExe"] = _MsiCAExe.Value;
         if (_MsiCADll.HasValue) d["MsiCADll"] = _MsiCADll.Value;
         if (_MsiCAScript.HasValue) d["MsiCAScript"] = _MsiCAScript.Value;
+        if (_MsiCAOther.HasValue) d["MsiCAOther"] = _MsiCAOther.Value;
         if (!string.IsNullOrEmpty(_MsiCASamples)) d["MsiCASamples"] = _MsiCASamples;
         if (EncryptedEntryCount.HasValue) d["EncryptedEntryCount"] = EncryptedEntryCount.Value;
         // Archive inventory
@@ -1054,6 +1357,29 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(MotwHostUrl)) d["MotwHostUrl"] = MotwHostUrl;
         if (AlternateStreamCount.HasValue) d["AlternateStreamCount"] = AlternateStreamCount.Value;
         if (!string.IsNullOrEmpty(NameIssuesCsv)) d["NameIssues"] = NameIssuesCsv;
+        if (IsSymlink.HasValue) d["IsSymlink"] = IsSymlink.Value;
+        if (IsHidden.HasValue) d["IsHidden"] = IsHidden.Value;
+        if (IsReadOnly.HasValue) d["IsReadOnly"] = IsReadOnly.Value;
+        if (!string.IsNullOrEmpty(Owner)) d["Owner"] = Owner;
+        if (!string.IsNullOrEmpty(OwnerId)) d["OwnerId"] = OwnerId;
+        if (!string.IsNullOrEmpty(Group)) d["Group"] = Group;
+        if (!string.IsNullOrEmpty(GroupId)) d["GroupId"] = GroupId;
+        if (!string.IsNullOrEmpty(ModeOctal)) d["ModeOctal"] = ModeOctal;
+        if (!string.IsNullOrEmpty(ModeSymbolic)) d["ModeSymbolic"] = ModeSymbolic;
+        if (IsExecutable.HasValue) d["IsExecutable"] = IsExecutable.Value;
+        if (IsWorldWritable.HasValue) d["IsWorldWritable"] = IsWorldWritable.Value;
+        if (EveryoneWriteAllowed.HasValue) d["EveryoneWriteAllowed"] = EveryoneWriteAllowed.Value;
+        if (AuthenticatedUsersWriteAllowed.HasValue) d["AuthenticatedUsersWriteAllowed"] = AuthenticatedUsersWriteAllowed.Value;
+        if (EveryoneReadAllowed.HasValue) d["EveryoneReadAllowed"] = EveryoneReadAllowed.Value;
+        if (BuiltinUsersWriteAllowed.HasValue) d["BuiltinUsersWriteAllowed"] = BuiltinUsersWriteAllowed.Value;
+        if (BuiltinUsersReadAllowed.HasValue) d["BuiltinUsersReadAllowed"] = BuiltinUsersReadAllowed.Value;
+        if (AdministratorsWriteAllowed.HasValue) d["AdministratorsWriteAllowed"] = AdministratorsWriteAllowed.Value;
+        if (AdministratorsReadAllowed.HasValue) d["AdministratorsReadAllowed"] = AdministratorsReadAllowed.Value;
+        if (HasDenyEntries.HasValue) d["HasDenyEntries"] = HasDenyEntries.Value;
+        if (TotalAllowCount.HasValue) d["TotalAllowCount"] = TotalAllowCount.Value;
+        if (TotalDenyCount.HasValue) d["TotalDenyCount"] = TotalDenyCount.Value;
+        if (ExplicitAllowCount.HasValue) d["ExplicitAllowCount"] = ExplicitAllowCount.Value;
+        if (ExplicitDenyCount.HasValue) d["ExplicitDenyCount"] = ExplicitDenyCount.Value;
         // Secrets
         if (SecretsPrivateKeyCount.HasValue) d["SecretsPrivateKeyCount"] = SecretsPrivateKeyCount.Value;
         if (SecretsJwtLikeCount.HasValue) d["SecretsJwtLikeCount"] = SecretsJwtLikeCount.Value;

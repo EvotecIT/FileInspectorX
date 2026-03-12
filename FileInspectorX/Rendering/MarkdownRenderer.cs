@@ -79,12 +79,26 @@ public static class MarkdownRenderer
         if (HasSignatureData(r))
         {
             sb.AppendLine("### Signature");
+            if (r.SignatureIsSigned.HasValue)
+                sb.AppendLine($"- Signature blob present: {(r.SignatureIsSigned.Value ? "yes" : "no")}");
             if (r.AuthenticodePresent.HasValue)
                 sb.AppendLine($"- Authenticode present: {(r.AuthenticodePresent.Value ? "yes" : "no")}");
+            if (r.AuthenticodeEnvelopeValid.HasValue)
+                sb.AppendLine($"- Authenticode envelope valid: {(r.AuthenticodeEnvelopeValid.Value ? "yes" : "no")}");
             if (r.AuthenticodeChainValid.HasValue)
                 sb.AppendLine($"- Authenticode chain valid: {(r.AuthenticodeChainValid.Value ? "yes" : "no")}");
             if (r.AuthenticodeTimestampPresent.HasValue)
                 sb.AppendLine($"- Authenticode timestamp present: {(r.AuthenticodeTimestampPresent.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeDigestAlgorithm))
+                sb.AppendLine($"- Authenticode digest algorithm: {r.AuthenticodeDigestAlgorithm}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm))
+                sb.AppendLine($"- File digest algorithm: {r.AuthenticodeFileDigestAlgorithm}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithmOid))
+                sb.AppendLine($"- File digest algorithm OID: {r.AuthenticodeFileDigestAlgorithmOid}");
+            if (!string.IsNullOrEmpty(r.SignerSubject))
+                sb.AppendLine($"- Signer subject: {r.SignerSubject}");
+            if (!string.IsNullOrEmpty(r.SignerIssuer))
+                sb.AppendLine($"- Signer issuer: {r.SignerIssuer}");
             if (r.WinTrustStatusCode.HasValue)
             {
                 var ok = r.IsTrustedWindowsPolicy == true ? "Trusted" : "Untrusted";
@@ -102,12 +116,36 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- .NET strong-name signed: {(r.DotNetStrongNameSigned.Value ? "yes" : "no")}");
             if (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0)
                 sb.AppendLine($"- EKUs: {string.Join(", ", r.EnhancedKeyUsages)}");
+            if (!string.IsNullOrEmpty(r.SignerSubjectCN))
+                sb.AppendLine($"- Signer subject CN: {r.SignerSubjectCN}");
+            if (!string.IsNullOrEmpty(r.SignerSubjectO))
+                sb.AppendLine($"- Signer subject O: {r.SignerSubjectO}");
             if (!string.IsNullOrEmpty(r.TimestampAuthorityCN))
                 sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthorityCN}");
+            else if (!string.IsNullOrEmpty(r.TimestampAuthority))
+                sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthority}");
+            if (r.TimestampTime.HasValue)
+                sb.AppendLine($"- Timestamp time: {r.TimestampTime.Value:u}");
             if (!string.IsNullOrEmpty(r.SignerIssuerCN))
                 sb.AppendLine($"- Signer issuer CN: {r.SignerIssuerCN}");
             if (!string.IsNullOrEmpty(r.SignerIssuerO))
                 sb.AppendLine($"- Signer issuer O: {r.SignerIssuerO}");
+            if (r.SignerSelfSigned.HasValue)
+                sb.AppendLine($"- Signer self-signed: {(r.SignerSelfSigned.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.SignerThumbprint))
+                sb.AppendLine($"- Signer thumbprint: {r.SignerThumbprint}");
+            if (!string.IsNullOrEmpty(r.SignerSerialHex))
+                sb.AppendLine($"- Signer serial: {r.SignerSerialHex}");
+            if (!string.IsNullOrEmpty(r.SignerSignatureAlgorithm))
+                sb.AppendLine($"- Signer signature algorithm: {r.SignerSignatureAlgorithm}");
+            if (r.SignerNotBefore.HasValue)
+                sb.AppendLine($"- Signer not before: {r.SignerNotBefore.Value:u}");
+            if (r.SignerNotAfter.HasValue)
+                sb.AppendLine($"- Signer not after: {r.SignerNotAfter.Value:u}");
+            if (r.AuthenticodeFileHashMatches.HasValue)
+                sb.AppendLine($"- Authenticode file hash matches: {(r.AuthenticodeFileHashMatches.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeVerificationNote))
+                sb.AppendLine($"- Verification note: {r.AuthenticodeVerificationNote}");
             if (!string.IsNullOrEmpty(r.CertSubject))
                 sb.AppendLine($"- Certificate subject: {r.CertSubject}");
             if (!string.IsNullOrEmpty(r.CertIssuer))
@@ -139,6 +177,9 @@ public static class MarkdownRenderer
         if (HasPropertiesData(r))
         {
             sb.AppendLine("### Properties");
+            if (r.ShellPropertyCount.HasValue) sb.AppendLine($"- Shell properties: {r.ShellPropertyCount.Value}");
+            if (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0)
+                sb.AppendLine($"- Shell property preview: {string.Join("; ", r.ShellPropertyPreview.Take(4))}");
             if (!string.IsNullOrEmpty(r.CompanyName)) sb.AppendLine($"- Company: {r.CompanyName}");
             if (!string.IsNullOrEmpty(r.ProductName)) sb.AppendLine($"- Product: {r.ProductName}");
             if (!string.IsNullOrEmpty(r.FileDescription)) sb.AppendLine($"- Description: {r.FileDescription}");
@@ -170,6 +211,29 @@ public static class MarkdownRenderer
         if (HasSecurityData(r))
         {
             sb.AppendLine("### Security");
+            if (r.IsSymlink.HasValue) sb.AppendLine($"- Symlink: {(r.IsSymlink.Value ? "yes" : "no")}");
+            if (r.IsHidden.HasValue) sb.AppendLine($"- Hidden: {(r.IsHidden.Value ? "yes" : "no")}");
+            if (r.IsReadOnly.HasValue) sb.AppendLine($"- Read-only: {(r.IsReadOnly.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.Owner)) sb.AppendLine($"- Owner: {r.Owner}");
+            if (!string.IsNullOrEmpty(r.OwnerId)) sb.AppendLine($"- Owner ID: {r.OwnerId}");
+            if (!string.IsNullOrEmpty(r.Group)) sb.AppendLine($"- Group: {r.Group}");
+            if (!string.IsNullOrEmpty(r.GroupId)) sb.AppendLine($"- Group ID: {r.GroupId}");
+            if (!string.IsNullOrEmpty(r.ModeOctal)) sb.AppendLine($"- Mode (octal): {r.ModeOctal}");
+            if (!string.IsNullOrEmpty(r.ModeSymbolic)) sb.AppendLine($"- Mode (symbolic): {r.ModeSymbolic}");
+            if (r.IsExecutable.HasValue) sb.AppendLine($"- Executable: {(r.IsExecutable.Value ? "yes" : "no")}");
+            if (r.IsWorldWritable.HasValue) sb.AppendLine($"- World-writable: {(r.IsWorldWritable.Value ? "yes" : "no")}");
+            if (r.EveryoneWriteAllowed.HasValue) sb.AppendLine($"- Everyone write allowed: {(r.EveryoneWriteAllowed.Value ? "yes" : "no")}");
+            if (r.AuthenticatedUsersWriteAllowed.HasValue) sb.AppendLine($"- Authenticated Users write allowed: {(r.AuthenticatedUsersWriteAllowed.Value ? "yes" : "no")}");
+            if (r.EveryoneReadAllowed.HasValue) sb.AppendLine($"- Everyone read allowed: {(r.EveryoneReadAllowed.Value ? "yes" : "no")}");
+            if (r.BuiltinUsersWriteAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Users write allowed: {(r.BuiltinUsersWriteAllowed.Value ? "yes" : "no")}");
+            if (r.BuiltinUsersReadAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Users read allowed: {(r.BuiltinUsersReadAllowed.Value ? "yes" : "no")}");
+            if (r.AdministratorsWriteAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Administrators write allowed: {(r.AdministratorsWriteAllowed.Value ? "yes" : "no")}");
+            if (r.AdministratorsReadAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Administrators read allowed: {(r.AdministratorsReadAllowed.Value ? "yes" : "no")}");
+            if (r.HasDenyEntries.HasValue) sb.AppendLine($"- Has deny ACEs: {(r.HasDenyEntries.Value ? "yes" : "no")}");
+            if (r.TotalAllowCount.HasValue) sb.AppendLine($"- Total allow ACEs: {r.TotalAllowCount.Value}");
+            if (r.TotalDenyCount.HasValue) sb.AppendLine($"- Total deny ACEs: {r.TotalDenyCount.Value}");
+            if (r.ExplicitAllowCount.HasValue) sb.AppendLine($"- Explicit allow ACEs: {r.ExplicitAllowCount.Value}");
+            if (r.ExplicitDenyCount.HasValue) sb.AppendLine($"- Explicit deny ACEs: {r.ExplicitDenyCount.Value}");
             if (r.MotwZoneId.HasValue) sb.AppendLine($"- MOTW ZoneId: {r.MotwZoneId.Value}");
             if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
             if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendLine($"- MOTW Host URL: {r.MotwHostUrl}");
@@ -208,10 +272,14 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.InstallerKind)) sb.AppendLine($"- Kind: {r.InstallerKind}");
             if (!string.IsNullOrEmpty(r.InstallerName)) sb.AppendLine($"- Name: {r.InstallerName}");
             if (!string.IsNullOrEmpty(r.InstallerManufacturer)) sb.AppendLine($"- Manufacturer: {r.InstallerManufacturer}");
+            if (!string.IsNullOrEmpty(r.InstallerIdentityName)) sb.AppendLine($"- Identity: {r.InstallerIdentityName}");
             if (!string.IsNullOrEmpty(r.InstallerVersion)) sb.AppendLine($"- Version: {r.InstallerVersion}");
             if (!string.IsNullOrEmpty(r.InstallerProductCode)) sb.AppendLine($"- ProductCode: {r.InstallerProductCode}");
             if (!string.IsNullOrEmpty(r.InstallerUpgradeCode)) sb.AppendLine($"- UpgradeCode: {r.InstallerUpgradeCode}");
+            if (!string.IsNullOrEmpty(r.InstallerPackageCode)) sb.AppendLine($"- PackageCode: {r.InstallerPackageCode}");
             if (!string.IsNullOrEmpty(r.InstallerScope)) sb.AppendLine($"- Scope: {r.InstallerScope}");
+            if (!string.IsNullOrEmpty(r.InstallerAuthor)) sb.AppendLine($"- Author: {r.InstallerAuthor}");
+            if (!string.IsNullOrEmpty(r.InstallerComments)) sb.AppendLine($"- Comments: {r.InstallerComments}");
             if (!string.IsNullOrEmpty(r.InstallerUrlInfoAbout)) sb.AppendLine($"- Info URL: {r.InstallerUrlInfoAbout}");
             if (!string.IsNullOrEmpty(r.InstallerUrlUpdateInfo)) sb.AppendLine($"- Update URL: {r.InstallerUrlUpdateInfo}");
             if (!string.IsNullOrEmpty(r.InstallerHelpLink)) sb.AppendLine($"- Help link: {r.InstallerHelpLink}");
@@ -219,9 +287,12 @@ public static class MarkdownRenderer
             if (!string.IsNullOrEmpty(r.InstallerContact)) sb.AppendLine($"- Contact: {r.InstallerContact}");
             if (!string.IsNullOrEmpty(r.InstallerCreated)) sb.AppendLine($"- Created: {r.InstallerCreated}");
             if (!string.IsNullOrEmpty(r.InstallerLastSaved)) sb.AppendLine($"- Last saved: {r.InstallerLastSaved}");
+            if (!string.IsNullOrEmpty(r.InstallerCapabilities)) sb.AppendLine($"- Capabilities: {r.InstallerCapabilities}");
+            if (!string.IsNullOrEmpty(r.InstallerExtensions)) sb.AppendLine($"- Extensions: {r.InstallerExtensions}");
             if (r._MsiCAExe.HasValue) sb.AppendLine($"- MSI custom actions (EXE): {r._MsiCAExe.Value}");
             if (r._MsiCADll.HasValue) sb.AppendLine($"- MSI custom actions (DLL): {r._MsiCADll.Value}");
             if (r._MsiCAScript.HasValue) sb.AppendLine($"- MSI custom actions (script): {r._MsiCAScript.Value}");
+            if (r._MsiCAOther.HasValue) sb.AppendLine($"- MSI custom actions (other): {r._MsiCAOther.Value}");
             if (!string.IsNullOrEmpty(r._MsiCASamples)) sb.AppendLine($"- MSI custom action samples: {r._MsiCASamples}");
             sb.AppendLine();
         }
@@ -420,10 +491,14 @@ public static class MarkdownRenderer
             => !string.IsNullOrEmpty(view.InstallerKind) ||
                !string.IsNullOrEmpty(view.InstallerName) ||
                !string.IsNullOrEmpty(view.InstallerManufacturer) ||
+               !string.IsNullOrEmpty(view.InstallerIdentityName) ||
                !string.IsNullOrEmpty(view.InstallerVersion) ||
                !string.IsNullOrEmpty(view.InstallerProductCode) ||
                !string.IsNullOrEmpty(view.InstallerUpgradeCode) ||
+               !string.IsNullOrEmpty(view.InstallerPackageCode) ||
                !string.IsNullOrEmpty(view.InstallerScope) ||
+               !string.IsNullOrEmpty(view.InstallerAuthor) ||
+               !string.IsNullOrEmpty(view.InstallerComments) ||
                !string.IsNullOrEmpty(view.InstallerUrlInfoAbout) ||
                !string.IsNullOrEmpty(view.InstallerUrlUpdateInfo) ||
                !string.IsNullOrEmpty(view.InstallerHelpLink) ||
@@ -431,13 +506,18 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.InstallerContact) ||
                !string.IsNullOrEmpty(view.InstallerCreated) ||
                !string.IsNullOrEmpty(view.InstallerLastSaved) ||
+               !string.IsNullOrEmpty(view.InstallerCapabilities) ||
+               !string.IsNullOrEmpty(view.InstallerExtensions) ||
                view._MsiCAExe.HasValue ||
                view._MsiCADll.HasValue ||
                view._MsiCAScript.HasValue ||
+               view._MsiCAOther.HasValue ||
                !string.IsNullOrEmpty(view._MsiCASamples);
 
         static bool HasPropertiesData(ReportView view)
             => (view.VersionInfo != null && view.VersionInfo.Count > 0) ||
+               view.ShellPropertyCount.HasValue ||
+               (view.ShellPropertyPreview != null && view.ShellPropertyPreview.Count > 0) ||
                !string.IsNullOrEmpty(view.CompanyName) ||
                !string.IsNullOrEmpty(view.ProductName) ||
                !string.IsNullOrEmpty(view.FileDescription) ||
@@ -446,7 +526,30 @@ public static class MarkdownRenderer
                !string.IsNullOrEmpty(view.OriginalFilename);
 
         static bool HasSecurityData(ReportView view)
-            => view.MotwZoneId.HasValue ||
+            => view.IsSymlink.HasValue ||
+               view.IsHidden.HasValue ||
+               view.IsReadOnly.HasValue ||
+               !string.IsNullOrEmpty(view.Owner) ||
+               !string.IsNullOrEmpty(view.OwnerId) ||
+               !string.IsNullOrEmpty(view.Group) ||
+               !string.IsNullOrEmpty(view.GroupId) ||
+               !string.IsNullOrEmpty(view.ModeOctal) ||
+               !string.IsNullOrEmpty(view.ModeSymbolic) ||
+               view.IsExecutable.HasValue ||
+               view.IsWorldWritable.HasValue ||
+               view.EveryoneWriteAllowed.HasValue ||
+               view.AuthenticatedUsersWriteAllowed.HasValue ||
+               view.EveryoneReadAllowed.HasValue ||
+               view.BuiltinUsersWriteAllowed.HasValue ||
+               view.BuiltinUsersReadAllowed.HasValue ||
+               view.AdministratorsWriteAllowed.HasValue ||
+               view.AdministratorsReadAllowed.HasValue ||
+               view.HasDenyEntries.HasValue ||
+               view.TotalAllowCount.HasValue ||
+               view.TotalDenyCount.HasValue ||
+               view.ExplicitAllowCount.HasValue ||
+               view.ExplicitDenyCount.HasValue ||
+               view.MotwZoneId.HasValue ||
                !string.IsNullOrEmpty(view.MotwReferrerUrl) ||
                !string.IsNullOrEmpty(view.MotwHostUrl) ||
                view.AlternateStreamCount.HasValue ||
@@ -484,14 +587,33 @@ public static class MarkdownRenderer
                (view.ArchivePreview != null && view.ArchivePreview.Count > 0);
 
         static bool HasSignatureData(ReportView view)
-            => view.CertificateTableSize.HasValue ||
+            => view.SignatureIsSigned.HasValue ||
+               view.CertificateTableSize.HasValue ||
                !string.IsNullOrEmpty(view.CertificateBlobSha256) ||
                view.DotNetStrongNameSigned.HasValue ||
                view.AuthenticodePresent.HasValue ||
+               view.AuthenticodeEnvelopeValid.HasValue ||
                view.AuthenticodeChainValid.HasValue ||
                view.AuthenticodeTimestampPresent.HasValue ||
+               !string.IsNullOrEmpty(view.AuthenticodeDigestAlgorithm) ||
+               !string.IsNullOrEmpty(view.AuthenticodeFileDigestAlgorithm) ||
+               !string.IsNullOrEmpty(view.AuthenticodeFileDigestAlgorithmOid) ||
+               !string.IsNullOrEmpty(view.SignerSubject) ||
+               !string.IsNullOrEmpty(view.SignerIssuer) ||
                view.IsTrustedWindowsPolicy.HasValue ||
                view.WinTrustStatusCode.HasValue ||
+               !string.IsNullOrEmpty(view.SignerSubjectCN) ||
+               !string.IsNullOrEmpty(view.SignerSubjectO) ||
+               view.SignerSelfSigned.HasValue ||
+               !string.IsNullOrEmpty(view.SignerThumbprint) ||
+               !string.IsNullOrEmpty(view.SignerSerialHex) ||
+               !string.IsNullOrEmpty(view.SignerSignatureAlgorithm) ||
+               view.SignerNotBefore.HasValue ||
+               view.SignerNotAfter.HasValue ||
+               view.TimestampTime.HasValue ||
+               !string.IsNullOrEmpty(view.TimestampAuthority) ||
+               !string.IsNullOrEmpty(view.AuthenticodeVerificationNote) ||
+               view.AuthenticodeFileHashMatches.HasValue ||
                (view.EnhancedKeyUsages != null && view.EnhancedKeyUsages.Count > 0) ||
                !string.IsNullOrEmpty(view.TimestampAuthorityCN) ||
                !string.IsNullOrEmpty(view.SignerIssuerCN) ||

@@ -509,6 +509,141 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Security_Presentation_Includes_Permission_And_Ownership_Metadata()
+    {
+        var analysis = new FileAnalysis
+        {
+            Security = new FileSecurity
+            {
+                IsSymlink = false,
+                IsHidden = true,
+                IsReadOnly = true,
+                Owner = "CONTOSO\\svc-deploy",
+                OwnerId = "S-1-5-21-1000",
+                Group = "CONTOSO\\Deployment",
+                GroupId = "S-1-5-32-544",
+                ModeOctal = "0755",
+                ModeSymbolic = "rwxr-xr-x",
+                IsExecutable = true,
+                IsWorldWritable = false,
+                EveryoneWriteAllowed = true,
+                AuthenticatedUsersWriteAllowed = false,
+                EveryoneReadAllowed = true,
+                BuiltinUsersWriteAllowed = false,
+                BuiltinUsersReadAllowed = true,
+                AdministratorsWriteAllowed = true,
+                AdministratorsReadAllowed = true,
+                HasDenyEntries = true,
+                TotalAllowCount = 6,
+                TotalDenyCount = 2,
+                ExplicitAllowCount = 4,
+                ExplicitDenyCount = 1
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSecurity);
+        Assert.Equal("CONTOSO\\svc-deploy", rv.Owner);
+        Assert.Equal("S-1-5-21-1000", rv.OwnerId);
+        Assert.Equal("CONTOSO\\Deployment", rv.Group);
+        Assert.Equal("S-1-5-32-544", rv.GroupId);
+        Assert.Equal("0755", rv.ModeOctal);
+        Assert.Equal("rwxr-xr-x", rv.ModeSymbolic);
+        Assert.Equal(true, rv.IsExecutable);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Security"));
+        Assert.Contains("IsHidden", rv.CompactFields["Security"]);
+        Assert.Contains("Owner", rv.CompactFields["Security"]);
+        Assert.Contains("OwnerId", rv.CompactFields["Security"]);
+        Assert.Contains("Group", rv.CompactFields["Security"]);
+        Assert.Contains("GroupId", rv.CompactFields["Security"]);
+        Assert.Contains("ModeSymbolic", rv.CompactFields["Security"]);
+        Assert.Contains("EveryoneWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("AuthenticatedUsersWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("EveryoneReadAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("BuiltinUsersWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("BuiltinUsersReadAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("AdministratorsWriteAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("AdministratorsReadAllowed", rv.CompactFields["Security"]);
+        Assert.Contains("HasDenyEntries", rv.CompactFields["Security"]);
+        Assert.Contains("TotalAllowCount", rv.CompactFields["Security"]);
+        Assert.Contains("TotalDenyCount", rv.CompactFields["Security"]);
+        Assert.Contains("ExplicitAllowCount", rv.CompactFields["Security"]);
+        Assert.Contains("ExplicitDenyCount", rv.CompactFields["Security"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSecurity"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Security"));
+        Assert.Contains("IsHidden", compact["Security"]);
+        Assert.Contains("Owner", compact["Security"]);
+        Assert.Contains("OwnerId", compact["Security"]);
+        Assert.Contains("Group", compact["Security"]);
+        Assert.Contains("GroupId", compact["Security"]);
+        Assert.Contains("ModeSymbolic", compact["Security"]);
+        Assert.Contains("EveryoneWriteAllowed", compact["Security"]);
+        Assert.Contains("AuthenticatedUsersWriteAllowed", compact["Security"]);
+        Assert.Contains("EveryoneReadAllowed", compact["Security"]);
+        Assert.Contains("BuiltinUsersWriteAllowed", compact["Security"]);
+        Assert.Contains("BuiltinUsersReadAllowed", compact["Security"]);
+        Assert.Contains("AdministratorsWriteAllowed", compact["Security"]);
+        Assert.Contains("AdministratorsReadAllowed", compact["Security"]);
+        Assert.Contains("HasDenyEntries", compact["Security"]);
+        Assert.Contains("TotalAllowCount", compact["Security"]);
+        Assert.Contains("TotalDenyCount", compact["Security"]);
+        Assert.Contains("ExplicitAllowCount", compact["Security"]);
+        Assert.Contains("ExplicitDenyCount", compact["Security"]);
+        Assert.Equal(true, map["IsHidden"]);
+        Assert.Equal("CONTOSO\\svc-deploy", map["Owner"]);
+        Assert.Equal("S-1-5-21-1000", map["OwnerId"]);
+        Assert.Equal("CONTOSO\\Deployment", map["Group"]);
+        Assert.Equal("S-1-5-32-544", map["GroupId"]);
+        Assert.Equal("0755", map["ModeOctal"]);
+        Assert.Equal("rwxr-xr-x", map["ModeSymbolic"]);
+        Assert.Equal(true, map["IsExecutable"]);
+        Assert.Equal(true, map["EveryoneWriteAllowed"]);
+        Assert.Equal(false, map["AuthenticatedUsersWriteAllowed"]);
+        Assert.Equal(true, map["EveryoneReadAllowed"]);
+        Assert.Equal(false, map["BuiltinUsersWriteAllowed"]);
+        Assert.Equal(true, map["BuiltinUsersReadAllowed"]);
+        Assert.Equal(true, map["AdministratorsWriteAllowed"]);
+        Assert.Equal(true, map["AdministratorsReadAllowed"]);
+        Assert.Equal(true, map["HasDenyEntries"]);
+        Assert.Equal(6, map["TotalAllowCount"]);
+        Assert.Equal(2, map["TotalDenyCount"]);
+        Assert.Equal(4, map["ExplicitAllowCount"]);
+        Assert.Equal(1, map["ExplicitDenyCount"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Security", md);
+        Assert.Contains("Hidden: yes", md);
+        Assert.Contains("Read-only: yes", md);
+        Assert.Contains("Owner: CONTOSO\\svc-deploy", md);
+        Assert.Contains("Owner ID: S-1-5-21-1000", md);
+        Assert.Contains("Group: CONTOSO\\Deployment", md);
+        Assert.Contains("Group ID: S-1-5-32-544", md);
+        Assert.Contains("Mode (octal): 0755", md);
+        Assert.Contains("Mode (symbolic): rwxr-xr-x", md);
+        Assert.Contains("Executable: yes", md);
+        Assert.Contains("World-writable: no", md);
+        Assert.Contains("Everyone write allowed: yes", md);
+        Assert.Contains("Authenticated Users write allowed: no", md);
+        Assert.Contains("Everyone read allowed: yes", md);
+        Assert.Contains("BUILTIN\\Users write allowed: no", md);
+        Assert.Contains("BUILTIN\\Users read allowed: yes", md);
+        Assert.Contains("BUILTIN\\Administrators write allowed: yes", md);
+        Assert.Contains("BUILTIN\\Administrators read allowed: yes", md);
+        Assert.Contains("Has deny ACEs: yes", md);
+        Assert.Contains("Total allow ACEs: 6", md);
+        Assert.Contains("Total deny ACEs: 2", md);
+        Assert.Contains("Explicit allow ACEs: 4", md);
+        Assert.Contains("Explicit deny ACEs: 1", md);
+    }
+
+    [Fact]
     public void ReportView_Signature_Presentation_Includes_StrongName_Only_Analysis()
     {
         var analysis = new FileAnalysis
@@ -613,6 +748,177 @@ public class DetectionDetailsTests
         Assert.Contains("Authenticode present: yes", md);
         Assert.Contains("Authenticode chain valid: no", md);
         Assert.Contains("Authenticode timestamp present: yes", md);
+    }
+
+    [Fact]
+    public void ReportView_Signature_Presentation_Includes_Authenticode_Metadata_Summary()
+    {
+        var analysis = new FileAnalysis
+        {
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = true,
+                EnvelopeSignatureValid = true,
+                ChainValid = true,
+                DigestAlgorithm = "SHA256",
+                FileDigestAlgorithm = "SHA256",
+                FileDigestAlgorithmOid = "2.16.840.1.101.3.4.2.1",
+                SignerSubject = "CN=Contoso Code Signing, O=Contoso Ltd, C=US",
+                SignerIssuer = "CN=Contoso Issuing CA, O=Contoso PKI, C=US",
+                SignerSubjectCN = "Contoso Code Signing",
+                SignerSubjectO = "Contoso Ltd",
+                IssuerCN = "Contoso Issuing CA",
+                IssuerO = "Contoso PKI",
+                IsSelfSigned = false,
+                SignerThumbprint = "ABCDEF1234",
+                SignerSerialHex = "00A1B2C3D4",
+                SignatureAlgorithm = "sha256RSA",
+                NotBefore = new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
+                NotAfter = new DateTimeOffset(2027, 8, 9, 10, 11, 12, TimeSpan.Zero),
+                TimestampPresent = true,
+                TimestampTime = new DateTimeOffset(2025, 2, 3, 4, 5, 6, TimeSpan.Zero),
+                TimestampAuthority = "http://tsa.contoso.example",
+                VerificationNote = "Verified PKCS#7 envelope and file digest.",
+                FileHashMatches = true
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.Equal(true, rv.AuthenticodeEnvelopeValid);
+        Assert.Equal("SHA256", rv.AuthenticodeDigestAlgorithm);
+        Assert.Equal("SHA256", rv.AuthenticodeFileDigestAlgorithm);
+        Assert.Equal("2.16.840.1.101.3.4.2.1", rv.AuthenticodeFileDigestAlgorithmOid);
+        Assert.Equal("CN=Contoso Code Signing, O=Contoso Ltd, C=US", rv.SignerSubject);
+        Assert.Equal("CN=Contoso Issuing CA, O=Contoso PKI, C=US", rv.SignerIssuer);
+        Assert.Equal("Contoso Code Signing", rv.SignerSubjectCN);
+        Assert.Equal("Contoso Ltd", rv.SignerSubjectO);
+        Assert.Equal(false, rv.SignerSelfSigned);
+        Assert.Equal("ABCDEF1234", rv.SignerThumbprint);
+        Assert.Equal("00A1B2C3D4", rv.SignerSerialHex);
+        Assert.Equal("sha256RSA", rv.SignerSignatureAlgorithm);
+        Assert.Equal(new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero), rv.SignerNotBefore);
+        Assert.Equal(new DateTimeOffset(2027, 8, 9, 10, 11, 12, TimeSpan.Zero), rv.SignerNotAfter);
+        Assert.Equal(new DateTimeOffset(2025, 2, 3, 4, 5, 6, TimeSpan.Zero), rv.TimestampTime);
+        Assert.Equal("http://tsa.contoso.example", rv.TimestampAuthority);
+        Assert.Equal("Verified PKCS#7 envelope and file digest.", rv.AuthenticodeVerificationNote);
+        Assert.Equal(true, rv.AuthenticodeFileHashMatches);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("AuthenticodeEnvelopeValid", rv.CompactFields["Signature"]);
+        Assert.Contains("AuthenticodeDigestAlgorithm", rv.CompactFields["Signature"]);
+        Assert.Contains("AuthenticodeFileDigestAlgorithmOid", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerSubject", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerIssuer", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerSubjectCN", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerSerialHex", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerNotBefore", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerNotAfter", rv.CompactFields["Signature"]);
+        Assert.Contains("TimestampTime", rv.CompactFields["Signature"]);
+        Assert.Contains("AuthenticodeFileHashMatches", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("AuthenticodeEnvelopeValid", compact["Signature"]);
+        Assert.Contains("AuthenticodeDigestAlgorithm", compact["Signature"]);
+        Assert.Contains("AuthenticodeFileDigestAlgorithmOid", compact["Signature"]);
+        Assert.Contains("SignerSubject", compact["Signature"]);
+        Assert.Contains("SignerIssuer", compact["Signature"]);
+        Assert.Contains("SignerSubjectCN", compact["Signature"]);
+        Assert.Contains("SignerSerialHex", compact["Signature"]);
+        Assert.Contains("SignerNotBefore", compact["Signature"]);
+        Assert.Contains("SignerNotAfter", compact["Signature"]);
+        Assert.Contains("TimestampTime", compact["Signature"]);
+        Assert.Contains("AuthenticodeFileHashMatches", compact["Signature"]);
+        Assert.Equal(true, map["AuthenticodeEnvelopeValid"]);
+        Assert.Equal("SHA256", map["AuthenticodeDigestAlgorithm"]);
+        Assert.Equal("SHA256", map["AuthenticodeFileDigestAlgorithm"]);
+        Assert.Equal("2.16.840.1.101.3.4.2.1", map["AuthenticodeFileDigestAlgorithmOid"]);
+        Assert.Equal("CN=Contoso Code Signing, O=Contoso Ltd, C=US", map["SignerSubject"]);
+        Assert.Equal("CN=Contoso Issuing CA, O=Contoso PKI, C=US", map["SignerIssuer"]);
+        Assert.Equal("Contoso Code Signing", map["SignerSubjectCN"]);
+        Assert.Equal("Contoso Ltd", map["SignerSubjectO"]);
+        Assert.Equal(false, map["SignerSelfSigned"]);
+        Assert.Equal("ABCDEF1234", map["SignerThumbprint"]);
+        Assert.Equal("00A1B2C3D4", map["SignerSerialHex"]);
+        Assert.Equal("sha256RSA", map["SignerSignatureAlgorithm"]);
+        Assert.Equal(new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero), map["SignerNotBefore"]);
+        Assert.Equal(new DateTimeOffset(2027, 8, 9, 10, 11, 12, TimeSpan.Zero), map["SignerNotAfter"]);
+        Assert.Equal(new DateTimeOffset(2025, 2, 3, 4, 5, 6, TimeSpan.Zero), map["TimestampTime"]);
+        Assert.Equal("http://tsa.contoso.example", map["TimestampAuthority"]);
+        Assert.Equal("Verified PKCS#7 envelope and file digest.", map["AuthenticodeVerificationNote"]);
+        Assert.Equal(true, map["AuthenticodeFileHashMatches"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains("Authenticode envelope valid: yes", md);
+        Assert.Contains("Authenticode digest algorithm: SHA256", md);
+        Assert.Contains("File digest algorithm: SHA256", md);
+        Assert.Contains("File digest algorithm OID: 2.16.840.1.101.3.4.2.1", md);
+        Assert.Contains("Signer subject: CN=Contoso Code Signing, O=Contoso Ltd, C=US", md);
+        Assert.Contains("Signer issuer: CN=Contoso Issuing CA, O=Contoso PKI, C=US", md);
+        Assert.Contains("Signer subject CN: Contoso Code Signing", md);
+        Assert.Contains("Signer subject O: Contoso Ltd", md);
+        Assert.Contains("Timestamp Authority: http://tsa.contoso.example", md);
+        Assert.Contains("Timestamp time: 2025-02-03 04:05:06Z", md);
+        Assert.Contains("Signer self-signed: no", md);
+        Assert.Contains("Signer thumbprint: ABCDEF1234", md);
+        Assert.Contains("Signer serial: 00A1B2C3D4", md);
+        Assert.Contains("Signer signature algorithm: sha256RSA", md);
+        Assert.Contains("Signer not before: 2024-01-02 03:04:05Z", md);
+        Assert.Contains("Signer not after: 2027-08-09 10:11:12Z", md);
+        Assert.Contains("Authenticode file hash matches: yes", md);
+        Assert.Contains("Verification note: Verified PKCS#7 envelope and file digest.", md);
+    }
+
+    [Fact]
+    public void ReportView_Signature_Presentation_Includes_Signature_Summary_Only_Analysis()
+    {
+        var analysis = new FileAnalysis
+        {
+            Signature = new SignatureSummary
+            {
+                IsSigned = true,
+                CertificateTableSize = 4096,
+                CertificateBlobSha256 = "abc123"
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowSignature);
+        Assert.Equal(true, rv.SignatureIsSigned);
+        Assert.Equal(4096, rv.CertificateTableSize);
+        Assert.Equal("abc123", rv.CertificateBlobSha256);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Signature"));
+        Assert.Contains("SignatureIsSigned", rv.CompactFields["Signature"]);
+        Assert.Contains("CertificateTableSize", rv.CompactFields["Signature"]);
+        Assert.Contains("CertificateBlobSha256", rv.CompactFields["Signature"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowSignature"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Signature"));
+        Assert.Contains("SignatureIsSigned", compact["Signature"]);
+        Assert.Contains("CertificateTableSize", compact["Signature"]);
+        Assert.Contains("CertificateBlobSha256", compact["Signature"]);
+        Assert.Equal(true, map["SignatureIsSigned"]);
+        Assert.Equal(4096, map["CertificateTableSize"]);
+        Assert.Equal("abc123", map["CertificateBlobSha256"]);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Signature", md);
+        Assert.Contains("Signature blob present: yes", md);
+        Assert.Contains("Certificate Table: 4096 bytes", md);
+        Assert.Contains("PKCS#7 SHA-256: `abc123`", md);
     }
 
     [Fact]
@@ -962,15 +1268,22 @@ public class DetectionDetailsTests
                 Kind = InstallerKind.Msi,
                 Name = "Contoso Agent",
                 Manufacturer = "Contoso",
+                IdentityName = "Contoso.Agent.Desktop",
                 Version = "1.2.3",
                 ProductCode = "{11111111-1111-1111-1111-111111111111}",
+                PackageCode = "{33333333-3333-3333-3333-333333333333}",
                 Scope = "PerMachine",
+                Author = "Release Engineering",
+                Comments = "Installs the Contoso background agent.",
                 UrlInfoAbout = "https://contoso.example/info",
+                Capabilities = new[] { "runFullTrust", "internetClient", "documentsLibrary" },
+                Extensions = new[] { "windows.protocol:contoso-agent", "windows.fileTypeAssociation:.ctg" },
                 MsiCustomActions = new MsiCustomActionSummary
                 {
                     CountExe = 1,
                     CountDll = 2,
                     CountScript = 3,
+                    CountOther = 4,
                     Samples = new[] { "3073:BinaryKey/InstallAgent" }
                 }
             }
@@ -982,11 +1295,24 @@ public class DetectionDetailsTests
         Assert.True(rv.Advice.ShowInstaller);
         Assert.Equal("Msi", rv.InstallerKind);
         Assert.Equal("Contoso Agent", rv.InstallerName);
+        Assert.Equal("Contoso.Agent.Desktop", rv.InstallerIdentityName);
+        Assert.Equal("{33333333-3333-3333-3333-333333333333}", rv.InstallerPackageCode);
+        Assert.Equal("Release Engineering", rv.InstallerAuthor);
+        Assert.Equal("Installs the Contoso background agent.", rv.InstallerComments);
+        Assert.Equal("runFullTrust, internetClient, documentsLibrary", rv.InstallerCapabilities);
+        Assert.Equal("windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", rv.InstallerExtensions);
         Assert.NotNull(rv.CompactFields);
         Assert.True(rv.CompactFields!.ContainsKey("Installer"));
         Assert.Contains("InstallerKind", rv.CompactFields["Installer"]);
         Assert.Contains("InstallerName", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerIdentityName", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerPackageCode", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerAuthor", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerComments", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerCapabilities", rv.CompactFields["Installer"]);
+        Assert.Contains("InstallerExtensions", rv.CompactFields["Installer"]);
         Assert.Contains("MsiCAExe", rv.CompactFields["Installer"]);
+        Assert.Contains("MsiCAOther", rv.CompactFields["Installer"]);
         Assert.Contains("MsiCASamples", rv.CompactFields["Installer"]);
 
         var map = rv.ToDictionary();
@@ -995,17 +1321,33 @@ public class DetectionDetailsTests
         var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
         Assert.True(compact.ContainsKey("Installer"));
         Assert.Contains("InstallerKind", compact["Installer"]);
+        Assert.Contains("InstallerIdentityName", compact["Installer"]);
         Assert.Contains("MsiCAExe", compact["Installer"]);
+        Assert.Contains("MsiCAOther", compact["Installer"]);
         Assert.Equal("Msi", map["InstallerKind"]);
         Assert.Equal("Contoso Agent", map["InstallerName"]);
+        Assert.Equal("Contoso.Agent.Desktop", map["InstallerIdentityName"]);
+        Assert.Equal("{33333333-3333-3333-3333-333333333333}", map["InstallerPackageCode"]);
+        Assert.Equal("Release Engineering", map["InstallerAuthor"]);
+        Assert.Equal("Installs the Contoso background agent.", map["InstallerComments"]);
+        Assert.Equal("runFullTrust, internetClient, documentsLibrary", map["InstallerCapabilities"]);
+        Assert.Equal("windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", map["InstallerExtensions"]);
         Assert.Equal(1, map["MsiCAExe"]);
+        Assert.Equal(4, map["MsiCAOther"]);
         Assert.Equal("3073:BinaryKey/InstallAgent", map["MsiCASamples"]);
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Installer", md);
         Assert.Contains("Kind: Msi", md);
         Assert.Contains("Name: Contoso Agent", md);
+        Assert.Contains("Identity: Contoso.Agent.Desktop", md);
+        Assert.Contains("PackageCode: {33333333-3333-3333-3333-333333333333}", md);
+        Assert.Contains("Author: Release Engineering", md);
+        Assert.Contains("Comments: Installs the Contoso background agent.", md);
+        Assert.Contains("Capabilities: runFullTrust, internetClient, documentsLibrary", md);
+        Assert.Contains("Extensions: windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", md);
         Assert.Contains("MSI custom actions (EXE): 1", md);
+        Assert.Contains("MSI custom actions (other): 4", md);
         Assert.Contains("MSI custom action samples: 3073:BinaryKey/InstallAgent", md);
     }
 
@@ -1068,6 +1410,54 @@ public class DetectionDetailsTests
         Assert.Contains("### Properties", md);
         Assert.Contains("InternalName: ContosoAgent", md);
         Assert.Contains("LegalCopyright: Copyright Contoso", md);
+    }
+
+    [Fact]
+    public void ReportView_Properties_Presentation_Includes_Shell_Property_Summary()
+    {
+        var analysis = new FileAnalysis
+        {
+            ShellProperties = new List<ShellProperty>
+            {
+                new ShellProperty { DisplayName = "Title", Value = "Contoso Agent" },
+                new ShellProperty { CanonicalName = "System.Author", Value = "Ops Team" },
+                new ShellProperty { Key = "fmtid:12", Value = "Utility" },
+                new ShellProperty { DisplayName = "Empty", Value = "" }
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowProperties);
+        Assert.Equal(3, rv.ShellPropertyCount);
+        Assert.NotNull(rv.ShellPropertyPreview);
+        Assert.Equal(3, rv.ShellPropertyPreview!.Count);
+        Assert.Contains("Title: Contoso Agent", rv.ShellPropertyPreview);
+        Assert.Contains("System.Author: Ops Team", rv.ShellPropertyPreview);
+        Assert.Contains("fmtid:12: Utility", rv.ShellPropertyPreview);
+        Assert.NotNull(rv.CompactFields);
+        Assert.True(rv.CompactFields!.ContainsKey("Properties"));
+        Assert.Contains("ShellPropertyCount", rv.CompactFields["Properties"]);
+        Assert.Contains("ShellPropertyPreview", rv.CompactFields["Properties"]);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowProperties"]);
+        var compact = Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlyList<string>>>(map["Compact"]);
+        Assert.True(compact.ContainsKey("Properties"));
+        Assert.Contains("ShellPropertyCount", compact["Properties"]);
+        Assert.Contains("ShellPropertyPreview", compact["Properties"]);
+        Assert.Equal(3, map["ShellPropertyCount"]);
+        var preview = Assert.IsAssignableFrom<IReadOnlyList<string>>(map["ShellPropertyPreview"]);
+        Assert.Contains("Title: Contoso Agent", preview);
+        Assert.Contains("System.Author: Ops Team", preview);
+        Assert.Contains("fmtid:12: Utility", preview);
+
+        var md = MarkdownRenderer.From(rv);
+        Assert.Contains("### Properties", md);
+        Assert.Contains("Shell properties: 3", md);
+        Assert.Contains("Shell property preview: Title: Contoso Agent; System.Author: Ops Team; fmtid:12: Utility", md);
     }
 
     [Fact]
