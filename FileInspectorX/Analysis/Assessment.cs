@@ -157,9 +157,9 @@ public static partial class FileInspector
             {
                 switch (innerExt)
                 {
-                    case "exe": case "dll": case "sys": case "ocx": case "cpl": case "scr": case "msi":
+                    case "exe": case "dll": case "sys": case "ocx": case "cpl": case "scr": case "com": case "pif": case "msi": case "msp": case "msix": case "appx":
                         Add("Encoded.InnerExecutable", 20); break;
-                    case "ps1": case "psm1": case "psd1": case "bat": case "cmd": case "sh": case "bash": case "zsh": case "js": case "vbs": case "py": case "rb":
+                    case "ps1": case "psm1": case "psd1": case "bat": case "cmd": case "sh": case "bash": case "zsh": case "js": case "vbs": case "vbe": case "wsf": case "wsh": case "py": case "rb":
                         Add("Encoded.InnerScript", 15); break;
                 }
             }
