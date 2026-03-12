@@ -610,6 +610,21 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Archive_With_Embedded_Installer_Gets_Installer_Container_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Flags = ContentFlags.ContainerContainsInstallers
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(15, assessed.Score);
+        Assert.Contains("Archive.ContainsInstallers", assessed.Codes);
+        Assert.Equal(15, assessed.Factors["Archive.ContainsInstallers"]);
+    }
+
+    [Fact]
     public void ToAssessmentView_Preserves_Captured_Assessment_When_Current_Settings_Change()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;
