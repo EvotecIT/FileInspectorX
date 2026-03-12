@@ -33,7 +33,7 @@ public static class ViewExtensions
     /// <summary>Projects assessment into an <see cref="AssessmentView"/>; attaches the original object to <c>Raw</c>.</summary>
     public static AssessmentView ToAssessmentView(this FileAnalysis a, string path)
     {
-        var assessment = a.Assessment ?? FileInspector.Assess(a);
+        var assessment = a.Assessment ?? a.AssessmentProfiles?.Balanced ?? FileInspector.Assess(a);
         var v = AssessmentView.From(path, assessment);
         v.Raw = a;
         return v;

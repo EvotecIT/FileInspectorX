@@ -211,4 +211,60 @@ public class AssessmentTests
             Settings.AssessmentBlockThreshold = oldBlock;
         }
     }
+
+    [Fact]
+    public void Analyze_Captures_MultiProfile_Assessment_Snapshot()
+    {
+        int oldWarn = Settings.AssessmentWarnThreshold;
+        int oldBlock = Settings.AssessmentBlockThreshold;
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+
+        try
+        {
+            Settings.AssessmentWarnThreshold = 40;
+            Settings.AssessmentBlockThreshold = 70;
+
+            File.WriteAllText(path, "-----BEGIN PRIVATE KEY-----\nABCDEF\n-----END PRIVATE KEY-----");
+
+            var analysis = FileInspector.Analyze(path);
+
+            Assert.NotNull(analysis.Assessment);
+            Assert.NotNull(analysis.AssessmentProfiles);
+            Assert.Equal(analysis.Assessment!.Score, analysis.AssessmentProfiles!.Balanced.Score);
+            Assert.Equal(analysis.Assessment.Decision, analysis.AssessmentProfiles.Balanced.Decision);
+        }
+        finally
+        {
+            Settings.AssessmentWarnThreshold = oldWarn;
+            Settings.AssessmentBlockThreshold = oldBlock;
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ToAssessmentView_Uses_Captured_Profile_Snapshot_When_Balanced_Assessment_Field_Is_Missing()
+    {
+        var analysis = new FileAnalysis
+        {
+            AssessmentProfiles = new MultiAssessmentResult
+            {
+                Balanced = new AssessmentResult
+                {
+                    Score = 55,
+                    Decision = AssessmentDecision.Warn,
+                    Codes = new[] { "Test.Code" },
+                    Factors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Test.Code"] = 55
+                    }
+                }
+            }
+        };
+
+        var view = analysis.ToAssessmentView(@"C:\sample.txt");
+
+        Assert.Equal(55, view.Score);
+        Assert.Equal(AssessmentDecision.Warn, view.Decision);
+        Assert.Equal("Test.Code", view.Codes);
+    }
 }

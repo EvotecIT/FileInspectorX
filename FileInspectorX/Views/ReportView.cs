@@ -609,15 +609,18 @@ public sealed class ReportView
         }
         try
         {
-            if (a.Assessment != null)
+            var assess = a.Assessment ?? a.AssessmentProfiles?.Balanced;
+            var multi = a.AssessmentProfiles ?? (assess != null ? FileInspector.AssessMulti(assess) : null);
+            if (assess != null)
             {
-                var multi = FileInspector.AssessMulti(a.Assessment);
-                var assess = multi.Balanced;
                 r.AssessmentScore = assess.Score;
                 r.AssessmentDecision = assess.Decision.ToString();
-                r.AssessmentDecisionStrict = multi.Strict.Decision.ToString();
-                r.AssessmentDecisionBalanced = multi.Balanced.Decision.ToString();
-                r.AssessmentDecisionLenient = multi.Lenient.Decision.ToString();
+                if (multi != null)
+                {
+                    r.AssessmentDecisionStrict = multi.Strict.Decision.ToString();
+                    r.AssessmentDecisionBalanced = multi.Balanced.Decision.ToString();
+                    r.AssessmentDecisionLenient = multi.Lenient.Decision.ToString();
+                }
                 r.AssessmentCodes = assess.Codes;
                 r.AssessmentFactors = assess.Factors;
                 if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0)

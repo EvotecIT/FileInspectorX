@@ -967,7 +967,10 @@ public static partial class FileInspector {
 
             // Assessment (optional)
             if (options?.IncludeAssessment != false)
+            {
                 res.Assessment = Assess(res);
+                res.AssessmentProfiles = AssessMulti(res.Assessment);
+            }
 
         } catch { }
         return res;

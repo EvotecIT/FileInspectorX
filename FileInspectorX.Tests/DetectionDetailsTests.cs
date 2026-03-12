@@ -1903,6 +1903,7 @@ public class DetectionDetailsTests
                 SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
             };
             analysis.Assessment = FileInspector.Assess(analysis);
+            analysis.AssessmentProfiles = FileInspector.AssessMulti(analysis.Assessment);
 
             Settings.AssessmentWarnThreshold = 80;
             Settings.AssessmentBlockThreshold = 90;
@@ -1911,13 +1912,17 @@ public class DetectionDetailsTests
 
             Assert.Equal(70, rv.AssessmentScore);
             Assert.Equal("Block", rv.AssessmentDecision);
+            Assert.Equal("Block", rv.AssessmentDecisionStrict);
             Assert.Equal("Block", rv.AssessmentDecisionBalanced);
+            Assert.Equal("Warn", rv.AssessmentDecisionLenient);
             Assert.Contains("Secret.JWT", rv.AssessmentCodes!);
 
             var map = rv.ToDictionary();
             Assert.Equal(70, map["AssessmentScore"]);
             Assert.Equal("Block", map["AssessmentDecision"]);
+            Assert.Equal("Block", map["AssessmentDecisionStrict"]);
             Assert.Equal("Block", map["AssessmentDecisionBalanced"]);
+            Assert.Equal("Warn", map["AssessmentDecisionLenient"]);
         }
         finally
         {
