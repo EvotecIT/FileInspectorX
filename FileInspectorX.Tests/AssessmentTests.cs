@@ -179,6 +179,29 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Repeated_Security_Findings_Do_Not_Inflate_Same_Assessment_Code()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "tool:bitsadmin",
+                "tool:certutil",
+                "ps:iex",
+                "ps:iex"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(30, assessed.Score);
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Tool.Indicator"));
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Script.IEX"));
+        Assert.Equal(10, assessed.Factors["Tool.Indicator"]);
+        Assert.Equal(20, assessed.Factors["Script.IEX"]);
+    }
+
+    [Fact]
     public void ToAssessmentView_Preserves_Captured_Assessment_When_Current_Settings_Change()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;

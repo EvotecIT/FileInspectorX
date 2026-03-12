@@ -99,6 +99,7 @@ public static partial class FileInspector
     public static AssessmentResult Assess(FileAnalysis a)
     {
         int score = 0; var codes = new List<string>(32); var factors = new Dictionary<string,int>(32);
+        var securityFindings = a.SecurityFindings ?? Array.Empty<string>();
 
         void Add(string code, int weight)
         {
@@ -114,6 +115,12 @@ public static partial class FileInspector
                 codes.Add(code);
                 factors[code] = weight;
             }
+        }
+
+        var securityFindingCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddSecurityFindingCode(string code, int weight)
+        {
+            if (securityFindingCodes.Add(code)) Add(code, weight);
         }
 
         // Containers and archives
@@ -158,7 +165,7 @@ public static partial class FileInspector
             }
         }
         // Embedded base64 data URIs in HTML/scripts
-        if ((a.SecurityFindings ?? Array.Empty<string>()).Any(s => s.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) || s.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase)))
+        if (securityFindings.Any(s => s.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) || s.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase)))
         {
             Add("Encoded.Embedded", 10);
         }
@@ -193,36 +200,36 @@ public static partial class FileInspector
             if (ext is "exe" or "dll") Add("Sig.Absent", 10);
         }
 
-        bool hasSpecificTokenFamilyFinding = (a.SecurityFindings ?? Array.Empty<string>()).Any(f =>
+        bool hasSpecificTokenFamilyFinding = securityFindings.Any(f =>
             f.StartsWith("secret:token:", StringComparison.OrdinalIgnoreCase));
 
         // Scripts/text cues (neutral codes from SecurityFindings)
-        foreach (var f in a.SecurityFindings ?? Array.Empty<string>())
+        foreach (var f in securityFindings)
         {
             switch (f)
             {
-                case var t when t != null && t.StartsWith("tool:"): Add("Tool.Indicator", 10); break;
-                case "ps:encoded": Add("Script.Encoded", 25); break;
-                case "ps:iex": Add("Script.IEX", 20); break;
-                case "ps:web-dl": Add("Script.WebDownload", 15); break;
-                case "ps:reflection": Add("Script.Reflection", 10); break;
-                case "py:exec-b64": Add("Script.PyExecB64", 20); break;
-                case "py:exec": Add("Script.PyExec", 10); break;
-                case "rb:eval": Add("Script.RbEval", 10); break;
-                case "lua:exec": Add("Script.LuaExec", 10); break;
-                case "sig:mkatz": Add("Sig.MimikatzEncodedHint", 30); break;
-                case "sig:sekurlsa": Add("Sig.SekurlsaEncodedHint", 30); break;
-                case "secret:privkey": Add("Secret.PrivateKey", 40); break;
-                case "secret:jwt": Add("Secret.JWT", 25); break;
-                case "secret:keypattern": Add("Secret.KeyPattern", 15); break;
+                case var t when t != null && t.StartsWith("tool:"): AddSecurityFindingCode("Tool.Indicator", 10); break;
+                case "ps:encoded": AddSecurityFindingCode("Script.Encoded", 25); break;
+                case "ps:iex": AddSecurityFindingCode("Script.IEX", 20); break;
+                case "ps:web-dl": AddSecurityFindingCode("Script.WebDownload", 15); break;
+                case "ps:reflection": AddSecurityFindingCode("Script.Reflection", 10); break;
+                case "py:exec-b64": AddSecurityFindingCode("Script.PyExecB64", 20); break;
+                case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
+                case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;
+                case "lua:exec": AddSecurityFindingCode("Script.LuaExec", 10); break;
+                case "sig:mkatz": AddSecurityFindingCode("Sig.MimikatzEncodedHint", 30); break;
+                case "sig:sekurlsa": AddSecurityFindingCode("Sig.SekurlsaEncodedHint", 30); break;
+                case "secret:privkey": AddSecurityFindingCode("Secret.PrivateKey", 40); break;
+                case "secret:jwt": AddSecurityFindingCode("Secret.JWT", 25); break;
+                case "secret:keypattern": AddSecurityFindingCode("Secret.KeyPattern", 15); break;
                 case "secret:token":
-                    if (!hasSpecificTokenFamilyFinding) Add("Secret.TokenFamily", 30);
+                    if (!hasSpecificTokenFamilyFinding) AddSecurityFindingCode("Secret.TokenFamily", 30);
                     break;
-                case "secret:token:github": Add("Secret.TokenFamily.GitHub", 32); break;
-                case "secret:token:gitlab": Add("Secret.TokenFamily.GitLab", 28); break;
-                case "secret:token:aws-akid": Add("Secret.TokenFamily.AwsAccessKeyId", 14); break;
-                case "secret:token:slack": Add("Secret.TokenFamily.Slack", 32); break;
-                case "secret:token:stripe": Add("Secret.TokenFamily.Stripe", 32); break;
+                case "secret:token:github": AddSecurityFindingCode("Secret.TokenFamily.GitHub", 32); break;
+                case "secret:token:gitlab": AddSecurityFindingCode("Secret.TokenFamily.GitLab", 28); break;
+                case "secret:token:aws-akid": AddSecurityFindingCode("Secret.TokenFamily.AwsAccessKeyId", 14); break;
+                case "secret:token:slack": AddSecurityFindingCode("Secret.TokenFamily.Slack", 32); break;
+                case "secret:token:stripe": AddSecurityFindingCode("Secret.TokenFamily.Stripe", 32); break;
             }
         }
 
@@ -290,7 +297,7 @@ public static partial class FileInspector
         if (string.Equals(a.Installer?.Scope, "PerUser", StringComparison.OrdinalIgnoreCase)) Add("Msi.PerUser", 5);
         if (!string.IsNullOrWhiteSpace(a.Installer?.UrlInfoAbout) || !string.IsNullOrWhiteSpace(a.Installer?.UrlUpdateInfo) || !string.IsNullOrWhiteSpace(a.Installer?.SupportUrl))
             Add("Msi.UrlsPresent", 2);
-        if (a.SecurityFindings != null && a.SecurityFindings.Any(s => string.Equals(s, "pe:regsvr", StringComparison.OrdinalIgnoreCase)))
+        if (securityFindings.Any(s => string.Equals(s, "pe:regsvr", StringComparison.OrdinalIgnoreCase)))
             Add("PE.RegSvrExport", 10);
 
         // Appx/MSIX capabilities and extensions
