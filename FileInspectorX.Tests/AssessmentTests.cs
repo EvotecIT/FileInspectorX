@@ -461,6 +461,54 @@ public class AssessmentTests
         Assert.Contains("Sig.Absent", assessed.Codes);
     }
 
+    [Theory]
+    [InlineData("com")]
+    [InlineData("pif")]
+    [InlineData("msp")]
+    [InlineData("msix")]
+    [InlineData("appx")]
+    public void Assess_Encoded_Inner_Risky_Executable_Families_Get_Executable_Penalty(string extension)
+    {
+        var analysis = new FileAnalysis
+        {
+            EncodedKind = "base64",
+            EncodedInnerDetection = new ContentTypeDetectionResult
+            {
+                Extension = extension
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(30, assessed.Score);
+        Assert.Contains("Encoded.Present", assessed.Codes);
+        Assert.Contains("Encoded.InnerExecutable", assessed.Codes);
+        Assert.Equal(20, assessed.Factors["Encoded.InnerExecutable"]);
+    }
+
+    [Theory]
+    [InlineData("vbe")]
+    [InlineData("wsf")]
+    [InlineData("wsh")]
+    public void Assess_Encoded_Inner_Vbscript_Families_Get_Script_Penalty(string extension)
+    {
+        var analysis = new FileAnalysis
+        {
+            EncodedKind = "base64",
+            EncodedInnerDetection = new ContentTypeDetectionResult
+            {
+                Extension = extension
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.Contains("Encoded.Present", assessed.Codes);
+        Assert.Contains("Encoded.InnerScript", assessed.Codes);
+        Assert.Equal(15, assessed.Factors["Encoded.InnerScript"]);
+    }
+
     [Fact]
     public void Assess_Appx_Presence_Signals_Do_Not_Duplicate_Codes_Or_Inflate_Score()
     {
