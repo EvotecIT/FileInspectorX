@@ -189,19 +189,30 @@ public static partial class FileInspector
         if (sig?.Present == true)
         {
             bool hasPrimaryTrustFailure = false;
+            bool hasSignatureFailure = false;
             if (sig.IsSelfSigned == true)
             {
                 Add("Sig.SelfSigned", 20);
                 hasPrimaryTrustFailure = true;
+                hasSignatureFailure = true;
             }
             else if (sig.ChainValid == false)
             {
                 Add("Sig.ChainInvalid", 25);
                 hasPrimaryTrustFailure = true;
+                hasSignatureFailure = true;
             }
-            if (sig.EnvelopeSignatureValid == false) Add("Sig.BadEnvelope", 15);
-            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false) Add("Sig.WinTrustInvalid", 25);
-            if (sig.TimestampPresent == false) Add("Sig.NoTimestamp", 5);
+            if (sig.EnvelopeSignatureValid == false)
+            {
+                Add("Sig.BadEnvelope", 15);
+                hasSignatureFailure = true;
+            }
+            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false)
+            {
+                Add("Sig.WinTrustInvalid", 25);
+                hasSignatureFailure = true;
+            }
+            if (!hasSignatureFailure && sig.TimestampPresent == false) Add("Sig.NoTimestamp", 5);
         }
         else
         {
