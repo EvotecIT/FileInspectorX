@@ -169,6 +169,7 @@ public class AssessmentTests
         {
             Authenticode = new AuthenticodeInfo
             {
+                Present = true,
                 IsSelfSigned = true,
                 ChainValid = false,
                 IsTrustedWindowsPolicy = false,
@@ -223,6 +224,27 @@ public class AssessmentTests
             Settings.AllowedVendors = oldAllowedVendors;
             Settings.VendorMatchMode = oldVendorMatchMode;
         }
+    }
+
+    [Fact]
+    public void Assess_Empty_Authenticode_Object_Does_Not_Suppress_Unsigned_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "exe"
+            },
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = false
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
     }
 
     [Fact]
