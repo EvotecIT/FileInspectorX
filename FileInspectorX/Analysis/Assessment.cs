@@ -292,6 +292,9 @@ public static partial class FileInspector
                 case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
                 case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;
                 case "lua:exec": AddSecurityFindingCode("Script.LuaExec", 10); break;
+                case var n when n != null && n.StartsWith("net:hosts-ext=", StringComparison.OrdinalIgnoreCase):
+                    AddSecurityFindingCode("Script.ExternalHosts", 10);
+                    break;
                 case "sig:mkatz":
                 case "sig:X1001":
                     AddSecurityFindingCode("Sig.MimikatzEncodedHint", 30);
