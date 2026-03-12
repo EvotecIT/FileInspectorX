@@ -552,6 +552,35 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_New_Sensitive_Signature_Codes_Are_Scored_And_Deduplicated()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "sig:X1001",
+                "sig:X1002",
+                "sig:X1003",
+                "sig:X1004",
+                "sig:X1005",
+                "sig:X1006"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(100, assessed.Score);
+        Assert.Contains("Sig.MimikatzEncodedHint", assessed.Codes);
+        Assert.Contains("Sig.SekurlsaEncodedHint", assessed.Codes);
+        Assert.Contains("Sig.DCSyncEncodedHint", assessed.Codes);
+        Assert.Contains("Sig.InvokeMimikatzHint", assessed.Codes);
+        Assert.Contains("Sig.ProcdumpHint", assessed.Codes);
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Sig.SekurlsaEncodedHint"));
+        Assert.Equal(140, assessed.Factors.Values.Sum());
+        Assert.Equal(20, assessed.Factors["Sig.ProcdumpHint"]);
+    }
+
+    [Fact]
     public void Assess_Appx_Presence_Signals_Do_Not_Duplicate_Codes_Or_Inflate_Score()
     {
         var analysis = new FileAnalysis

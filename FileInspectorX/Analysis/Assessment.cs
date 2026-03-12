@@ -287,8 +287,24 @@ public static partial class FileInspector
                 case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
                 case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;
                 case "lua:exec": AddSecurityFindingCode("Script.LuaExec", 10); break;
-                case "sig:mkatz": AddSecurityFindingCode("Sig.MimikatzEncodedHint", 30); break;
-                case "sig:sekurlsa": AddSecurityFindingCode("Sig.SekurlsaEncodedHint", 30); break;
+                case "sig:mkatz":
+                case "sig:X1001":
+                    AddSecurityFindingCode("Sig.MimikatzEncodedHint", 30);
+                    break;
+                case "sig:sekurlsa":
+                case "sig:X1002":
+                case "sig:X1006":
+                    AddSecurityFindingCode("Sig.SekurlsaEncodedHint", 30);
+                    break;
+                case "sig:X1003":
+                    AddSecurityFindingCode("Sig.DCSyncEncodedHint", 30);
+                    break;
+                case "sig:X1004":
+                    AddSecurityFindingCode("Sig.InvokeMimikatzHint", 30);
+                    break;
+                case "sig:X1005":
+                    AddSecurityFindingCode("Sig.ProcdumpHint", 20);
+                    break;
                 case "secret:privkey": AddSecurityFindingCode("Secret.PrivateKey", 40); break;
                 case "secret:jwt": AddSecurityFindingCode("Secret.JWT", 25); break;
                 case "secret:keypattern": AddSecurityFindingCode("Secret.KeyPattern", 15); break;
