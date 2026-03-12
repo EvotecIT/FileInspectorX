@@ -206,7 +206,7 @@ public static partial class FileInspector
         else
         {
             var ext = a.Detection?.Extension?.ToLowerInvariant();
-            if (ext is "exe" or "dll") Add("Sig.Absent", 10);
+            if (ext is "exe" or "dll" or "sys" or "cpl") Add("Sig.Absent", 10);
         }
 
         bool hasSpecificTokenFamilyFinding = securityFindings.Any(f =>
