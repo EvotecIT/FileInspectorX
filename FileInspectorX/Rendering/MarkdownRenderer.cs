@@ -93,6 +93,12 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Authenticode digest algorithm: {r.AuthenticodeDigestAlgorithm}");
             if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm))
                 sb.AppendLine($"- File digest algorithm: {r.AuthenticodeFileDigestAlgorithm}");
+            if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithmOid))
+                sb.AppendLine($"- File digest algorithm OID: {r.AuthenticodeFileDigestAlgorithmOid}");
+            if (!string.IsNullOrEmpty(r.SignerSubject))
+                sb.AppendLine($"- Signer subject: {r.SignerSubject}");
+            if (!string.IsNullOrEmpty(r.SignerIssuer))
+                sb.AppendLine($"- Signer issuer: {r.SignerIssuer}");
             if (r.WinTrustStatusCode.HasValue)
             {
                 var ok = r.IsTrustedWindowsPolicy == true ? "Trusted" : "Untrusted";
@@ -128,8 +134,14 @@ public static class MarkdownRenderer
                 sb.AppendLine($"- Signer self-signed: {(r.SignerSelfSigned.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.SignerThumbprint))
                 sb.AppendLine($"- Signer thumbprint: {r.SignerThumbprint}");
+            if (!string.IsNullOrEmpty(r.SignerSerialHex))
+                sb.AppendLine($"- Signer serial: {r.SignerSerialHex}");
             if (!string.IsNullOrEmpty(r.SignerSignatureAlgorithm))
                 sb.AppendLine($"- Signer signature algorithm: {r.SignerSignatureAlgorithm}");
+            if (r.SignerNotBefore.HasValue)
+                sb.AppendLine($"- Signer not before: {r.SignerNotBefore.Value:u}");
+            if (r.SignerNotAfter.HasValue)
+                sb.AppendLine($"- Signer not after: {r.SignerNotAfter.Value:u}");
             if (r.AuthenticodeFileHashMatches.HasValue)
                 sb.AppendLine($"- Authenticode file hash matches: {(r.AuthenticodeFileHashMatches.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.AuthenticodeVerificationNote))
@@ -585,13 +597,19 @@ public static class MarkdownRenderer
                view.AuthenticodeTimestampPresent.HasValue ||
                !string.IsNullOrEmpty(view.AuthenticodeDigestAlgorithm) ||
                !string.IsNullOrEmpty(view.AuthenticodeFileDigestAlgorithm) ||
+               !string.IsNullOrEmpty(view.AuthenticodeFileDigestAlgorithmOid) ||
+               !string.IsNullOrEmpty(view.SignerSubject) ||
+               !string.IsNullOrEmpty(view.SignerIssuer) ||
                view.IsTrustedWindowsPolicy.HasValue ||
                view.WinTrustStatusCode.HasValue ||
                !string.IsNullOrEmpty(view.SignerSubjectCN) ||
                !string.IsNullOrEmpty(view.SignerSubjectO) ||
                view.SignerSelfSigned.HasValue ||
                !string.IsNullOrEmpty(view.SignerThumbprint) ||
+               !string.IsNullOrEmpty(view.SignerSerialHex) ||
                !string.IsNullOrEmpty(view.SignerSignatureAlgorithm) ||
+               view.SignerNotBefore.HasValue ||
+               view.SignerNotAfter.HasValue ||
                view.TimestampTime.HasValue ||
                !string.IsNullOrEmpty(view.TimestampAuthority) ||
                !string.IsNullOrEmpty(view.AuthenticodeVerificationNote) ||

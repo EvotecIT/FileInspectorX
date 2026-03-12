@@ -762,13 +762,19 @@ public class DetectionDetailsTests
                 ChainValid = true,
                 DigestAlgorithm = "SHA256",
                 FileDigestAlgorithm = "SHA256",
+                FileDigestAlgorithmOid = "2.16.840.1.101.3.4.2.1",
+                SignerSubject = "CN=Contoso Code Signing, O=Contoso Ltd, C=US",
+                SignerIssuer = "CN=Contoso Issuing CA, O=Contoso PKI, C=US",
                 SignerSubjectCN = "Contoso Code Signing",
                 SignerSubjectO = "Contoso Ltd",
                 IssuerCN = "Contoso Issuing CA",
                 IssuerO = "Contoso PKI",
                 IsSelfSigned = false,
                 SignerThumbprint = "ABCDEF1234",
+                SignerSerialHex = "00A1B2C3D4",
                 SignatureAlgorithm = "sha256RSA",
+                NotBefore = new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
+                NotAfter = new DateTimeOffset(2027, 8, 9, 10, 11, 12, TimeSpan.Zero),
                 TimestampPresent = true,
                 TimestampTime = new DateTimeOffset(2025, 2, 3, 4, 5, 6, TimeSpan.Zero),
                 TimestampAuthority = "http://tsa.contoso.example",
@@ -784,11 +790,17 @@ public class DetectionDetailsTests
         Assert.Equal(true, rv.AuthenticodeEnvelopeValid);
         Assert.Equal("SHA256", rv.AuthenticodeDigestAlgorithm);
         Assert.Equal("SHA256", rv.AuthenticodeFileDigestAlgorithm);
+        Assert.Equal("2.16.840.1.101.3.4.2.1", rv.AuthenticodeFileDigestAlgorithmOid);
+        Assert.Equal("CN=Contoso Code Signing, O=Contoso Ltd, C=US", rv.SignerSubject);
+        Assert.Equal("CN=Contoso Issuing CA, O=Contoso PKI, C=US", rv.SignerIssuer);
         Assert.Equal("Contoso Code Signing", rv.SignerSubjectCN);
         Assert.Equal("Contoso Ltd", rv.SignerSubjectO);
         Assert.Equal(false, rv.SignerSelfSigned);
         Assert.Equal("ABCDEF1234", rv.SignerThumbprint);
+        Assert.Equal("00A1B2C3D4", rv.SignerSerialHex);
         Assert.Equal("sha256RSA", rv.SignerSignatureAlgorithm);
+        Assert.Equal(new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero), rv.SignerNotBefore);
+        Assert.Equal(new DateTimeOffset(2027, 8, 9, 10, 11, 12, TimeSpan.Zero), rv.SignerNotAfter);
         Assert.Equal(new DateTimeOffset(2025, 2, 3, 4, 5, 6, TimeSpan.Zero), rv.TimestampTime);
         Assert.Equal("http://tsa.contoso.example", rv.TimestampAuthority);
         Assert.Equal("Verified PKCS#7 envelope and file digest.", rv.AuthenticodeVerificationNote);
@@ -797,7 +809,13 @@ public class DetectionDetailsTests
         Assert.True(rv.CompactFields!.ContainsKey("Signature"));
         Assert.Contains("AuthenticodeEnvelopeValid", rv.CompactFields["Signature"]);
         Assert.Contains("AuthenticodeDigestAlgorithm", rv.CompactFields["Signature"]);
+        Assert.Contains("AuthenticodeFileDigestAlgorithmOid", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerSubject", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerIssuer", rv.CompactFields["Signature"]);
         Assert.Contains("SignerSubjectCN", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerSerialHex", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerNotBefore", rv.CompactFields["Signature"]);
+        Assert.Contains("SignerNotAfter", rv.CompactFields["Signature"]);
         Assert.Contains("TimestampTime", rv.CompactFields["Signature"]);
         Assert.Contains("AuthenticodeFileHashMatches", rv.CompactFields["Signature"]);
 
@@ -808,17 +826,29 @@ public class DetectionDetailsTests
         Assert.True(compact.ContainsKey("Signature"));
         Assert.Contains("AuthenticodeEnvelopeValid", compact["Signature"]);
         Assert.Contains("AuthenticodeDigestAlgorithm", compact["Signature"]);
+        Assert.Contains("AuthenticodeFileDigestAlgorithmOid", compact["Signature"]);
+        Assert.Contains("SignerSubject", compact["Signature"]);
+        Assert.Contains("SignerIssuer", compact["Signature"]);
         Assert.Contains("SignerSubjectCN", compact["Signature"]);
+        Assert.Contains("SignerSerialHex", compact["Signature"]);
+        Assert.Contains("SignerNotBefore", compact["Signature"]);
+        Assert.Contains("SignerNotAfter", compact["Signature"]);
         Assert.Contains("TimestampTime", compact["Signature"]);
         Assert.Contains("AuthenticodeFileHashMatches", compact["Signature"]);
         Assert.Equal(true, map["AuthenticodeEnvelopeValid"]);
         Assert.Equal("SHA256", map["AuthenticodeDigestAlgorithm"]);
         Assert.Equal("SHA256", map["AuthenticodeFileDigestAlgorithm"]);
+        Assert.Equal("2.16.840.1.101.3.4.2.1", map["AuthenticodeFileDigestAlgorithmOid"]);
+        Assert.Equal("CN=Contoso Code Signing, O=Contoso Ltd, C=US", map["SignerSubject"]);
+        Assert.Equal("CN=Contoso Issuing CA, O=Contoso PKI, C=US", map["SignerIssuer"]);
         Assert.Equal("Contoso Code Signing", map["SignerSubjectCN"]);
         Assert.Equal("Contoso Ltd", map["SignerSubjectO"]);
         Assert.Equal(false, map["SignerSelfSigned"]);
         Assert.Equal("ABCDEF1234", map["SignerThumbprint"]);
+        Assert.Equal("00A1B2C3D4", map["SignerSerialHex"]);
         Assert.Equal("sha256RSA", map["SignerSignatureAlgorithm"]);
+        Assert.Equal(new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero), map["SignerNotBefore"]);
+        Assert.Equal(new DateTimeOffset(2027, 8, 9, 10, 11, 12, TimeSpan.Zero), map["SignerNotAfter"]);
         Assert.Equal(new DateTimeOffset(2025, 2, 3, 4, 5, 6, TimeSpan.Zero), map["TimestampTime"]);
         Assert.Equal("http://tsa.contoso.example", map["TimestampAuthority"]);
         Assert.Equal("Verified PKCS#7 envelope and file digest.", map["AuthenticodeVerificationNote"]);
@@ -829,13 +859,19 @@ public class DetectionDetailsTests
         Assert.Contains("Authenticode envelope valid: yes", md);
         Assert.Contains("Authenticode digest algorithm: SHA256", md);
         Assert.Contains("File digest algorithm: SHA256", md);
+        Assert.Contains("File digest algorithm OID: 2.16.840.1.101.3.4.2.1", md);
+        Assert.Contains("Signer subject: CN=Contoso Code Signing, O=Contoso Ltd, C=US", md);
+        Assert.Contains("Signer issuer: CN=Contoso Issuing CA, O=Contoso PKI, C=US", md);
         Assert.Contains("Signer subject CN: Contoso Code Signing", md);
         Assert.Contains("Signer subject O: Contoso Ltd", md);
         Assert.Contains("Timestamp Authority: http://tsa.contoso.example", md);
         Assert.Contains("Timestamp time: 2025-02-03 04:05:06Z", md);
         Assert.Contains("Signer self-signed: no", md);
         Assert.Contains("Signer thumbprint: ABCDEF1234", md);
+        Assert.Contains("Signer serial: 00A1B2C3D4", md);
         Assert.Contains("Signer signature algorithm: sha256RSA", md);
+        Assert.Contains("Signer not before: 2024-01-02 03:04:05Z", md);
+        Assert.Contains("Signer not after: 2027-08-09 10:11:12Z", md);
         Assert.Contains("Authenticode file hash matches: yes", md);
         Assert.Contains("Verification note: Verified PKCS#7 envelope and file digest.", md);
     }

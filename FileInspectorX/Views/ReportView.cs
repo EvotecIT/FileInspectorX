@@ -72,6 +72,12 @@ public sealed class ReportView
     public string? AuthenticodeDigestAlgorithm { get; set; }
     /// <summary>Digest algorithm used for the file content digest.</summary>
     public string? AuthenticodeFileDigestAlgorithm { get; set; }
+    /// <summary>OID of the file content digest algorithm.</summary>
+    public string? AuthenticodeFileDigestAlgorithmOid { get; set; }
+    /// <summary>Signer subject distinguished name.</summary>
+    public string? SignerSubject { get; set; }
+    /// <summary>Signer issuer distinguished name.</summary>
+    public string? SignerIssuer { get; set; }
     /// <summary>Signer subject common name when available.</summary>
     public string? SignerSubjectCN { get; set; }
     /// <summary>Signer subject organization when available.</summary>
@@ -80,8 +86,14 @@ public sealed class ReportView
     public bool? SignerSelfSigned { get; set; }
     /// <summary>Signer certificate thumbprint.</summary>
     public string? SignerThumbprint { get; set; }
+    /// <summary>Signer certificate serial number.</summary>
+    public string? SignerSerialHex { get; set; }
     /// <summary>Signer certificate signature algorithm.</summary>
     public string? SignerSignatureAlgorithm { get; set; }
+    /// <summary>Signer certificate not-before time.</summary>
+    public DateTimeOffset? SignerNotBefore { get; set; }
+    /// <summary>Signer certificate not-after time.</summary>
+    public DateTimeOffset? SignerNotAfter { get; set; }
     /// <summary>Timestamp time reported by the timestamp authority.</summary>
     public DateTimeOffset? TimestampTime { get; set; }
     /// <summary>Timestamp authority display name or URL.</summary>
@@ -439,11 +451,17 @@ public sealed class ReportView
             r.AuthenticodeTimestampPresent = a.Authenticode.TimestampPresent;
             r.AuthenticodeDigestAlgorithm = a.Authenticode.DigestAlgorithm;
             r.AuthenticodeFileDigestAlgorithm = a.Authenticode.FileDigestAlgorithm;
+            r.AuthenticodeFileDigestAlgorithmOid = a.Authenticode.FileDigestAlgorithmOid;
+            r.SignerSubject = a.Authenticode.SignerSubject;
+            r.SignerIssuer = a.Authenticode.SignerIssuer;
             r.SignerSubjectCN = a.Authenticode.SignerSubjectCN;
             r.SignerSubjectO = a.Authenticode.SignerSubjectO;
             r.SignerSelfSigned = a.Authenticode.IsSelfSigned;
             r.SignerThumbprint = a.Authenticode.SignerThumbprint;
+            r.SignerSerialHex = a.Authenticode.SignerSerialHex;
             r.SignerSignatureAlgorithm = a.Authenticode.SignatureAlgorithm;
+            r.SignerNotBefore = a.Authenticode.NotBefore;
+            r.SignerNotAfter = a.Authenticode.NotAfter;
             r.TimestampTime = a.Authenticode.TimestampTime;
             r.TimestampAuthority = a.Authenticode.TimestampAuthority;
             r.AuthenticodeVerificationNote = a.Authenticode.VerificationNote;
@@ -840,11 +858,17 @@ public sealed class ReportView
         if (r.AuthenticodeTimestampPresent.HasValue) AddField("Signature", "AuthenticodeTimestampPresent", r.AuthenticodeTimestampPresent.Value ? "true" : "false");
         AddField("Signature", "AuthenticodeDigestAlgorithm", r.AuthenticodeDigestAlgorithm);
         AddField("Signature", "AuthenticodeFileDigestAlgorithm", r.AuthenticodeFileDigestAlgorithm);
+        AddField("Signature", "AuthenticodeFileDigestAlgorithmOid", r.AuthenticodeFileDigestAlgorithmOid);
+        AddField("Signature", "SignerSubject", r.SignerSubject);
+        AddField("Signature", "SignerIssuer", r.SignerIssuer);
         AddField("Signature", "SignerSubjectCN", r.SignerSubjectCN);
         AddField("Signature", "SignerSubjectO", r.SignerSubjectO);
         if (r.SignerSelfSigned.HasValue) AddField("Signature", "SignerSelfSigned", r.SignerSelfSigned.Value ? "true" : "false");
         AddField("Signature", "SignerThumbprint", r.SignerThumbprint);
+        AddField("Signature", "SignerSerialHex", r.SignerSerialHex);
         AddField("Signature", "SignerSignatureAlgorithm", r.SignerSignatureAlgorithm);
+        if (r.SignerNotBefore.HasValue) AddField("Signature", "SignerNotBefore", r.SignerNotBefore.Value.ToString("u"));
+        if (r.SignerNotAfter.HasValue) AddField("Signature", "SignerNotAfter", r.SignerNotAfter.Value.ToString("u"));
         if (r.TimestampTime.HasValue) AddField("Signature", "TimestampTime", r.TimestampTime.Value.ToString("u"));
         AddField("Signature", "TimestampAuthority", r.TimestampAuthority);
         AddField("Signature", "AuthenticodeVerificationNote", r.AuthenticodeVerificationNote);
@@ -1004,11 +1028,17 @@ public sealed class ReportView
            r.AuthenticodeTimestampPresent.HasValue ||
            !string.IsNullOrEmpty(r.AuthenticodeDigestAlgorithm) ||
            !string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm) ||
+           !string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithmOid) ||
+           !string.IsNullOrEmpty(r.SignerSubject) ||
+           !string.IsNullOrEmpty(r.SignerIssuer) ||
            !string.IsNullOrEmpty(r.SignerSubjectCN) ||
            !string.IsNullOrEmpty(r.SignerSubjectO) ||
            r.SignerSelfSigned.HasValue ||
            !string.IsNullOrEmpty(r.SignerThumbprint) ||
+           !string.IsNullOrEmpty(r.SignerSerialHex) ||
            !string.IsNullOrEmpty(r.SignerSignatureAlgorithm) ||
+           r.SignerNotBefore.HasValue ||
+           r.SignerNotAfter.HasValue ||
            r.TimestampTime.HasValue ||
            !string.IsNullOrEmpty(r.TimestampAuthority) ||
            !string.IsNullOrEmpty(r.AuthenticodeVerificationNote) ||
@@ -1201,11 +1231,17 @@ public sealed class ReportView
         if (AuthenticodeTimestampPresent.HasValue) d["AuthenticodeTimestampPresent"] = AuthenticodeTimestampPresent.Value;
         if (!string.IsNullOrEmpty(AuthenticodeDigestAlgorithm)) d["AuthenticodeDigestAlgorithm"] = AuthenticodeDigestAlgorithm;
         if (!string.IsNullOrEmpty(AuthenticodeFileDigestAlgorithm)) d["AuthenticodeFileDigestAlgorithm"] = AuthenticodeFileDigestAlgorithm;
+        if (!string.IsNullOrEmpty(AuthenticodeFileDigestAlgorithmOid)) d["AuthenticodeFileDigestAlgorithmOid"] = AuthenticodeFileDigestAlgorithmOid;
+        if (!string.IsNullOrEmpty(SignerSubject)) d["SignerSubject"] = SignerSubject;
+        if (!string.IsNullOrEmpty(SignerIssuer)) d["SignerIssuer"] = SignerIssuer;
         if (!string.IsNullOrEmpty(SignerSubjectCN)) d["SignerSubjectCN"] = SignerSubjectCN;
         if (!string.IsNullOrEmpty(SignerSubjectO)) d["SignerSubjectO"] = SignerSubjectO;
         if (SignerSelfSigned.HasValue) d["SignerSelfSigned"] = SignerSelfSigned.Value;
         if (!string.IsNullOrEmpty(SignerThumbprint)) d["SignerThumbprint"] = SignerThumbprint;
+        if (!string.IsNullOrEmpty(SignerSerialHex)) d["SignerSerialHex"] = SignerSerialHex;
         if (!string.IsNullOrEmpty(SignerSignatureAlgorithm)) d["SignerSignatureAlgorithm"] = SignerSignatureAlgorithm;
+        if (SignerNotBefore.HasValue) d["SignerNotBefore"] = SignerNotBefore.Value;
+        if (SignerNotAfter.HasValue) d["SignerNotAfter"] = SignerNotAfter.Value;
         if (TimestampTime.HasValue) d["TimestampTime"] = TimestampTime.Value;
         if (!string.IsNullOrEmpty(TimestampAuthority)) d["TimestampAuthority"] = TimestampAuthority;
         if (!string.IsNullOrEmpty(AuthenticodeVerificationNote)) d["AuthenticodeVerificationNote"] = AuthenticodeVerificationNote;
