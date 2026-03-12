@@ -124,13 +124,19 @@ public static partial class FileInspector
         }
 
         // Containers and archives
+        bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
+        bool isAppPackageContainer =
+            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix ||
+            string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
+
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
         if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0) Add("Archive.ContainsExecutables", 25);
-        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) Add("Archive.ContainsScripts", 20);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !isAppPackageContainer) Add("Archive.ContainsScripts", 20);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
-        if ((a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0) Add("Archive.DisguisedExecutables", 25);
+        if (hasDisguisedExecutables) Add("Archive.DisguisedExecutables", 25);
 
         // Documents with active content
         if ((a.Flags & ContentFlags.HasOoxmlMacros) != 0) Add("Office.Macros", 30);

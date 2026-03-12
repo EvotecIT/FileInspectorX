@@ -568,6 +568,48 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Disguised_Archive_Executable_Does_Not_Also_Add_Generic_Executable_Container_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerHasDisguisedExecutables
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.DisguisedExecutables", assessed.Codes);
+        Assert.Equal(25, assessed.Factors["Archive.DisguisedExecutables"]);
+    }
+
+    [Fact]
+    public void Assess_Appx_Container_Does_Not_Stack_Generic_Archive_Content_Penalties_With_Appx_Signals()
+    {
+        var analysis = new FileAnalysis
+        {
+            ContainerSubtype = "appx",
+            Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerContainsScripts,
+            Installer = new InstallerInfo
+            {
+                Kind = InstallerKind.Appx,
+                Capabilities = new[] { "runFullTrust", "broadFileSystemAccess" },
+                Extensions = new[] { "windows.protocol", "filetypeassociation" }
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(45, assessed.Score);
+        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
+        Assert.DoesNotContain("Archive.ContainsScripts", assessed.Codes);
+        Assert.Contains("Appx.Capability.RunFullTrust", assessed.Codes);
+        Assert.Contains("Appx.Capability.BroadFileSystemAccess", assessed.Codes);
+        Assert.Contains("Appx.Extension.Protocol", assessed.Codes);
+        Assert.Contains("Appx.Extension.FTA", assessed.Codes);
+    }
+
+    [Fact]
     public void ToAssessmentView_Preserves_Captured_Assessment_When_Current_Settings_Change()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;
