@@ -8,7 +8,7 @@ internal static partial class SecurityHeuristics
     // ACTIVE (default): Base64-encoded indicators decoded at runtime to avoid static signatures
     private static readonly string[] SensitiveIndicators = DecodeB64(new[]
     {
-        // "mimikatz", "sekurlsa::", "lsadump::dcsync", "Invoke-Mimikatz", "procdump ", "sekurlsa:"
+        // Neutral indicator set decoded from Base64 at runtime; keep raw trigger text out of source.
         "bWltaWthdHo=",
         "c2VrdXJsc2E6Og==",
         "bHNhZHVtcDo6ZGNzeW5j",
@@ -17,15 +17,15 @@ internal static partial class SecurityHeuristics
         "c2VrdXJsc2E6"
     });
 
-    // Neutral output codes aligned with SensitiveIndicators ordering; do not include the actual words
+    // Neutral output codes aligned with SensitiveIndicators ordering.
     private static readonly string[] SensitiveCodes = new[]
     {
-        "sig:X1001", // mimikatz
-        "sig:X1002", // sekurlsa::
-        "sig:X1003", // lsadump::dcsync
-        "sig:X1004", // Invoke-Mimikatz
-        "sig:X1005", // procdump
-        "sig:X1006", // sekurlsa:
+        "sig:X1001", // credential-dumping family A
+        "sig:X1002", // credential-dumping family B
+        "sig:X1003", // directory-replication dump family
+        "sig:X1004", // reflected credential-dumping family
+        "sig:X1005", // dump-utility family
+        "sig:X1006", // credential-dumping family C
     };
     internal static IReadOnlyList<string> AssessScript(string path, string? declaredExt, int budgetBytes)
     {

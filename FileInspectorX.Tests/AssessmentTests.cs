@@ -463,6 +463,37 @@ public class AssessmentTests
         Assert.Contains("Sig.Absent", assessed.Codes);
     }
 
+    [Fact]
+    public void Assess_Unsigned_Appx_ContainerSubtype_Gets_Signature_Absent_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            ContainerSubtype = "appx"
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Unsigned_Msix_InstallerKind_Gets_Signature_Absent_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Installer = new InstallerInfo
+            {
+                Kind = InstallerKind.Msix
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
+    }
+
     [Theory]
     [InlineData("com")]
     [InlineData("pif")]
@@ -702,7 +733,8 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(45, assessed.Score);
+        Assert.Equal(55, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
         Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
         Assert.DoesNotContain("Archive.ContainsScripts", assessed.Codes);
         Assert.Contains("Appx.Capability.RunFullTrust", assessed.Codes);
