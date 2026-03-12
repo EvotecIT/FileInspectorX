@@ -177,4 +177,38 @@ public class AssessmentTests
         Assert.Equal(5, assessed.Factors["Appx.Extension.Protocol"]);
         Assert.Equal(5, assessed.Factors["Appx.Extension.FTA"]);
     }
+
+    [Fact]
+    public void ToAssessmentView_Preserves_Captured_Assessment_When_Current_Settings_Change()
+    {
+        int oldWarn = Settings.AssessmentWarnThreshold;
+        int oldBlock = Settings.AssessmentBlockThreshold;
+
+        try
+        {
+            Settings.AssessmentWarnThreshold = 40;
+            Settings.AssessmentBlockThreshold = 70;
+
+            var analysis = new FileAnalysis
+            {
+                SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
+            };
+
+            analysis.Assessment = FileInspector.Assess(analysis);
+
+            Settings.AssessmentWarnThreshold = 80;
+            Settings.AssessmentBlockThreshold = 90;
+
+            var view = analysis.ToAssessmentView(@"C:\sample.txt");
+
+            Assert.Equal(70, view.Score);
+            Assert.Equal(AssessmentDecision.Block, view.Decision);
+            Assert.Contains("Secret.JWT", view.Codes);
+        }
+        finally
+        {
+            Settings.AssessmentWarnThreshold = oldWarn;
+            Settings.AssessmentBlockThreshold = oldBlock;
+        }
+    }
 }

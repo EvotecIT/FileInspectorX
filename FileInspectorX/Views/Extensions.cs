@@ -31,7 +31,13 @@ public static class ViewExtensions
         foreach (var rv in ReferencesView.From(path, a.References)) { rv.Raw = a; yield return rv; }
     }
     /// <summary>Projects assessment into an <see cref="AssessmentView"/>; attaches the original object to <c>Raw</c>.</summary>
-    public static AssessmentView ToAssessmentView(this FileAnalysis a, string path) { var v = AssessmentView.From(path, FileInspector.Assess(a)); v.Raw = a; return v; }
+    public static AssessmentView ToAssessmentView(this FileAnalysis a, string path)
+    {
+        var assessment = a.Assessment ?? FileInspector.Assess(a);
+        var v = AssessmentView.From(path, assessment);
+        v.Raw = a;
+        return v;
+    }
     /// <summary>Projects installer metadata into an <see cref="InstallerView"/>; attaches the original object to <c>Raw</c>.</summary>
     public static InstallerView ToInstallerView(this FileAnalysis a, string path) { var v = InstallerView.From(path, a.Installer); v.Raw = a; return v; }
     /// <summary>Projects Windows shell properties into <see cref="ShellPropertiesView"/> rows; attaches the original object to <c>Raw</c>.</summary>
