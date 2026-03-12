@@ -163,6 +163,69 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Does_Not_Triple_Count_One_SelfSigned_Trust_Failure()
+    {
+        var analysis = new FileAnalysis
+        {
+            Authenticode = new AuthenticodeInfo
+            {
+                IsSelfSigned = true,
+                ChainValid = false,
+                IsTrustedWindowsPolicy = false,
+                TimestampPresent = true
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(20, assessed.Score);
+        Assert.Contains("Sig.SelfSigned", assessed.Codes);
+        Assert.DoesNotContain("Sig.ChainInvalid", assessed.Codes);
+        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Does_Not_Double_Discount_Allowed_Vendor_From_Package_And_Signature()
+    {
+        var oldAllowedVendors = Settings.AllowedVendors;
+        var oldVendorMatchMode = Settings.VendorMatchMode;
+        try
+        {
+            Settings.AllowedVendors = new[] { "Contoso" };
+            Settings.VendorMatchMode = VendorMatchMode.Exact;
+
+            var analysis = new FileAnalysis
+            {
+                Installer = new InstallerInfo
+                {
+                    PublisherDisplayName = "Contoso",
+                    MsiCustomActions = new MsiCustomActionSummary
+                    {
+                        CountExe = 1
+                    }
+                },
+                Authenticode = new AuthenticodeInfo
+                {
+                    Present = true,
+                    SignerSubjectCN = "Contoso"
+                }
+            };
+
+            var assessed = FileInspector.Assess(analysis);
+
+            Assert.Equal(20, assessed.Score);
+            Assert.Contains("Package.VendorAllowed", assessed.Codes);
+            Assert.DoesNotContain("Sig.VendorAllowed", assessed.Codes);
+            Assert.Equal(-15, assessed.Factors["Package.VendorAllowed"]);
+        }
+        finally
+        {
+            Settings.AllowedVendors = oldAllowedVendors;
+            Settings.VendorMatchMode = oldVendorMatchMode;
+        }
+    }
+
+    [Fact]
     public void Assess_Appx_Presence_Signals_Do_Not_Duplicate_Codes_Or_Inflate_Score()
     {
         var analysis = new FileAnalysis
