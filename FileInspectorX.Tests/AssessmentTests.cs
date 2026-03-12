@@ -568,6 +568,37 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Tool_Indicator_Still_Scores_When_It_Is_The_Only_Signal()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[] { "tool:bitsadmin" }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Tool.Indicator", assessed.Codes);
+        Assert.Equal(10, assessed.Factors["Tool.Indicator"]);
+    }
+
+    [Fact]
+    public void Assess_Tool_Indicator_Does_Not_Stack_On_Generic_Archive_Content_Signals()
+    {
+        var analysis = new FileAnalysis
+        {
+            Flags = ContentFlags.ContainerContainsExecutables,
+            SecurityFindings = new[] { "tool:bitsadmin" }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
+        Assert.DoesNotContain("Tool.Indicator", assessed.Codes);
+    }
+
+    [Fact]
     public void Assess_Disguised_Archive_Executable_Does_Not_Also_Add_Generic_Executable_Container_Penalty()
     {
         var analysis = new FileAnalysis

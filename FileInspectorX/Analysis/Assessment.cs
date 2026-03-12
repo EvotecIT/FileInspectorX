@@ -129,6 +129,11 @@ public static partial class FileInspector
             a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix ||
             string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
+        bool hasArchiveContentRisk =
+            (a.Flags & (ContentFlags.ContainerContainsExecutables |
+                        ContentFlags.ContainerContainsScripts |
+                        ContentFlags.ContainerContainsInstallers |
+                        ContentFlags.ContainerHasDisguisedExecutables)) != 0;
 
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
@@ -235,7 +240,9 @@ public static partial class FileInspector
         {
             switch (f)
             {
-                case var t when t != null && t.StartsWith("tool:"): AddSecurityFindingCode("Tool.Indicator", 10); break;
+                case var t when t != null && t.StartsWith("tool:"):
+                    if (!hasArchiveContentRisk) AddSecurityFindingCode("Tool.Indicator", 10);
+                    break;
                 case "ps:encoded": AddSecurityFindingCode("Script.Encoded", 25); break;
                 case "ps:iex": AddSecurityFindingCode("Script.IEX", 20); break;
                 case "ps:web-dl": AddSecurityFindingCode("Script.WebDownload", 15); break;
