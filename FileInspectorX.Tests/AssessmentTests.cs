@@ -137,6 +137,16 @@ public class AssessmentTests
     public void AssessmentLegend_ContainsSecretEntries()
     {
         var legend = AssessmentLegend.GetLegend();
+        Assert.Contains(legend, e => e.Code == "Archive.ContainsInstallers");
+        Assert.Contains(legend, e => e.Code == "DotNet.StrongName");
+        Assert.Contains(legend, e => e.Code == "DotNet.NoStrongName");
+        Assert.Contains(legend, e => e.Code == "Html.ExternalLinks");
+        Assert.Contains(legend, e => e.Code == "Msi.PerUser");
+        Assert.Contains(legend, e => e.Code == "Msi.UrlsPresent");
+        Assert.Contains(legend, e => e.Code == "Name.DoubleExtension");
+        Assert.Contains(legend, e => e.Code == "Name.BiDiOverride");
+        Assert.Contains(legend, e => e.Code == "Name.ExtensionMismatch");
+        Assert.Contains(legend, e => e.Code == "PE.RegSvrExport");
         Assert.Contains(legend, e => e.Code == "Secret.JWT");
         Assert.Contains(legend, e => e.Code == "Secret.JWT.Volume");
         Assert.Contains(legend, e => e.Code == "Secret.PrivateKey");
@@ -156,13 +166,22 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Sig.Absent");
         Assert.Contains(legend, e => e.Code == "Encoded.EmbeddedExecutable");
         Assert.Contains(legend, e => e.Code == "Encoded.EmbeddedScript");
+        Assert.Contains(legend, e => e.Code == "Script.Encoded");
+        Assert.Contains(legend, e => e.Code == "Script.IEX");
+        Assert.Contains(legend, e => e.Code == "Script.WebDownload");
+        Assert.Contains(legend, e => e.Code == "Script.Reflection");
         Assert.Contains(legend, e => e.Code == "Script.CertutilDecode");
         Assert.Contains(legend, e => e.Code == "Script.Mshta");
         Assert.Contains(legend, e => e.Code == "Script.ActiveX");
         Assert.Contains(legend, e => e.Code == "Script.FromCharCode");
+        Assert.Contains(legend, e => e.Code == "Script.PyExecB64");
+        Assert.Contains(legend, e => e.Code == "Script.PyExec");
+        Assert.Contains(legend, e => e.Code == "Script.RbEval");
+        Assert.Contains(legend, e => e.Code == "Script.LuaExec");
         Assert.Contains(legend, e => e.Code == "Script.UncShares");
         Assert.Contains(legend, e => e.Code == "Script.NetworkDriveMapping");
         Assert.Contains(legend, e => e.Code == "Script.ExternalHosts");
+        Assert.Contains(legend, e => e.Code == "Tool.Indicator");
     }
 
     [Fact]
@@ -703,6 +722,35 @@ public class AssessmentTests
         Assert.Equal(20, assessed.Factors["Script.Mshta"]);
         Assert.Equal(15, assessed.Factors["Script.ActiveX"]);
         Assert.Equal(10, assessed.Factors["Script.FromCharCode"]);
+    }
+
+    [Fact]
+    public void Assess_Runtime_Script_Indicators_Are_Scored_And_Deduplicated()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "py:exec-b64",
+                "py:exec",
+                "rb:eval",
+                "lua:exec",
+                "py:exec"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(50, assessed.Score);
+        Assert.Contains("Script.PyExecB64", assessed.Codes);
+        Assert.Contains("Script.PyExec", assessed.Codes);
+        Assert.Contains("Script.RbEval", assessed.Codes);
+        Assert.Contains("Script.LuaExec", assessed.Codes);
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Script.PyExec"));
+        Assert.Equal(20, assessed.Factors["Script.PyExecB64"]);
+        Assert.Equal(10, assessed.Factors["Script.PyExec"]);
+        Assert.Equal(10, assessed.Factors["Script.RbEval"]);
+        Assert.Equal(10, assessed.Factors["Script.LuaExec"]);
     }
 
     [Fact]

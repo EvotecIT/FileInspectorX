@@ -18,6 +18,7 @@ public static class AssessmentLegend
         ["Archive.AbsolutePath"]        = new("Archive.AbsolutePath",  "Archive absolute paths","Archive contains entries with absolute paths.", "Archive", 55),
         ["Archive.ContainsExecutables"] = new("Archive.ContainsExecutables", "Executables inside archive", "Archive includes .exe/.dll/.msi items.", "Archive", 70),
         ["Archive.ContainsScripts"]     = new("Archive.ContainsScripts",     "Scripts inside archive",     "Archive includes scripts (.ps1/.sh/.bat/.js).", "Archive", 60),
+        ["Archive.ContainsInstallers"]  = new("Archive.ContainsInstallers",  "Installers inside archive",  "Archive includes installer or package files.", "Archive", 65),
         ["Archive.ContainsArchives"]    = new("Archive.ContainsArchives",    "Nested archives",            "Archive contains nested archive files.", "Archive", 45),
         ["Archive.DisguisedExecutables"] = new("Archive.DisguisedExecutables","Disguised executables",     "Container holds executables disguised by extension.", "Archive", 75),
         ["Archive.EncryptedEntries"]    = new("Archive.EncryptedEntries",    "Encrypted entries",          "Archive has password-protected items.", "Archive", 50),
@@ -43,6 +44,7 @@ public static class AssessmentLegend
         ["PE.NoNX"]              = new("PE.NoNX",              "PE: no NX/DEP",          "PE optional header lacks NX/DEP (NX_COMPAT).", "PE", 50),
         ["PE.NoCFG"]             = new("PE.NoCFG",             "PE: no CFG",             "PE optional header lacks Control Flow Guard.", "PE", 40),
         ["PE.NoHighEntropyVA"]   = new("PE.NoHighEntropyVA",   "PE: no HighEntropyVA",   "64-bit PE lacks HighEntropyVA hardening.", "PE", 20),
+        ["PE.RegSvrExport"]      = new("PE.RegSvrExport",      "PE registration export", "PE exports self-registration entry points often used by COM registration flows.", "PE", 30),
 
         // Signature/vendor signals
         ["Sig.SelfSigned"]       = new("Sig.SelfSigned",       "Self-signed signature",   "Signature is self-signed.", "Signature", 60),
@@ -61,6 +63,8 @@ public static class AssessmentLegend
         ["Msi.CustomActionExe"]    = new("Msi.CustomActionExe",    "MSI custom action (EXE)", "MSI contains EXE custom actions.", "Package", 50),
         ["Msi.CustomActionScript"] = new("Msi.CustomActionScript", "MSI custom action (script)", "MSI contains scripted custom actions.", "Package", 50),
         ["Msi.CustomActionDll"]    = new("Msi.CustomActionDll",    "MSI custom action (DLL)", "MSI contains DLL custom actions.", "Package", 25),
+        ["Msi.PerUser"]            = new("Msi.PerUser",            "Per-user installer", "Installer is scoped per-user instead of machine-wide.", "Package", 10),
+        ["Msi.UrlsPresent"]        = new("Msi.UrlsPresent",        "Installer URLs present", "Installer metadata includes support, update, or contact URLs.", "Package", 5),
 
         // Appx/MSIX
         ["Appx.Capability.RunFullTrust"]      = new("Appx.Capability.RunFullTrust", "MSIX RunFullTrust", "Appx/MSIX requests runFullTrust capability.", "Package", 50),
@@ -75,13 +79,32 @@ public static class AssessmentLegend
         ["Encoded.Embedded"]        = new("Encoded.Embedded",        "Embedded data URIs",        "HTML/script contains embedded base64 data URIs.", "Content", 35),
         ["Encoded.EmbeddedExecutable"] = new("Encoded.EmbeddedExecutable", "Embedded executable payload", "Embedded HTML/script data URIs decode to executable or package content.", "Content", 60),
         ["Encoded.EmbeddedScript"]     = new("Encoded.EmbeddedScript",     "Embedded script payload",     "Embedded HTML/script data URIs decode to script content.", "Content", 50),
+        ["Script.Encoded"]            = new("Script.Encoded", "Encoded script invocation", "Script includes encoded-command or base64 decode patterns associated with payload staging.", "Content", 55),
+        ["Script.IEX"]                = new("Script.IEX", "Dynamic expression execution", "Script invokes expression-style runtime execution.", "Content", 50),
+        ["Script.WebDownload"]        = new("Script.WebDownload", "Web download behavior", "Script downloads content from web endpoints at runtime.", "Content", 45),
+        ["Script.Reflection"]         = new("Script.Reflection", "Reflection-based loading", "Script uses reflection or runtime type loading patterns.", "Content", 40),
         ["Script.CertutilDecode"]     = new("Script.CertutilDecode", "certutil decode", "Script uses certutil decode behavior associated with payload reconstruction.", "Content", 45),
         ["Script.Mshta"]              = new("Script.Mshta", "mshta execution", "Script references mshta-style HTML application execution.", "Content", 55),
         ["Script.ActiveX"]            = new("Script.ActiveX", "ActiveX/COM script", "Script uses ActiveX or COM automation patterns associated with payload delivery.", "Content", 50),
         ["Script.FromCharCode"]       = new("Script.FromCharCode", "String assembly obfuscation", "Script builds long strings through repeated character-code assembly.", "Content", 40),
+        ["Script.PyExecB64"]          = new("Script.PyExecB64", "Python base64 execution", "Python script combines runtime execution with base64 decoding.", "Content", 50),
+        ["Script.PyExec"]             = new("Script.PyExec", "Python process execution", "Python script launches commands or subprocesses.", "Content", 40),
+        ["Script.RbEval"]             = new("Script.RbEval", "Ruby eval or exec", "Ruby script uses eval, exec, or remote open patterns.", "Content", 40),
+        ["Script.LuaExec"]            = new("Script.LuaExec", "Lua runtime execution", "Lua script uses loadstring or operating-system command execution.", "Content", 40),
         ["Script.UncShares"]          = new("Script.UncShares", "UNC share references", "Script references one or more UNC shares or remote administrative paths.", "Content", 30),
         ["Script.NetworkDriveMapping"] = new("Script.NetworkDriveMapping", "Network drive mapping", "Script maps or mounts remote network shares.", "Content", 35),
         ["Script.ExternalHosts"]      = new("Script.ExternalHosts", "External host references", "Script references one or more external network hosts.", "Content", 45),
+
+        // Naming and file identity
+        ["Html.ExternalLinks"]        = new("Html.ExternalLinks", "HTML external links", "HTML content references external links.", "Markup", 15),
+        ["Name.DoubleExtension"]      = new("Name.DoubleExtension", "Double extension", "Filename uses multiple extensions that can disguise the true content type.", "Identity", 35),
+        ["Name.BiDiOverride"]         = new("Name.BiDiOverride", "BiDi override in name", "Filename contains bidirectional override characters that can disguise the visible extension.", "Identity", 50),
+        ["Name.ExtensionMismatch"]    = new("Name.ExtensionMismatch", "Extension mismatch", "Filename extension does not align with detected content type.", "Identity", 25),
+
+        // Operational/tooling cues
+        ["DotNet.StrongName"]         = new("DotNet.StrongName", ".NET strong name present", ".NET assembly carries a strong-name signature, which slightly lowers risk.", "DotNet", 0),
+        ["DotNet.NoStrongName"]       = new("DotNet.NoStrongName", ".NET without strong name", ".NET assembly lacks a strong-name signature.", "DotNet", 15),
+        ["Tool.Indicator"]            = new("Tool.Indicator", "Administrative tool indicator", "Content references a built-in administrative or dual-use tool name.", "Content", 25),
 
         // Secrets
         ["Secret.PrivateKey"]       = new("Secret.PrivateKey",       "Private key material",      "File appears to contain private key material.", "Secrets", 90),
