@@ -609,19 +609,22 @@ public sealed class ReportView
         }
         try
         {
-            var multi = FileInspector.AssessMulti(a);
-            var assess = multi.Balanced;
-            r.AssessmentScore = assess.Score;
-            r.AssessmentDecision = assess.Decision.ToString();
-            r.AssessmentDecisionStrict = multi.Strict.Decision.ToString();
-            r.AssessmentDecisionBalanced = multi.Balanced.Decision.ToString();
-            r.AssessmentDecisionLenient = multi.Lenient.Decision.ToString();
-            r.AssessmentCodes = assess.Codes;
-            r.AssessmentFactors = assess.Factors;
-            if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0)
+            if (a.Assessment != null)
             {
-                r.AssessmentCodesHuman = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Short);
-                r.AssessmentCodesHumanLong = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Long);
+                var multi = FileInspector.AssessMulti(a.Assessment);
+                var assess = multi.Balanced;
+                r.AssessmentScore = assess.Score;
+                r.AssessmentDecision = assess.Decision.ToString();
+                r.AssessmentDecisionStrict = multi.Strict.Decision.ToString();
+                r.AssessmentDecisionBalanced = multi.Balanced.Decision.ToString();
+                r.AssessmentDecisionLenient = multi.Lenient.Decision.ToString();
+                r.AssessmentCodes = assess.Codes;
+                r.AssessmentFactors = assess.Factors;
+                if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0)
+                {
+                    r.AssessmentCodesHuman = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Short);
+                    r.AssessmentCodesHumanLong = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Long);
+                }
             }
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;

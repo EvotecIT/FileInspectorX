@@ -75,13 +75,19 @@ public static partial class FileInspector
     public static MultiAssessmentResult AssessMulti(FileAnalysis a)
     {
         var balanced = Assess(a);
+        return AssessMulti(balanced);
+    }
+
+    internal static MultiAssessmentResult AssessMulti(AssessmentResult balanced)
+    {
+        if (balanced == null) throw new ArgumentNullException(nameof(balanced));
+
         var strictDecision = DecideForProfile(balanced.Score, AssessmentProfile.Strict);
-        var balancedDecision = DecideForProfile(balanced.Score, AssessmentProfile.Balanced);
         var lenientDecision = DecideForProfile(balanced.Score, AssessmentProfile.Lenient);
         return new MultiAssessmentResult
         {
             Strict = CloneWithDecision(balanced, strictDecision),
-            Balanced = CloneWithDecision(balanced, balancedDecision),
+            Balanced = CloneWithDecision(balanced, balanced.Decision),
             Lenient = CloneWithDecision(balanced, lenientDecision)
         };
     }
@@ -96,8 +102,9 @@ public static partial class FileInspector
 
         void Add(string code, int weight)
         {
-            if (string.IsNullOrWhiteSpace(code) || weight == 0) return;
-            score += weight;
+            if (string.IsNullOrWhiteSpace(code)) return;
+            if (weight < 0) score = Math.Max(0, score + weight);
+            else score += weight;
             if (factors.TryGetValue(code, out var existing))
             {
                 factors[code] = existing + weight;
@@ -166,7 +173,7 @@ public static partial class FileInspector
         // .NET strong-name signal (mild weight)
         if ((a.Flags & ContentFlags.PeIsDotNet) != 0)
         {
-            if (a.DotNetStrongNameSigned == true) { codes.Add("DotNet.StrongName"); factors["DotNet.StrongName"] = -5; score = Math.Max(0, score - 5); }
+            if (a.DotNetStrongNameSigned == true) { Add("DotNet.StrongName", -5); }
             else if (a.DotNetStrongNameSigned == false) { Add("DotNet.NoStrongName", 5); }
         }
 
@@ -246,64 +253,62 @@ public static partial class FileInspector
         }
 
         // Name/path issues
-        if ((a.NameIssues & NameIssues.DoubleExtension) != 0) { score += 15; codes.Add("Name.DoubleExtension"); }
-        if ((a.NameIssues & NameIssues.BiDiOverride) != 0) { score += 25; codes.Add("Name.BiDiOverride"); }
-        if ((a.NameIssues & NameIssues.ExtensionMismatch) != 0) { score += 10; codes.Add("Name.ExtensionMismatch"); }
+        if ((a.NameIssues & NameIssues.DoubleExtension) != 0) Add("Name.DoubleExtension", 15);
+        if ((a.NameIssues & NameIssues.BiDiOverride) != 0) Add("Name.BiDiOverride", 25);
+        if ((a.NameIssues & NameIssues.ExtensionMismatch) != 0) Add("Name.ExtensionMismatch", 10);
 
         // Package vendor presence / allow-list hints
         string? pkgVendor = a.Installer?.PublisherDisplayName ?? a.Installer?.Publisher ?? a.Installer?.Manufacturer;
         if (!string.IsNullOrWhiteSpace(pkgVendor))
         {
-            codes.Add("Package.VendorPresent");
-            if (IsAllowedVendor(pkgVendor)) { codes.Add("Package.VendorAllowed"); factors["Package.VendorAllowed"] = -15; score = Math.Max(0, score - 15); }
+            Add("Package.VendorPresent", 0);
+            if (IsAllowedVendor(pkgVendor)) Add("Package.VendorAllowed", -15);
         }
         else if (a.Installer != null)
         {
             // Installer detected but vendor fields missing
-            codes.Add("Package.VendorUnknown");
+            Add("Package.VendorUnknown", 0);
         }
         // Signature vendor allow
         var sigCn = a.Authenticode?.SignerSubjectCN; var sigOrg = a.Authenticode?.SignerSubjectO;
-        if (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) { codes.Add("Sig.VendorAllowed"); factors["Sig.VendorAllowed"] = -10; score = Math.Max(0, score - 10); }
-        else if (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)) { codes.Add("Sig.VendorAllowed"); factors["Sig.VendorAllowed"] = -10; score = Math.Max(0, score - 10); }
+        if (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) Add("Sig.VendorAllowed", -10);
+        else if (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)) Add("Sig.VendorAllowed", -10);
         else if (a.Authenticode?.Present == true)
         {
             // Signed object but no recognizable vendor name components
-            if (string.IsNullOrWhiteSpace(sigCn) && string.IsNullOrWhiteSpace(sigOrg)) codes.Add("Sig.VendorUnknown");
+            if (string.IsNullOrWhiteSpace(sigCn) && string.IsNullOrWhiteSpace(sigOrg)) Add("Sig.VendorUnknown", 0);
         }
 
         // MSI CustomActions (Windows-only data)
         var ca = a.Installer?.MsiCustomActions;
         if (ca != null)
         {
-            if (ca.CountExe > 0) { codes.Add("Msi.CustomActionExe"); score += 20; }
-            if (ca.CountScript > 0) { codes.Add("Msi.CustomActionScript"); score += 20; }
-            if (ca.CountDll > 0) { codes.Add("Msi.CustomActionDll"); score += 10; }
+            if (ca.CountExe > 0) Add("Msi.CustomActionExe", 20);
+            if (ca.CountScript > 0) Add("Msi.CustomActionScript", 20);
+            if (ca.CountDll > 0) Add("Msi.CustomActionDll", 10);
         }
-        if (string.Equals(a.Installer?.Scope, "PerUser", StringComparison.OrdinalIgnoreCase)) { codes.Add("Msi.PerUser"); score += 5; }
+        if (string.Equals(a.Installer?.Scope, "PerUser", StringComparison.OrdinalIgnoreCase)) Add("Msi.PerUser", 5);
         if (!string.IsNullOrWhiteSpace(a.Installer?.UrlInfoAbout) || !string.IsNullOrWhiteSpace(a.Installer?.UrlUpdateInfo) || !string.IsNullOrWhiteSpace(a.Installer?.SupportUrl))
-        { codes.Add("Msi.UrlsPresent"); score += 2; }
+            Add("Msi.UrlsPresent", 2);
         if (a.SecurityFindings != null && a.SecurityFindings.Any(s => string.Equals(s, "pe:regsvr", StringComparison.OrdinalIgnoreCase)))
-        { codes.Add("PE.RegSvrExport"); score += 10; }
+            Add("PE.RegSvrExport", 10);
 
         // Appx/MSIX capabilities and extensions
         var caps = a.Installer?.Capabilities;
         if (caps != null)
         {
-            foreach (var c in caps)
-            {
-                if (c.IndexOf("runFullTrust", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Capability.RunFullTrust"); score += 20; }
-                if (c.IndexOf("broadFileSystemAccess", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Capability.BroadFileSystemAccess"); score += 15; }
-            }
+            if (caps.Any(c => !string.IsNullOrWhiteSpace(c) && c.IndexOf("runFullTrust", StringComparison.OrdinalIgnoreCase) >= 0))
+                Add("Appx.Capability.RunFullTrust", 20);
+            if (caps.Any(c => !string.IsNullOrWhiteSpace(c) && c.IndexOf("broadFileSystemAccess", StringComparison.OrdinalIgnoreCase) >= 0))
+                Add("Appx.Capability.BroadFileSystemAccess", 15);
         }
         var exts = a.Installer?.Extensions;
         if (exts != null)
         {
-            foreach (var e in exts)
-            {
-                if (e.IndexOf("windows.protocol", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Extension.Protocol"); score += 5; }
-                if (e.IndexOf("filetypeassociation", StringComparison.OrdinalIgnoreCase) >= 0) { codes.Add("Appx.Extension.FTA"); score += 5; }
-            }
+            if (exts.Any(e => !string.IsNullOrWhiteSpace(e) && e.IndexOf("windows.protocol", StringComparison.OrdinalIgnoreCase) >= 0))
+                Add("Appx.Extension.Protocol", 5);
+            if (exts.Any(e => !string.IsNullOrWhiteSpace(e) && e.IndexOf("filetypeassociation", StringComparison.OrdinalIgnoreCase) >= 0))
+                Add("Appx.Extension.FTA", 5);
         }
 
         // Guardrails and clamp
@@ -326,7 +331,7 @@ public static partial class FileInspector
     private static AssessmentResult CloneWithDecision(AssessmentResult source, AssessmentDecision decision)
     {
         var factorsCopy = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kvp in source.Factors)
+        foreach (var kvp in source.Factors ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
         {
             factorsCopy[kvp.Key] = kvp.Value;
         }
@@ -335,7 +340,7 @@ public static partial class FileInspector
         {
             Score = source.Score,
             Decision = decision,
-            Codes = source.Codes.ToArray(),
+            Codes = (source.Codes ?? Array.Empty<string>()).ToArray(),
             Factors = factorsCopy
         };
     }
