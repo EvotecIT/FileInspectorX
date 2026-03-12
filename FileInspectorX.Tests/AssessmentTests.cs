@@ -156,6 +156,10 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Sig.Absent");
         Assert.Contains(legend, e => e.Code == "Encoded.EmbeddedExecutable");
         Assert.Contains(legend, e => e.Code == "Encoded.EmbeddedScript");
+        Assert.Contains(legend, e => e.Code == "Script.CertutilDecode");
+        Assert.Contains(legend, e => e.Code == "Script.Mshta");
+        Assert.Contains(legend, e => e.Code == "Script.ActiveX");
+        Assert.Contains(legend, e => e.Code == "Script.FromCharCode");
     }
 
     [Fact]
@@ -667,6 +671,35 @@ public class AssessmentTests
         Assert.Equal(1, assessed.Codes.Count(c => c == "Script.IEX"));
         Assert.Equal(10, assessed.Factors["Tool.Indicator"]);
         Assert.Equal(20, assessed.Factors["Script.IEX"]);
+    }
+
+    [Fact]
+    public void Assess_New_Script_Indicators_Are_Scored_And_Deduplicated()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "bat:certutil",
+                "js:mshta",
+                "js:activex",
+                "js:fromcharcode",
+                "js:fromcharcode"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(60, assessed.Score);
+        Assert.Contains("Script.CertutilDecode", assessed.Codes);
+        Assert.Contains("Script.Mshta", assessed.Codes);
+        Assert.Contains("Script.ActiveX", assessed.Codes);
+        Assert.Contains("Script.FromCharCode", assessed.Codes);
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Script.FromCharCode"));
+        Assert.Equal(15, assessed.Factors["Script.CertutilDecode"]);
+        Assert.Equal(20, assessed.Factors["Script.Mshta"]);
+        Assert.Equal(15, assessed.Factors["Script.ActiveX"]);
+        Assert.Equal(10, assessed.Factors["Script.FromCharCode"]);
     }
 
     [Fact]

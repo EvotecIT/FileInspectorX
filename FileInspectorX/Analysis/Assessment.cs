@@ -284,6 +284,10 @@ public static partial class FileInspector
                 case "ps:iex": AddSecurityFindingCode("Script.IEX", 20); break;
                 case "ps:web-dl": AddSecurityFindingCode("Script.WebDownload", 15); break;
                 case "ps:reflection": AddSecurityFindingCode("Script.Reflection", 10); break;
+                case "bat:certutil": AddSecurityFindingCode("Script.CertutilDecode", 15); break;
+                case "js:mshta": AddSecurityFindingCode("Script.Mshta", 20); break;
+                case "js:activex": AddSecurityFindingCode("Script.ActiveX", 15); break;
+                case "js:fromcharcode": AddSecurityFindingCode("Script.FromCharCode", 10); break;
                 case "py:exec-b64": AddSecurityFindingCode("Script.PyExecB64", 20); break;
                 case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
                 case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;

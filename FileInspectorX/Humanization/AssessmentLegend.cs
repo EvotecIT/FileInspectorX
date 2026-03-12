@@ -75,6 +75,10 @@ public static class AssessmentLegend
         ["Encoded.Embedded"]        = new("Encoded.Embedded",        "Embedded data URIs",        "HTML/script contains embedded base64 data URIs.", "Content", 35),
         ["Encoded.EmbeddedExecutable"] = new("Encoded.EmbeddedExecutable", "Embedded executable payload", "Embedded HTML/script data URIs decode to executable or package content.", "Content", 60),
         ["Encoded.EmbeddedScript"]     = new("Encoded.EmbeddedScript",     "Embedded script payload",     "Embedded HTML/script data URIs decode to script content.", "Content", 50),
+        ["Script.CertutilDecode"]     = new("Script.CertutilDecode", "certutil decode", "Script uses certutil decode behavior associated with payload reconstruction.", "Content", 45),
+        ["Script.Mshta"]              = new("Script.Mshta", "mshta execution", "Script references mshta-style HTML application execution.", "Content", 55),
+        ["Script.ActiveX"]            = new("Script.ActiveX", "ActiveX/COM script", "Script uses ActiveX or COM automation patterns associated with payload delivery.", "Content", 50),
+        ["Script.FromCharCode"]       = new("Script.FromCharCode", "String assembly obfuscation", "Script builds long strings through repeated character-code assembly.", "Content", 40),
 
         // Secrets
         ["Secret.PrivateKey"]       = new("Secret.PrivateKey",       "Private key material",      "File appears to contain private key material.", "Secrets", 90),
