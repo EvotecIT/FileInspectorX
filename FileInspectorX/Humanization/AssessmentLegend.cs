@@ -79,6 +79,8 @@ public static class AssessmentLegend
         ["Script.Mshta"]              = new("Script.Mshta", "mshta execution", "Script references mshta-style HTML application execution.", "Content", 55),
         ["Script.ActiveX"]            = new("Script.ActiveX", "ActiveX/COM script", "Script uses ActiveX or COM automation patterns associated with payload delivery.", "Content", 50),
         ["Script.FromCharCode"]       = new("Script.FromCharCode", "String assembly obfuscation", "Script builds long strings through repeated character-code assembly.", "Content", 40),
+        ["Script.UncShares"]          = new("Script.UncShares", "UNC share references", "Script references one or more UNC shares or remote administrative paths.", "Content", 30),
+        ["Script.NetworkDriveMapping"] = new("Script.NetworkDriveMapping", "Network drive mapping", "Script maps or mounts remote network shares.", "Content", 35),
         ["Script.ExternalHosts"]      = new("Script.ExternalHosts", "External host references", "Script references one or more external network hosts.", "Content", 45),
 
         // Secrets
