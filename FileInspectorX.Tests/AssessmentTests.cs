@@ -154,6 +154,8 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Sig.WinTrustInvalid");
         Assert.Contains(legend, e => e.Code == "Sig.NoTimestamp");
         Assert.Contains(legend, e => e.Code == "Sig.Absent");
+        Assert.Contains(legend, e => e.Code == "Encoded.EmbeddedExecutable");
+        Assert.Contains(legend, e => e.Code == "Encoded.EmbeddedScript");
     }
 
     [Fact]
@@ -507,6 +509,46 @@ public class AssessmentTests
         Assert.Contains("Encoded.Present", assessed.Codes);
         Assert.Contains("Encoded.InnerScript", assessed.Codes);
         Assert.Equal(15, assessed.Factors["Encoded.InnerScript"]);
+    }
+
+    [Fact]
+    public void Assess_Embedded_Data_Uri_Executable_Payloads_Get_Executable_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "html:data-b64=1",
+                "html:data-exts=exe:1,png:2"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(30, assessed.Score);
+        Assert.Contains("Encoded.Embedded", assessed.Codes);
+        Assert.Contains("Encoded.EmbeddedExecutable", assessed.Codes);
+        Assert.Equal(20, assessed.Factors["Encoded.EmbeddedExecutable"]);
+    }
+
+    [Fact]
+    public void Assess_Embedded_Data_Uri_Script_Payloads_Get_Script_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "script:data-b64=2",
+                "script:data-exts=ps1:1,txt:1"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.Contains("Encoded.Embedded", assessed.Codes);
+        Assert.Contains("Encoded.EmbeddedScript", assessed.Codes);
+        Assert.Equal(15, assessed.Factors["Encoded.EmbeddedScript"]);
     }
 
     [Fact]

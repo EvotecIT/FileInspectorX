@@ -122,6 +122,29 @@ public static partial class FileInspector
         {
             if (securityFindingCodes.Add(code)) Add(code, weight);
         }
+        bool SummaryContainsExtension(string finding, string prefix, Func<string, bool> predicate)
+        {
+            if (string.IsNullOrWhiteSpace(finding) || !finding.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var summary = finding.Substring(prefix.Length);
+            foreach (var rawEntry in summary.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var entry = rawEntry.Trim();
+                var colon = entry.IndexOf(':');
+                var ext = colon >= 0 ? entry.Substring(0, colon) : entry;
+                if (predicate(ext.Trim().ToLowerInvariant()))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        bool IsEmbeddedExecutableExtension(string ext) => ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx";
+        bool IsEmbeddedScriptExtension(string ext) => ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "vbe" or "wsf" or "wsh" or "py" or "rb";
 
         // Containers and archives
         bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
@@ -181,6 +204,18 @@ public static partial class FileInspector
         if (securityFindings.Any(s => s.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) || s.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase)))
         {
             Add("Encoded.Embedded", 10);
+        }
+        if (securityFindings.Any(s =>
+                SummaryContainsExtension(s, "html:data-exts=", IsEmbeddedExecutableExtension) ||
+                SummaryContainsExtension(s, "script:data-exts=", IsEmbeddedExecutableExtension)))
+        {
+            AddSecurityFindingCode("Encoded.EmbeddedExecutable", 20);
+        }
+        if (securityFindings.Any(s =>
+                SummaryContainsExtension(s, "html:data-exts=", IsEmbeddedScriptExtension) ||
+                SummaryContainsExtension(s, "script:data-exts=", IsEmbeddedScriptExtension)))
+        {
+            AddSecurityFindingCode("Encoded.EmbeddedScript", 15);
         }
 
         // Executables

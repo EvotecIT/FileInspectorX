@@ -73,6 +73,8 @@ public static class AssessmentLegend
         ["Encoded.InnerExecutable"] = new("Encoded.InnerExecutable", "Encoded inner executable",  "Decoded payload contains an executable module.", "Content", 60),
         ["Encoded.InnerScript"]     = new("Encoded.InnerScript",     "Encoded inner script",      "Decoded payload contains a script.", "Content", 50),
         ["Encoded.Embedded"]        = new("Encoded.Embedded",        "Embedded data URIs",        "HTML/script contains embedded base64 data URIs.", "Content", 35),
+        ["Encoded.EmbeddedExecutable"] = new("Encoded.EmbeddedExecutable", "Embedded executable payload", "Embedded HTML/script data URIs decode to executable or package content.", "Content", 60),
+        ["Encoded.EmbeddedScript"]     = new("Encoded.EmbeddedScript",     "Embedded script payload",     "Embedded HTML/script data URIs decode to script content.", "Content", 50),
 
         // Secrets
         ["Secret.PrivateKey"]       = new("Secret.PrivateKey",       "Private key material",      "File appears to contain private key material.", "Secrets", 90),
