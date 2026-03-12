@@ -186,7 +186,7 @@ public static partial class FileInspector
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;
-        if (sig != null)
+        if (sig?.Present == true)
         {
             bool hasPrimaryTrustFailure = false;
             if (sig.IsSelfSigned == true)
