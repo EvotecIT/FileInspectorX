@@ -650,9 +650,25 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(15, assessed.Score);
+        Assert.Equal(25, assessed.Score);
         Assert.Contains("Archive.ContainsInstallers", assessed.Codes);
-        Assert.Equal(15, assessed.Factors["Archive.ContainsInstallers"]);
+        Assert.Equal(25, assessed.Factors["Archive.ContainsInstallers"]);
+    }
+
+    [Fact]
+    public void Assess_Archive_With_Embedded_Installer_Does_Not_Add_Generic_Executable_Container_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerContainsInstallers
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.Contains("Archive.ContainsInstallers", assessed.Codes);
+        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Equal(25, assessed.Factors["Archive.ContainsInstallers"]);
     }
 
     [Fact]
