@@ -89,6 +89,12 @@ public static class AssessmentLegend
         ["Secret.TokenFamily.Slack.Volume"] = new("Secret.TokenFamily.Slack.Volume", "Multiple Slack token-family indicators", "Multiple Slack token-family indicators increased risk weight.", "Secrets", 80),
         ["Secret.TokenFamily.Stripe"] = new("Secret.TokenFamily.Stripe", "Stripe live key", "File contains token patterns matching Stripe live key families.", "Secrets", 75),
         ["Secret.TokenFamily.Stripe.Volume"] = new("Secret.TokenFamily.Stripe.Volume", "Multiple Stripe live key indicators", "Multiple Stripe live key indicators increased risk weight.", "Secrets", 80),
+        ["Secret.TokenFamily.GcpApiKey"] = new("Secret.TokenFamily.GcpApiKey", "GCP API key", "File contains token patterns matching GCP API key families.", "Secrets", 55),
+        ["Secret.TokenFamily.GcpApiKey.Volume"] = new("Secret.TokenFamily.GcpApiKey.Volume", "Multiple GCP API key indicators", "Multiple GCP API key indicators increased risk weight.", "Secrets", 60),
+        ["Secret.TokenFamily.Npm"] = new("Secret.TokenFamily.Npm", "npm token-family", "File contains token patterns matching npm token families.", "Secrets", 70),
+        ["Secret.TokenFamily.Npm.Volume"] = new("Secret.TokenFamily.Npm.Volume", "Multiple npm token-family indicators", "Multiple npm token-family indicators increased risk weight.", "Secrets", 75),
+        ["Secret.TokenFamily.AzureSas"] = new("Secret.TokenFamily.AzureSas", "Azure SAS token", "File contains token patterns matching Azure SAS token families.", "Secrets", 75),
+        ["Secret.TokenFamily.AzureSas.Volume"] = new("Secret.TokenFamily.AzureSas.Volume", "Multiple Azure SAS token indicators", "Multiple Azure SAS token indicators increased risk weight.", "Secrets", 80),
     };
 
     /// <summary>Returns a stable, typed legend for assessment codes.</summary>

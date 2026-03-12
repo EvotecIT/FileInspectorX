@@ -104,6 +104,36 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_New_Token_Families_Are_Scored_From_Findings_And_Counts()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "secret:token:gcp-apikey",
+                "secret:token:npm",
+                "secret:token:azure-sas"
+            },
+            Secrets = new SecretsSummary
+            {
+                GitHubTokenCount = 1,
+                GcpApiKeyCount = 2,
+                NpmTokenCount = 1,
+                AzureSasTokenCount = 1
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Contains("Secret.TokenFamily.GitHub", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.GcpApiKey", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.GcpApiKey.Volume", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.Npm", assessed.Codes);
+        Assert.Contains("Secret.TokenFamily.AzureSas", assessed.Codes);
+        Assert.True(assessed.Score > 32);
+    }
+
+    [Fact]
     public void AssessmentLegend_ContainsSecretEntries()
     {
         var legend = AssessmentLegend.GetLegend();
@@ -117,6 +147,9 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.AwsAccessKeyId");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Slack");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Stripe");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.GcpApiKey");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Npm");
+        Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.AzureSas");
     }
 
     [Fact]
