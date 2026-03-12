@@ -150,6 +150,10 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.GcpApiKey");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Npm");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.AzureSas");
+        Assert.Contains(legend, e => e.Code == "Sig.BadEnvelope");
+        Assert.Contains(legend, e => e.Code == "Sig.WinTrustInvalid");
+        Assert.Contains(legend, e => e.Code == "Sig.NoTimestamp");
+        Assert.Contains(legend, e => e.Code == "Sig.Absent");
     }
 
     [Fact]
@@ -216,6 +220,47 @@ public class AssessmentTests
         Assert.Contains("Sig.SelfSigned", assessed.Codes);
         Assert.DoesNotContain("Sig.ChainInvalid", assessed.Codes);
         Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Does_Not_Add_NoTimestamp_When_Signature_Envelope_Is_Already_Invalid()
+    {
+        var analysis = new FileAnalysis
+        {
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = true,
+                EnvelopeSignatureValid = false,
+                TimestampPresent = false
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(15, assessed.Score);
+        Assert.Contains("Sig.BadEnvelope", assessed.Codes);
+        Assert.DoesNotContain("Sig.NoTimestamp", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Does_Not_Add_NoTimestamp_When_Windows_Trust_Has_Already_Failed()
+    {
+        var analysis = new FileAnalysis
+        {
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = true,
+                ChainValid = true,
+                IsTrustedWindowsPolicy = false,
+                TimestampPresent = false
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.Contains("Sig.WinTrustInvalid", assessed.Codes);
+        Assert.DoesNotContain("Sig.NoTimestamp", assessed.Codes);
     }
 
     [Fact]

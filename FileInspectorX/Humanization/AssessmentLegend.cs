@@ -47,6 +47,10 @@ public static class AssessmentLegend
         // Signature/vendor signals
         ["Sig.SelfSigned"]       = new("Sig.SelfSigned",       "Self-signed signature",   "Signature is self-signed.", "Signature", 60),
         ["Sig.ChainInvalid"]     = new("Sig.ChainInvalid",     "Invalid signature chain", "Certificate chain did not build to a trusted root.", "Signature", 70),
+        ["Sig.BadEnvelope"]      = new("Sig.BadEnvelope",      "Invalid signature envelope", "Signature envelope or digest validation failed.", "Signature", 55),
+        ["Sig.WinTrustInvalid"]  = new("Sig.WinTrustInvalid",  "Windows trust policy failed", "Signature did not validate under Windows trust policy.", "Signature", 70),
+        ["Sig.NoTimestamp"]      = new("Sig.NoTimestamp",      "Missing timestamp",       "Signature is present but no trusted timestamp was found.", "Signature", 20),
+        ["Sig.Absent"]           = new("Sig.Absent",           "Unsigned executable or package", "Executable or installer-like content has no signature.", "Signature", 45),
         ["Sig.VendorAllowed"]    = new("Sig.VendorAllowed",    "Allowed vendor",         "Signer/vendor is in the allowed list (reduces score).", "Signature", 0),
         ["Sig.VendorUnknown"]    = new("Sig.VendorUnknown",    "Unknown vendor",         "Signed but vendor could not be determined.", "Signature", 10),
 
