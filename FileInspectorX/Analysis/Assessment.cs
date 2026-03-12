@@ -239,6 +239,9 @@ public static partial class FileInspector
                 case "secret:token:aws-akid": AddSecurityFindingCode("Secret.TokenFamily.AwsAccessKeyId", 14); break;
                 case "secret:token:slack": AddSecurityFindingCode("Secret.TokenFamily.Slack", 32); break;
                 case "secret:token:stripe": AddSecurityFindingCode("Secret.TokenFamily.Stripe", 32); break;
+                case "secret:token:gcp-apikey": AddSecurityFindingCode("Secret.TokenFamily.GcpApiKey", 16); break;
+                case "secret:token:npm": AddSecurityFindingCode("Secret.TokenFamily.Npm", 28); break;
+                case "secret:token:azure-sas": AddSecurityFindingCode("Secret.TokenFamily.AzureSas", 30); break;
             }
         }
 
@@ -252,7 +255,8 @@ public static partial class FileInspector
 
             bool hasFamilyBreakdown = secrets.GitHubTokenCount > 0 || secrets.GitLabTokenCount > 0 ||
                                       secrets.AwsAccessKeyIdCount > 0 || secrets.SlackTokenCount > 0 ||
-                                      secrets.StripeLiveKeyCount > 0;
+                                      secrets.StripeLiveKeyCount > 0 || secrets.GcpApiKeyCount > 0 ||
+                                      secrets.NpmTokenCount > 0 || secrets.AzureSasTokenCount > 0;
 
             if (hasFamilyBreakdown)
             {
@@ -261,6 +265,9 @@ public static partial class FileInspector
                 ApplySecretCount("Secret.TokenFamily.AwsAccessKeyId", secrets.AwsAccessKeyIdCount, baseWeight: 14, perExtraWeight: 2, maxExtraWeight: 10);
                 ApplySecretCount("Secret.TokenFamily.Slack", secrets.SlackTokenCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
                 ApplySecretCount("Secret.TokenFamily.Stripe", secrets.StripeLiveKeyCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
+                ApplySecretCount("Secret.TokenFamily.GcpApiKey", secrets.GcpApiKeyCount, baseWeight: 16, perExtraWeight: 2, maxExtraWeight: 10);
+                ApplySecretCount("Secret.TokenFamily.Npm", secrets.NpmTokenCount, baseWeight: 28, perExtraWeight: 3, maxExtraWeight: 14);
+                ApplySecretCount("Secret.TokenFamily.AzureSas", secrets.AzureSasTokenCount, baseWeight: 30, perExtraWeight: 4, maxExtraWeight: 16);
             }
             else if (!hasSpecificTokenFamilyFinding)
             {
