@@ -122,6 +122,11 @@ public class FileAnalysis {
     /// </summary>
     public AssessmentResult? Assessment { get; set; }
     /// <summary>
+    /// Optional captured multi-profile assessment snapshot when requested.
+    /// Preserves strict/balanced/lenient decisions from analysis time.
+    /// </summary>
+    public MultiAssessmentResult? AssessmentProfiles { get; set; }
+    /// <summary>
     /// Counts of generic secret indicators discovered in text/script content, when enabled.
     /// </summary>
     public SecretsSummary? Secrets { get; set; }
