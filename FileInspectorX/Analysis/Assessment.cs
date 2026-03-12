@@ -188,10 +188,19 @@ public static partial class FileInspector
         var sig = a.Authenticode;
         if (sig != null)
         {
-            if (sig.IsSelfSigned == true) Add("Sig.SelfSigned", 20);
-            if (sig.ChainValid == false) Add("Sig.ChainInvalid", 25);
+            bool hasPrimaryTrustFailure = false;
+            if (sig.IsSelfSigned == true)
+            {
+                Add("Sig.SelfSigned", 20);
+                hasPrimaryTrustFailure = true;
+            }
+            else if (sig.ChainValid == false)
+            {
+                Add("Sig.ChainInvalid", 25);
+                hasPrimaryTrustFailure = true;
+            }
             if (sig.EnvelopeSignatureValid == false) Add("Sig.BadEnvelope", 15);
-            if (sig.IsTrustedWindowsPolicy == false) Add("Sig.WinTrustInvalid", 25);
+            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false) Add("Sig.WinTrustInvalid", 25);
             if (sig.TimestampPresent == false) Add("Sig.NoTimestamp", 5);
         }
         else
@@ -266,10 +275,12 @@ public static partial class FileInspector
 
         // Package vendor presence / allow-list hints
         string? pkgVendor = a.Installer?.PublisherDisplayName ?? a.Installer?.Publisher ?? a.Installer?.Manufacturer;
+        bool packageVendorAllowed = false;
         if (!string.IsNullOrWhiteSpace(pkgVendor))
         {
             Add("Package.VendorPresent", 0);
-            if (IsAllowedVendor(pkgVendor)) Add("Package.VendorAllowed", -15);
+            packageVendorAllowed = IsAllowedVendor(pkgVendor);
+            if (packageVendorAllowed) Add("Package.VendorAllowed", -15);
         }
         else if (a.Installer != null)
         {
@@ -278,12 +289,15 @@ public static partial class FileInspector
         }
         // Signature vendor allow
         var sigCn = a.Authenticode?.SignerSubjectCN; var sigOrg = a.Authenticode?.SignerSubjectO;
-        if (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) Add("Sig.VendorAllowed", -10);
-        else if (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)) Add("Sig.VendorAllowed", -10);
+        bool signatureVendorAllowed =
+            (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) ||
+            (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg));
+
+        if (!packageVendorAllowed && signatureVendorAllowed) Add("Sig.VendorAllowed", -10);
         else if (a.Authenticode?.Present == true)
         {
             // Signed object but no recognizable vendor name components
-            if (string.IsNullOrWhiteSpace(sigCn) && string.IsNullOrWhiteSpace(sigOrg)) Add("Sig.VendorUnknown", 0);
+            if (!signatureVendorAllowed && string.IsNullOrWhiteSpace(sigCn) && string.IsNullOrWhiteSpace(sigOrg)) Add("Sig.VendorUnknown", 0);
         }
 
         // MSI CustomActions (Windows-only data)
