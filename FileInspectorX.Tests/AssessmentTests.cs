@@ -160,6 +160,7 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Script.Mshta");
         Assert.Contains(legend, e => e.Code == "Script.ActiveX");
         Assert.Contains(legend, e => e.Code == "Script.FromCharCode");
+        Assert.Contains(legend, e => e.Code == "Script.ExternalHosts");
     }
 
     [Fact]
@@ -700,6 +701,26 @@ public class AssessmentTests
         Assert.Equal(20, assessed.Factors["Script.Mshta"]);
         Assert.Equal(15, assessed.Factors["Script.ActiveX"]);
         Assert.Equal(10, assessed.Factors["Script.FromCharCode"]);
+    }
+
+    [Fact]
+    public void Assess_External_Script_Host_Indicators_Are_Scored()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "net:hosts=2",
+                "net:hosts-int=1",
+                "net:hosts-ext=1"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Script.ExternalHosts", assessed.Codes);
+        Assert.Equal(10, assessed.Factors["Script.ExternalHosts"]);
     }
 
     [Fact]
