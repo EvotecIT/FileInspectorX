@@ -298,6 +298,40 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Unsigned_Msi_File_Gets_Signature_Absent_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "msi"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Unsigned_Appx_File_Gets_Signature_Absent_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "appx"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
+    }
+
+    [Fact]
     public void Assess_Appx_Presence_Signals_Do_Not_Duplicate_Codes_Or_Inflate_Score()
     {
         var analysis = new FileAnalysis
