@@ -253,7 +253,7 @@ public static partial class FileInspector
                 ApplySecretCount("Secret.TokenFamily.Slack", secrets.SlackTokenCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
                 ApplySecretCount("Secret.TokenFamily.Stripe", secrets.StripeLiveKeyCount, baseWeight: 32, perExtraWeight: 4, maxExtraWeight: 16);
             }
-            else
+            else if (!hasSpecificTokenFamilyFinding)
             {
                 ApplySecretCount("Secret.TokenFamily", secrets.TokenFamilyCount, baseWeight: 30, perExtraWeight: 4, maxExtraWeight: 20);
             }

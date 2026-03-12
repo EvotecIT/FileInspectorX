@@ -85,6 +85,25 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_Specific_Token_Finding_Does_Not_Also_Add_Generic_Token_Count_Code()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[] { "secret:token:github" },
+            Secrets = new SecretsSummary
+            {
+                TokenFamilyCount = 1
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Contains("Secret.TokenFamily.GitHub", assessed.Codes);
+        Assert.DoesNotContain("Secret.TokenFamily", assessed.Codes);
+        Assert.Equal(32, assessed.Factors["Secret.TokenFamily.GitHub"]);
+    }
+
+    [Fact]
     public void AssessmentLegend_ContainsSecretEntries()
     {
         var legend = AssessmentLegend.GetLegend();
