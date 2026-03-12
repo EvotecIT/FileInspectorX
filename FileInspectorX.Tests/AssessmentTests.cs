@@ -160,6 +160,8 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Script.Mshta");
         Assert.Contains(legend, e => e.Code == "Script.ActiveX");
         Assert.Contains(legend, e => e.Code == "Script.FromCharCode");
+        Assert.Contains(legend, e => e.Code == "Script.UncShares");
+        Assert.Contains(legend, e => e.Code == "Script.NetworkDriveMapping");
         Assert.Contains(legend, e => e.Code == "Script.ExternalHosts");
     }
 
@@ -721,6 +723,29 @@ public class AssessmentTests
         Assert.Equal(10, assessed.Score);
         Assert.Contains("Script.ExternalHosts", assessed.Codes);
         Assert.Equal(10, assessed.Factors["Script.ExternalHosts"]);
+    }
+
+    [Fact]
+    public void Assess_Network_Share_Script_Indicators_Are_Scored()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "net:unc=2",
+                "net:map=1",
+                "net:hosts=1",
+                "net:hosts-int=1"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Script.UncShares", assessed.Codes);
+        Assert.Contains("Script.NetworkDriveMapping", assessed.Codes);
+        Assert.Equal(5, assessed.Factors["Script.UncShares"]);
+        Assert.Equal(5, assessed.Factors["Script.NetworkDriveMapping"]);
     }
 
     [Fact]
