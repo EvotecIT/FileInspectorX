@@ -1,3 +1,4 @@
+using System.Linq;
 using Xunit;
 
 namespace FileInspectorX.Tests;
@@ -97,5 +98,83 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.AwsAccessKeyId");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Slack");
         Assert.Contains(legend, e => e.Code == "Secret.TokenFamily.Stripe");
+    }
+
+    [Fact]
+    public void Assess_Presence_And_Discount_Codes_Populate_Factors_Without_Eating_Future_Risk()
+    {
+        var oldAllowedVendors = Settings.AllowedVendors;
+        var oldVendorMatchMode = Settings.VendorMatchMode;
+        try
+        {
+            Settings.AllowedVendors = new[] { "Contoso" };
+            Settings.VendorMatchMode = VendorMatchMode.Exact;
+
+            var analysis = new FileAnalysis
+            {
+                Flags = ContentFlags.PeIsDotNet,
+                DotNetStrongNameSigned = true,
+                Installer = new InstallerInfo
+                {
+                    PublisherDisplayName = "Contoso",
+                    MsiCustomActions = new MsiCustomActionSummary
+                    {
+                        CountExe = 1
+                    }
+                }
+            };
+
+            var assessed = FileInspector.Assess(analysis);
+
+            Assert.Equal(20, assessed.Score);
+            Assert.Contains("DotNet.StrongName", assessed.Codes);
+            Assert.Contains("Package.VendorPresent", assessed.Codes);
+            Assert.Contains("Package.VendorAllowed", assessed.Codes);
+            Assert.Contains("Msi.CustomActionExe", assessed.Codes);
+            Assert.Equal(-5, assessed.Factors["DotNet.StrongName"]);
+            Assert.Equal(0, assessed.Factors["Package.VendorPresent"]);
+            Assert.Equal(-15, assessed.Factors["Package.VendorAllowed"]);
+            Assert.Equal(20, assessed.Factors["Msi.CustomActionExe"]);
+        }
+        finally
+        {
+            Settings.AllowedVendors = oldAllowedVendors;
+            Settings.VendorMatchMode = oldVendorMatchMode;
+        }
+    }
+
+    [Fact]
+    public void Assess_Appx_Presence_Signals_Do_Not_Duplicate_Codes_Or_Inflate_Score()
+    {
+        var analysis = new FileAnalysis
+        {
+            Installer = new InstallerInfo
+            {
+                Capabilities = new[]
+                {
+                    "runFullTrust",
+                    "runFullTrust",
+                    "broadFileSystemAccess"
+                },
+                Extensions = new[]
+                {
+                    "windows.protocol",
+                    "windows.protocol",
+                    "filetypeassociation"
+                }
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(45, assessed.Score);
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Appx.Capability.RunFullTrust"));
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Appx.Capability.BroadFileSystemAccess"));
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Appx.Extension.Protocol"));
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Appx.Extension.FTA"));
+        Assert.Equal(20, assessed.Factors["Appx.Capability.RunFullTrust"]);
+        Assert.Equal(15, assessed.Factors["Appx.Capability.BroadFileSystemAccess"]);
+        Assert.Equal(5, assessed.Factors["Appx.Extension.Protocol"]);
+        Assert.Equal(5, assessed.Factors["Appx.Extension.FTA"]);
     }
 }

@@ -1189,6 +1189,7 @@ public class DetectionDetailsTests
             {
                 SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
             };
+            analysis.Assessment = FileInspector.Assess(analysis);
 
             var rv = ReportView.From(analysis);
 
@@ -1778,6 +1779,7 @@ public class DetectionDetailsTests
             {
                 SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
             };
+            a.Assessment = FileInspector.Assess(a);
 
             var rv = ReportView.From(a);
             Assert.Equal("Block", rv.AssessmentDecisionStrict);
@@ -1857,5 +1859,103 @@ public class DetectionDetailsTests
         Assert.Contains("Inner signed binaries: 3", md);
         Assert.Contains("Inner validly signed binaries: 2", md);
         Assert.Contains("Inner publishers: Contoso (2 files, valid), Fabrikam (2 files, self-signed)", md);
+    }
+
+    [Fact]
+    public void ReportView_Does_Not_Invent_Assessment_When_Snapshot_Is_Missing()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.False(rv.Advice.ShowAssessment);
+        Assert.Null(rv.AssessmentScore);
+        Assert.Null(rv.AssessmentDecision);
+        Assert.Null(rv.AssessmentDecisionBalanced);
+        Assert.Null(rv.AssessmentCodes);
+        Assert.Null(rv.AssessmentFactors);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(false, advice["ShowAssessment"]);
+        Assert.False(map.ContainsKey("AssessmentScore"));
+        Assert.False(map.ContainsKey("AssessmentDecisionBalanced"));
+        Assert.False(map.ContainsKey("AssessmentCodes"));
+        Assert.False(map.ContainsKey("AssessmentFactors"));
+    }
+
+    [Fact]
+    public void ReportView_Preserves_Captured_Assessment_When_Current_Settings_Change()
+    {
+        int oldWarn = Settings.AssessmentWarnThreshold;
+        int oldBlock = Settings.AssessmentBlockThreshold;
+        try
+        {
+            Settings.AssessmentWarnThreshold = 40;
+            Settings.AssessmentBlockThreshold = 70;
+
+            var analysis = new FileAnalysis
+            {
+                SecurityFindings = new[] { "secret:jwt", "secret:keypattern", "secret:token" }
+            };
+            analysis.Assessment = FileInspector.Assess(analysis);
+
+            Settings.AssessmentWarnThreshold = 80;
+            Settings.AssessmentBlockThreshold = 90;
+
+            var rv = ReportView.From(analysis);
+
+            Assert.Equal(70, rv.AssessmentScore);
+            Assert.Equal("Block", rv.AssessmentDecision);
+            Assert.Equal("Block", rv.AssessmentDecisionBalanced);
+            Assert.Contains("Secret.JWT", rv.AssessmentCodes!);
+
+            var map = rv.ToDictionary();
+            Assert.Equal(70, map["AssessmentScore"]);
+            Assert.Equal("Block", map["AssessmentDecision"]);
+            Assert.Equal("Block", map["AssessmentDecisionBalanced"]);
+        }
+        finally
+        {
+            Settings.AssessmentWarnThreshold = oldWarn;
+            Settings.AssessmentBlockThreshold = oldBlock;
+        }
+    }
+
+    [Fact]
+    public void Analyze_With_IncludeAssessment_False_Does_Not_Expose_Assessment_In_Report()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0IiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJl");
+
+            var analysis = FileInspector.Analyze(p, new FileInspector.DetectionOptions
+            {
+                IncludeAssessment = false
+            });
+
+            Assert.Null(analysis.Assessment);
+
+            var rv = ReportView.From(analysis);
+            Assert.NotNull(rv.Advice);
+            Assert.False(rv.Advice.ShowAssessment);
+            Assert.Null(rv.AssessmentScore);
+            Assert.Null(rv.AssessmentDecisionBalanced);
+
+            var map = rv.ToDictionary();
+            var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+            Assert.Equal(false, advice["ShowAssessment"]);
+            Assert.False(map.ContainsKey("AssessmentScore"));
+            Assert.False(map.ContainsKey("AssessmentDecisionBalanced"));
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
     }
 }
