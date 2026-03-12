@@ -129,6 +129,7 @@ public static partial class FileInspector
             a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix ||
             string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
+        bool hasInstallerContainer = (a.Flags & ContentFlags.ContainerContainsInstallers) != 0;
         bool hasArchiveContentRisk =
             (a.Flags & (ContentFlags.ContainerContainsExecutables |
                         ContentFlags.ContainerContainsScripts |
@@ -138,9 +139,9 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
         if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer && !hasInstallerContainer) Add("Archive.ContainsExecutables", 25);
         if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !isAppPackageContainer) Add("Archive.ContainsScripts", 20);
-        if ((a.Flags & ContentFlags.ContainerContainsInstallers) != 0) Add("Archive.ContainsInstallers", 15);
+        if (hasInstallerContainer) Add("Archive.ContainsInstallers", 25);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
         if (hasDisguisedExecutables) Add("Archive.DisguisedExecutables", 25);
 
