@@ -358,6 +358,341 @@ internal static partial class Signatures
         return true;
     }
 
+    private static int CountHeaderStyleColonLines(ReadOnlySpan<byte> head, int maxLines)
+    {
+        int count = 0;
+        int scanned = 0;
+        int lineStart = 0;
+        for (int i = 0; i < head.Length && scanned < maxLines; i++)
+        {
+            if (head[i] == (byte)'\n' || i == head.Length - 1)
+            {
+                int end = head[i] == (byte)'\n' ? i : i + 1;
+                var raw = head.Slice(lineStart, Math.Max(0, end - lineStart));
+                lineStart = i + 1;
+                scanned++;
+                if (LooksLikeHeaderStyleColonLine(TrimBytes(raw))) count++;
+            }
+        }
+        return count;
+    }
+
+    private static bool LooksLikeHeaderStyleColonLine(ReadOnlySpan<byte> l)
+    {
+        if (l.Length < 4) return false;
+        if (!char.IsUpper((char)l[0])) return false;
+        if (LooksLikeTimestamp(l) || LooksLikeSyslogLine(l)) return false;
+        if (StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]"))
+            return false;
+
+        int cpos = l.IndexOf((byte)':');
+        if (cpos <= 0 || cpos > Math.Min(40, l.Length - 1)) return false;
+        if (cpos + 1 < l.Length && !(l[cpos + 1] == (byte)' ' || l[cpos + 1] == (byte)'\t')) return false;
+
+        bool hasAlpha = false;
+        for (int i = 0; i < cpos; i++)
+        {
+            byte c = l[i];
+            if (char.IsLetter((char)c))
+            {
+                hasAlpha = true;
+                continue;
+            }
+
+            if (char.IsDigit((char)c) || c == (byte)' ' || c == (byte)'-')
+                continue;
+
+            return false;
+        }
+
+        return hasAlpha;
+    }
+
+    private static bool LooksLikeSyslogLine(ReadOnlySpan<byte> l)
+    {
+        if (l.Length < 16) return false;
+
+        int i = 0;
+        while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+        if (i + 15 >= l.Length) return false;
+
+        if (!LooksLikeSyslogMonth(l.Slice(i, 3))) return false;
+        i += 3;
+
+        if (i >= l.Length || l[i] != (byte)' ') return false;
+        while (i < l.Length && l[i] == (byte)' ') i++;
+
+        int dayDigits = 0;
+        while (i < l.Length && dayDigits < 2 && IsDigit(l[i]))
+        {
+            i++;
+            dayDigits++;
+        }
+        if (dayDigits < 1 || i >= l.Length || l[i] != (byte)' ') return false;
+        while (i < l.Length && l[i] == (byte)' ') i++;
+
+        if (i + 7 >= l.Length) return false;
+        if (!(IsDigit(l[i]) && IsDigit(l[i + 1]) && l[i + 2] == (byte)':' &&
+              IsDigit(l[i + 3]) && IsDigit(l[i + 4]) && l[i + 5] == (byte)':' &&
+              IsDigit(l[i + 6]) && IsDigit(l[i + 7])))
+            return false;
+        i += 8;
+
+        if (i >= l.Length || l[i] != (byte)' ') return false;
+        while (i < l.Length && l[i] == (byte)' ') i++;
+
+        int hostStart = i;
+        while (i < l.Length && !char.IsWhiteSpace((char)l[i]))
+        {
+            byte c = l[i];
+            if (!(char.IsLetterOrDigit((char)c) || c == (byte)'.' || c == (byte)'-' || c == (byte)'_'))
+                return false;
+            i++;
+        }
+        if (i == hostStart || i >= l.Length) return false;
+        while (i < l.Length && l[i] == (byte)' ') i++;
+        if (i >= l.Length) return false;
+
+        int colon = l.Slice(i).IndexOf((byte)':');
+        return colon > 0 && colon < 48;
+    }
+
+    private static bool LooksLikeSyslogMonth(ReadOnlySpan<byte> token)
+    {
+        return token.Length == 3 &&
+               (StartsWithToken(token, "Jan") ||
+                StartsWithToken(token, "Feb") ||
+                StartsWithToken(token, "Mar") ||
+                StartsWithToken(token, "Apr") ||
+                StartsWithToken(token, "May") ||
+                StartsWithToken(token, "Jun") ||
+                StartsWithToken(token, "Jul") ||
+                StartsWithToken(token, "Aug") ||
+                StartsWithToken(token, "Sep") ||
+                StartsWithToken(token, "Oct") ||
+                StartsWithToken(token, "Nov") ||
+                StartsWithToken(token, "Dec"));
+    }
+
+    private static bool LooksLikeEmailText(ReadOnlySpan<byte> head)
+    {
+        int headerCount = 0;
+        int identityHeaders = 0;
+        bool hasMimeVersion = false;
+        bool hasContentType = false;
+        bool sawSeparator = false;
+
+        int lineStart = 0;
+        int scanned = 0;
+        for (int i = 0; i < head.Length && scanned < 24; i++)
+        {
+            if (head[i] != (byte)'\n' && i != head.Length - 1) continue;
+
+            int end = head[i] == (byte)'\n' ? i : i + 1;
+            var line = TrimBytes(head.Slice(lineStart, Math.Max(0, end - lineStart)));
+            lineStart = i + 1;
+            scanned++;
+
+            if (line.Length == 0)
+            {
+                if (headerCount >= 2)
+                {
+                    sawSeparator = true;
+                    break;
+                }
+                continue;
+            }
+
+            var headerKind = GetEmailHeaderKind(line);
+            if (headerKind == 0)
+            {
+                if (headerCount >= 2) break;
+                return false;
+            }
+
+            headerCount++;
+            if (headerKind == 1) identityHeaders++;
+            if (headerKind == 2) hasMimeVersion = true;
+            if (headerKind == 3) hasContentType = true;
+        }
+
+        if (headerCount < 2) return false;
+        if (!sawSeparator) return false;
+        if (identityHeaders >= 1) return true;
+        return hasMimeVersion && hasContentType && headerCount >= 3;
+    }
+
+    private static int GetEmailHeaderKind(ReadOnlySpan<byte> line)
+    {
+        if (line.Length < 3) return 0;
+        if (StartsWithToken(line, "From:")) return 1;
+        if (StartsWithToken(line, "To:")) return 1;
+        if (StartsWithToken(line, "Cc:")) return 1;
+        if (StartsWithToken(line, "Bcc:")) return 1;
+        if (StartsWithToken(line, "Subject:")) return 1;
+        if (StartsWithToken(line, "Date:")) return 1;
+        if (StartsWithToken(line, "Reply-To:")) return 1;
+        if (StartsWithToken(line, "Sender:")) return 1;
+        if (StartsWithToken(line, "Message-ID:")) return 1;
+        if (StartsWithToken(line, "MIME-Version:")) return 2;
+        if (StartsWithToken(line, "Content-Type:")) return 3;
+        if (StartsWithToken(line, "Content-Transfer-Encoding:")) return 4;
+        if (StartsWithToken(line, "Content-Disposition:")) return 4;
+        if (StartsWithToken(line, "Return-Path:")) return 4;
+        if (StartsWithToken(line, "Received:")) return 4;
+        return 0;
+    }
+
+    private static bool LooksLikeSingleLineDelimitedRecord(ReadOnlySpan<byte> line, byte separator)
+    {
+        if (line.Length == 0) return false;
+
+        int tokens = 0;
+        int dataLikeTokens = 0;
+        int pathLikeTokens = 0;
+        int assignmentTokens = 0;
+        int flagLikeTokens = 0;
+        int start = 0;
+
+        for (int i = 0; i <= line.Length; i++)
+        {
+            if (i != line.Length && line[i] != separator) continue;
+
+            var token = TrimBytes(line.Slice(start, i - start));
+            start = i + 1;
+            if (token.Length == 0) continue;
+
+            tokens++;
+            if (LooksLikeDelimitedPathToken(token)) pathLikeTokens++;
+            if (LooksLikeDelimitedAssignmentToken(token)) assignmentTokens++;
+            if (LooksLikeDelimitedFlagToken(token)) flagLikeTokens++;
+            if (LooksLikeDelimitedDataToken(token)) dataLikeTokens++;
+        }
+
+        if (tokens < 3) return false;
+        if (pathLikeTokens >= 2) return false;
+        if (assignmentTokens >= 2) return false;
+        if (flagLikeTokens >= 2) return false;
+        if (separator == (byte)';' && assignmentTokens >= 1 && pathLikeTokens >= 1) return false;
+
+        return dataLikeTokens >= 2;
+    }
+
+    private static bool LooksLikeDelimitedPathToken(ReadOnlySpan<byte> token)
+    {
+        if (token.Length < 2) return false;
+
+        if (token.Length >= 3 &&
+            char.IsLetter((char)token[0]) &&
+            token[1] == (byte)':' &&
+            (token[2] == (byte)'\\' || token[2] == (byte)'/'))
+            return true;
+
+        if (token.Length >= 2 &&
+            token[0] == (byte)'\\' &&
+            token[1] == (byte)'\\')
+            return true;
+
+        int slashCount = 0;
+        for (int i = 0; i < token.Length; i++)
+        {
+            if (token[i] == (byte)'\\' || token[i] == (byte)'/')
+                slashCount++;
+        }
+
+        if (slashCount >= 2) return true;
+        if (IndexOfToken(token, "http://") >= 0 || IndexOfToken(token, "https://") >= 0) return true;
+        return false;
+    }
+
+    private static bool LooksLikeDelimitedAssignmentToken(ReadOnlySpan<byte> token)
+    {
+        int eq = token.IndexOf((byte)'=');
+        if (eq <= 0 || eq >= token.Length - 1) return false;
+
+        for (int i = 0; i < eq; i++)
+        {
+            byte c = token[i];
+            if (!(char.IsLetterOrDigit((char)c) || c == (byte)'_' || c == (byte)'-' || c == (byte)'.'))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool LooksLikeDelimitedFlagToken(ReadOnlySpan<byte> token)
+    {
+        if (token.Length < 2) return false;
+        if ((token[0] == (byte)'-' || token[0] == (byte)'/') && char.IsLetter((char)token[1]))
+            return true;
+        return false;
+    }
+
+    private static bool LooksLikeDelimitedDataToken(ReadOnlySpan<byte> token)
+    {
+        if (token.Length == 0) return false;
+        if (LooksLikeDelimitedPathToken(token)) return false;
+        if (LooksLikeDelimitedAssignmentToken(token)) return false;
+        if (LooksLikeDelimitedFlagToken(token)) return false;
+
+        bool hasAlphaNum = false;
+        for (int i = 0; i < token.Length; i++)
+        {
+            byte c = token[i];
+            if (char.IsLetterOrDigit((char)c))
+            {
+                hasAlphaNum = true;
+                continue;
+            }
+
+            if (c == (byte)' ' || c == (byte)'_' || c == (byte)'-' || c == (byte)'.' || c == (byte)'"' || c == (byte)'\'' || c == (byte)'(' || c == (byte)')')
+                continue;
+
+            return false;
+        }
+
+        return hasAlphaNum;
+    }
+
+    private static int CountPowerShellDataFileKeys(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return 0;
+
+        string[] keys =
+        {
+            "RootModule",
+            "ModuleVersion",
+            "GUID",
+            "Author",
+            "CompanyName",
+            "Copyright",
+            "Description",
+            "PowerShellVersion",
+            "CompatiblePSEditions",
+            "FunctionsToExport",
+            "CmdletsToExport",
+            "AliasesToExport",
+            "VariablesToExport",
+            "NestedModules",
+            "RequiredModules",
+            "RequiredAssemblies",
+            "ScriptsToProcess",
+            "FormatsToProcess",
+            "TypesToProcess",
+            "FileList",
+            "PrivateData"
+        };
+
+        int found = 0;
+        foreach (var key in keys)
+        {
+            if (s.IndexOf(key + " =", StringComparison.OrdinalIgnoreCase) >= 0)
+                found++;
+        }
+
+        return found;
+    }
+
     private static bool LooksLikeCompleteJson(string s)
     {
         if (string.IsNullOrWhiteSpace(s)) return false;

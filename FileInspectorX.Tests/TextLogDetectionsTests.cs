@@ -258,5 +258,42 @@ public class TextLogDetectionsTests
         }
         finally { TestHelpers.SafeDelete(p); }
     }
-}
 
+    [Fact]
+    public void Detect_Syslog_Text_Log()
+    {
+        var p = Path.GetTempFileName();
+        try
+        {
+            var text = "Mar 13 10:15:22 host01 sshd[1234]: Failed password for invalid user admin from 10.0.0.5 port 22 ssh2\n" +
+                       "Mar 13 10:15:24 host01 sshd[1234]: Connection closed by invalid user admin 10.0.0.5 port 22 [preauth]\n";
+            File.WriteAllText(p, text);
+            var r = FI.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+            Assert.Equal("text:log-syslog", r.Reason);
+        }
+        finally { TestHelpers.SafeDelete(p); }
+    }
+
+    [Fact]
+    public void Detect_PowerShell_Transcript_Log()
+    {
+        var p = Path.GetTempFileName();
+        try
+        {
+            var text = "**********************\n" +
+                       "Windows PowerShell transcript start\n" +
+                       "Start time: 20260313101522\n" +
+                       "Username: CONTOSO\\operator\n" +
+                       "Machine: HOST01 (Microsoft Windows NT 10.0.19045.0)\n" +
+                       "**********************\n";
+            File.WriteAllText(p, text);
+            var r = FI.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+            Assert.Equal("text:log-powershell-transcript", r.Reason);
+        }
+        finally { TestHelpers.SafeDelete(p); }
+    }
+}

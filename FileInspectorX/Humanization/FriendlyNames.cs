@@ -56,6 +56,25 @@ public static class FriendlyNames
             case "yml":
             case "yaml": return "YAML document";
             case "xml":  return "XML file";
+            case "ps1":  return "PowerShell script";
+            case "psm1": return "PowerShell module";
+            case "psd1": return "PowerShell data file";
+            case "ps1xml": return "PowerShell format/configuration file";
+            case "bat":
+            case "cmd":  return "Windows batch script";
+            case "js":
+            case "mjs":
+            case "cjs": return "JavaScript file";
+            case "vbs": return "VBScript file";
+            case "vbe": return "Encoded VBScript file";
+            case "wsf":
+            case "wsh": return "Windows Script Host script";
+            case "sh":
+            case "bash":
+            case "zsh": return "Shell script";
+            case "py":  return "Python script";
+            case "rb":  return "Ruby script";
+            case "lua": return "Lua script";
             case "admx": return "Group Policy ADMX template";
             case "adml": return "Group Policy ADML resource file";
             case "toml": return "TOML document";
@@ -73,8 +92,6 @@ public static class FriendlyNames
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
             case "msi":  return "Windows installer package (.msi)";
-            case "bat":
-            case "cmd":  return "Windows batch script";
             case "vsix": return "Visual Studio extension (VSIX)";
             case "apk":  return "Android package (APK)";
             case "ipa":  return "iOS application archive (IPA)";
@@ -88,6 +105,7 @@ public static class FriendlyNames
         if (string.Equals(ext, "log", System.StringComparison.OrdinalIgnoreCase))
         {
             var f = a.SecurityFindings ?? Array.Empty<string>();
+            if (f.Contains("ps:transcript", StringComparer.OrdinalIgnoreCase)) return "PowerShell transcript log";
             if (f.Contains("log:iis-w3c", StringComparer.OrdinalIgnoreCase)) return "IIS W3C log";
             if (f.Contains("log:dns", StringComparer.OrdinalIgnoreCase)) return "Windows DNS Server log";
             if (f.Contains("log:firewall", StringComparer.OrdinalIgnoreCase)) return "Windows Firewall log";
@@ -105,6 +123,8 @@ public static class FriendlyNames
             var reason = det?.Reason?.ToLowerInvariant() ?? string.Empty;
             if (!string.IsNullOrEmpty(reason))
             {
+                if (reason.Contains("text:log-powershell-transcript")) return "PowerShell transcript log";
+                if (reason.Contains("text:log-syslog")) return "Syslog text log";
                 if (reason.Contains("text:log-dns")) return "Windows DNS Server log";
                 if (reason.Contains("text:log-firewall")) return "Windows Firewall log";
                 if (reason.Contains("text:log-netlogon")) return "Windows Netlogon log";

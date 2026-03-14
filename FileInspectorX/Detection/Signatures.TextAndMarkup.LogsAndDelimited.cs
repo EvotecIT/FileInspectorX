@@ -22,6 +22,11 @@ internal static partial class Signatures
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns", ReasonDetails = "log:dns" };
             return true;
         }
+        if (LogHeuristics.LooksLikePowerShellTranscript(headLower))
+        {
+            result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-powershell-transcript", ReasonDetails = "log:powershell-transcript" };
+            return true;
+        }
 
         // Delimiter heuristics shared by CSV/TSV + log detection
         var span = head;
@@ -32,9 +37,17 @@ internal static partial class Signatures
         var line2 = rest.Slice(0, nl2);
 
         // LOG heuristic (timestamps/levels) promoted ahead of CSV/Markdown to avoid mislabels
-        bool logCues = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2);
+        bool syslog1 = LooksLikeSyslogLine(line1);
+        bool syslog2 = LooksLikeSyslogLine(line2);
+        bool logCues = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2) || syslog1 || syslog2;
         if (!scriptCues)
         {
+            if (syslog1 && syslog2)
+            {
+                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-syslog", ReasonDetails = "log:syslog" };
+                return true;
+            }
+
             if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2))
             {
                 result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-2" };
@@ -97,14 +110,9 @@ internal static partial class Signatures
             if (tabs1 >= 1 && tabs2 >= 1 && Math.Abs(tabs1 - tabs2) <= 2) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:tabs-2lines" }; return true; }
             if (line2.Length == 0 || (line2.Length == 0 && rest.Length == 0))
             {
-                static int TokenCount(ReadOnlySpan<byte> l, byte sep)
-                {
-                    if (l.Length == 0) return 0;
-                    int tokens = 1; for (int i = 0; i < l.Length; i++) if (l[i] == sep) tokens++; return tokens;
-                }
-                if (commas1 >= 2 && TokenCount(line1, (byte)',') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
-                if (semis1 >= 2 && TokenCount(line1, (byte)';') >= 3) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
-                if (tabs1 >= 2 && TokenCount(line1, (byte)'\t') >= 3) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:single-line" }; return true; }
+                if (commas1 >= 2 && LooksLikeSingleLineDelimitedRecord(line1, (byte)',')) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
+                if (semis1 >= 2 && LooksLikeSingleLineDelimitedRecord(line1, (byte)';')) { result = new ContentTypeDetectionResult { Extension = "csv", MimeType = "text/csv", Confidence = "Low", Reason = "text:csv", ReasonDetails = "csv:single-line" }; return true; }
+                if (tabs1 >= 2 && LooksLikeSingleLineDelimitedRecord(line1, (byte)'\t')) { result = new ContentTypeDetectionResult { Extension = "tsv", MimeType = "text/tab-separated-values", Confidence = "Low", Reason = "text:tsv", ReasonDetails = "tsv:single-line" }; return true; }
             }
         }
 
