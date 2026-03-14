@@ -209,6 +209,35 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Mail_Headers_Not_Misclassified_As_Yaml()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "From: alerts@example.com\nSubject: TierBridge alert\nContent-Type: text/plain; charset=utf-8\n\nBody\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("eml", r!.Extension);
+            Assert.NotEqual("yml", r.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Http_Header_Dump_Not_Detected_As_Eml()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "HTTP/1.1 200 OK\nContent-Type: application/json\nContent-Length: 12\nServer: nginx\n\n{\"ok\":true}\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.NotEqual("eml", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Markdown_Detected() {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
@@ -561,6 +590,21 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void PowerShell_Data_Manifest_Content_Detected_Without_Psd1_Extension()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "@{\nRootModule = 'TierBridge.psm1'\nModuleVersion = '1.0.0'\nGUID = '11111111-1111-1111-1111-111111111111'\nFunctionsToExport = @('Get-Thing')\n}\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("psd1", r!.Extension);
+            Assert.Equal("text/x-powershell", r.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Markdown_With_PowerShell_Content_Stays_Markdown()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".md");
@@ -573,6 +617,49 @@ public class TextDetectionsTests {
             Assert.Equal("text/markdown", r.MimeType);
             Assert.NotNull(r.Alternatives);
             Assert.Contains(r.Alternatives!, a => string.Equals(a.Extension, "ps1", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Semicolon_Path_List_Not_Classified_As_Csv()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "PATH=C:\\Windows\\System32;C:\\Program Files\\TierBridge;D:\\Tools\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.NotEqual("csv", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Ini_With_Dotted_Keys_Not_Classified_As_Toml()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "[General]\nlog.level=info\napp.mode=service\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("ini", r!.Extension);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
+    public void Undeclared_Toml_With_Dotted_Table_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "[database.settings]\nports = [ 8001, 8002 ]\nuser = \"sa\"\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("toml", r!.Extension);
+            Assert.Equal("application/toml", r.MimeType);
         }
         finally { if (File.Exists(p)) File.Delete(p); }
     }

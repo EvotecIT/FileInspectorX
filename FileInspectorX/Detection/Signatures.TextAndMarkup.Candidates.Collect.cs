@@ -141,7 +141,9 @@ internal static partial class Signatures
 
         bool htmlHasScript = headLower.Contains("<script") || headLower.Contains("javascript:") || headLower.Contains("onerror=") || headLower.Contains("onload=");
 
-        bool logCuesLocal = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2);
+        bool syslog1 = LooksLikeSyslogLine(line1);
+        bool syslog2 = LooksLikeSyslogLine(line2);
+        bool logCuesLocal = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2) || syslog1 || syslog2;
         int logPenaltyFromScript = scriptCues ? logPenaltyFromScriptValue : 0;
         int scriptPenaltyFromLog = logCuesLocal ? scriptPenaltyFromLogValue : 0;
         int scriptPenalty = scriptPenaltyFromLog + scriptPenaltyFromMarkdown;
@@ -151,6 +153,7 @@ internal static partial class Signatures
         if (!scriptCues)
         {
             if (LogHeuristics.LooksLikeDnsLog(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-dns", "log:dns", scoreAdjust: logPenalty);
+            if (LogHeuristics.LooksLikePowerShellTranscript(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-powershell-transcript", "log:powershell-transcript", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeFirewallLog(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-firewall", "log:firewall", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeNetlogonLog(headLower, logCuesLocal)) AddCandidate("log", "text/plain", "Medium", "text:log-netlogon", "log:netlogon", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeEventViewerTextExport(headLower)) AddCandidate("log", "text/plain", "Medium", "text:event-txt", "log:event-txt", scoreAdjust: logPenalty);
@@ -160,6 +163,7 @@ internal static partial class Signatures
             if (LogHeuristics.LooksLikeSqlErrorLog(headLower, logCuesLocal)) AddCandidate("log", "text/plain", "Medium", "text:log-sql-errorlog", "log:sql-errorlog", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeNpsRadiusLog(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-nps", "log:nps", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeSqlAgentLog(headLower, logCuesLocal)) AddCandidate("log", "text/plain", "Low", "text:log-sqlagent", "log:sqlagent", scoreAdjust: logPenalty);
+            if (syslog1 && syslog2) AddCandidate("log", "text/plain", "Medium", "text:log-syslog", "log:syslog", scoreAdjust: logPenalty);
 
             int levelCount = 0;
             if (StartsWithLevelToken(line1)) levelCount++;
@@ -188,6 +192,9 @@ internal static partial class Signatures
 
         TryAddXmlCandidates(head, headStr, headLower, declaredAdmx, declaredAdml, htmlHasScript, AddCandidate, xmlWellFormedBoost);
 
+        if (LooksLikeEmailText(head))
+            AddCandidate("eml", "message/rfc822", "Low", "text:eml");
+
         if (!logCuesLocal)
         {
             bool yamlFront = false;
@@ -198,17 +205,19 @@ internal static partial class Signatures
                 if (idx > 0) yamlFront = true;
             }
             CountYamlStructure(head, 8, out int yamlKeys, out int yamlLists);
+            int headerStyleColonLines = CountHeaderStyleColonLines(head, 8);
             bool yamlStrong = yamlKeys >= 2 || (yamlKeys >= 1 && yamlLists >= 1) || yamlLists >= 3;
             bool yamlFrontHasStructure = yamlKeys > 0 || yamlLists > 0;
+            bool headerStyleBlock = headerStyleColonLines >= 2 && headerStyleColonLines >= yamlKeys;
             int yamlPenalty = (logCuesLocal ? yamlPenaltyFromLog : 0) + ((scriptCues && !yamlStrong) ? yamlPenaltyFromScript : 0);
             if (yamlFront)
             {
-                if (yamlFrontHasStructure && (!scriptCues || yamlStrong))
+                if (yamlFrontHasStructure && (!scriptCues || yamlStrong) && !headerStyleBlock)
                     AddCandidate("yml", "application/x-yaml", "Low", "text:yaml", "yaml:front-matter", scoreAdjust: yamlPenalty);
             }
             else if (yamlKeys >= 2 || yamlLists >= 2)
             {
-                if (!scriptCues || yamlStrong)
+                if ((!scriptCues || yamlStrong) && !headerStyleBlock)
                 {
                     var details = yamlKeys >= 1 ? $"yaml:key-lines={yamlKeys}" : $"yaml:list-lines={yamlLists}";
                     AddCandidate("yml", "application/x-yaml", "Low", "text:yaml-keys", details, scoreAdjust: yamlPenalty);
@@ -295,10 +304,9 @@ internal static partial class Signatures
                 AddCandidate("tsv", "text/tab-separated-values", "Low", "text:tsv", "tsv:tabs-2lines");
             if (line2.Length == 0)
             {
-                static int TokenCount(ReadOnlySpan<byte> l, byte sep) { if (l.Length == 0) return 0; int tokens = 1; for (int i = 0; i < l.Length; i++) if (l[i] == sep) tokens++; return tokens; }
-                if (commas1 >= 2 && TokenCount(line1, (byte)',') >= 3) AddCandidate("csv", "text/csv", "Low", "text:csv", "csv:single-line");
-                if (semis1 >= 2 && TokenCount(line1, (byte)';') >= 3) AddCandidate("csv", "text/csv", "Low", "text:csv", "csv:single-line");
-                if (tabs1 >= 2 && TokenCount(line1, (byte)'\t') >= 3) AddCandidate("tsv", "text/tab-separated-values", "Low", "text:tsv", "tsv:single-line");
+                if (commas1 >= 2 && LooksLikeSingleLineDelimitedRecord(line1, (byte)',')) AddCandidate("csv", "text/csv", "Low", "text:csv", "csv:single-line");
+                if (semis1 >= 2 && LooksLikeSingleLineDelimitedRecord(line1, (byte)';')) AddCandidate("csv", "text/csv", "Low", "text:csv", "csv:single-line");
+                if (tabs1 >= 2 && LooksLikeSingleLineDelimitedRecord(line1, (byte)'\t')) AddCandidate("tsv", "text/tab-separated-values", "Low", "text:tsv", "tsv:single-line");
             }
         }
 
@@ -360,8 +368,8 @@ internal static partial class Signatures
             if (headLower.Contains("begin{") || headLower.Contains("begin {")) { cues++; strong++; }
             if (headLower.Contains("process{") || headLower.Contains("process {")) { cues++; strong++; }
             if (headLower.Contains("end{") || headLower.Contains("end {")) { cues++; strong++; }
-            if (headLower.Contains("[parameter(")) { cues++; strong++; }    
-            if (headLower.Contains("[validate")) { cues++; strong++; }      
+            if (headLower.Contains("[parameter(")) { cues++; strong++; }
+            if (headLower.Contains("[validate")) { cues++; strong++; }
             if (headStr.IndexOf("Write-Host", System.StringComparison.Ordinal) >= 0) cues++;
             if (headStr.IndexOf("Write-Output", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
             if (headStr.IndexOf("Write-Error", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;

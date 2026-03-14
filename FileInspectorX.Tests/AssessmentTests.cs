@@ -146,6 +146,12 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Name.DoubleExtension");
         Assert.Contains(legend, e => e.Code == "Name.BiDiOverride");
         Assert.Contains(legend, e => e.Code == "Name.ExtensionMismatch");
+        Assert.Contains(legend, e => e.Code == "Type.ExtensionOnlyRisk");
+        Assert.Contains(legend, e => e.Code == "Type.LowConfidenceRisk");
+        Assert.Contains(legend, e => e.Code == "Type.AmbiguousCandidates");
+        Assert.Contains(legend, e => e.Code == "Type.DangerousAlternative");
+        Assert.Contains(legend, e => e.Code == "Type.GuessedSubtypeRisk");
+        Assert.Contains(legend, e => e.Code == "Type.ValidationUncertain");
         Assert.Contains(legend, e => e.Code == "PE.RegSvrExport");
         Assert.Contains(legend, e => e.Code == "Secret.JWT");
         Assert.Contains(legend, e => e.Code == "Secret.JWT.Volume");
@@ -868,6 +874,132 @@ public class AssessmentTests
         Assert.Contains("Appx.Capability.BroadFileSystemAccess", assessed.Codes);
         Assert.Contains("Appx.Extension.Protocol", assessed.Codes);
         Assert.Contains("Appx.Extension.FTA", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Risky_Ambiguous_Detection_Adds_Type_Uncertainty_Codes()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "txt",
+                Confidence = "Low",
+                Reason = "text:plain",
+                Candidates = new[]
+                {
+                    new ContentTypeDetectionCandidate
+                    {
+                        Extension = "txt",
+                        Confidence = "Low",
+                        Score = 35
+                    },
+                    new ContentTypeDetectionCandidate
+                    {
+                        Extension = "ps1",
+                        Confidence = "High",
+                        Score = 82,
+                        IsDangerous = true
+                    }
+                }
+            },
+            GuessedExtension = "ps1",
+            NameIssues = NameIssues.ExtensionMismatch
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(48, assessed.Score);
+        Assert.Contains("Name.ExtensionMismatch", assessed.Codes);
+        Assert.Contains("Type.LowConfidenceRisk", assessed.Codes);
+        Assert.Contains("Type.AmbiguousCandidates", assessed.Codes);
+        Assert.Contains("Type.DangerousAlternative", assessed.Codes);
+        Assert.Contains("Type.GuessedSubtypeRisk", assessed.Codes);
+        Assert.Equal(10, assessed.Factors["Type.LowConfidenceRisk"]);
+        Assert.Equal(8, assessed.Factors["Type.AmbiguousCandidates"]);
+        Assert.Equal(12, assessed.Factors["Type.DangerousAlternative"]);
+        Assert.Equal(8, assessed.Factors["Type.GuessedSubtypeRisk"]);
+    }
+
+    [Fact]
+    public void Assess_Dangerous_Extension_Only_Detection_Adds_Type_ExtensionOnlyRisk()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                Confidence = "Low",
+                Reason = "extension:ps1",
+                IsDangerous = true
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(12, assessed.Score);
+        Assert.Contains("Type.ExtensionOnlyRisk", assessed.Codes);
+        Assert.DoesNotContain("Type.LowConfidenceRisk", assessed.Codes);
+        Assert.Equal(12, assessed.Factors["Type.ExtensionOnlyRisk"]);
+    }
+
+    [Fact]
+    public void Assess_Harmless_LowConfidence_Text_Does_Not_Add_Type_Uncertainty_Code()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "txt",
+                Confidence = "Low",
+                Reason = "text:plain"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(0, assessed.Score);
+        Assert.DoesNotContain("Type.LowConfidenceRisk", assessed.Codes);
+        Assert.DoesNotContain("Type.AmbiguousCandidates", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Risky_Detection_With_Validation_Timeout_Adds_Validation_Uncertain_Code()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                Confidence = "Medium",
+                Reason = "text:ps1",
+                ValidationStatus = "timeout",
+                IsDangerous = true,
+                Candidates = new[]
+                {
+                    new ContentTypeDetectionCandidate
+                    {
+                        Extension = "ps1",
+                        Confidence = "Medium",
+                        Score = 72,
+                        IsDangerous = true
+                    },
+                    new ContentTypeDetectionCandidate
+                    {
+                        Extension = "txt",
+                        Confidence = "Low",
+                        Score = 41
+                    }
+                }
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(16, assessed.Score);
+        Assert.Contains("Type.AmbiguousCandidates", assessed.Codes);
+        Assert.Contains("Type.ValidationUncertain", assessed.Codes);
+        Assert.Equal(8, assessed.Factors["Type.ValidationUncertain"]);
     }
 
     [Fact]

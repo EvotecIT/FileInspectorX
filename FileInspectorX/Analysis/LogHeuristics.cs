@@ -45,6 +45,12 @@ internal static class LogHeuristics
         return lower.Contains("log file created at") || lower.Contains("packet");
     }
 
+    internal static bool LooksLikePowerShellTranscript(string lower)
+    {
+        if (!lower.Contains("windows powershell transcript start")) return false;
+        return lower.Contains("start time:") || lower.Contains("username:") || lower.Contains("machine:");
+    }
+
     internal static bool LooksLikeFirewallLog(string lower)
     {
         bool hasSoftware = lower.Contains("#software: microsoft windows firewall") || lower.Contains("#software: windows firewall") || lower.Contains("microsoft windows firewall");

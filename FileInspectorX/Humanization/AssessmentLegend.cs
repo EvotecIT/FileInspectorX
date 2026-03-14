@@ -100,6 +100,12 @@ public static class AssessmentLegend
         ["Name.DoubleExtension"]      = new("Name.DoubleExtension", "Double extension", "Filename uses multiple extensions that can disguise the true content type.", "Identity", 35),
         ["Name.BiDiOverride"]         = new("Name.BiDiOverride", "BiDi override in name", "Filename contains bidirectional override characters that can disguise the visible extension.", "Identity", 50),
         ["Name.ExtensionMismatch"]    = new("Name.ExtensionMismatch", "Extension mismatch", "Filename extension does not align with detected content type.", "Identity", 25),
+        ["Type.ExtensionOnlyRisk"]    = new("Type.ExtensionOnlyRisk", "Risky type from extension only", "Risky content classification relies only on the filename extension rather than content evidence.", "Type", 45),
+        ["Type.LowConfidenceRisk"]    = new("Type.LowConfidenceRisk", "Low-confidence risky type", "Risky or mismatched content was identified with weak confidence and should be treated cautiously.", "Type", 40),
+        ["Type.AmbiguousCandidates"]  = new("Type.AmbiguousCandidates", "Ambiguous file type", "Multiple plausible content types were detected for the same file.", "Type", 35),
+        ["Type.DangerousAlternative"] = new("Type.DangerousAlternative", "Dangerous alternative type", "A dangerous alternative file type was detected alongside the primary classification.", "Type", 55),
+        ["Type.GuessedSubtypeRisk"]   = new("Type.GuessedSubtypeRisk", "Risky guessed subtype", "The file depends on secondary subtype cues that point to a risky format.", "Type", 35),
+        ["Type.ValidationUncertain"]  = new("Type.ValidationUncertain", "Type validation uncertain", "Validation for the detected type did not complete cleanly, reducing confidence in the result.", "Type", 30),
 
         // Operational/tooling cues
         ["DotNet.StrongName"]         = new("DotNet.StrongName", ".NET strong name present", ".NET assembly carries a strong-name signature, which slightly lowers risk.", "DotNet", 0),

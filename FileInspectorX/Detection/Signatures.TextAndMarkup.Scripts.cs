@@ -37,6 +37,8 @@ internal static partial class Signatures
                                    headStr.IndexOf("FunctionsToExport", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
                                    headStr.IndexOf("RootModule", System.StringComparison.OrdinalIgnoreCase) >= 0;
             bool psd1Hashtable = declaredPsd1 && headStr.TrimStart().StartsWith("@{");
+            bool psHashtable = headStr.TrimStart().StartsWith("@{");
+            int psd1ManifestKeys = CountPowerShellDataFileKeys(headStr);
 
             int cues = 0;
             int strong = 0;
@@ -72,9 +74,17 @@ internal static partial class Signatures
                 result = new ContentTypeDetectionResult { Extension = "psm1", MimeType = "text/x-powershell", Confidence = "High", Reason = "text:psm1", ReasonDetails = "psm1:module-cues" };
                 return true;
             }
-            if (declaredPsd1 && (psd1Hashtable || hasModuleExport))
+            if (declaredPsd1 && (psd1Hashtable || hasModuleExport || psd1ManifestKeys >= 2))
             {
-                result = new ContentTypeDetectionResult { Extension = "psd1", MimeType = "text/x-powershell", Confidence = "Low", Reason = "text:psd1", ReasonDetails = psd1Hashtable ? "psd1:hashtable" : "psd1:module-keys" };
+                string conf = psd1ManifestKeys >= 3 ? "Medium" : "Low";
+                string details = psd1ManifestKeys >= 2 ? $"psd1:manifest-keys-{psd1ManifestKeys}" :
+                    (psd1Hashtable ? "psd1:hashtable" : "psd1:module-keys");
+                result = new ContentTypeDetectionResult { Extension = "psd1", MimeType = "text/x-powershell", Confidence = conf, Reason = "text:psd1", ReasonDetails = details };
+                return true;
+            }
+            if (!declaredMd && !declaredPsd1 && psHashtable && psd1ManifestKeys >= 3)
+            {
+                result = new ContentTypeDetectionResult { Extension = "psd1", MimeType = "text/x-powershell", Confidence = "Low", Reason = "text:psd1", ReasonDetails = $"psd1:hashtable+manifest-keys-{psd1ManifestKeys}" };
                 return true;
             }
 
@@ -238,7 +248,7 @@ internal static partial class Signatures
         if (s.IndexOf("Write-Debug", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
         if (s.IndexOf("Import-Module", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
         if (s.IndexOf("New-Object", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
-        if (s.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;     
+        if (s.IndexOf("Get-", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("Set-", System.StringComparison.OrdinalIgnoreCase) >= 0) cues++;
 
         return strong >= 1 || cues >= 2;
     }

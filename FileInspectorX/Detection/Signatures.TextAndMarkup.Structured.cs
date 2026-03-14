@@ -73,10 +73,23 @@ internal static partial class Signatures
 
                 if (looksArray)
                 {
+                    int firstValueIndex = 1;
+                    while (firstValueIndex < slice.Length && char.IsWhiteSpace((char)slice[firstValueIndex])) firstValueIndex++;
+                    bool plausibleJsonArrayStart =
+                        firstValueIndex < slice.Length &&
+                        (slice[firstValueIndex] == (byte)']' ||
+                         slice[firstValueIndex] == (byte)'{' ||
+                         slice[firstValueIndex] == (byte)'[' ||
+                         slice[firstValueIndex] == (byte)'"' ||
+                         slice[firstValueIndex] == (byte)'-' ||
+                         IsDigit(slice[firstValueIndex]) ||
+                         slice[firstValueIndex] == (byte)'t' ||
+                         slice[firstValueIndex] == (byte)'f' ||
+                         slice[firstValueIndex] == (byte)'n');
                     bool hasClose = slice.IndexOf((byte)']') >= 0;
                     int commaCount = Count(slice, (byte)',');
                     bool hasObjectItem = slice.IndexOf((byte)'{') >= 0;
-                    if ((commaCount >= 1 && hasClose) || hasObjectItem)
+                    if (plausibleJsonArrayStart && ((commaCount >= 1 && hasClose) || hasObjectItem))
                     {
                         bool hasQuotedColon = HasQuotedKeyColon(slice);
                         if (hasObjectItem ? hasQuotedColon : true)
@@ -167,20 +180,22 @@ internal static partial class Signatures
         // Do not classify as YAML if strong PowerShell cues are present unless YAML structure is strong.
         {
             CountYamlStructure(head, 8, out int yamlKeys, out int yamlLists);
+            int headerStyleColonLines = CountHeaderStyleColonLines(head, 8);
             bool yamlStrong = yamlKeys >= 2 || (yamlKeys >= 1 && yamlLists >= 1) || yamlLists >= 3;
             bool allowYaml = yamlStrong || !HasPowerShellCues(head, headStr, headLower);
             bool yamlFrontHasStructure = yamlKeys > 0 || yamlLists > 0;
             bool winLogLike = IndexOfToken(head, "Log Name:") >= 0 || IndexOfToken(head, "Event ID:") >= 0 || IndexOfToken(head, "Source:") >= 0 || IndexOfToken(head, "Task Category:") >= 0 || IndexOfToken(head, "Level:") >= 0;
+            bool headerStyleBlock = headerStyleColonLines >= 2 && headerStyleColonLines >= yamlKeys;
 
             if (head.Length >= 3 && head[0] == (byte)'-' && head[1] == (byte)'-' && head[2] == (byte)'-')
             {
-                if (allowYaml && !winLogLike && yamlFrontHasStructure)
+                if (allowYaml && !winLogLike && !headerStyleBlock && yamlFrontHasStructure)
                 {
                     result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml", ReasonDetails = "yaml:front-matter" };
                     return true;
                 }
             }
-            else if ((yamlKeys >= 2 || yamlLists >= 2) && allowYaml && !winLogLike)
+            else if ((yamlKeys >= 2 || yamlLists >= 2) && allowYaml && !winLogLike && !headerStyleBlock)
             {
                 var details = yamlKeys >= 1 ? $"yaml:key-lines={yamlKeys}" : $"yaml:list-lines={yamlLists}";
                 result = new ContentTypeDetectionResult { Extension = "yml", MimeType = "application/x-yaml", Confidence = "Low", Reason = "text:yaml-keys", ReasonDetails = details };
@@ -199,6 +214,8 @@ internal static partial class Signatures
             {
                 int keys = 0, tables = 0, dotted = 0;
                 bool hasArrayTables = false;
+                bool hasDottedTable = false;
+                bool hasInlineStructuredValue = false;
                 bool hasIniStyleComments = false; // strong INI/INF signal when not declared TOML
                 int scanned = 0; int startLine2 = 0;
                 for (int i = 0; i < head.Length && scanned < 20; i++)
@@ -217,29 +234,46 @@ internal static partial class Signatures
                                 // array of tables
                                 if (line.IndexOf("]]"u8) > 1) { tables++; hasArrayTables = true; }
                             }
-                            else if (line.IndexOf((byte)']') > 1) { tables++; }
+                            else if (line.IndexOf((byte)']') > 1)
+                            {
+                                tables++;
+                                var tableName = line.Slice(1, line.IndexOf((byte)']') - 1);
+                                if (tableName.IndexOf((byte)'.') >= 0) hasDottedTable = true;
+                            }
                         }
                         int eq = line.IndexOf((byte)'=');
                         if (eq > 0 && eq < line.Length - 1)
                         {
                             // left side must be bare/dotted identifier
+                            var key = TrimBytes(line.Slice(0, eq));
                             bool ok = true; int dots = 0;
-                            for (int k = 0; k < eq; k++)
+                            for (int k = 0; k < key.Length; k++)
                             {
-                                byte c = line[k];
+                                byte c = key[k];
                                 if (!(char.IsLetterOrDigit((char)c) || c == (byte)'_' || c == (byte)'.')) { ok = false; break; }
                                 if (c == (byte)'.') dots++;
                             }
-                            if (ok) { dotted += dots > 0 ? 1 : 0; keys++; }
+                            if (ok)
+                            {
+                                var value = TrimBytes(line.Slice(eq + 1));
+                                dotted += dots > 0 ? 1 : 0;
+                                keys++;
+                                if (value.Length >= 2 && ((value[0] == (byte)'[' && value[value.Length - 1] == (byte)']') || (value[0] == (byte)'{' && value[value.Length - 1] == (byte)'}')))
+                                    hasInlineStructuredValue = true;
+                            }
                         }
                         scanned++; startLine2 = i + 1;
                     }
                 }
-                bool tomlStrong = hasArrayTables || dotted >= 1;
+                bool tomlStrong = hasArrayTables || hasDottedTable || hasInlineStructuredValue;
                 bool allowUndeclared = tomlStrong && !hasIniStyleComments;
                 if ((declaredToml || allowUndeclared) && (tables >= 1 && keys >= 1))
                 {
-                    result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml" };
+                    string? details = hasArrayTables ? "toml:array-tables" :
+                        hasDottedTable ? "toml:dotted-table" :
+                        hasInlineStructuredValue ? "toml:inline-structure" :
+                        (dotted >= 1 ? "toml:dotted-keys" : null);
+                    result = new ContentTypeDetectionResult { Extension = "toml", MimeType = "application/toml", Confidence = "Low", Reason = "text:toml", ReasonDetails = details };
                     return true;
                 }
                 // Lenient fallback using string scan: look for bracketed tables and multiple key=value in first 2KB
@@ -260,16 +294,7 @@ internal static partial class Signatures
 
         // EML basics (check first two lines for typical headers)
         {
-            int n1 = head.IndexOf((byte)'\n'); if (n1 < 0) n1 = head.Length;
-            var l1 = head.Slice(0, n1);
-            var rem = head.Slice(Math.Min(n1 + 1, head.Length));
-            int n2 = rem.IndexOf((byte)'\n'); if (n2 < 0) n2 = rem.Length;
-            var l2 = rem.Slice(0, n2);
-            bool hasFrom = l1.StartsWith("From:"u8) || l2.StartsWith("From:"u8);
-            bool hasSubj = l1.StartsWith("Subject:"u8) || l2.StartsWith("Subject:"u8);
-            bool hasMimeVer = head.IndexOf("MIME-Version:"u8) >= 0;
-            bool hasContentType = head.IndexOf("Content-Type:"u8) >= 0;
-            if ((hasFrom && hasSubj) || (hasMimeVer && hasContentType))
+            if (LooksLikeEmailText(head))
             {
                 result = new ContentTypeDetectionResult { Extension = "eml", MimeType = "message/rfc822", Confidence = "Low", Reason = "text:eml" };
                 return true;

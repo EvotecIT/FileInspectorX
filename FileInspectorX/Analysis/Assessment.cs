@@ -371,6 +371,66 @@ public static partial class FileInspector
         if ((a.NameIssues & NameIssues.BiDiOverride) != 0) Add("Name.BiDiOverride", 25);
         if ((a.NameIssues & NameIssues.ExtensionMismatch) != 0) Add("Name.ExtensionMismatch", 10);
 
+        // Detection reliability / ambiguity
+        var det = a.Detection;
+        if (det != null)
+        {
+            var detConfidence = a.DetectionConfidence ?? det.Confidence ?? string.Empty;
+            var detReason = a.DetectionReason ?? det.Reason ?? string.Empty;
+            var detValidation = a.DetectionValidationStatus ?? det.ValidationStatus ?? string.Empty;
+            var detectedExt = a.DetectedExtension ?? det.Extension;
+            var guessedExt = a.GuessedExtension ?? det.GuessedExtension;
+            var candidateList = det.Candidates ?? Array.Empty<ContentTypeDetectionCandidate>();
+            bool lowConfidence = string.Equals(detConfidence, "Low", StringComparison.OrdinalIgnoreCase);
+            bool extensionOnly = detReason.StartsWith("extension:", StringComparison.OrdinalIgnoreCase);
+            bool hasMultipleCandidates = candidateList.Count > 1;
+            bool hasDangerousAlternative = candidateList.Skip(1).Any(static c => c.IsDangerous);
+            bool guessedSubtypeDiffers =
+                !string.IsNullOrWhiteSpace(guessedExt) &&
+                !string.Equals(guessedExt, detectedExt, StringComparison.OrdinalIgnoreCase);
+            bool guessedSubtypeDangerous = guessedSubtypeDiffers && DangerousExtensions.IsDangerous(guessedExt);
+            bool mismatch = (a.NameIssues & NameIssues.ExtensionMismatch) != 0;
+            bool riskyContext =
+                det.IsDangerous ||
+                DangerousExtensions.IsDangerous(detectedExt) ||
+                guessedSubtypeDangerous ||
+                hasDangerousAlternative ||
+                mismatch;
+
+            if (extensionOnly && riskyContext)
+            {
+                Add("Type.ExtensionOnlyRisk", 12);
+            }
+            else if (lowConfidence && riskyContext)
+            {
+                Add("Type.LowConfidenceRisk", 10);
+            }
+
+            if (hasMultipleCandidates && (riskyContext || lowConfidence))
+            {
+                Add("Type.AmbiguousCandidates", 8);
+            }
+
+            if (hasDangerousAlternative)
+            {
+                Add("Type.DangerousAlternative", 12);
+            }
+
+            if (guessedSubtypeDangerous)
+            {
+                Add("Type.GuessedSubtypeRisk", 8);
+            }
+
+            if (!string.IsNullOrWhiteSpace(detValidation) &&
+                !string.Equals(detValidation, "passed", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(detValidation, "match", StringComparison.OrdinalIgnoreCase) &&
+                (riskyContext || hasMultipleCandidates))
+            {
+                var weight = string.Equals(detValidation, "skipped", StringComparison.OrdinalIgnoreCase) ? 4 : 8;
+                Add("Type.ValidationUncertain", weight);
+            }
+        }
+
         // Package vendor presence / allow-list hints
         string? pkgVendor = a.Installer?.PublisherDisplayName ?? a.Installer?.Publisher ?? a.Installer?.Manufacturer;
         bool packageVendorAllowed = false;
