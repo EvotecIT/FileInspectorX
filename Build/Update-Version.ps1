@@ -1,18 +1,5 @@
-param(
-    [string] $ConfigPath = "$PSScriptRoot\project.build.json",
-    [Nullable[bool]] $UpdateVersions = $true,
-    [Nullable[bool]] $Build = $false,
-    [Nullable[bool]] $PublishNuget = $false,
-    [Nullable[bool]] $PublishGitHub = $false,
-    [Nullable[bool]] $Plan,
-    [string] $PlanPath
-)
+Import-Module PSPublishModule -Force
 
-& "$PSScriptRoot\Build-Project.ps1" `
-    -ConfigPath $ConfigPath `
-    -UpdateVersions:$UpdateVersions `
-    -Build:$Build `
-    -PublishNuget:$PublishNuget `
-    -PublishGitHub:$PublishGitHub `
-    -Plan:$Plan `
-    -PlanPath $PlanPath
+Get-ProjectVersion -Path "C:\Support\GitHub\FileInspectorX" -ExcludeFolders @('C:\Support\GitHub\FileInspectorX\Module\Artefacts') | Format-Table
+
+Set-ProjectVersion -Path "C:\Support\GitHub\FileInspectorX" -NewVersion "1.0.8" -Verbose -ExcludeFolders @('C:\Support\GitHub\FileInspectorX\Module\Artefacts') #-WhatIf

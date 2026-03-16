@@ -1,18 +1,11 @@
-param(
-    [string] $ConfigPath = "$PSScriptRoot\project.build.json",
-    [Nullable[bool]] $UpdateVersions = $false,
-    [Nullable[bool]] $Build = $true,
-    [Nullable[bool]] $PublishNuget = $false,
-    [Nullable[bool]] $PublishGitHub = $true,
-    [Nullable[bool]] $Plan,
-    [string] $PlanPath
-)
+$GitHubAccessToken = Get-Content -Raw 'C:\Support\Important\GithubAPI.txt'
 
-& "$PSScriptRoot\Build-Project.ps1" `
-    -ConfigPath $ConfigPath `
-    -UpdateVersions:$UpdateVersions `
-    -Build:$Build `
-    -PublishNuget:$PublishNuget `
-    -PublishGitHub:$PublishGitHub `
-    -Plan:$Plan `
-    -PlanPath $PlanPath
+$publishGitHubReleaseAssetSplat = @{
+    ProjectPath          = "$PSScriptRoot\..\FileInspectorX"
+    GitHubAccessToken    = $GitHubAccessToken
+    GitHubUsername       = "EvotecIT"
+    GitHubRepositoryName = "FileInspectorX"
+    IsPreRelease         = $false
+}
+
+Publish-GitHubReleaseAsset @publishGitHubReleaseAssetSplat
