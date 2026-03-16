@@ -59,6 +59,58 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Exports_DetectionCandidateDisplay_And_AssessmentSummary()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                MimeType = "text/x-powershell",
+                Confidence = "High",
+                Reason = "magic:ps1",
+                Score = 94,
+                Candidates = new[]
+                {
+                    new ContentTypeDetectionCandidate { Extension = "ps1", Confidence = "High", Score = 94 },
+                    new ContentTypeDetectionCandidate { Extension = "psm1", Confidence = "Medium", Score = 81 }
+                }
+            },
+            Assessment = new AssessmentResult
+            {
+                Score = 78,
+                Decision = AssessmentDecision.Warn,
+                Codes = new[] { "Name.DoubleExtension", "Secret.JWT" },
+                Factors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Name.DoubleExtension"] = 15,
+                    ["Secret.JWT"] = 40
+                }
+            }
+        };
+
+        var report = ReportView.From(analysis);
+
+        Assert.False(string.IsNullOrWhiteSpace(report.DetectedTypeDisplay));
+        Assert.Equal("*.ps1 High 94; .psm1 Medium 81", report.DetectionCandidatesDisplay);
+        Assert.NotNull(report.AssessmentDetails);
+        Assert.Equal(2, report.AssessmentDetails!.Count);
+        Assert.Equal("Name.DoubleExtension", report.AssessmentDetails[0].Code);
+        Assert.Equal(15, report.AssessmentDetails[0].ScoreContribution);
+        Assert.NotNull(report.AssessmentSummary);
+        Assert.Contains("Warn (78)", report.AssessmentSummary!);
+        Assert.Contains("double extension", report.AssessmentSummary!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("JWT", report.AssessmentSummary!, StringComparison.OrdinalIgnoreCase);
+
+        var map = report.ToDictionary();
+        Assert.Equal(report.DetectedTypeDisplay, map["DetectedTypeDisplay"]);
+        Assert.Equal("*.ps1 High 94; .psm1 Medium 81", map["DetectionCandidatesDisplay"]);
+        var details = Assert.IsAssignableFrom<IReadOnlyList<AssessmentCodeView>>(map["AssessmentDetails"]);
+        Assert.Equal(2, details.Count);
+        Assert.Equal(report.AssessmentSummary, map["AssessmentSummary"]);
+    }
+
+    [Fact]
     public void Markdown_Includes_Secrets_Counts_WhenPresent()
     {
         var rv = new ReportView
@@ -1523,6 +1575,9 @@ public class DetectionDetailsTests
         Assert.Equal("\\\\server\\share", rv.HtmlUncSample);
         Assert.Equal("https://contoso.example/script.js", rv.ScriptUrlsSample);
         Assert.Equal("\\\\server\\scripts", rv.ScriptUncSample);
+        Assert.NotNull(rv.References);
+        Assert.Equal(4, rv.References!.Count);
+        Assert.Equal("html:a", rv.References[0].Source);
         Assert.NotNull(rv.CompactFields);
         Assert.True(rv.CompactFields!.ContainsKey("References"));
         Assert.Contains("HtmlExternalLinksSample", rv.CompactFields["References"]);
@@ -1535,6 +1590,8 @@ public class DetectionDetailsTests
         Assert.True(compact.ContainsKey("References"));
         Assert.Contains("HtmlExternalLinksSample", compact["References"]);
         Assert.Contains("ScriptUrlsSample", compact["References"]);
+        var references = Assert.IsAssignableFrom<IReadOnlyList<ReferencesView>>(map["References"]);
+        Assert.Equal(4, references.Count);
         Assert.Equal("https://contoso.example/a", map["HtmlExternalLinksSample"]);
         Assert.Equal("\\\\server\\scripts", map["ScriptUncSample"]);
 
@@ -1577,6 +1634,37 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Generic_Structured_References_Enable_Advice()
+    {
+        var analysis = new FileAnalysis
+        {
+            References = new[]
+            {
+                new Reference
+                {
+                    Kind = ReferenceKind.Command,
+                    Value = "powershell.exe -File .\\deploy.ps1",
+                    SourceTag = "task:exec"
+                }
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowReferences);
+        Assert.NotNull(rv.References);
+        var reference = Assert.Single(rv.References!);
+        Assert.Equal("task:exec", reference.Source);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowReferences"]);
+        var references = Assert.IsAssignableFrom<IReadOnlyList<ReferencesView>>(map["References"]);
+        Assert.Single(references);
+    }
+
+    [Fact]
     public void Markdown_Includes_Long_Heuristics_And_Inner_Findings_Details()
     {
         var rv = new ReportView
@@ -1595,6 +1683,34 @@ public class DetectionDetailsTests
         Assert.Contains("### Inner Findings", md);
         Assert.Contains("Archive contains risky entries", md);
         Assert.Contains("Details: Archive contains risky entries including signed and unsigned executable payloads", md);
+    }
+
+    [Fact]
+    public void ReportView_Exports_Structured_Finding_Details()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[] { "ps:encoded", "html:ext-links=2" },
+            InnerFindings = new[] { "tool:setup.exe" }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.SecurityFindingDetails);
+        Assert.Equal(2, rv.SecurityFindingDetails!.Count);
+        Assert.Equal("ps:encoded", rv.SecurityFindingDetails[0].Code);
+        Assert.Equal("PowerShell encoded payload", rv.SecurityFindingDetails[0].SummaryShort);
+        Assert.Equal("Script", rv.SecurityFindingDetails[0].Category);
+        Assert.NotNull(rv.InnerFindingDetails);
+        Assert.Single(rv.InnerFindingDetails!);
+        Assert.Equal("tool:setup.exe", rv.InnerFindingDetails[0].Code);
+        Assert.Contains("Known tool detected by name", rv.InnerFindingDetails[0].SummaryLong!, StringComparison.OrdinalIgnoreCase);
+
+        var map = rv.ToDictionary();
+        var security = Assert.IsAssignableFrom<IReadOnlyList<FindingView>>(map["SecurityFindingDetails"]);
+        Assert.Equal(2, security.Count);
+        var inner = Assert.IsAssignableFrom<IReadOnlyList<FindingView>>(map["InnerFindingDetails"]);
+        Assert.Single(inner);
     }
 
     [Fact]

@@ -15,6 +15,8 @@ public sealed class ReportView
     public string? DetectedTypeName { get; set; }
     /// <summary>User-friendly type label (e.g., "Word document", "ZIP archive").</summary>
     public string? DetectedTypeFriendly { get; set; }
+    /// <summary>Best available single display label for the detected type.</summary>
+    public string? DetectedTypeDisplay { get; set; }
     /// <summary>Detection confidence (High/Medium/Low).</summary>
     public string? DetectionConfidence { get; set; }
     /// <summary>Short textual reason describing the detection.</summary>
@@ -45,6 +47,8 @@ public sealed class ReportView
     public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionAlternatives { get; set; }
     /// <summary>Ranked detection candidates including the primary, when available.</summary>
     public IReadOnlyList<ContentTypeDetectionCandidate>? DetectionCandidates { get; set; }
+    /// <summary>Compact display string for ranked detection candidates.</summary>
+    public string? DetectionCandidatesDisplay { get; set; }
 
     // Encoded payload summary (base64/hex) with inner detection
     /// <summary>When the content appears encoded, indicates the encoding kind (e.g., "base64" or "hex").</summary>
@@ -200,16 +204,22 @@ public sealed class ReportView
     public string? AssessmentDecisionLenient { get; set; }
     /// <summary>Finding codes that drove the score.</summary>
     public IReadOnlyList<string>? AssessmentCodes { get; set; }
+    /// <summary>Structured assessment driver rows with legend and score detail.</summary>
+    public IReadOnlyList<AssessmentCodeView>? AssessmentDetails { get; set; }
     /// <summary>Human-friendly summary of assessment codes (short form).</summary>
     public string? AssessmentCodesHuman { get; set; }
     /// <summary>Human-friendly summary of assessment codes (long form).</summary>
     public string? AssessmentCodesHumanLong { get; set; }
     /// <summary>Score contributions by code.</summary>
     public IReadOnlyDictionary<string,int>? AssessmentFactors { get; set; }
+    /// <summary>Compact one-line assessment summary for hosts that want a single field.</summary>
+    public string? AssessmentSummary { get; set; }
     /// <summary>Number of encrypted entries in ZIP (if applicable).</summary>
     public int? EncryptedEntryCount { get; set; }
     /// <summary>Neutral security findings emitted by heuristics (e.g., ps:encoded, js:activex).</summary>
     public IReadOnlyList<string>? SecurityFindings { get; set; }
+    /// <summary>Structured detail rows for top-level heuristic findings.</summary>
+    public IReadOnlyList<FindingView>? SecurityFindingDetails { get; set; }
     /// <summary>Humanized security findings (short form).</summary>
     public string? SecurityFindingsHumanShort { get; set; }
     /// <summary>Humanized security findings (long form).</summary>
@@ -218,6 +228,8 @@ public sealed class ReportView
     public IReadOnlyList<string>? TopTokens { get; set; }
     /// <summary>Per-entry findings collected during deep scan (bounded).</summary>
     public IReadOnlyList<string>? InnerFindings { get; set; }
+    /// <summary>Structured detail rows for nested or deep-container findings.</summary>
+    public IReadOnlyList<FindingView>? InnerFindingDetails { get; set; }
     /// <summary>Humanized inner findings (short form).</summary>
     public string? InnerFindingsHumanShort { get; set; }
     /// <summary>Humanized inner findings (long form).</summary>
@@ -232,6 +244,9 @@ public sealed class ReportView
     public string? InnerPublishersHuman { get; set; }
     /// <summary>Compact one-line summary of inner binaries (sampled/signed/valid, top publisher).</summary>
     public string? InnerBinariesSummary { get; set; }
+
+    /// <summary>Structured references extracted from file content, projected for hosts.</summary>
+    public IReadOnlyList<ReferencesView>? References { get; set; }
 
     // Reference samples for HTML and Scripts
     /// <summary>Comma-separated sample of external URLs found in HTML content.</summary>
@@ -625,9 +640,11 @@ public sealed class ReportView
                 r.AssessmentFactors = assess.Factors;
                 if (r.AssessmentCodes != null && r.AssessmentCodes.Count > 0)
                 {
+                    r.AssessmentDetails = AssessmentCodeView.From(r.AssessmentCodes, r.AssessmentFactors).ToList();
                     r.AssessmentCodesHuman = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Short);
                     r.AssessmentCodesHumanLong = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Long);
                 }
+                r.AssessmentSummary = FormatAssessmentSummary(r);
             }
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
@@ -740,14 +757,18 @@ public sealed class ReportView
         {
             r.SecurityFindingsHumanShort = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Short);
             r.SecurityFindingsHumanLong  = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Long);
+            r.SecurityFindingDetails = FindingView.From(r.SecurityFindings).ToList();
         }
         if (r.InnerFindings != null && r.InnerFindings.Count > 0)
         {
             r.InnerFindingsHumanShort = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Short);
             r.InnerFindingsHumanLong  = Legend.HumanizeFindings(r.InnerFindings, HumanizeStyle.Long);
+            r.InnerFindingDetails = FindingView.From(r.InnerFindings).ToList();
         }
         // Friendly type label
         try { r.DetectedTypeFriendly = FriendlyNames.GetTypeLabel(a.Detection, a); } catch { }
+        r.DetectedTypeDisplay = ResolveDetectedTypeDisplay(r);
+        r.DetectionCandidatesDisplay = FormatDetectionCandidatesDisplay(r.DetectionCandidates ?? r.DetectionAlternatives, r.DetectedTypeExtension);
 
         // Reference samples (HTML and scripts)
         try
@@ -755,6 +776,8 @@ public sealed class ReportView
             var refs = a.References;
             if (refs != null && refs.Count > 0)
             {
+                // ReportView is host-facing and may be built without a filesystem path, so keep reference projection pathless here.
+                r.References = ReferencesView.From(string.Empty, refs).ToList();
                 string JoinTop(IEnumerable<string> items, int n)
                 {
                     var head = items.Where(s => !string.IsNullOrWhiteSpace(s)).Take(n).Select(s => s.Length > 120 ? s.Substring(0, 117) + "…" : s);
@@ -1125,7 +1148,8 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.ScriptCmdlets);
 
     private static bool HasAnyReferenceSignals(ReportView r)
-        => !string.IsNullOrEmpty(r.HtmlExternalLinksSample) ||
+        => (r.References != null && r.References.Count > 0) ||
+           !string.IsNullOrEmpty(r.HtmlExternalLinksSample) ||
            !string.IsNullOrEmpty(r.HtmlUncSample) ||
            !string.IsNullOrEmpty(r.ScriptUrlsSample) ||
            !string.IsNullOrEmpty(r.ScriptUncSample) ||
@@ -1212,6 +1236,7 @@ public sealed class ReportView
         if (DetectedTypeExtension != null) d["DetectedTypeExtension"] = DetectedTypeExtension;
         if (DetectedTypeName != null) d["DetectedTypeName"] = DetectedTypeName;
         if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;
+        if (!string.IsNullOrEmpty(DetectedTypeDisplay)) d["DetectedTypeDisplay"] = DetectedTypeDisplay;
         if (DetectionConfidence != null) d["DetectionConfidence"] = DetectionConfidence;
         if (DetectionReason != null) d["DetectionReason"] = DetectionReason;
         if (DetectionReasonDetails != null) d["DetectionReasonDetails"] = DetectionReasonDetails;
@@ -1227,6 +1252,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(PeKind)) d["PeKind"] = PeKind;
         if (DetectionAlternatives != null && DetectionAlternatives.Count > 0) d["DetectionAlternatives"] = DetectionAlternatives;
         if (DetectionCandidates != null && DetectionCandidates.Count > 0) d["DetectionCandidates"] = DetectionCandidates;
+        if (!string.IsNullOrEmpty(DetectionCandidatesDisplay)) d["DetectionCandidatesDisplay"] = DetectionCandidatesDisplay;
         if (!string.IsNullOrEmpty(EncodedKind)) d["EncodedKind"] = EncodedKind;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedExtension)) d["EncodedInnerDetectedExtension"] = EncodedInnerDetectedExtension;
         if (!string.IsNullOrEmpty(EncodedInnerDetectedName)) d["EncodedInnerDetectedName"] = EncodedInnerDetectedName;
@@ -1278,8 +1304,10 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(AssessmentDecisionLenient)) d["AssessmentDecisionLenient"] = AssessmentDecisionLenient;
         if (AssessmentCodes != null && AssessmentCodes.Count > 0) d["AssessmentCodes"] = AssessmentCodes;
         if (AssessmentFactors != null && AssessmentFactors.Count > 0) d["AssessmentFactors"] = AssessmentFactors;
+        if (AssessmentDetails != null && AssessmentDetails.Count > 0) d["AssessmentDetails"] = AssessmentDetails;
         if (!string.IsNullOrEmpty(AssessmentCodesHuman)) d["AssessmentCodesHuman"] = AssessmentCodesHuman;
         if (!string.IsNullOrEmpty(AssessmentCodesHumanLong)) d["AssessmentCodesHumanLong"] = AssessmentCodesHumanLong;
+        if (!string.IsNullOrEmpty(AssessmentSummary)) d["AssessmentSummary"] = AssessmentSummary;
         if (EnhancedKeyUsages != null && EnhancedKeyUsages.Count > 0) d["EnhancedKeyUsages"] = EnhancedKeyUsages;
         if (!string.IsNullOrEmpty(TimestampAuthorityCN)) d["TimestampAuthorityCN"] = TimestampAuthorityCN;
         if (!string.IsNullOrEmpty(SignerIssuerCN)) d["SignerIssuerCN"] = SignerIssuerCN;
@@ -1328,10 +1356,12 @@ public sealed class ReportView
         if (ArchiveEntryCount.HasValue) d["ArchiveEntryCount"] = ArchiveEntryCount.Value;
         if (ArchiveTopExtensions != null && ArchiveTopExtensions.Count > 0) d["ArchiveTopExtensions"] = ArchiveTopExtensions;
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
+        if (SecurityFindingDetails != null && SecurityFindingDetails.Count > 0) d["SecurityFindingDetails"] = SecurityFindingDetails;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanShort)) d["SecurityFindingsHuman"] = SecurityFindingsHumanShort;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanLong))  d["SecurityFindingsHumanLong"] = SecurityFindingsHumanLong;
         if (TopTokens != null && TopTokens.Count > 0) d["TopTokens"] = TopTokens;
         if (InnerFindings != null && InnerFindings.Count > 0) d["InnerFindings"] = InnerFindings;
+        if (InnerFindingDetails != null && InnerFindingDetails.Count > 0) d["InnerFindingDetails"] = InnerFindingDetails;
         if (!string.IsNullOrEmpty(InnerFindingsHumanShort)) d["InnerFindingsHuman"] = InnerFindingsHumanShort;
         if (!string.IsNullOrEmpty(InnerFindingsHumanLong))  d["InnerFindingsHumanLong"] = InnerFindingsHumanLong;
         if (InnerExecutablesSampled.HasValue) d["InnerExecutablesSampled"] = InnerExecutablesSampled.Value;
@@ -1344,6 +1374,7 @@ public sealed class ReportView
         if (!string.IsNullOrEmpty(InnerBinariesSummary)) d["InnerBinariesSummary"] = InnerBinariesSummary;
         if (InnerExecutableExtCounts != null && InnerExecutableExtCounts.Count > 0) d["InnerExecutableExtCounts"] = InnerExecutableExtCounts;
         // Reference samples
+        if (References != null && References.Count > 0) d["References"] = References;
         if (!string.IsNullOrEmpty(HtmlExternalLinksSample)) d["HtmlExternalLinksSample"] = HtmlExternalLinksSample;
         if (!string.IsNullOrEmpty(HtmlUncSample)) d["HtmlUncSample"] = HtmlUncSample;
         if (!string.IsNullOrEmpty(ScriptUrlsSample)) d["ScriptUrlsSample"] = ScriptUrlsSample;
@@ -1421,6 +1452,97 @@ public sealed class ReportView
         return d;
     }
 
+    private static string? ResolveDetectedTypeDisplay(ReportView report)
+    {
+        if (!string.IsNullOrWhiteSpace(report.DetectedTypeFriendly)) return report.DetectedTypeFriendly;
+        if (!string.IsNullOrWhiteSpace(report.DetectedTypeName)) return report.DetectedTypeName;
+        if (!string.IsNullOrWhiteSpace(report.DetectedTypeExtension)) return "." + report.DetectedTypeExtension!.Trim().TrimStart('.');
+        if (!string.IsNullOrWhiteSpace(report.GuessedExtension)) return "." + report.GuessedExtension!.Trim().TrimStart('.');
+        return null;
+    }
+
+    private static string? FormatDetectionCandidatesDisplay(
+        IReadOnlyList<ContentTypeDetectionCandidate>? candidates,
+        string? primaryExtension)
+    {
+        if (candidates == null || candidates.Count == 0)
+        {
+            return null;
+        }
+
+        static string NormalizeExtension(string? value)
+        {
+            if (value == null)
+            {
+                return string.Empty;
+            }
+
+            var trimmed = value.Trim();
+            return trimmed.Length == 0 ? string.Empty : trimmed.TrimStart('.').ToLowerInvariant();
+        }
+
+        var primary = NormalizeExtension(primaryExtension);
+        var labels = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            if (candidate == null)
+            {
+                continue;
+            }
+
+            var extension = NormalizeExtension(candidate.Extension);
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                continue;
+            }
+
+            var label = (string.Equals(extension, primary, StringComparison.OrdinalIgnoreCase) ? "*" : string.Empty) + "." + extension;
+            if (!string.IsNullOrWhiteSpace(candidate.Confidence))
+            {
+                label += " " + candidate.Confidence;
+            }
+
+            label += $" {candidate.Score}";
+
+            labels.Add(label);
+            if (labels.Count >= 5)
+            {
+                break;
+            }
+        }
+
+        return labels.Count == 0 ? null : string.Join("; ", labels);
+    }
+
+    private static string? FormatAssessmentSummary(ReportView report)
+    {
+        if (!report.AssessmentScore.HasValue &&
+            string.IsNullOrWhiteSpace(report.AssessmentDecision) &&
+            string.IsNullOrWhiteSpace(report.AssessmentCodesHuman))
+        {
+            return null;
+        }
+
+        var header = report.AssessmentDecision ?? "Assessment";
+        if (report.AssessmentScore.HasValue)
+        {
+            header += $" ({report.AssessmentScore.Value})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(report.AssessmentCodesHuman))
+        {
+            return $"{header}: {report.AssessmentCodesHuman}";
+        }
+
+        if (report.AssessmentCodes != null && report.AssessmentCodes.Count > 0)
+        {
+            return $"{header}: {string.Join(", ", report.AssessmentCodes)}";
+        }
+
+        // Decision-only assessments intentionally stay terse when no code list is available.
+        return header;
+    }
+
     private static string FormatNameIssuesCsv(NameIssues issues)
     {
         var parts = new List<string>(5);
@@ -1448,7 +1570,7 @@ public sealed class PresentationAdvice
     public bool ShowSecurity { get; set; }
     /// <summary>Include script section when a script language is detected.</summary>
     public bool ShowScript { get; set; }
-    /// <summary>Include references section when HTML or script URLs/UNC paths are present.</summary>
+    /// <summary>Include references section when structured references or legacy URL/path samples are present.</summary>
     public bool ShowReferences { get; set; }
     /// <summary>Include installer/package section when installer metadata is available.</summary>
     public bool ShowInstaller { get; set; }
