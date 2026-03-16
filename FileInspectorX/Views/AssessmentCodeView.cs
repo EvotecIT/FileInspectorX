@@ -40,7 +40,10 @@ public sealed class AssessmentCodeView
             }
 
             var code = codeValue.Trim();
+            var singleCode = new[] { code };
             var entry = legend.FirstOrDefault(item => string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase));
+            var summaryShort = AssessmentLegend.HumanizeCodes(singleCode, HumanizeStyle.Short);
+            var summaryLong = AssessmentLegend.HumanizeCodes(singleCode, HumanizeStyle.Long);
             int? contribution = null;
             if (factors != null && factors.TryGetValue(code, out var factorValue))
             {
@@ -50,12 +53,8 @@ public sealed class AssessmentCodeView
             yield return new AssessmentCodeView
             {
                 Code = code,
-                SummaryShort = string.IsNullOrWhiteSpace(AssessmentLegend.HumanizeCodes(new[] { code }, HumanizeStyle.Short))
-                    ? null
-                    : AssessmentLegend.HumanizeCodes(new[] { code }, HumanizeStyle.Short),
-                SummaryLong = string.IsNullOrWhiteSpace(AssessmentLegend.HumanizeCodes(new[] { code }, HumanizeStyle.Long))
-                    ? null
-                    : AssessmentLegend.HumanizeCodes(new[] { code }, HumanizeStyle.Long),
+                SummaryShort = string.IsNullOrWhiteSpace(summaryShort) ? null : summaryShort,
+                SummaryLong = string.IsNullOrWhiteSpace(summaryLong) ? null : summaryLong,
                 Category = entry?.Category,
                 Severity = entry?.Severity,
                 ScoreContribution = contribution

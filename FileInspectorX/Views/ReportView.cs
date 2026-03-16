@@ -776,6 +776,7 @@ public sealed class ReportView
             var refs = a.References;
             if (refs != null && refs.Count > 0)
             {
+                // ReportView is host-facing and may be built without a filesystem path, so keep reference projection pathless here.
                 r.References = ReferencesView.From(string.Empty, refs).ToList();
                 string JoinTop(IEnumerable<string> items, int n)
                 {
@@ -1147,7 +1148,8 @@ public sealed class ReportView
            !string.IsNullOrEmpty(r.ScriptCmdlets);
 
     private static bool HasAnyReferenceSignals(ReportView r)
-        => !string.IsNullOrEmpty(r.HtmlExternalLinksSample) ||
+        => (r.References != null && r.References.Count > 0) ||
+           !string.IsNullOrEmpty(r.HtmlExternalLinksSample) ||
            !string.IsNullOrEmpty(r.HtmlUncSample) ||
            !string.IsNullOrEmpty(r.ScriptUrlsSample) ||
            !string.IsNullOrEmpty(r.ScriptUncSample) ||
@@ -1537,6 +1539,7 @@ public sealed class ReportView
             return $"{header}: {string.Join(", ", report.AssessmentCodes)}";
         }
 
+        // Decision-only assessments intentionally stay terse when no code list is available.
         return header;
     }
 
@@ -1567,7 +1570,7 @@ public sealed class PresentationAdvice
     public bool ShowSecurity { get; set; }
     /// <summary>Include script section when a script language is detected.</summary>
     public bool ShowScript { get; set; }
-    /// <summary>Include references section when HTML or script URLs/UNC paths are present.</summary>
+    /// <summary>Include references section when structured references or legacy URL/path samples are present.</summary>
     public bool ShowReferences { get; set; }
     /// <summary>Include installer/package section when installer metadata is available.</summary>
     public bool ShowInstaller { get; set; }

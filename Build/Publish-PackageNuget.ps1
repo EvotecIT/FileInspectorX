@@ -1,4 +1,18 @@
-﻿Import-Module PSPublishModule -Force -ErrorAction Stop
+param(
+    [string] $ConfigPath = "$PSScriptRoot\project.build.json",
+    [Nullable[bool]] $UpdateVersions = $false,
+    [Nullable[bool]] $Build = $true,
+    [Nullable[bool]] $PublishNuget = $true,
+    [Nullable[bool]] $PublishGitHub = $false,
+    [Nullable[bool]] $Plan,
+    [string] $PlanPath
+)
 
-$NugetAPI = Get-Content -Raw -LiteralPath "C:\Support\Important\NugetOrgEvotec.txt"
-Publish-NugetPackage -Path "$PSScriptRoot\..\FileInspectorX\bin\Release" -ApiKey $NugetAPI
+& "$PSScriptRoot\Build-Project.ps1" `
+    -ConfigPath $ConfigPath `
+    -UpdateVersions:$UpdateVersions `
+    -Build:$Build `
+    -PublishNuget:$PublishNuget `
+    -PublishGitHub:$PublishGitHub `
+    -Plan:$Plan `
+    -PlanPath $PlanPath

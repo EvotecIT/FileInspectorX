@@ -20,6 +20,7 @@ public sealed class FindingView
     {
         if (findings is null || findings.Count == 0) yield break;
 
+        var legend = Legend.GetHeuristicsLegend();
         foreach (var finding in findings)
         {
             if (string.IsNullOrWhiteSpace(finding))
@@ -28,19 +29,19 @@ public sealed class FindingView
             }
 
             var code = finding.Trim();
-            var legend = Legend.GetHeuristicsLegend()
-                .FirstOrDefault(entry => string.Equals(entry.Code, code, StringComparison.OrdinalIgnoreCase));
+            var singleFinding = new[] { code };
+            var legendEntry = legend.FirstOrDefault(entry => string.Equals(entry.Code, code, StringComparison.OrdinalIgnoreCase));
 
-            var shortSummary = Legend.HumanizeFindings(new[] { code }, HumanizeStyle.Short, limit: 1, separator: ", ");
-            var longSummary = Legend.HumanizeFindings(new[] { code }, HumanizeStyle.Long, limit: 1, separator: ", ");
+            var shortSummary = Legend.HumanizeFindings(singleFinding, HumanizeStyle.Short, limit: 1, separator: ", ");
+            var longSummary = Legend.HumanizeFindings(singleFinding, HumanizeStyle.Long, limit: 1, separator: ", ");
 
             yield return new FindingView
             {
                 Code = code,
                 SummaryShort = string.IsNullOrWhiteSpace(shortSummary) ? null : shortSummary,
                 SummaryLong = string.IsNullOrWhiteSpace(longSummary) ? null : longSummary,
-                Category = legend?.Category,
-                Severity = legend?.Severity
+                Category = legendEntry?.Category,
+                Severity = legendEntry?.Severity
             };
         }
     }

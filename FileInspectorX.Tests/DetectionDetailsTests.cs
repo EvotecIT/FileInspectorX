@@ -1634,6 +1634,37 @@ public class DetectionDetailsTests
     }
 
     [Fact]
+    public void ReportView_Generic_Structured_References_Enable_Advice()
+    {
+        var analysis = new FileAnalysis
+        {
+            References = new[]
+            {
+                new Reference
+                {
+                    Kind = ReferenceKind.Command,
+                    Value = "powershell.exe -File .\\deploy.ps1",
+                    SourceTag = "task:exec"
+                }
+            }
+        };
+
+        var rv = ReportView.From(analysis);
+
+        Assert.NotNull(rv.Advice);
+        Assert.True(rv.Advice.ShowReferences);
+        Assert.NotNull(rv.References);
+        var reference = Assert.Single(rv.References!);
+        Assert.Equal("task:exec", reference.Source);
+
+        var map = rv.ToDictionary();
+        var advice = Assert.IsAssignableFrom<Dictionary<string, object?>>(map["Advice"]);
+        Assert.Equal(true, advice["ShowReferences"]);
+        var references = Assert.IsAssignableFrom<IReadOnlyList<ReferencesView>>(map["References"]);
+        Assert.Single(references);
+    }
+
+    [Fact]
     public void Markdown_Includes_Long_Heuristics_And_Inner_Findings_Details()
     {
         var rv = new ReportView
