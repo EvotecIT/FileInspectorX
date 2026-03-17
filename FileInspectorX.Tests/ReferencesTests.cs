@@ -167,16 +167,32 @@ public class ReferencesTests
         var p = Path.Combine(Path.GetTempPath(), "notepad-renamed-" + Guid.NewGuid().ToString("N") + ".txt");
         try
         {
-            File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), p, overwrite: true);
+            var (sampleBinaryPath, expectedDetectedExtension) = GetPlatformBinarySample();
+            File.Copy(sampleBinaryPath, p, overwrite: true);
 
             var a = FileInspector.Analyze(p);
             var refs = a.References ?? Array.Empty<Reference>();
 
-            Assert.Equal("exe", a.DetectedExtension);
+            Assert.Equal(expectedDetectedExtension, a.DetectedExtension);
             Assert.DoesNotContain(refs, r => string.Equals(r.SourceTag, "text:generic", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(refs, r => string.Equals(r.SourceTag, "log:text", StringComparison.OrdinalIgnoreCase));
         }
         finally { try { File.Delete(p); } catch { } }
+
+        static (string Path, string ExpectedDetectedExtension) GetPlatformBinarySample()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return (Path.Combine(Environment.SystemDirectory, "notepad.exe"), "exe");
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                return ("/bin/ls", "macho");
+            }
+
+            return ("/bin/ls", "elf");
+        }
     }
 
     [Fact]
