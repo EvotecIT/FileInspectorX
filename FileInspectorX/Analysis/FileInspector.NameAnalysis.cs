@@ -35,7 +35,8 @@ public static partial class FileInspector
                 {
                     // Only flag multiple dots when the extra segment looks like an embedded extension,
                     // not a benign dotted product/version name such as Foo.Bar_1.2.3_x64.msi.
-                    if (!LooksLikeBenignVersionedName(baseNoExt))
+                    if (!LooksLikeBenignVersionedName(baseNoExt) &&
+                        !LooksLikeCrashDumpArtifactName(baseNoExt, ext))
                         issues |= NameIssues.DoubleExtension;
                 }
                 if (det != null && !string.IsNullOrEmpty(det.Extension))
@@ -87,5 +88,42 @@ public static partial class FileInspector
             if (!(char.IsLetterOrDigit(c) || c == '_' || c == '-')) return false;
         }
         return hasDigit;
+    }
+
+    private static bool LooksLikeCrashDumpArtifactName(string baseNoExt, string ext)
+    {
+        if (string.IsNullOrWhiteSpace(baseNoExt) || string.IsNullOrWhiteSpace(ext))
+            return false;
+
+        if (!ext.Equals("dmp", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals("mdmp", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals("hdmp", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var normalized = baseNoExt.Trim();
+        bool protectedSuffix = normalized.EndsWith(".protected", StringComparison.OrdinalIgnoreCase);
+        if (protectedSuffix)
+            normalized = normalized.Substring(0, normalized.Length - ".protected".Length);
+
+        var parts = normalized.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+            return false;
+
+        var pidPart = parts[parts.Length - 1];
+        if (!pidPart.All(char.IsDigit))
+            return false;
+
+        var embeddedExt = NormalizeExtension(parts[parts.Length - 2]);
+        if (string.IsNullOrWhiteSpace(embeddedExt))
+            return false;
+
+        return string.Equals(embeddedExt, "exe", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "dll", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "sys", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "com", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "scr", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "cpl", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "drv", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(embeddedExt, "ocx", StringComparison.OrdinalIgnoreCase);
     }
 }

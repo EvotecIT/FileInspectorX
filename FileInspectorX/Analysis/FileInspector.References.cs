@@ -13,15 +13,22 @@ public static partial class FileInspector
         try {
             var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
             var detectedExt = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
-            bool isXmlLike = ext == "xml" || string.IsNullOrEmpty(ext) || detectedExt == "xml";
-            bool isHtmlLike = ext is "html" or "htm" || detectedExt is "html" or "htm";
+            bool detectionConfidenceLow = string.Equals(det?.Confidence, "Low", StringComparison.OrdinalIgnoreCase);
+            bool detectedXmlLike = !detectionConfidenceLow && detectedExt == "xml";
+            bool detectedHtmlLike = !detectionConfidenceLow && detectedExt is "html" or "htm";
+            bool detectedScriptLike = !detectionConfidenceLow &&
+                                      detectedExt is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css";
+            bool isXmlLike = ext == "xml" || string.IsNullOrEmpty(ext) || detectedXmlLike;
+            bool isHtmlLike = ext is "html" or "htm" || detectedHtmlLike;
             bool isScriptLike = ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css"
-                                || detectedExt is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css";
-            var scriptSourceTag = !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
+                                || detectedScriptLike;
+            var scriptSourceTag = detectedScriptLike && !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
                 ? detectedExt
                 : ext;
             var detectionReason = det?.Reason;
             bool detectionLooksTextLike = (detectionReason ?? string.Empty).StartsWith("text:", StringComparison.OrdinalIgnoreCase);
+            bool detectionLooksReliablyTextLike = detectionLooksTextLike &&
+                                                  !string.Equals(det?.Confidence, "Low", StringComparison.OrdinalIgnoreCase);
 
             // Task Scheduler Task XML
             // Try for .xml; when ambiguous, a quick shape check happens inside
@@ -59,7 +66,7 @@ public static partial class FileInspector
                 !isScriptLike &&
                 (detectedExt is "log" or "txt" ||
                  (string.IsNullOrWhiteSpace(detectedExt) && ext is "log" or "txt") ||
-                 detectionLooksTextLike);
+                 detectionLooksReliablyTextLike);
             if (isGenericTextLike)
             {
                 var genericTextSourceTag = string.Equals(det?.Reason, "text:event-txt", StringComparison.OrdinalIgnoreCase)

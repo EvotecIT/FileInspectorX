@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 
 using Xunit;
 
@@ -227,6 +228,110 @@ public class DetectorTests {
     }
 
     [Fact]
+    public void Detect_Minidump_ByMagic()
+    {
+        var dump = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".dmp");
+        try
+        {
+            var buf = new byte[32];
+            System.Text.Encoding.ASCII.GetBytes("MDMP").CopyTo(buf, 0);
+            File.WriteAllBytes(dump, buf);
+
+            var res = FI.Detect(dump);
+
+            Assert.NotNull(res);
+            Assert.Equal("dmp", res!.Extension);
+            Assert.Equal("application/x-ms-minidump", res.MimeType);
+            Assert.Equal("High", res.Confidence);
+        }
+        finally
+        {
+            if (File.Exists(dump)) File.Delete(dump);
+        }
+    }
+
+    [Fact]
+    public void Detect_ValidPe_UpgradesConfidence_FromParsedHeader()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return;
+        }
+
+        const string samplePath = @"C:\Windows\System32\notepad.exe";
+        if (!File.Exists(samplePath))
+        {
+            return;
+        }
+
+        var res = FI.Detect(samplePath);
+
+        Assert.NotNull(res);
+        Assert.True(res!.Extension is "exe" or "dll" or "sys");
+        Assert.Equal("High", res.Confidence);
+        Assert.Contains("pe:header", res.Reason ?? string.Empty);
+    }
+
+    [Fact]
+    public void Detect_ProtectedDump_ByHeader()
+    {
+        var dump = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".protected.dmp");
+        try
+        {
+            var buf = new byte[64];
+            byte[] signature =
+            {
+                0xF3, 0x0E, 0x3E, 0xA1, 0x71, 0xD5, 0xAF, 0x4E,
+                0x9F, 0xBB, 0xF8, 0x0D, 0x0B, 0x19, 0xA3, 0xC0,
+                0x6A, 0x1C, 0x50, 0x10, 0xE1, 0x7A, 0xD4, 0x4B,
+                0x8D, 0x2F, 0x12, 0x78, 0x3C, 0x02, 0x74, 0x82
+            };
+            signature.CopyTo(buf, 0);
+            BitConverter.GetBytes(2u).CopyTo(buf, 0x20);
+            BitConverter.GetBytes(0x40u).CopyTo(buf, 0x24);
+            BitConverter.GetBytes(0x21Bu).CopyTo(buf, 0x30);
+            BitConverter.GetBytes(0x200u).CopyTo(buf, 0x34);
+            BitConverter.GetBytes(0x20u).CopyTo(buf, 0x38);
+            File.WriteAllBytes(dump, buf);
+
+            var res = FI.Detect(dump);
+
+            Assert.NotNull(res);
+            Assert.Equal("dmp", res!.Extension);
+            Assert.Equal("application/x-ms-protected-dump", res.MimeType);
+            Assert.Equal("High", res.Confidence);
+            Assert.Equal("dmp:protected", res.Reason);
+        }
+        finally
+        {
+            if (File.Exists(dump)) File.Delete(dump);
+        }
+    }
+
+    [Fact]
+    public void Detect_Evtx_When_File_Is_Already_Open_For_Write()
+    {
+        var evtx = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".evtx");
+        try
+        {
+            var buf = new byte[32];
+            System.Text.Encoding.ASCII.GetBytes("ElfFile\0").CopyTo(buf, 0);
+            File.WriteAllBytes(evtx, buf);
+
+            using var held = new FileStream(evtx, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            var res = FI.Detect(evtx);
+
+            Assert.NotNull(res);
+            Assert.Equal("evtx", res!.Extension);
+            Assert.Equal("application/vnd.ms-windows.evtx", res.MimeType);
+        }
+        finally
+        {
+            if (File.Exists(evtx)) File.Delete(evtx);
+        }
+    }
+
+    [Fact]
     public void Detect_Ftyp_Heic() {
         var heic = Path.GetTempFileName();
         try {
@@ -316,6 +421,7 @@ public class DetectorTests {
             Assert.NotNull(res);
             Assert.Equal("cab", res!.Extension);
             Assert.Equal("application/vnd.ms-cab-compressed", res.MimeType);
+            Assert.Equal("cab:MSCF", res.Reason);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 

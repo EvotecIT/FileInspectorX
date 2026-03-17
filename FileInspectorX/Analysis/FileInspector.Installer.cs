@@ -184,8 +184,11 @@ public static partial class FileInspector
                     res.Installer = info;
                 }
 
-                // SummaryInformation (Author, Comments) – best effort
-                TryPopulateMsiSummary(hDb, res);
+                // SummaryInformation can trigger unstable native behavior on some real-world MSI packages.
+                if (Settings.EnableMsiSummaryInfo)
+                {
+                    TryPopulateMsiSummary(hDb, res);
+                }
                 // CustomActions summary (Windows-only) — opt-in via Settings.EnableMsiCustomActions for stability
                 try { if (Settings.EnableMsiCustomActions && HasTable(hDb, "CustomAction")) TryPopulateMsiCustomActions(hDb, res); } catch { }
                 InspectorMetrics.Msi.IncSuccess();

@@ -412,15 +412,22 @@ public class Settings {
     public static int WinTrustCacheMaxEntries { get; set; } = 1024;
 
     /// <summary>
-    /// When false, MSI/AppX/Installer metadata enrichment is skipped even if Analyze() is asked to include installer metadata.
+    /// When true, safe MSI/AppX/Installer metadata enrichment is collected by default.
+    /// Riskier MSI-specific paths such as CustomActions and SummaryInformation remain opt-in.
     /// </summary>
-    public static bool IncludeInstaller { get; set; } = false;
+    public static bool IncludeInstaller { get; set; } = true;
 
     /// <summary>
     /// When true, MSI CustomAction summary is collected (Windows only) during installer enrichment.
     /// Default false for maximum stability.
     /// </summary>
     public static bool EnableMsiCustomActions { get; set; } = false;
+
+    /// <summary>
+    /// When true, MSI SummaryInformation metadata is collected (author/comments/package code/timestamps).
+    /// Default false because some real-world MSI packages can crash in msi.dll summary-info calls.
+    /// </summary>
+    public static bool EnableMsiSummaryInfo { get; set; } = false;
 
     /// <summary>
     /// Enable ultra-light breadcrumb logging to a local file for crash forensics.

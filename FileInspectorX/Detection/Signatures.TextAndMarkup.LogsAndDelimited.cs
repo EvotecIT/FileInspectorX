@@ -35,11 +35,23 @@ internal static partial class Signatures
         var rest = span.Slice(Math.Min(nl + 1, span.Length));
         int nl2 = rest.IndexOf((byte)'\n'); if (nl2 < 0) nl2 = rest.Length;
         var line2 = rest.Slice(0, nl2);
+        var rest2 = rest.Slice(Math.Min(nl2 + 1, rest.Length));
+        int nl3 = rest2.IndexOf((byte)'\n'); if (nl3 < 0) nl3 = rest2.Length; var line3 = rest2.Slice(0, nl3);
+        var rest3 = rest2.Slice(Math.Min(nl3 + 1, rest2.Length));
+        int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
 
         // LOG heuristic (timestamps/levels) promoted ahead of CSV/Markdown to avoid mislabels
         bool syslog1 = LooksLikeSyslogLine(line1);
         bool syslog2 = LooksLikeSyslogLine(line2);
-        bool logCues = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2) || syslog1 || syslog2;
+        bool logCues =
+            LooksLikeTimestamp(line1) ||
+            LooksLikeTimestamp(line2) ||
+            StartsWithLevelToken(line1) ||
+            StartsWithLevelToken(line2) ||
+            StartsWithTimestampedLevelToken(line1) ||
+            StartsWithTimestampedLevelToken(line2) ||
+            syslog1 ||
+            syslog2;
         if (!scriptCues)
         {
             if (declaredLog && LogHeuristics.LooksLikePathErrorLog(headLower))
@@ -54,26 +66,25 @@ internal static partial class Signatures
                 return true;
             }
 
-            if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2))
+            int levelCount = 0;
+            if (StartsWithLevelToken(line1) || StartsWithTimestampedLevelToken(line1)) levelCount++;
+            if (StartsWithLevelToken(line2) || StartsWithTimestampedLevelToken(line2)) levelCount++;
+            if (StartsWithLevelToken(line3) || StartsWithTimestampedLevelToken(line3)) levelCount++;
+            if (StartsWithLevelToken(line4) || StartsWithTimestampedLevelToken(line4)) levelCount++;
+            int tsCount = 0; if (LooksLikeTimestamp(line1)) tsCount++; if (LooksLikeTimestamp(line2)) tsCount++; if (LooksLikeTimestamp(line3)) tsCount++; if (LooksLikeTimestamp(line4)) tsCount++;
+            if (tsCount >= 3 && levelCount >= 2)
+            {
+                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-levels", ReasonDetails = $"log:timestamps={tsCount};levels={levelCount}" };
+                return true;
+            }
+            if (LooksLikeTimestamp(line1) && LooksLikeTimestamp(line2) && levelCount == 0)
             {
                 result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-2" };
                 return true;
             }
-
-            int levelCount = 0;
-            if (StartsWithLevelToken(line1)) levelCount++;
-            if (StartsWithLevelToken(line2)) levelCount++;
-            // include up to two more lines
-            var rest2 = rest.Slice(Math.Min(nl2 + 1, rest.Length));
-            int nl3 = rest2.IndexOf((byte)'\n'); if (nl3 < 0) nl3 = rest2.Length; var line3 = rest2.Slice(0, nl3);
-            var rest3 = rest2.Slice(Math.Min(nl3 + 1, rest2.Length));
-            int nl4 = rest3.IndexOf((byte)'\n'); if (nl4 < 0) nl4 = rest3.Length; var line4 = rest3.Slice(0, nl4);
-            if (StartsWithLevelToken(line3)) levelCount++;
-            if (StartsWithLevelToken(line4)) levelCount++;
-            int tsCount = 0; if (LooksLikeTimestamp(line1)) tsCount++; if (LooksLikeTimestamp(line2)) tsCount++; if (LooksLikeTimestamp(line3)) tsCount++; if (LooksLikeTimestamp(line4)) tsCount++;
             if (tsCount >= 2)
             {
-                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log", ReasonDetails = "log:timestamps-multi" };
+                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = levelCount >= 1 ? "Medium" : "Low", Reason = levelCount >= 1 ? "text:log-levels" : "text:log", ReasonDetails = levelCount >= 1 ? $"log:timestamps={tsCount};levels={levelCount}" : "log:timestamps-multi" };
                 return true;
             }
             if (levelCount >= 2 || ((LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2)) && levelCount >= 1))

@@ -505,6 +505,28 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Timestamped_Service_Log_With_Levels_Gets_Medium_Confidence_Log()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            File.WriteAllText(p,
+                "2026-03-17T18:00:00 INFO Startup complete for worker C:\\TierBridge\\agent\\worker.exe\n" +
+                "2026-03-17T18:00:01 WARN Fetching https://contoso.example/bootstrap.json\n" +
+                "2026-03-17T18:00:02 WARN Fetching https://cdn.contoso.example/app.js for worker update\n" +
+                "2026-03-17T18:00:03 ERROR Retry scheduled for \\\\fileserver\\drop\\package.zip\n");
+
+            var r = FileInspector.Detect(p);
+
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+            Assert.Equal("Medium", r.Confidence);
+            Assert.StartsWith("text:log-levels", r.Reason);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void PowerShell_Shebang_Minimal_Script_Detected()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");

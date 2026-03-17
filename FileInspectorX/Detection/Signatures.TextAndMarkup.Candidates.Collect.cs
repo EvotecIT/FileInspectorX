@@ -143,7 +143,15 @@ internal static partial class Signatures
 
         bool syslog1 = LooksLikeSyslogLine(line1);
         bool syslog2 = LooksLikeSyslogLine(line2);
-        bool logCuesLocal = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2) || syslog1 || syslog2;
+        bool logCuesLocal =
+            LooksLikeTimestamp(line1) ||
+            LooksLikeTimestamp(line2) ||
+            StartsWithLevelToken(line1) ||
+            StartsWithLevelToken(line2) ||
+            StartsWithTimestampedLevelToken(line1) ||
+            StartsWithTimestampedLevelToken(line2) ||
+            syslog1 ||
+            syslog2;
         int logPenaltyFromScript = scriptCues ? logPenaltyFromScriptValue : 0;
         int scriptPenaltyFromLog = logCuesLocal ? scriptPenaltyFromLogValue : 0;
         int scriptPenalty = scriptPenaltyFromLog + scriptPenaltyFromMarkdown;
@@ -168,10 +176,10 @@ internal static partial class Signatures
             if (syslog1 && syslog2) AddCandidate("log", "text/plain", "Medium", "text:log-syslog", "log:syslog", scoreAdjust: logPenalty);
 
             int levelCount = 0;
-            if (StartsWithLevelToken(line1)) levelCount++;
-            if (StartsWithLevelToken(line2)) levelCount++;
-            if (StartsWithLevelToken(line3)) levelCount++;
-            if (StartsWithLevelToken(line4)) levelCount++;
+            if (StartsWithLevelToken(line1) || StartsWithTimestampedLevelToken(line1)) levelCount++;
+            if (StartsWithLevelToken(line2) || StartsWithTimestampedLevelToken(line2)) levelCount++;
+            if (StartsWithLevelToken(line3) || StartsWithTimestampedLevelToken(line3)) levelCount++;
+            if (StartsWithLevelToken(line4) || StartsWithTimestampedLevelToken(line4)) levelCount++;
             int tsCount = 0;
             if (LooksLikeTimestamp(line1)) tsCount++;
             if (LooksLikeTimestamp(line2)) tsCount++;

@@ -87,10 +87,15 @@ public static class FriendlyNames
             case "rar":  return "RAR archive";
             case "tar":  return "TAR archive";
             case "gz":   return "GZIP compressed file";
+            case "cab":  return "Windows cabinet archive";
             case "nupkg": return "NuGet package (NUPKG)";
             case "xap":   return "Silverlight application package (XAP)";
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
+            case "dmp":
+                if (string.Equals(mime, "application/x-ms-protected-dump", System.StringComparison.OrdinalIgnoreCase))
+                    return "Protected Windows crash dump";
+                return "Windows memory dump";
             case "msi":  return "Windows installer package (.msi)";
             case "vsix": return "Visual Studio extension (VSIX)";
             case "apk":  return "Android package (APK)";
@@ -149,6 +154,7 @@ public static class FriendlyNames
             case "application/x-7z-compressed": return "7-Zip archive";
             case "application/vnd.rar": return "RAR archive";
             case "application/gzip": return "GZIP compressed file";
+            case "application/vnd.ms-cab-compressed": return "Windows cabinet archive";
             case "text/plain": return "Text file";
             case "application/json": return "JSON file";
             case "application/xml": return "XML file";
