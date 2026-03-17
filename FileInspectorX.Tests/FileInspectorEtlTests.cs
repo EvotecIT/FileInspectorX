@@ -21,6 +21,7 @@ public class FileInspectorEtlTests
             var det = FileInspector.Detect(etl);
             Assert.NotNull(det);
             Assert.Equal("etl", det!.Extension);
+            Assert.Equal("Medium", det.Confidence);
         }
         finally
         {
@@ -172,11 +173,43 @@ public class FileInspectorEtlTests
             var det = FileInspector.Detect(temp);
             Assert.NotNull(det);
             Assert.Equal("etl", det!.Extension);
+            Assert.Equal("Medium", det.Confidence);
         }
         finally
         {
             Settings.EtlValidation = prevMode;
             TestHelpers.SafeDelete(temp);
+        }
+    }
+
+    [Fact]
+    public void Detect_EtlStructuredHeader_ReturnsEtl()
+    {
+        var prevMode = Settings.EtlValidation;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        var temp = Path.GetTempFileName();
+        var etl = temp + ".etl";
+        try
+        {
+            var header = new byte[128];
+            header[0x00] = 0x00; header[0x01] = 0x10; header[0x02] = 0x00; header[0x03] = 0x00; // 4096 LE
+            header[0x04] = 0xB8; header[0x05] = 0x01; header[0x06] = 0x00; header[0x07] = 0x00; // version 0x1B8
+            header[0x30] = 0xF8; header[0x31] = 0x12; header[0x32] = 0x00; header[0x33] = 0x00; // non-zero provider/log version
+            header[0x34] = 0x01; header[0x36] = 0x04; // realistic WPR-like flags
+            File.WriteAllBytes(temp, header);
+            File.Move(temp, etl);
+
+            var det = FileInspector.Detect(etl);
+
+            Assert.NotNull(det);
+            Assert.Equal("etl", det!.Extension);
+            Assert.Equal("Medium", det.Confidence);
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(etl);
         }
     }
 

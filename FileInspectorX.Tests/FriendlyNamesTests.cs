@@ -56,4 +56,18 @@ public class FriendlyNamesTests
 
         Assert.Equal("Syslog text log", label);
     }
+
+    [Fact]
+    public void GetTypeLabel_Returns_Cabinet_Label()
+    {
+        var detection = new ContentTypeDetectionResult
+        {
+            Extension = "cab",
+            MimeType = "application/vnd.ms-cab-compressed"
+        };
+
+        var label = FriendlyNames.GetTypeLabel(detection, new FileAnalysis());
+
+        Assert.Equal("Windows cabinet archive", label);
+    }
 }

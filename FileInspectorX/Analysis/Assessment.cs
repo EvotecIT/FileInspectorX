@@ -437,7 +437,7 @@ public static partial class FileInspector
 
             if (mismatch && detectedDangerous)
             {
-                Add("Type.DangerousMismatch", 25);
+                Add("Type.DangerousMismatch", 30);
             }
 
             if (!string.IsNullOrWhiteSpace(detValidation) &&

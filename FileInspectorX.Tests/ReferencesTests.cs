@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Xunit;
 
@@ -197,6 +198,36 @@ public class ReferencesTests
     }
 
     [Fact]
+    public void Extract_LowConfidenceDetectedScriptReferences_DoNot_Run_For_NonScript_File()
+    {
+        var p = Path.Combine(Path.GetTempPath(), "font-like-" + Guid.NewGuid().ToString("N") + ".ttf");
+        try
+        {
+            File.WriteAllBytes(p, System.Text.Encoding.UTF8.GetBytes("""
+                not actually a script
+                function maybeNoise() { return /\\V\\b/.test(input); }
+                https://example.invalid/payload
+                \\fileserver\drop\payload.ps1
+                """));
+
+            var det = new ContentTypeDetectionResult
+            {
+                Extension = "js",
+                MimeType = "application/javascript",
+                Confidence = "Low",
+                Reason = "text:js-heur"
+            };
+
+            var buildReferences = typeof(FileInspector).GetMethod("BuildReferences", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(buildReferences);
+
+            var refs = buildReferences!.Invoke(null, new object?[] { p, det }) as IReadOnlyList<Reference>;
+            Assert.True(refs == null || refs.Count == 0);
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
     public void Extract_ArchiveInnerScriptSignals_Are_Promoted_To_InnerFindings()
     {
         var p = Path.Combine(Path.GetTempPath(), "archive-inner-signals-" + Guid.NewGuid().ToString("N") + ".zip");
@@ -258,6 +289,42 @@ public class ReferencesTests
             var refs = a.References ?? Array.Empty<Reference>();
 
             Assert.Empty(refs);
+        }
+        finally
+        {
+            Settings.DeepContainerScanEnabled = oldDeep;
+            try { File.Delete(p); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Extract_ArchiveInnerGenericTextUncNoise_Is_Not_Promoted()
+    {
+        var p = Path.Combine(Path.GetTempPath(), "archive-inner-generic-noise-" + Guid.NewGuid().ToString("N") + ".zip");
+        bool oldDeep = Settings.DeepContainerScanEnabled;
+        try
+        {
+            Settings.DeepContainerScanEnabled = true;
+            using (var fs = File.Create(p))
+            using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
+            {
+                var entry = za.CreateEntry("notes.txt");
+                using var writer = new StreamWriter(entry.Open());
+                writer.WriteLine(@"Keep the real URL https://github.com/orgs/tabler/projects/9/views/1");
+                writer.WriteLine(@"Do not promote these generic text fragments: \\TT\C94499449 and \\V\b");
+            }
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+            var findings = a.InnerFindings ?? Array.Empty<string>();
+
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Url &&
+                                       string.Equals(r.Value, "https://github.com/orgs/tabler/projects/9/views/1", StringComparison.OrdinalIgnoreCase) &&
+                                       string.Equals(r.SourceTag, "archive:inner", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(refs, r => r.Kind == ReferenceKind.FilePath &&
+                                             string.Equals(r.SourceTag, "archive:inner", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(findings, f => f.StartsWith("archive:inner-unc-samples=", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(findings, f => string.Equals(f, "archive:inner-unc", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {

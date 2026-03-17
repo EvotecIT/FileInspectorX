@@ -2236,6 +2236,11 @@ public static partial class FileInspector {
         var detectedExt = (inner.DetectedExtension ?? inner.Detection?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
         bool detectedScript = IsScriptLikeExtension(detectedExt);
         bool namedScript = IsScriptName(entryName);
+        bool hasPromotableUncReference = (inner.References ?? Array.Empty<Reference>()).Any(reference =>
+            reference.Kind == ReferenceKind.FilePath &&
+            (reference.Issues & ReferenceIssue.UncPath) != 0 &&
+            !string.IsNullOrWhiteSpace(reference.Value) &&
+            ShouldPromoteArchiveInnerUncReference(reference));
         bool suspicious = false;
 
         if (detectedScript && !namedScript)
@@ -2278,8 +2283,11 @@ public static partial class FileInspector {
                     break;
                 case var n when n != null && n.StartsWith("net:unc=", StringComparison.OrdinalIgnoreCase):
                 case "archive:inner-unc":
-                    innerUnc = true;
-                    suspicious = true;
+                    if (hasPromotableUncReference)
+                    {
+                        innerUnc = true;
+                        suspicious = true;
+                    }
                     break;
                 case "archive:inner-disguised-script":
                     innerDisguisedScript = true;
@@ -2297,7 +2305,8 @@ public static partial class FileInspector {
             }
             else if (reference.Kind == ReferenceKind.FilePath &&
                      (reference.Issues & ReferenceIssue.UncPath) != 0 &&
-                     !string.IsNullOrWhiteSpace(reference.Value))
+                     !string.IsNullOrWhiteSpace(reference.Value) &&
+                     ShouldPromoteArchiveInnerUncReference(reference))
             {
                 innerUncSamples.Add(reference.Value);
                 innerUnc = true;
@@ -2311,6 +2320,23 @@ public static partial class FileInspector {
         }
 
         return suspicious;
+    }
+
+    private static bool ShouldPromoteArchiveInnerUncReference(Reference reference)
+    {
+        var sourceTag = (reference.SourceTag ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(sourceTag))
+        {
+            return false;
+        }
+
+        return sourceTag.StartsWith("script:", StringComparison.OrdinalIgnoreCase)
+            || sourceTag.StartsWith("log:", StringComparison.OrdinalIgnoreCase)
+            || sourceTag.StartsWith("html:", StringComparison.OrdinalIgnoreCase)
+            || sourceTag.StartsWith("task:", StringComparison.OrdinalIgnoreCase)
+            || sourceTag.StartsWith("gpo:", StringComparison.OrdinalIgnoreCase)
+            || sourceTag.StartsWith("lnk:", StringComparison.OrdinalIgnoreCase)
+            || sourceTag.StartsWith("archive:inner", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void MergeNestedArchiveContainerSignals(

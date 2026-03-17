@@ -1078,10 +1078,10 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(35, assessed.Score);
+        Assert.Equal(40, assessed.Score);
         Assert.Contains("Name.ExtensionMismatch", assessed.Codes);
         Assert.Contains("Type.DangerousMismatch", assessed.Codes);
-        Assert.Equal(25, assessed.Factors["Type.DangerousMismatch"]);
+        Assert.Equal(30, assessed.Factors["Type.DangerousMismatch"]);
     }
 
     [Fact]
@@ -1203,5 +1203,33 @@ public class AssessmentTests
         Assert.Equal(55, view.Score);
         Assert.Equal(AssessmentDecision.Warn, view.Decision);
         Assert.Equal("Test.Code", view.Codes);
+    }
+
+    [Fact]
+    public void Analyze_Timestamped_Service_Log_Does_Not_Add_Ambiguous_Type_Code()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+
+        try
+        {
+            File.WriteAllText(path,
+                "2026-03-17T18:00:00 INFO Startup complete for worker C:\\TierBridge\\agent\\worker.exe\r\n" +
+                "2026-03-17T18:00:01 WARN Fetching https://contoso.example/bootstrap.json\r\n" +
+                "2026-03-17T18:00:02 WARN Fetching https://cdn.contoso.example/app.js for worker update\r\n" +
+                "2026-03-17T18:00:03 ERROR Retry scheduled for \\\\fileserver\\drop\\package.zip\r\n");
+
+            var analysis = FileInspector.Analyze(path);
+
+            Assert.NotNull(analysis.Detection);
+            Assert.Equal("log", analysis.Detection!.Extension);
+            Assert.Equal("Medium", analysis.Detection.Confidence);
+            Assert.Equal("text:log-levels", analysis.Detection.Reason);
+            Assert.NotNull(analysis.Assessment);
+            Assert.DoesNotContain("Type.AmbiguousCandidates", analysis.Assessment!.Codes);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }

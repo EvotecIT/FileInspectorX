@@ -232,12 +232,15 @@ public static partial class FileInspector {
     /// </summary>
     public static string MagicHeaderHex(string path, int bytes) {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OpenReadShared(path);
             var buf = new byte[Math.Min(bytes, 1 << 20)]; // cap at 1MB for safety
             var read = fs.Read(buf, 0, buf.Length);
             return MagicHeaderHex(new ReadOnlySpan<byte>(buf, 0, read), bytes);
         } catch { return string.Empty; }
     }
+
+    private static FileStream OpenReadShared(string path)
+        => new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
     /// <summary>
     /// Detects content type from a file path using magic bytes and heuristics. Returns null when unknown.
     /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
@@ -254,12 +257,15 @@ public static partial class FileInspector {
             if (Signatures.TryMatchUdf(path, out var udf)) return udf;
             if (Signatures.TryMatchIso(path, out var iso)) return iso;
             if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
-            using var fs = File.OpenRead(path);
+            using var fs = OpenReadShared(path);
             if (Signatures.TryMatchMsg(path, out var msg)) return msg;
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
             var det = Detect(fs, options, extDeclared);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
+                    // A successful PE parse is stronger evidence than the 2-byte MZ prefix alone.
+                    det.Confidence = "High";
+                    det.Reason = AppendReason(det.Reason, "pe:header");
                     const ushort IMAGE_FILE_DLL = 0x2000;
                     if ((pe.Characteristics & IMAGE_FILE_DLL) != 0) { det.Extension = "dll"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
                     else if (pe.Subsystem == 1) { det.Extension = "sys"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
@@ -285,7 +291,7 @@ public static partial class FileInspector {
                         var detEtl = det ?? new ContentTypeDetectionResult();
                         detEtl.Extension = "etl";
                         detEtl.MimeType = mime;
-                        detEtl.Confidence = "Low";
+                        detEtl.Confidence = "Medium";
                         detEtl.Reason = "etl:magic";
 
                         var mode = Settings.EtlValidation;
@@ -303,7 +309,7 @@ public static partial class FileInspector {
                             if (okNative == true)
                             {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
-                                detEtl.Confidence = "Medium";
+                                detEtl.Confidence = "High";
                                 detEtl.Reason = "etw:ok";
                                 return detEtl;
                             }
@@ -317,7 +323,7 @@ public static partial class FileInspector {
                             if (okTr == true)
                             {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
-                                detEtl.Confidence = "Medium";
+                                detEtl.Confidence = "High";
                                 detEtl.Reason = "tracerpt:ok";
                                 return detEtl;
                             }
@@ -367,6 +373,8 @@ public static partial class FileInspector {
         if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
         if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
         if (Signatures.TryMatchEvtx(src, out var evtx)) return Finish(Enrich(evtx, src, stream, options));
+        if (Signatures.TryMatchMinidump(src, out var minidump)) return Finish(Enrich(minidump, src, stream, options));
+        if (Signatures.TryMatchProtectedDump(src, out var protectedDump)) return Finish(Enrich(protectedDump, src, stream, options));
         if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
         if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
@@ -479,7 +487,7 @@ public static partial class FileInspector {
 
     private static bool TryMatchEtlMagic(string path) {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OpenReadShared(path);
             return TryMatchEtlMagic(fs);
         } catch { return false; }
     }
@@ -491,18 +499,51 @@ public static partial class FileInspector {
                 pos = stream.Position;
                 stream.Seek(0, SeekOrigin.Begin);
             }
-            var buf = new byte[EvtxMagicBytes.Length];
+            var buf = new byte[Math.Max(EvtxMagicBytes.Length, 128)];
             int n = stream.Read(buf, 0, buf.Length);
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
             if (n < EtlMagicBytes.Length) return false;
             var head = buf.AsSpan(0, n);
-            if (!head.Slice(0, EtlMagicBytes.Length).SequenceEqual(EtlMagicBytes)) return false;
+            if (head.Slice(0, EtlMagicBytes.Length).SequenceEqual(EtlMagicBytes))
+            {
+                // EVTX shares the "ElfF" prefix, so require that ETL candidates do not
+                // match the full EVTX header before claiming the file is an ETL trace.
+                if (n >= EvtxMagicBytes.Length && head.Slice(0, EvtxMagicBytes.Length).SequenceEqual(EvtxMagicBytes)) return false;
+                return true;
+            }
 
-            // EVTX shares the "ElfF" prefix, so require that ETL candidates do not
-            // match the full EVTX header before claiming the file is an ETL trace.
-            if (n >= EvtxMagicBytes.Length && head.Slice(0, EvtxMagicBytes.Length).SequenceEqual(EvtxMagicBytes)) return false;
-            return true;
+            return LooksLikeStructuredEtlHeader(head);
         } catch { return false; }
+    }
+
+    private static bool LooksLikeStructuredEtlHeader(ReadOnlySpan<byte> head)
+    {
+        if (head.Length < 0x40) return false;
+
+        static uint ReadUInt32Le(ReadOnlySpan<byte> data, int offset)
+            => (uint)(data[offset]
+                   | (data[offset + 1] << 8)
+                   | (data[offset + 2] << 16)
+                   | (data[offset + 3] << 24));
+
+        uint bufferSize = ReadUInt32Le(head, 0x00);
+        uint version = ReadUInt32Le(head, 0x04);
+        uint providerVersion = ReadUInt32Le(head, 0x30);
+
+        if (bufferSize < 1024 || bufferSize > (1024 * 1024) || (bufferSize % 1024) != 0)
+            return false;
+        if (version < 0x100 || version > 0x400)
+            return false;
+        if (providerVersion == 0)
+            return false;
+
+        int zeroBytes = 0;
+        for (int i = 0x08; i < 0x30; i++)
+        {
+            if (head[i] == 0) zeroBytes++;
+        }
+
+        return zeroBytes >= 28;
     }
 
     private static void TryValidateAdmxAdmlXmlWellFormedness(Stream stream, string path, ContentTypeDetectionResult? det, string? declaredExt)
@@ -923,7 +964,7 @@ public static partial class FileInspector {
                         Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
                         string reason = "etl:magic";
                         string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                        string confidence = "Low";
+                        string confidence = "Medium";
                         if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                         {
                             reason = "etl:magic";
@@ -934,7 +975,7 @@ public static partial class FileInspector {
                             try
                             {
                                 var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
-                                if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "Medium"; }
+                                if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "High"; }
                                 else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
                                 else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
                             }
@@ -946,7 +987,16 @@ public static partial class FileInspector {
                         }
 
                         var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
-                        var quick = new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+                        var quick = new FileAnalysis
+                        {
+                            Detection = det,
+                            DetectedExtension = det.Extension,
+                            DetectedMimeType = det.MimeType,
+                            DetectionConfidence = det.Confidence,
+                            DetectionReason = det.Reason,
+                            Kind = KindClassifier.Classify(det),
+                            Flags = ContentFlags.None
+                        };
                         Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
                         return quick;
                     }
@@ -1084,6 +1134,8 @@ public static partial class FileInspector {
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
         if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
         if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));
+        if (Signatures.TryMatchMinidump(data, out var minidump2)) return Finish(Enrich(minidump2, data, null, options));
+        if (Signatures.TryMatchProtectedDump(data, out var protectedDump2)) return Finish(Enrich(protectedDump2, data, null, options));
         if (Signatures.TryMatchEse(data, out var ese2)) return Finish(Enrich(ese2, data, null, options));
         if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Finish(Enrich(hive2, data, null, options));
         if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
@@ -1116,7 +1168,7 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? TryRefineZipOOxml(string path) {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OpenReadShared(path);
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             // OOXML key parts
             bool hasContentTypes = za.GetEntry("[Content_Types].xml") != null;

@@ -32,7 +32,7 @@ internal static partial class Signatures {
         result = null;
         if (src.Length < 4) return false;
         if (src[0] == (byte)'M' && src[1] == (byte)'S' && src[2] == (byte)'C' && src[3] == (byte)'F') {
-            result = new ContentTypeDetectionResult { Extension = "cab", MimeType = "application/vnd.ms-cab-compressed", Confidence = "High", Reason = "cab" };
+            result = new ContentTypeDetectionResult { Extension = "cab", MimeType = "application/vnd.ms-cab-compressed", Confidence = "High", Reason = "cab:MSCF" };
             return true;
         }
         return false;

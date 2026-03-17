@@ -296,4 +296,29 @@ public class TextLogDetectionsTests
         }
         finally { TestHelpers.SafeDelete(p); }
     }
+
+    [Fact]
+    public void Detect_Timestamped_Service_Log_With_Embedded_Levels_Uses_Medium_Log_Confidence()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            var text =
+                "2026-03-17T18:00:00 INFO Startup complete for worker C:\\TierBridge\\agent\\worker.exe\r\n" +
+                "2026-03-17T18:00:01 WARN Fetching https://contoso.example/bootstrap.json\r\n" +
+                "2026-03-17T18:00:02 WARN Fetching https://cdn.contoso.example/app.js for worker update\r\n" +
+                "2026-03-17T18:00:03 ERROR Retry scheduled for \\\\fileserver\\drop\\package.zip\r\n" +
+                "2026-03-17T18:00:04 INFO Upload path C:\\TierBridge\\Upload checked successfully\r\n";
+
+            File.WriteAllText(p, text);
+
+            var r = FI.Detect(p);
+
+            Assert.NotNull(r);
+            Assert.Equal("log", r!.Extension);
+            Assert.Equal("Medium", r.Confidence);
+            Assert.Equal("text:log-levels", r.Reason);
+        }
+        finally { TestHelpers.SafeDelete(p); }
+    }
 }

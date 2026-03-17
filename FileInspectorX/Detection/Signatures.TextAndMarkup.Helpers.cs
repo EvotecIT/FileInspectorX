@@ -136,6 +136,26 @@ internal static partial class Signatures
         return false;
     }
 
+    private static bool StartsWithTimestampedLevelToken(ReadOnlySpan<byte> l)
+    {
+        if (!LooksLikeTimestamp(l)) return false;
+
+        int i = 0;
+        while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+        if (i < l.Length && l[i] == (byte)'[')
+        {
+            i++;
+            while (i < l.Length && char.IsWhiteSpace((char)l[i])) i++;
+        }
+
+        // Skip the leading timestamp token, including time / fractional seconds / timezone
+        while (i < l.Length && !char.IsWhiteSpace((char)l[i]) && l[i] != (byte)']') i++;
+        while (i < l.Length && (char.IsWhiteSpace((char)l[i]) || l[i] == (byte)']')) i++;
+        if (i >= l.Length) return false;
+
+        return StartsWithLevelToken(l.Slice(i));
+    }
+
     private static bool IsLevelToken(ReadOnlySpan<byte> token)
     {
         return (token.Length == 4 && StartsWithToken(token, "INFO")) ||
