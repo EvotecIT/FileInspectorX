@@ -90,9 +90,14 @@ public static partial class FileInspector
     {
         var auth = analysis.Authenticode;
         if (auth == null) return null;
+        var isSigned =
+            auth.Present ||
+            auth.IsTrustedWindowsPolicy == true ||
+            !string.IsNullOrWhiteSpace(auth.SignerSubject) ||
+            !string.IsNullOrWhiteSpace(auth.SignerThumbprint);
         var status = new SignatureStatus
         {
-            IsSigned = auth.Present,
+            IsSigned = isSigned,
             IsValid = auth.IsTrustedWindowsPolicy ?? auth.ChainValid,
             SignerSubject = !string.IsNullOrWhiteSpace(auth.SignerSubjectCN) ? auth.SignerSubjectCN : auth.SignerSubject,
             SignerThumbprint = auth.SignerThumbprint,

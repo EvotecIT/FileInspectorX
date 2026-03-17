@@ -234,7 +234,13 @@ public static partial class FileInspector
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;
-        if (sig?.Present == true)
+        bool hasSignaturePresence =
+            sig?.Present == true ||
+            sig?.IsTrustedWindowsPolicy == true ||
+            !string.IsNullOrWhiteSpace(sig?.SignerSubject) ||
+            !string.IsNullOrWhiteSpace(sig?.SignerThumbprint);
+
+        if (sig != null && hasSignaturePresence)
         {
             bool hasPrimaryTrustFailure = false;
             bool hasSignatureFailure = false;

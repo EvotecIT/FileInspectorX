@@ -12,10 +12,18 @@ public static partial class FileInspector
         var list = new List<Reference>(8);
         try {
             var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+            var detectedExt = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+            bool isXmlLike = ext == "xml" || string.IsNullOrEmpty(ext) || detectedExt == "xml";
+            bool isHtmlLike = ext is "html" or "htm" || detectedExt is "html" or "htm";
+            bool isScriptLike = ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css"
+                                || detectedExt is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css";
+            var scriptSourceTag = !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
+                ? detectedExt
+                : ext;
 
             // Task Scheduler Task XML
             // Try for .xml; when ambiguous, a quick shape check happens inside
-            if (ext == "xml" || string.IsNullOrEmpty(ext))
+            if (isXmlLike)
             {
                 if (LooksLikeTaskXml(path))
                     TryExtractTaskSchedulerXml(path, list);
@@ -28,20 +36,20 @@ public static partial class FileInspector
             }
 
             // GPO Scripts.xml (PowerShell or Generic)
-            if (ext == "xml" || string.IsNullOrEmpty(ext))
+            if (isXmlLike)
             {
                 TryExtractGpoScriptsXml(path, list);
             }
 
             // HTML: extract external links and network paths from common tags/attributes
-            if (ext == "html" || ext == "htm")
+            if (isHtmlLike)
             {
                 TryExtractHtmlReferences(path, list);
             }
             // Scripts: extract URLs and UNC shares from common script types (PowerShell, batch, shell, JS)
-            if (ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css")
+            if (isScriptLike)
             {
-                TryExtractScriptReferences(path, list, ext);
+                TryExtractScriptReferences(path, list, string.IsNullOrWhiteSpace(scriptSourceTag) ? "script" : scriptSourceTag);
             }
 
             // Windows Internet Shortcut (.url)

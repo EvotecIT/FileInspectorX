@@ -115,8 +115,6 @@ public static partial class FileInspector
             } catch { }
 #endif
             res.Authenticode = ai;
-            // Windows policy verification (full policy + catalog support)
-            if (Settings.VerifyAuthenticodeWithWinTrust) TryVerifyAuthenticodeWinTrust(path, res);
         } catch { }
     }
 

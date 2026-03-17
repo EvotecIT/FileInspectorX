@@ -695,10 +695,18 @@ public static partial class FileInspector {
             {
                 if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
             }
-            // On Windows, attempt WinVerifyTrust for MSI and general files (policy validation)
+            // On Windows, attempt WinVerifyTrust for PEs and package formats (policy validation, including catalog support).
 #if NET8_0_OR_GREATER || NET472
             var declaredExt2 = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
-            if ((options?.IncludeAuthenticode != false) && RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && (declaredExt2 == "msi" || declaredExt2 == "msix" || declaredExt2 == "appx"))
+            var detectedExt2 = det?.Extension?.Trim().ToLowerInvariant();
+            bool peOrExecutableFamily =
+                detectedExt2 is "exe" or "dll" or "sys" or "cpl" or "ocx" or "scr" or "com" or "pif" ||
+                declaredExt2 is "exe" or "dll" or "sys" or "cpl" or "ocx" or "scr" or "com" or "pif";
+            bool packageFamily =
+                detectedExt2 is "msi" or "msp" or "msix" or "appx" ||
+                declaredExt2 is "msi" or "msp" or "msix" or "appx";
+
+            if ((options?.IncludeAuthenticode != false) && RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && (peOrExecutableFamily || packageFamily))
             {
                 if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
                 TryVerifyAuthenticodeWinTrust(path, res);

