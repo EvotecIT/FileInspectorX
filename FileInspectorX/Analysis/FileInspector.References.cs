@@ -20,6 +20,8 @@ public static partial class FileInspector
             var scriptSourceTag = !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
                 ? detectedExt
                 : ext;
+            var detectionReason = det?.Reason;
+            bool detectionLooksTextLike = (detectionReason ?? string.Empty).StartsWith("text:", StringComparison.OrdinalIgnoreCase);
 
             // Task Scheduler Task XML
             // Try for .xml; when ambiguous, a quick shape check happens inside
@@ -55,7 +57,9 @@ public static partial class FileInspector
             bool isGenericTextLike =
                 !isHtmlLike &&
                 !isScriptLike &&
-                (ext is "log" or "txt" || detectedExt is "log" or "txt");
+                (detectedExt is "log" or "txt" ||
+                 (string.IsNullOrWhiteSpace(detectedExt) && ext is "log" or "txt") ||
+                 detectionLooksTextLike);
             if (isGenericTextLike)
             {
                 var genericTextSourceTag = string.Equals(det?.Reason, "text:event-txt", StringComparison.OrdinalIgnoreCase)

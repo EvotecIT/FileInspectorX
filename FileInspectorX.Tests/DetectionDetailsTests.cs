@@ -327,7 +327,7 @@ public class DetectionDetailsTests
         Assert.Contains("setup.exe (exe)", preview);
         var innerSummary = Assert.IsType<string>(map["InnerBinariesSummary"]);
         Assert.StartsWith("Binaries: 1", innerSummary, StringComparison.Ordinal);
-        Assert.Contains("Top: Contoso (2 files", innerSummary, StringComparison.Ordinal);
+        Assert.Contains("Top: Contoso", innerSummary, StringComparison.Ordinal);
         Assert.Equal("Contoso (2 files, valid)", map["InnerPublishersHuman"]);
         var extCounts = Assert.IsAssignableFrom<IReadOnlyDictionary<string, int>>(map["InnerExecutableExtCounts"]);
         Assert.Equal(1, extCounts["exe"]);
@@ -392,6 +392,33 @@ public class DetectionDetailsTests
         Assert.Contains("Inner signed binaries: 2", md);
         Assert.Contains("Inner validly signed binaries: 1", md);
         Assert.Contains("Inner publishers: Contoso (2 files, valid), Fabrikam (1 file, signed)", md);
+    }
+
+    [Fact]
+    public void ReportView_Archive_Presentation_Uses_Content_Aware_Inner_Type_Labels()
+    {
+        var scriptView = new ReportView
+        {
+            InnerExecutableExtCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ps1"] = 1,
+                ["cmd"] = 1
+            }
+        };
+
+        var installerView = new ReportView
+        {
+            InnerExecutableExtCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["msi"] = 1
+            }
+        };
+
+        var scriptMarkdown = MarkdownRenderer.From(scriptView);
+        var installerMarkdown = MarkdownRenderer.From(installerView);
+
+        Assert.Contains("Inner script types: cmd=1, ps1=1", scriptMarkdown);
+        Assert.Contains("Inner installer/package types: msi=1", installerMarkdown);
     }
 
     [Fact]

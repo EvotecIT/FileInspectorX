@@ -318,7 +318,7 @@ public static class MarkdownRenderer
                     .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
                     .Take(6)
                     .Select(kv => $"{kv.Key}={kv.Value}");
-                sb.AppendLine($"- Inner executable types: {string.Join(", ", topExts)}");
+                sb.AppendLine($"- {GetInnerTypeSummaryLabel(r.InnerExecutableExtCounts)}: {string.Join(", ", topExts)}");
             }
             if (!string.IsNullOrEmpty(r.InnerBinariesSummary))
                 sb.AppendLine($"- {r.InnerBinariesSummary}");
@@ -657,5 +657,48 @@ public static class MarkdownRenderer
                     var qualifier = self > 0 ? "self-signed" : (valid >= kv.Value && kv.Value > 0 ? "valid" : "signed");
                     return $"{kv.Key} ({files}, {qualifier})";
                 });
+
+        static string GetInnerTypeSummaryLabel(IReadOnlyDictionary<string, int>? counts)
+        {
+            if (counts == null || counts.Count == 0)
+            {
+                return "Inner types";
+            }
+
+            var keys = counts.Keys
+                .Where(static key => !string.IsNullOrWhiteSpace(key))
+                .Select(static key => key.Trim().TrimStart('.'))
+                .ToArray();
+
+            bool hasScript = keys.Any(IsScriptTypeKey);
+            bool hasInstaller = keys.Any(IsInstallerTypeKey);
+            bool hasExecutable = keys.Any(IsExecutableTypeKey);
+
+            if (hasScript && !hasInstaller && !hasExecutable) return "Inner script types";
+            if (!hasScript && hasInstaller && !hasExecutable) return "Inner installer/package types";
+            if (!hasScript && !hasInstaller && hasExecutable) return "Inner executable types";
+            if (hasScript && hasExecutable && !hasInstaller) return "Inner script/executable types";
+            if (hasInstaller && hasExecutable && !hasScript) return "Inner executable/installer types";
+            if (hasScript && hasInstaller && !hasExecutable) return "Inner script/installer types";
+            return "Inner active types";
+        }
+
+        static bool IsExecutableTypeKey(string value)
+        {
+            var key = value.Trim().TrimStart('.').ToLowerInvariant();
+            return key is "exe" or "dll" or "scr" or "com";
+        }
+
+        static bool IsInstallerTypeKey(string value)
+        {
+            var key = value.Trim().TrimStart('.').ToLowerInvariant();
+            return key is "msi" or "msix" or "appx" or "msixbundle" or "msu";
+        }
+
+        static bool IsScriptTypeKey(string value)
+        {
+            var key = value.Trim().TrimStart('.').ToLowerInvariant();
+            return key is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "ksh" or "vbs" or "js" or "mjs" or "py" or "rb" or "lua";
+        }
     }
 }

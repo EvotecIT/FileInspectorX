@@ -20,6 +20,12 @@ public static class AssessmentLegend
         ["Archive.ContainsScripts"]     = new("Archive.ContainsScripts",     "Scripts inside archive",     "Archive includes scripts (.ps1/.sh/.bat/.js).", "Archive", 60),
         ["Archive.ContainsInstallers"]  = new("Archive.ContainsInstallers",  "Installers inside archive",  "Archive includes installer or package files.", "Archive", 65),
         ["Archive.ContainsArchives"]    = new("Archive.ContainsArchives",    "Nested archives",            "Archive contains nested archive files.", "Archive", 45),
+        ["Archive.InnerScriptEncoded"]  = new("Archive.InnerScriptEncoded",  "Encoded inner script", "Archive contains an inner script with encoded-command or base64 execution patterns.", "Archive", 55),
+        ["Archive.InnerScriptExec"]     = new("Archive.InnerScriptExec",     "Dynamic inner script execution", "Archive contains an inner script with dynamic execution or reflection-style behavior.", "Archive", 60),
+        ["Archive.InnerScriptDownload"] = new("Archive.InnerScriptDownload", "Web-downloading inner script", "Archive contains an inner script with download or payload-staging behavior.", "Archive", 65),
+        ["Archive.InnerExternalHosts"]  = new("Archive.InnerExternalHosts",  "Inner external hosts", "Archive inner content references external network hosts.", "Archive", 40),
+        ["Archive.InnerUncShares"]      = new("Archive.InnerUncShares",      "Inner UNC shares", "Archive inner content references UNC shares or remote paths.", "Archive", 35),
+        ["Archive.InnerDisguisedScript"] = new("Archive.InnerDisguisedScript", "Disguised inner script", "Archive contains a script whose filename extension does not match its detected content.", "Archive", 60),
         ["Archive.DisguisedExecutables"] = new("Archive.DisguisedExecutables","Disguised executables",     "Container holds executables disguised by extension.", "Archive", 75),
         ["Archive.EncryptedEntries"]    = new("Archive.EncryptedEntries",    "Encrypted entries",          "Archive has password-protected items.", "Archive", 50),
 

@@ -298,6 +298,12 @@ public static partial class FileInspector
                 case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
                 case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;
                 case "lua:exec": AddSecurityFindingCode("Script.LuaExec", 10); break;
+                case "archive:inner-script-encoded": AddSecurityFindingCode("Archive.InnerScriptEncoded", 10); break;
+                case "archive:inner-script-exec": AddSecurityFindingCode("Archive.InnerScriptExec", 15); break;
+                case "archive:inner-script-download": AddSecurityFindingCode("Archive.InnerScriptDownload", 15); break;
+                case "archive:inner-external-hosts": AddSecurityFindingCode("Archive.InnerExternalHosts", 5); break;
+                case "archive:inner-unc": AddSecurityFindingCode("Archive.InnerUncShares", 5); break;
+                case "archive:inner-disguised-script": AddSecurityFindingCode("Archive.InnerDisguisedScript", 10); break;
                 case var n when n != null && n.StartsWith("net:unc=", StringComparison.OrdinalIgnoreCase):
                     AddSecurityFindingCode("Script.UncShares", 5);
                     break;

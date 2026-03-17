@@ -82,6 +82,12 @@ public static class Legend
         // GPO/SYSVOL
         ["gpo:backup"]   = new("gpo:backup",   "GPO backup", "Archive contains Group Policy backup artifacts (gpt.ini/Registry.pol).", "AD", 30),
         ["sysvol:policy"] = new("sysvol:policy", "SYSVOL policy/scripts", "Archive contains SYSVOL policy/scripts folder paths.", "AD", 25),
+        ["archive:inner-script-encoded"] = new("archive:inner-script-encoded", "Encoded script inside archive", "Archive contains an inner script with encoded-command or base64 execution patterns.", "Archive", 55),
+        ["archive:inner-script-exec"] = new("archive:inner-script-exec", "Dynamic script execution inside archive", "Archive contains an inner script with dynamic execution or reflection-style behavior.", "Archive", 60),
+        ["archive:inner-script-download"] = new("archive:inner-script-download", "Web-downloading script inside archive", "Archive contains an inner script with download or payload-staging behavior.", "Archive", 65),
+        ["archive:inner-external-hosts"] = new("archive:inner-external-hosts", "External hosts inside archive", "Archive contains inner content that references external network hosts.", "Archive", 40),
+        ["archive:inner-unc"] = new("archive:inner-unc", "UNC references inside archive", "Archive contains inner content that references UNC shares or remote paths.", "Archive", 35),
+        ["archive:inner-disguised-script"] = new("archive:inner-disguised-script", "Disguised script inside archive", "Archive contains a script whose filename extension does not match its detected content.", "Archive", 60),
         // Secrets (categories only)
         ["secret:privkey"]   = new("secret:privkey",   "Private key material", "File appears to contain private key PEM material.", "Secrets", 90),
         ["secret:jwt"]       = new("secret:jwt",       "JWT-like token", "File contains tokens resembling JSON Web Tokens.", "Secrets", 60),
@@ -189,6 +195,27 @@ public static class Legend
                 var val = f.Substring("7z:files=".Length);
                 var shortTxt = $"7z files: {val}";
                 var longTxt  = $"7z archive file count: {val} (best‑effort).";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (f.StartsWith("archive:inner-files=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("archive:inner-files=".Length);
+                var shortTxt = $"Inner entries: {val}";
+                var longTxt  = $"Archive contains notable inner entries: {val}.";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (f.StartsWith("archive:inner-urls=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("archive:inner-urls=".Length);
+                var shortTxt = $"Inner URLs: {val}";
+                var longTxt  = $"Archive inner content references URLs: {val}.";
+                friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (f.StartsWith("archive:inner-unc-samples=", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = f.Substring("archive:inner-unc-samples=".Length);
+                var shortTxt = $"Inner UNC paths: {val}";
+                var longTxt  = $"Archive inner content references UNC paths: {val}.";
                 friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
             }
             else

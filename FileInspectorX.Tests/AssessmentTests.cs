@@ -153,6 +153,12 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Type.DangerousMismatch");
         Assert.Contains(legend, e => e.Code == "Type.GuessedSubtypeRisk");
         Assert.Contains(legend, e => e.Code == "Type.ValidationUncertain");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerScriptEncoded");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerScriptExec");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerScriptDownload");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerExternalHosts");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerUncShares");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerDisguisedScript");
         Assert.Contains(legend, e => e.Code == "PE.RegSvrExport");
         Assert.Contains(legend, e => e.Code == "Secret.JWT");
         Assert.Contains(legend, e => e.Code == "Secret.JWT.Volume");
@@ -189,6 +195,33 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Script.NetworkDriveMapping");
         Assert.Contains(legend, e => e.Code == "Script.ExternalHosts");
         Assert.Contains(legend, e => e.Code == "Tool.Indicator");
+    }
+
+    [Fact]
+    public void Assess_ArchiveInnerSignals_Add_ArchiveAssessmentCodes()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "archive:inner-script-encoded",
+                "archive:inner-script-exec",
+                "archive:inner-script-download",
+                "archive:inner-external-hosts",
+                "archive:inner-unc",
+                "archive:inner-disguised-script"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.True(assessed.Score > 0);
+        Assert.Contains("Archive.InnerScriptEncoded", assessed.Codes);
+        Assert.Contains("Archive.InnerScriptExec", assessed.Codes);
+        Assert.Contains("Archive.InnerScriptDownload", assessed.Codes);
+        Assert.Contains("Archive.InnerExternalHosts", assessed.Codes);
+        Assert.Contains("Archive.InnerUncShares", assessed.Codes);
+        Assert.Contains("Archive.InnerDisguisedScript", assessed.Codes);
     }
 
     [Fact]
