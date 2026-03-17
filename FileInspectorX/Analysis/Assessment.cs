@@ -234,7 +234,13 @@ public static partial class FileInspector
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;
-        if (sig?.Present == true)
+        bool hasSignaturePresence =
+            sig?.Present == true ||
+            sig?.IsTrustedWindowsPolicy == true ||
+            !string.IsNullOrWhiteSpace(sig?.SignerSubject) ||
+            !string.IsNullOrWhiteSpace(sig?.SignerThumbprint);
+
+        if (sig != null && hasSignaturePresence)
         {
             bool hasPrimaryTrustFailure = false;
             bool hasSignatureFailure = false;
@@ -292,6 +298,12 @@ public static partial class FileInspector
                 case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
                 case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;
                 case "lua:exec": AddSecurityFindingCode("Script.LuaExec", 10); break;
+                case "archive:inner-script-encoded": AddSecurityFindingCode("Archive.InnerScriptEncoded", 10); break;
+                case "archive:inner-script-exec": AddSecurityFindingCode("Archive.InnerScriptExec", 15); break;
+                case "archive:inner-script-download": AddSecurityFindingCode("Archive.InnerScriptDownload", 15); break;
+                case "archive:inner-external-hosts": AddSecurityFindingCode("Archive.InnerExternalHosts", 5); break;
+                case "archive:inner-unc": AddSecurityFindingCode("Archive.InnerUncShares", 5); break;
+                case "archive:inner-disguised-script": AddSecurityFindingCode("Archive.InnerDisguisedScript", 10); break;
                 case var n when n != null && n.StartsWith("net:unc=", StringComparison.OrdinalIgnoreCase):
                     AddSecurityFindingCode("Script.UncShares", 5);
                     break;
@@ -389,10 +401,12 @@ public static partial class FileInspector
                 !string.IsNullOrWhiteSpace(guessedExt) &&
                 !string.Equals(guessedExt, detectedExt, StringComparison.OrdinalIgnoreCase);
             bool guessedSubtypeDangerous = guessedSubtypeDiffers && DangerousExtensions.IsDangerous(guessedExt);
+            bool detectedDangerous =
+                det.IsDangerous ||
+                DangerousExtensions.IsDangerous(detectedExt);
             bool mismatch = (a.NameIssues & NameIssues.ExtensionMismatch) != 0;
             bool riskyContext =
-                det.IsDangerous ||
-                DangerousExtensions.IsDangerous(detectedExt) ||
+                detectedDangerous ||
                 guessedSubtypeDangerous ||
                 hasDangerousAlternative ||
                 mismatch;
@@ -419,6 +433,11 @@ public static partial class FileInspector
             if (guessedSubtypeDangerous)
             {
                 Add("Type.GuessedSubtypeRisk", 8);
+            }
+
+            if (mismatch && detectedDangerous)
+            {
+                Add("Type.DangerousMismatch", 25);
             }
 
             if (!string.IsNullOrWhiteSpace(detValidation) &&

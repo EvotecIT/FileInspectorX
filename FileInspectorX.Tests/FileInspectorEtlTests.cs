@@ -181,6 +181,31 @@ public class FileInspectorEtlTests
     }
 
     [Fact]
+    public void Detect_Evtx_Header_DoesNot_Get_Overridden_As_Etl()
+    {
+        var prevMode = Settings.EtlValidation;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        var temp = Path.GetTempFileName();
+        var evtx = temp + ".evtx";
+        try
+        {
+            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x69, 0x6C, 0x65, 0x00, 0x01, 0x00, 0x00, 0x00 });
+            File.Move(temp, evtx);
+
+            var det = FileInspector.Detect(evtx);
+
+            Assert.NotNull(det);
+            Assert.Equal("evtx", det!.Extension);
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            TestHelpers.SafeDelete(temp);
+            TestHelpers.SafeDelete(evtx);
+        }
+    }
+
+    [Fact]
     public void Inspect_LargeEtl_UsesQuickPath_IgnoresExtension()
     {
         var prevMode = Settings.EtlValidation;

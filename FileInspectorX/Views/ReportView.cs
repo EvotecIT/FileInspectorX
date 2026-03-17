@@ -683,12 +683,17 @@ public sealed class ReportView
         if (a.InnerExecutablesSampled.HasValue)
         {
             var parts = new List<string> { $"Binaries: {a.InnerExecutablesSampled.Value}" };
-            if (a.InnerSignedExecutables.HasValue) parts.Add($"Signed {a.InnerSignedExecutables.Value}");
-            if (a.InnerValidSignedExecutables.HasValue) parts.Add($"Valid {a.InnerValidSignedExecutables.Value}");
-            if (!string.IsNullOrWhiteSpace(r.InnerPublishersHuman))
+            var signedInner = a.InnerSignedExecutables.GetValueOrDefault();
+            var validInner = a.InnerValidSignedExecutables.GetValueOrDefault();
+            if (signedInner > 0) parts.Add($"Signed {signedInner}");
+            if (validInner > 0) parts.Add($"Valid {validInner}");
+            if (a.InnerPublisherCounts != null && a.InnerPublisherCounts.Count > 0)
             {
-                var firstSeg = (r.InnerPublishersHuman ?? string.Empty).Split(',');
-                var head = firstSeg.Length > 0 ? firstSeg[0].Trim() : string.Empty;
+                var head = a.InnerPublisherCounts
+                    .OrderByDescending(kv => kv.Value)
+                    .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(kv => kv.Key)
+                    .FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(head)) parts.Add($"Top: {head}");
             }
             r.InnerBinariesSummary = string.Join(" • ", parts);

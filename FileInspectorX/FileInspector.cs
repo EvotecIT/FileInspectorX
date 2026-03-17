@@ -475,6 +475,7 @@ public static partial class FileInspector {
         => string.IsNullOrEmpty(reason) ? tag : (reason + ";" + tag);
 
     private static readonly byte[] EtlMagicBytes = { 0x45, 0x6C, 0x66, 0x46 }; // "ElfF" ASCII
+    private static readonly byte[] EvtxMagicBytes = System.Text.Encoding.ASCII.GetBytes("ElfFile\0");
 
     private static bool TryMatchEtlMagic(string path) {
         try {
@@ -490,10 +491,17 @@ public static partial class FileInspector {
                 pos = stream.Position;
                 stream.Seek(0, SeekOrigin.Begin);
             }
-            var buf = new byte[EtlMagicBytes.Length];
+            var buf = new byte[EvtxMagicBytes.Length];
             int n = stream.Read(buf, 0, buf.Length);
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
-            return n == EtlMagicBytes.Length && buf.AsSpan(0, n).SequenceEqual(EtlMagicBytes);
+            if (n < EtlMagicBytes.Length) return false;
+            var head = buf.AsSpan(0, n);
+            if (!head.Slice(0, EtlMagicBytes.Length).SequenceEqual(EtlMagicBytes)) return false;
+
+            // EVTX shares the "ElfF" prefix, so require that ETL candidates do not
+            // match the full EVTX header before claiming the file is an ETL trace.
+            if (n >= EvtxMagicBytes.Length && head.Slice(0, EvtxMagicBytes.Length).SequenceEqual(EvtxMagicBytes)) return false;
+            return true;
         } catch { return false; }
     }
 

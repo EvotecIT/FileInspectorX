@@ -6,6 +6,27 @@ namespace FileInspectorX;
 /// </summary>
 internal static class LogHeuristics
 {
+    internal static bool LooksLikePathErrorLog(string lower)
+    {
+        if (string.IsNullOrWhiteSpace(lower)) return false;
+
+        int pathErrorLines = 0;
+        using var sr = new StringReader(lower);
+        string? line;
+        int inspected = 0;
+        while (inspected < 80 && (line = sr.ReadLine()) != null)
+        {
+            inspected++;
+            var l = line.Trim();
+            if (l.Length == 0) continue;
+            if (!LooksLikeWindowsPathErrorLine(l)) continue;
+            pathErrorLines++;
+            if (pathErrorLines >= 3) return true;
+        }
+
+        return false;
+    }
+
     internal static bool LooksLikeDefenderTextLog(string lower, bool logCues)
     {
         bool hasMpcmd = lower.Contains("mpcmdrun");
@@ -160,5 +181,25 @@ internal static class LogHeuristics
             idx += needle.Length;
         }
         return count;
+    }
+
+    private static bool LooksLikeWindowsPathErrorLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        bool pathPrefix =
+            (line.Length >= 3 && char.IsLetter(line[0]) && line[1] == ':' && (line[2] == '\\' || line[2] == '/')) ||
+            line.StartsWith("\\\\", StringComparison.Ordinal);
+        if (!pathPrefix) return false;
+
+        int cpos = line.IndexOf(':', pathPrefix && line.Length >= 3 && line[1] == ':' ? 2 : 0);
+        if (cpos < 0 || cpos >= line.Length - 1) return false;
+
+        var tail = line.Substring(cpos + 1).TrimStart();
+        if (tail.Length == 0) return false;
+
+        return tail.StartsWith("access is denied", StringComparison.OrdinalIgnoreCase) ||
+               tail.StartsWith("cannot find", StringComparison.OrdinalIgnoreCase) ||
+               tail.StartsWith("the system cannot", StringComparison.OrdinalIgnoreCase) ||
+               tail.StartsWith("permission denied", StringComparison.OrdinalIgnoreCase);
     }
 }

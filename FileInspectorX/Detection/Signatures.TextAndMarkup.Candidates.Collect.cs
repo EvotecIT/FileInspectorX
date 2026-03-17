@@ -152,6 +152,8 @@ internal static partial class Signatures
         bool iniStrong = false;
         if (!scriptCues)
         {
+            if (declaredLog && LogHeuristics.LooksLikePathErrorLog(headLower))
+                AddCandidate("log", "text/plain", "Low", "text:log-path-errors", "log:path-errors", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeDnsLog(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-dns", "log:dns", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikePowerShellTranscript(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-powershell-transcript", "log:powershell-transcript", scoreAdjust: logPenalty);
             if (LogHeuristics.LooksLikeFirewallLog(headLower)) AddCandidate("log", "text/plain", "Medium", "text:log-firewall", "log:firewall", scoreAdjust: logPenalty);

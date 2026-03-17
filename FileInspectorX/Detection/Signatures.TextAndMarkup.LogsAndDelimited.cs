@@ -42,6 +42,12 @@ internal static partial class Signatures
         bool logCues = LooksLikeTimestamp(line1) || LooksLikeTimestamp(line2) || StartsWithLevelToken(line1) || StartsWithLevelToken(line2) || syslog1 || syslog2;
         if (!scriptCues)
         {
+            if (declaredLog && LogHeuristics.LooksLikePathErrorLog(headLower))
+            {
+                result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Low", Reason = "text:log-path-errors", ReasonDetails = "log:path-errors" };
+                return true;
+            }
+
             if (syslog1 && syslog2)
             {
                 result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-syslog", ReasonDetails = "log:syslog" };

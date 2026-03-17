@@ -33,8 +33,10 @@ public static partial class FileInspector
                 var dot0 = baseNoExt.LastIndexOf('.');
                 if (dot0 > 0)
                 {
-                    // Two dots present => double extension
-                    issues |= NameIssues.DoubleExtension;
+                    // Only flag multiple dots when the extra segment looks like an embedded extension,
+                    // not a benign dotted product/version name such as Foo.Bar_1.2.3_x64.msi.
+                    if (!LooksLikeBenignVersionedName(baseNoExt))
+                        issues |= NameIssues.DoubleExtension;
                 }
                 if (det != null && !string.IsNullOrEmpty(det.Extension))
                 {
@@ -44,5 +46,46 @@ public static partial class FileInspector
             }
         } catch { }
         return issues;
+    }
+
+    private static bool LooksLikeBenignVersionedName(string baseNoExt)
+    {
+        if (string.IsNullOrWhiteSpace(baseNoExt)) return false;
+        var parts = baseNoExt.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+
+        bool sawVersionLike = false;
+        for (int i = 1; i < parts.Length; i++)
+        {
+            var part = parts[i].Trim();
+            if (string.IsNullOrEmpty(part)) return false;
+            if (LooksLikeEmbeddedExtensionToken(part)) return false;
+            if (!IsVersionLikeNameToken(part)) return false;
+            sawVersionLike = true;
+        }
+
+        return sawVersionLike;
+    }
+
+    private static bool LooksLikeEmbeddedExtensionToken(string segment)
+    {
+        var normalized = NormalizeExtension(segment);
+        if (string.IsNullOrEmpty(normalized)) return false;
+        var key = normalized!;
+        if (DangerousExtensions.IsDangerous(key)) return true;
+        if (MimeMaps.Default.ContainsKey(key)) return true;
+        return ExtraMime.Crypto.ContainsKey(key);
+    }
+
+    private static bool IsVersionLikeNameToken(string segment)
+    {
+        bool hasDigit = false;
+        for (int i = 0; i < segment.Length; i++)
+        {
+            char c = segment[i];
+            if (char.IsDigit(c)) hasDigit = true;
+            if (!(char.IsLetterOrDigit(c) || c == '_' || c == '-')) return false;
+        }
+        return hasDigit;
     }
 }

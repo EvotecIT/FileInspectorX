@@ -345,6 +345,8 @@ internal static partial class Signatures
         if (StartsWithToken(l, "[INFO]") || StartsWithToken(l, "[WARN]") || StartsWithToken(l, "[ERROR]") || StartsWithToken(l, "[DEBUG]")) return false;
         if (StartsWithToken(l, "INFO:") || StartsWithToken(l, "WARN:") || StartsWithToken(l, "ERROR:") || StartsWithToken(l, "DEBUG:")) return false;
         int cpos = l.IndexOf((byte)':'); if (cpos <= 0 || cpos > Math.Min(80, l.Length - 1)) return false;
+        // Do not treat "C:\path\to\file: ..." style lines as YAML keys.
+        if (cpos == 1 && char.IsLetter((char)l[0]) && cpos + 1 < l.Length && (l[cpos + 1] == (byte)'\\' || l[cpos + 1] == (byte)'/')) return false;
         // If there is any quote before ':', do not treat as YAML key (likely part of a quoted string)
         for (int i = 0; i < cpos; i++) { if (l[i] == (byte)'"' || l[i] == (byte)'\'') return false; }
         // Ignore URI-like key:/value

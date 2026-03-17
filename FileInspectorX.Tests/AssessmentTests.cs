@@ -150,8 +150,15 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Type.LowConfidenceRisk");
         Assert.Contains(legend, e => e.Code == "Type.AmbiguousCandidates");
         Assert.Contains(legend, e => e.Code == "Type.DangerousAlternative");
+        Assert.Contains(legend, e => e.Code == "Type.DangerousMismatch");
         Assert.Contains(legend, e => e.Code == "Type.GuessedSubtypeRisk");
         Assert.Contains(legend, e => e.Code == "Type.ValidationUncertain");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerScriptEncoded");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerScriptExec");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerScriptDownload");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerExternalHosts");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerUncShares");
+        Assert.Contains(legend, e => e.Code == "Archive.InnerDisguisedScript");
         Assert.Contains(legend, e => e.Code == "PE.RegSvrExport");
         Assert.Contains(legend, e => e.Code == "Secret.JWT");
         Assert.Contains(legend, e => e.Code == "Secret.JWT.Volume");
@@ -188,6 +195,33 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Script.NetworkDriveMapping");
         Assert.Contains(legend, e => e.Code == "Script.ExternalHosts");
         Assert.Contains(legend, e => e.Code == "Tool.Indicator");
+    }
+
+    [Fact]
+    public void Assess_ArchiveInnerSignals_Add_ArchiveAssessmentCodes()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "archive:inner-script-encoded",
+                "archive:inner-script-exec",
+                "archive:inner-script-download",
+                "archive:inner-external-hosts",
+                "archive:inner-unc",
+                "archive:inner-disguised-script"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.True(assessed.Score > 0);
+        Assert.Contains("Archive.InnerScriptEncoded", assessed.Codes);
+        Assert.Contains("Archive.InnerScriptExec", assessed.Codes);
+        Assert.Contains("Archive.InnerScriptDownload", assessed.Codes);
+        Assert.Contains("Archive.InnerExternalHosts", assessed.Codes);
+        Assert.Contains("Archive.InnerUncShares", assessed.Codes);
+        Assert.Contains("Archive.InnerDisguisedScript", assessed.Codes);
     }
 
     [Fact]
@@ -357,6 +391,30 @@ public class AssessmentTests
 
         Assert.Equal(10, assessed.Score);
         Assert.Contains("Sig.Absent", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_WinTrustTrusted_Pe_Without_Embedded_Signature_Does_Not_Get_SigAbsent()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "exe"
+            },
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = false,
+                IsTrustedWindowsPolicy = true,
+                VerificationNote = "WinTrust policy validation"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(0, assessed.Score);
+        Assert.DoesNotContain("Sig.Absent", assessed.Codes);
+        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
     }
 
     [Fact]
@@ -1000,6 +1058,30 @@ public class AssessmentTests
         Assert.Contains("Type.AmbiguousCandidates", assessed.Codes);
         Assert.Contains("Type.ValidationUncertain", assessed.Codes);
         Assert.Equal(8, assessed.Factors["Type.ValidationUncertain"]);
+    }
+
+    [Fact]
+    public void Assess_Detected_Dangerous_Mismatch_Adds_DangerousMismatch_Code()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                MimeType = "text/x-powershell",
+                Confidence = "High",
+                Reason = "text:ps1",
+                IsDangerous = true
+            },
+            NameIssues = NameIssues.ExtensionMismatch
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(35, assessed.Score);
+        Assert.Contains("Name.ExtensionMismatch", assessed.Codes);
+        Assert.Contains("Type.DangerousMismatch", assessed.Codes);
+        Assert.Equal(25, assessed.Factors["Type.DangerousMismatch"]);
     }
 
     [Fact]
