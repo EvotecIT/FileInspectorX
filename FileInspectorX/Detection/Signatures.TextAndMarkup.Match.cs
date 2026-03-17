@@ -207,7 +207,13 @@ internal static partial class Signatures
                     }
                 }
                 if (transcodeEnc == null && bomCharset == null)
-                    return false;
+                {
+                    if (!TryStripSparseNuls(data, out var strippedBytes, out var strippedLength))
+                        return false;
+                    transcodeBytes = strippedBytes;
+                    data = strippedBytes.AsSpan(0, strippedLength);
+                    textCharset = "utf-8";
+                }
             }
         }
 
@@ -317,6 +323,46 @@ internal static partial class Signatures
             batCues,
             scriptCues);
 
+        return true;
+    }
+
+    private static bool TryStripSparseNuls(ReadOnlySpan<byte> source, out byte[]? strippedBytes, out int strippedLength)
+    {
+        strippedBytes = null;
+        strippedLength = 0;
+        int nulCount = 0;
+        for (int i = 0; i < source.Length; i++)
+        {
+            if (source[i] == 0x00) nulCount++;
+        }
+
+        if (nulCount <= 0)
+        {
+            strippedBytes = source.ToArray();
+            strippedLength = strippedBytes.Length;
+            return true;
+        }
+
+        int targetLength = source.Length - nulCount;
+        if (targetLength <= 0) return false;
+
+        var buffer = ArrayPool<byte>.Shared.Rent(targetLength);
+        int written = 0;
+        for (int i = 0; i < source.Length; i++)
+        {
+            byte b = source[i];
+            if (b == 0x00) continue;
+            buffer[written++] = b;
+        }
+
+        if (written <= 0)
+        {
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            return false;
+        }
+
+        strippedBytes = buffer;
+        strippedLength = written;
         return true;
     }
 

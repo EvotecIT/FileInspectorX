@@ -31,6 +31,39 @@ public class NameAndTextDetectionRegressionTests
     }
 
     [Fact]
+    public void Analyze_EventViewerTextExport_WithSparseNuls_Detects_Log()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            File.WriteAllBytes(p, System.Text.Encoding.UTF8.GetBytes(
+                "Event[0]\r\n" +
+                "  Log Name: Application\r\n" +
+                "  Source: Example.Service\r\n" +
+                "  Date: 2026-03-17T09:03:12.7750000Z\r\n" +
+                "  Event ID: 0\r\n" +
+                "  Task: None\0\r\n" +
+                "  Level: Error\0\r\n" +
+                "  Opcode: Info\0\0\r\n" +
+                "  Keyword: Classic,\0\r\n" +
+                "  User: N/A\r\n" +
+                "  Computer: HOST.example\r\n" +
+                "  Description:\r\n" +
+                "Example failure text\r\n"));
+
+            var a = FileInspector.Analyze(p);
+
+            Assert.Equal("log", a.DetectedExtension);
+            Assert.Equal("log", a.TextSubtype);
+            Assert.Equal("text:event-txt", a.DetectionReason);
+        }
+        finally
+        {
+            try { File.Delete(p); } catch { }
+        }
+    }
+
+    [Fact]
     public void Analyze_VersionedInstallerName_DoesNotFlagDoubleExtension()
     {
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
