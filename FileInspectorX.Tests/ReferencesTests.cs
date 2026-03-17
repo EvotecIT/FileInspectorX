@@ -112,4 +112,51 @@ public class ReferencesTests
         }
         finally { try { File.Delete(p); } catch { } }
     }
+
+    [Fact]
+    public void Extract_EventTextLog_References_From_Generic_Log_Text()
+    {
+        var p = Path.GetTempFileName() + ".log";
+        try
+        {
+            File.WriteAllBytes(p, System.Text.Encoding.UTF8.GetBytes(
+                "Event[0]\r\n" +
+                "  Log Name: Application\r\n" +
+                "  Source: Example.Service\r\n" +
+                "  Event ID: 0\r\n" +
+                "  Level: Error\0\r\n" +
+                "  Description:\r\n" +
+                "Failure reaching https://contoso.example:443/ from \\\\fileserver\\drop\\payload.ps1\r\n"));
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Equal("log", a.DetectedExtension);
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://contoso.example:443/", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.Value, "\\\\fileserver\\drop", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => string.Equals(r.SourceTag, "log:event-txt", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
+    public void Extract_PlainLog_References_From_Generic_Log_Text()
+    {
+        var p = Path.GetTempFileName() + ".log";
+        try
+        {
+            File.WriteAllText(p, """
+                2026-03-17 09:12:00 ERROR failed downloading https://payload.example/app.msi
+                2026-03-17 09:12:01 ERROR copied from \\fileserver\share\installer.msi
+                """);
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://payload.example/app.msi", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.Value, "\\\\fileserver\\share", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => string.Equals(r.SourceTag, "log:text", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
 }

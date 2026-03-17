@@ -52,6 +52,18 @@ public static partial class FileInspector
                 TryExtractScriptReferences(path, list, string.IsNullOrWhiteSpace(scriptSourceTag) ? "script" : scriptSourceTag);
             }
 
+            bool isGenericTextLike =
+                !isHtmlLike &&
+                !isScriptLike &&
+                (ext is "log" or "txt" || detectedExt is "log" or "txt");
+            if (isGenericTextLike)
+            {
+                var genericTextSourceTag = string.Equals(det?.Reason, "text:event-txt", StringComparison.OrdinalIgnoreCase)
+                    ? "log:event-txt"
+                    : (detectedExt == "log" || ext == "log" ? "log:text" : "text:generic");
+                TryExtractGenericTextReferences(path, list, genericTextSourceTag);
+            }
+
             // Windows Internet Shortcut (.url)
             if (ext == "url")
             {
@@ -68,6 +80,69 @@ public static partial class FileInspector
         } catch { }
 
         return list.Count > 0 ? list : null;
+    }
+
+    private static void TryExtractGenericTextReferences(string path, List<Reference> refs, string sourceTag)
+    {
+        try
+        {
+            string text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenUnc = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            int i = 0;
+            while (i < text.Length)
+            {
+                int at = text.IndexOf("http", i, StringComparison.OrdinalIgnoreCase);
+                if (at < 0) break;
+                int end = at;
+                while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] != '"' && text[end] != '\'' && text[end] != ')' && text[end] != '<' && text[end] != '>' && text[end] != '`')
+                    end++;
+                var cand = text.Substring(at, end - at).TrimEnd('.', ',', ';', ':');
+                if (Uri.TryCreate(cand, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps) && seenUrls.Add(cand))
+                {
+                    refs.Add(new Reference { Kind = ReferenceKind.Url, Value = cand, SourceTag = sourceTag });
+                }
+                i = end + 1;
+            }
+
+            var span = text.AsSpan();
+            int p = 0;
+            while (p + 3 < span.Length)
+            {
+                if (span[p] == '\\' && span[p + 1] == '\\')
+                {
+                    int start = p;
+                    p += 2;
+                    int sHost = p;
+                    while (p < span.Length && (char.IsLetterOrDigit(span[p]) || span[p] == '.' || span[p] == '-' || span[p] == '_')) p++;
+                    if (p <= sHost || p >= span.Length || span[p] != '\\') { p++; continue; }
+                    string server = span.Slice(sHost, p - sHost).ToString();
+                    p++;
+                    int sShare = p;
+                    while (p < span.Length && (char.IsLetterOrDigit(span[p]) || span[p] == '.' || span[p] == '-' || span[p] == '_' || span[p] == '$')) p++;
+                    if (p > sShare)
+                    {
+                        string share = span.Slice(sShare, p - sShare).ToString();
+                        string unc = "\\\\" + server + "\\" + share;
+                        if (seenUnc.Add(unc))
+                        {
+                            refs.Add(new Reference
+                            {
+                                Kind = ReferenceKind.FilePath,
+                                Value = unc,
+                                SourceTag = sourceTag,
+                                Issues = ReferenceIssue.UncPath
+                            });
+                        }
+                    }
+                }
+                else p++;
+            }
+        }
+        catch { }
     }
 
     private static void TryExtractScriptReferences(string path, List<Reference> refs, string ext)
