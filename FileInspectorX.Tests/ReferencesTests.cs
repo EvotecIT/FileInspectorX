@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace FileInspectorX.Tests;
@@ -181,12 +182,12 @@ public class ReferencesTests
 
         static (string Path, string ExpectedDetectedExtension) GetPlatformBinarySample()
         {
-            if (OperatingSystem.IsWindows())
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 return (Path.Combine(Environment.SystemDirectory, "notepad.exe"), "exe");
             }
 
-            if (OperatingSystem.IsMacOS())
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
                 return ("/bin/ls", "macho");
             }
