@@ -150,6 +150,7 @@ public class AssessmentTests
         Assert.Contains(legend, e => e.Code == "Type.LowConfidenceRisk");
         Assert.Contains(legend, e => e.Code == "Type.AmbiguousCandidates");
         Assert.Contains(legend, e => e.Code == "Type.DangerousAlternative");
+        Assert.Contains(legend, e => e.Code == "Type.DangerousMismatch");
         Assert.Contains(legend, e => e.Code == "Type.GuessedSubtypeRisk");
         Assert.Contains(legend, e => e.Code == "Type.ValidationUncertain");
         Assert.Contains(legend, e => e.Code == "PE.RegSvrExport");
@@ -1024,6 +1025,30 @@ public class AssessmentTests
         Assert.Contains("Type.AmbiguousCandidates", assessed.Codes);
         Assert.Contains("Type.ValidationUncertain", assessed.Codes);
         Assert.Equal(8, assessed.Factors["Type.ValidationUncertain"]);
+    }
+
+    [Fact]
+    public void Assess_Detected_Dangerous_Mismatch_Adds_DangerousMismatch_Code()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                MimeType = "text/x-powershell",
+                Confidence = "High",
+                Reason = "text:ps1",
+                IsDangerous = true
+            },
+            NameIssues = NameIssues.ExtensionMismatch
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(35, assessed.Score);
+        Assert.Contains("Name.ExtensionMismatch", assessed.Codes);
+        Assert.Contains("Type.DangerousMismatch", assessed.Codes);
+        Assert.Equal(25, assessed.Factors["Type.DangerousMismatch"]);
     }
 
     [Fact]

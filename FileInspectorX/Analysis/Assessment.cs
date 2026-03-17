@@ -395,10 +395,12 @@ public static partial class FileInspector
                 !string.IsNullOrWhiteSpace(guessedExt) &&
                 !string.Equals(guessedExt, detectedExt, StringComparison.OrdinalIgnoreCase);
             bool guessedSubtypeDangerous = guessedSubtypeDiffers && DangerousExtensions.IsDangerous(guessedExt);
+            bool detectedDangerous =
+                det.IsDangerous ||
+                DangerousExtensions.IsDangerous(detectedExt);
             bool mismatch = (a.NameIssues & NameIssues.ExtensionMismatch) != 0;
             bool riskyContext =
-                det.IsDangerous ||
-                DangerousExtensions.IsDangerous(detectedExt) ||
+                detectedDangerous ||
                 guessedSubtypeDangerous ||
                 hasDangerousAlternative ||
                 mismatch;
@@ -425,6 +427,11 @@ public static partial class FileInspector
             if (guessedSubtypeDangerous)
             {
                 Add("Type.GuessedSubtypeRisk", 8);
+            }
+
+            if (mismatch && detectedDangerous)
+            {
+                Add("Type.DangerousMismatch", 25);
             }
 
             if (!string.IsNullOrWhiteSpace(detValidation) &&

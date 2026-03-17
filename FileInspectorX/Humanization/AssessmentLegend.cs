@@ -104,6 +104,7 @@ public static class AssessmentLegend
         ["Type.LowConfidenceRisk"]    = new("Type.LowConfidenceRisk", "Low-confidence risky type", "Risky or mismatched content was identified with weak confidence and should be treated cautiously.", "Type", 40),
         ["Type.AmbiguousCandidates"]  = new("Type.AmbiguousCandidates", "Ambiguous file type", "Multiple plausible content types were detected for the same file.", "Type", 35),
         ["Type.DangerousAlternative"] = new("Type.DangerousAlternative", "Dangerous alternative type", "A dangerous alternative file type was detected alongside the primary classification.", "Type", 55),
+        ["Type.DangerousMismatch"]    = new("Type.DangerousMismatch", "Dangerous type mismatch", "Detected content resolves to a dangerous file type that does not match the filename extension.", "Type", 65),
         ["Type.GuessedSubtypeRisk"]   = new("Type.GuessedSubtypeRisk", "Risky guessed subtype", "The file depends on secondary subtype cues that point to a risky format.", "Type", 35),
         ["Type.ValidationUncertain"]  = new("Type.ValidationUncertain", "Type validation uncertain", "Validation for the detected type did not complete cleanly, reducing confidence in the result.", "Type", 30),
 
