@@ -304,7 +304,7 @@ public static partial class FileInspector {
                 {
                     res.InnerExecutableExtCounts = innerExecExtCounts;
                 }
-                if (archiveReferences != null && archiveReferences.Count > 0)
+                if ((options?.IncludeReferences != false) && archiveReferences != null && archiveReferences.Count > 0)
                 {
                     res.References = MergeReferences(res.References, archiveReferences);
                 }
@@ -711,7 +711,10 @@ public static partial class FileInspector {
                 detectedExt2 is "msi" or "msp" or "msix" or "appx" ||
                 declaredExt2 is "msi" or "msp" or "msix" or "appx";
 
-            if ((options?.IncludeAuthenticode != false) && RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && (peOrExecutableFamily || packageFamily))
+            if ((options?.IncludeAuthenticode != false) &&
+                Settings.VerifyAuthenticodeWithWinTrust &&
+                RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
+                (peOrExecutableFamily || packageFamily))
             {
                 if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
                 TryVerifyAuthenticodeWinTrust(path, res);

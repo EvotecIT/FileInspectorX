@@ -59,6 +59,37 @@ public class WinTrustHelperTests
         Assert.DoesNotContain("Sig.Absent", assessment.Codes);
     }
 
+    [Fact]
+    public void Inspect_SystemCatalogSigned_Binary_Respects_VerifyAuthenticodeWithWinTrust_Setting()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return;
+
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");
+        if (!File.Exists(path))
+            return;
+
+        if (!IsValidAuthenticodeSample(path))
+            return;
+
+        var oldSetting = Settings.VerifyAuthenticodeWithWinTrust;
+        try
+        {
+            Settings.VerifyAuthenticodeWithWinTrust = false;
+
+            var analysis = FileInspector.Inspect(path);
+
+            Assert.True(
+                analysis.Authenticode == null ||
+                (!analysis.Authenticode.IsTrustedWindowsPolicy.HasValue &&
+                 !((analysis.Authenticode.VerificationNote ?? string.Empty).Contains("WinTrust", StringComparison.OrdinalIgnoreCase))));
+        }
+        finally
+        {
+            Settings.VerifyAuthenticodeWithWinTrust = oldSetting;
+        }
+    }
+
     private static bool IsValidAuthenticodeSample(string path)
     {
         var script = "(Get-AuthenticodeSignature -LiteralPath '" + path.Replace("'", "''") + "').Status";
