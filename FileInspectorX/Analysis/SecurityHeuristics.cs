@@ -192,6 +192,7 @@ internal static partial class SecurityHeuristics
     {
         if (string.IsNullOrEmpty(text)) return (false, 0, 0, 0);
         int info=0, warn=0, error=0; int tsLines=0, total=0; bool eventViewer=false;
+        int pathErrorLines = 0;
         using (var sr = new System.IO.StringReader(text))
         {
             string? line; int lines = 0;
@@ -206,10 +207,11 @@ internal static partial class SecurityHeuristics
                 if (u.Contains("WARN") || u.Contains("WARNING")) warn++;
                 if (u.Contains("ERROR") || u.Contains("ERR ")) error++;
                 if (!eventViewer && (u.Contains("LOG NAME:") && (u.Contains("EVENT ID:") || u.Contains("TASK CATEGORY:") || u.Contains("LEVEL:")))) eventViewer = true;
+                if (LooksLikeWindowsPathErrorLine(l)) pathErrorLines++;
             }
         }
         // Basic log heuristic: at least a few timestamped lines or level tokens across multiple lines
-        bool isLog = eventViewer || (tsLines >= 3 && total >= 10) || (info+warn+error >= 5);
+        bool isLog = eventViewer || (tsLines >= 3 && total >= 10) || (info+warn+error >= 5) || pathErrorLines >= 3;
         return (isLog, info, warn, error);
     }
 
@@ -452,6 +454,26 @@ internal static partial class SecurityHeuristics
         if (!lower.Contains("#fields:")) return false;
         if (!lower.Contains("#software: microsoft internet information services")) return false;
         return lower.Contains("#version:") || lower.Contains("#date:");
+    }
+
+    private static bool LooksLikeWindowsPathErrorLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        bool pathPrefix =
+            (line.Length >= 3 && char.IsLetter(line[0]) && line[1] == ':' && (line[2] == '\\' || line[2] == '/')) ||
+            line.StartsWith("\\\\", StringComparison.Ordinal);
+        if (!pathPrefix) return false;
+
+        int cpos = line.IndexOf(':', pathPrefix && line.Length >= 3 && line[1] == ':' ? 2 : 0);
+        if (cpos < 0 || cpos >= line.Length - 1) return false;
+
+        var tail = line.Substring(cpos + 1).TrimStart();
+        if (tail.Length == 0) return false;
+
+        return tail.StartsWith("Access is denied", StringComparison.OrdinalIgnoreCase) ||
+               tail.StartsWith("Cannot find", StringComparison.OrdinalIgnoreCase) ||
+               tail.StartsWith("The system cannot", StringComparison.OrdinalIgnoreCase) ||
+               tail.StartsWith("Permission denied", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasLogCues(string text)
