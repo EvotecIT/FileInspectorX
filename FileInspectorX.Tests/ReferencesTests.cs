@@ -44,6 +44,67 @@ public class ReferencesTests
     }
 
     [Fact]
+    public void Extract_TaskScheduler_Quoted_Command_Path_Preserves_Existence_And_Issues()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "Task Ref Space " + Guid.NewGuid().ToString("N"));
+        var exePath = Path.Combine(dir, "tool.exe");
+        var xml = $"<Task><Actions><Exec><Command>\"{exePath}\"</Command></Exec></Actions></Task>";
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllBytes(exePath, Array.Empty<byte>());
+            File.WriteAllText(p, xml);
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+            var pathRef = Assert.Single(refs.Where(r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "task:exec", StringComparison.OrdinalIgnoreCase)));
+            Assert.Equal($"\"{exePath}\"", pathRef.Value);
+            Assert.Equal(exePath, pathRef.ExpandedValue);
+            Assert.True(pathRef.Exists);
+            Assert.True((pathRef.Issues & ReferenceIssue.UnquotedPathWithSpaces) == 0);
+            Assert.True((pathRef.Issues & ReferenceIssue.AbsolutePath) != 0);
+        }
+        finally
+        {
+            try { File.Delete(p); } catch { }
+            try { File.Delete(exePath); } catch { }
+            try { Directory.Delete(dir); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Extract_Gpo_ScriptsIni_Quoted_Command_Path_Preserves_Existence_And_Issues()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "Gpo Ref Space " + Guid.NewGuid().ToString("N"));
+        var exePath = Path.Combine(dir, "login.vbs");
+        var ini = $$"""
+        [Startup]
+        0Cmd="{{exePath}}"
+        """;
+        var p = Path.GetTempFileName() + ".ini";
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(exePath, "WScript.Echo \"hi\"");
+            File.WriteAllText(p, ini);
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+            var pathRef = Assert.Single(refs.Where(r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "gpo:scripts.ini", StringComparison.OrdinalIgnoreCase)));
+            Assert.Equal($"\"{exePath}\"", pathRef.Value);
+            Assert.Equal(exePath, pathRef.ExpandedValue);
+            Assert.True(pathRef.Exists);
+            Assert.True((pathRef.Issues & ReferenceIssue.UnquotedPathWithSpaces) == 0);
+            Assert.True((pathRef.Issues & ReferenceIssue.AbsolutePath) != 0);
+        }
+        finally
+        {
+            try { File.Delete(p); } catch { }
+            try { File.Delete(exePath); } catch { }
+            try { Directory.Delete(dir); } catch { }
+        }
+    }
+
+    [Fact]
     public void Extract_TaskScheduler_DoesNotFalsePositive_OnGenericXml()
     {
         string xml = "<Config><Command>cmd.exe</Command><Arguments>/c whoami</Arguments></Config>";
@@ -112,6 +173,42 @@ public class ReferencesTests
             Assert.Equal("html", a.DetectedExtension);
             Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://contoso.example/report", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(refs, r => string.Equals(r.SourceTag, "html:href", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
+    public void Extract_HtmlReferences_NonBase64_DataUri_Uses_MediaType_For_Summary()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".html");
+        try
+        {
+            File.WriteAllText(p, "<html><body><script src=\"data:application/javascript,window.alert%281%29\"></script></body></html>");
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Command && string.Equals(r.Value, "html:data-uri=1", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Command && string.Equals(r.Value, "html:data-exts=js:1", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(a.SecurityFindings ?? Array.Empty<string>(), f => string.Equals(f, "html:data-uri=1", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
+    public void Extract_ScriptReferences_NonBase64_DataUri_Uses_MediaType_For_Summary()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".js");
+        try
+        {
+            File.WriteAllText(p, "const payload = 'data:text/x-powershell,Start-Sleep%201';");
+
+            var a = FileInspector.Analyze(p);
+            var refs = a.References ?? Array.Empty<Reference>();
+
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Command && string.Equals(r.Value, "script:data-uri=1", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs, r => r.Kind == ReferenceKind.Command && string.Equals(r.Value, "script:data-exts=ps1:1", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(a.SecurityFindings ?? Array.Empty<string>(), f => string.Equals(f, "script:data-uri=1", StringComparison.OrdinalIgnoreCase));
         }
         finally { try { File.Delete(p); } catch { } }
     }
@@ -198,7 +295,38 @@ public class ReferencesTests
     }
 
     [Fact]
-    public void Extract_LowConfidenceDetectedScriptReferences_DoNot_Run_For_NonScript_File()
+    public void Extract_LowConfidenceDetectedScriptReferences_Run_For_TextLike_Files()
+    {
+        var p = Path.Combine(Path.GetTempPath(), "script-like-" + Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, """
+                maybe script, maybe not
+                fetch('https://example.invalid/payload')
+                \\fileserver\drop\payload.ps1
+                """);
+
+            var det = new ContentTypeDetectionResult
+            {
+                Extension = "js",
+                MimeType = "application/javascript",
+                Confidence = "Low",
+                Reason = "text:js-heur"
+            };
+
+            var buildReferences = typeof(FileInspector).GetMethod("BuildReferences", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(buildReferences);
+
+            var refs = buildReferences!.Invoke(null, new object?[] { p, det }) as IReadOnlyList<Reference>;
+            Assert.NotNull(refs);
+            Assert.Contains(refs!, r => r.Kind == ReferenceKind.Url && string.Equals(r.SourceTag, "script:js", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(refs!, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "script:js", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { try { File.Delete(p); } catch { } }
+    }
+
+    [Fact]
+    public void Extract_LowConfidenceDetectedScriptReferences_Do_Not_Run_For_BinaryLooking_Extension()
     {
         var p = Path.Combine(Path.GetTempPath(), "font-like-" + Guid.NewGuid().ToString("N") + ".ttf");
         try

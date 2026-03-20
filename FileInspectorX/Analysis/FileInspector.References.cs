@@ -13,10 +13,13 @@ public static partial class FileInspector
         try {
             var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
             var detectedExt = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+            var detectionReason = det?.Reason;
             bool detectionConfidenceLow = string.Equals(det?.Confidence, "Low", StringComparison.OrdinalIgnoreCase);
             bool detectedXmlLike = !detectionConfidenceLow && detectedExt == "xml";
             bool detectedHtmlLike = !detectionConfidenceLow && detectedExt is "html" or "htm";
-            bool detectedScriptLike = !detectionConfidenceLow &&
+            bool allowLowConfidenceDetectedScript = detectionConfidenceLow &&
+                                                    IsReferenceFriendlyTextExtension(ext);
+            bool detectedScriptLike = (!detectionConfidenceLow || allowLowConfidenceDetectedScript) &&
                                       detectedExt is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css";
             bool isXmlLike = ext == "xml" || string.IsNullOrEmpty(ext) || detectedXmlLike;
             bool isHtmlLike = ext is "html" or "htm" || detectedHtmlLike;
@@ -25,7 +28,6 @@ public static partial class FileInspector
             var scriptSourceTag = detectedScriptLike && !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
                 ? detectedExt
                 : ext;
-            var detectionReason = det?.Reason;
             bool detectionLooksTextLike = (detectionReason ?? string.Empty).StartsWith("text:", StringComparison.OrdinalIgnoreCase);
             bool detectionLooksReliablyTextLike = detectionLooksTextLike &&
                                                   !string.Equals(det?.Confidence, "Low", StringComparison.OrdinalIgnoreCase);
@@ -162,7 +164,9 @@ public static partial class FileInspector
         {
             string text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
-            int dataB64 = 0; var dataExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            int dataUriCount = 0;
+            int dataB64 = 0;
+            var dataExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             // URLs (absolute http/https)
             int i = 0; var s = text;
             while (i < s.Length)
@@ -200,32 +204,119 @@ public static partial class FileInspector
             while (di < text.Length)
             {
                 int at = text.IndexOf("data:", di, StringComparison.OrdinalIgnoreCase); if (at < 0) break;
-                // Find end token – stop at whitespace or quotes or ')'
-                int end = at + 5; while (end < text.Length && text[end] != '"' && text[end] != '\'' && !char.IsWhiteSpace(text[end]) && text[end] != ')' && text[end] != '<' && text[end] != '>') end++;
-                var cand = text.Substring(at, end - at);
-                if (TryParseDataUriBase64(cand, out var media, out var sample) && sample != null && sample.Length > 0)
+                if (!LooksLikeScriptDataUriStart(text, at))
                 {
-                    dataB64++;
-                    try {
-                        var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
-                        if (det != null && !string.IsNullOrEmpty(det.Extension))
-                        {
-                            var k = det.Extension.ToLowerInvariant();
-                            dataExtCounts[k] = dataExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
-                        }
-                    } catch { }
+                    di = at + 5;
+                    continue;
                 }
-                di = end + 1;
+
+                var cand = ReadScriptDataUriCandidate(text, at, out int consumedEnd);
+                if (TryClassifyDataUriPayload(cand, out var innerExt, out bool isBase64))
+                {
+                    dataUriCount++;
+                    if (isBase64) dataB64++;
+                    if (!string.IsNullOrWhiteSpace(innerExt))
+                    {
+                        var k = innerExt!.ToLowerInvariant();
+                        dataExtCounts[k] = dataExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
+                    }
+                }
+                di = Math.Max(consumedEnd + 1, at + 5);
             }
 
-            if (dataB64 > 0)
+            if (dataUriCount > 0)
             {
-                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"script:data-b64={dataB64}", SourceTag = "summary" });
+                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"script:data-uri={dataUriCount}", SourceTag = "summary" });
+                if (dataB64 > 0)
+                    refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"script:data-b64={dataB64}", SourceTag = "summary" });
                 if (dataExtCounts.Count > 0)
                 {
                     var headExts = string.Join(",", dataExtCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Select(kv => kv.Key + ":" + kv.Value));
                     refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"script:data-exts={headExts}", SourceTag = "summary" });
                 }
+            }
+
+            static bool LooksLikeScriptDataUriStart(string script, int index)
+            {
+                if (index < 0 || index >= script.Length) return false;
+                if (IsInsideScriptComment(script, index)) return false;
+                if (index == 0) return true;
+
+                char prev = script[index - 1];
+                return prev == '"' || prev == '\'' || prev == '`';
+            }
+
+            static bool IsInsideScriptComment(string script, int index)
+            {
+                bool inLineComment = false;
+                bool inBlockComment = false;
+                bool inSingle = false;
+                bool inDouble = false;
+                bool inTemplate = false;
+
+                for (int i = 0; i < index && i < script.Length; i++)
+                {
+                    char c = script[i];
+                    char next = i + 1 < script.Length ? script[i + 1] : '\0';
+
+                    if (inLineComment)
+                    {
+                        if (c == '\r' || c == '\n')
+                            inLineComment = false;
+                        continue;
+                    }
+
+                    if (inBlockComment)
+                    {
+                        if (c == '*' && next == '/')
+                        {
+                            inBlockComment = false;
+                            i++;
+                        }
+                        continue;
+                    }
+
+                    if (inSingle)
+                    {
+                        if (c == '\\' && i + 1 < script.Length) { i++; continue; }
+                        if (c == '\'') inSingle = false;
+                        continue;
+                    }
+
+                    if (inDouble)
+                    {
+                        if (c == '\\' && i + 1 < script.Length) { i++; continue; }
+                        if (c == '"') inDouble = false;
+                        continue;
+                    }
+
+                    if (inTemplate)
+                    {
+                        if (c == '\\' && i + 1 < script.Length) { i++; continue; }
+                        if (c == '`') inTemplate = false;
+                        continue;
+                    }
+
+                    if (c == '/' && next == '/')
+                    {
+                        inLineComment = true;
+                        i++;
+                        continue;
+                    }
+
+                    if (c == '/' && next == '*')
+                    {
+                        inBlockComment = true;
+                        i++;
+                        continue;
+                    }
+
+                    if (c == '\'') { inSingle = true; continue; }
+                    if (c == '"') { inDouble = true; continue; }
+                    if (c == '`') { inTemplate = true; continue; }
+                }
+
+                return inLineComment || inBlockComment;
             }
         }
         catch { }
@@ -241,6 +332,7 @@ public static partial class FileInspector
 
             int cdnCount = 0;
             var hostCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            int dataUriCount = 0;
             int dataB64Count = 0;
             var dataInnerExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             foreach (var attr in new [] { "href", "src", "data", "action" })
@@ -265,20 +357,14 @@ public static partial class FileInspector
                     }
                     else if (v.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                     {
-                        // data: URI – detect base64 payload and sample inner type (bounded)
-                        if (TryParseDataUriBase64(v, out var media, out var sample))
+                        if (TryClassifyDataUriPayload(v, out var innerExt, out bool isBase64))
                         {
-                            dataB64Count++;
-                            if (sample != null && sample.Length > 0)
+                            dataUriCount++;
+                            if (isBase64) dataB64Count++;
+                            if (!string.IsNullOrWhiteSpace(innerExt))
                             {
-                                try {
-                                    var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
-                                    if (det != null && !string.IsNullOrEmpty(det.Extension))
-                                    {
-                                        var k = det.Extension.ToLowerInvariant();
-                                        dataInnerExtCounts[k] = dataInnerExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
-                                    }
-                                } catch { }
+                                var k = innerExt!.ToLowerInvariant();
+                                dataInnerExtCounts[k] = dataInnerExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
                             }
                         }
                     }
@@ -300,7 +386,7 @@ public static partial class FileInspector
             int pos = 0;
             while (pos < head.Length)
             {
-                int up = IndexOfTokenCI(head, "url(", pos); if (up < 0) break; int start = up + 4; int end = head.Slice(start).IndexOf(')'); if (end < 0) break; end += start; var raw = head.Slice(start, Math.Max(0, end - start)).ToString().Trim('"', '\'', ' ', '\t'); pos = end + 1;
+                int up = IndexOfCssUrlToken(head, pos); if (up < 0) break; int start = up + 4; int end = head.Slice(start).IndexOf(')'); if (end < 0) break; end += start; var raw = head.Slice(start, Math.Max(0, end - start)).ToString().Trim('"', '\'', ' ', '\t', '\r', '\n'); pos = end + 1;
                 if (string.IsNullOrWhiteSpace(raw)) continue;
                 if (IsAbsoluteHttpUrl(raw) || IsProtocolRelative(raw))
                 {
@@ -315,19 +401,14 @@ public static partial class FileInspector
                 }
                 else if (raw.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (TryParseDataUriBase64(raw, out var media, out var sample))
+                    if (TryClassifyDataUriPayload(raw, out var innerExt, out bool isBase64))
                     {
-                        dataB64Count++;
-                        if (sample != null && sample.Length > 0)
+                        dataUriCount++;
+                        if (isBase64) dataB64Count++;
+                        if (!string.IsNullOrWhiteSpace(innerExt))
                         {
-                            try {
-                                var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
-                                if (det != null && !string.IsNullOrEmpty(det.Extension))
-                                {
-                                    var k = det.Extension.ToLowerInvariant();
-                                    dataInnerExtCounts[k] = dataInnerExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
-                                }
-                            } catch { }
+                            var k = innerExt!.ToLowerInvariant();
+                            dataInnerExtCounts[k] = dataInnerExtCounts.TryGetValue(k, out var c) ? c + 1 : 1;
                         }
                     }
                 }
@@ -351,9 +432,11 @@ public static partial class FileInspector
                 refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:hosts={joined}", SourceTag = "summary" });
             }
             // Data URI summary
-            if (dataB64Count > 0)
+            if (dataUriCount > 0)
             {
-                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:data-b64={dataB64Count}", SourceTag = "summary" });
+                refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:data-uri={dataUriCount}", SourceTag = "summary" });
+                if (dataB64Count > 0)
+                    refs.Add(new Reference { Kind = ReferenceKind.Command, Value = $"html:data-b64={dataB64Count}", SourceTag = "summary" });
                 if (dataInnerExtCounts.Count > 0)
                 {
                     var headExts = string.Join(",", dataInnerExtCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Select(kv => kv.Key + ":" + kv.Value));
@@ -379,6 +462,58 @@ public static partial class FileInspector
         static int IndexOfTokenCI(ReadOnlySpan<char> hay, string token, int from)
         {
             var t = token.AsSpan(); int n = hay.Length - t.Length; for (int i = Math.Max(0, from); i <= n; i++) { bool ok = true; for (int j = 0; j < t.Length; j++) { char a = char.ToLowerInvariant(hay[i + j]); char b = char.ToLowerInvariant(t[j]); if (a != b) { ok = false; break; } } if (ok) return i; } return -1;
+        }
+        static int IndexOfCssUrlToken(ReadOnlySpan<char> hay, int from)
+        {
+            bool inSingle = false, inDouble = false, inComment = false;
+            for (int i = Math.Max(0, from); i <= hay.Length - 4; i++)
+            {
+                char c = hay[i];
+                char next = i + 1 < hay.Length ? hay[i + 1] : '\0';
+
+                if (inComment)
+                {
+                    if (c == '*' && next == '/')
+                    {
+                        inComment = false;
+                        i++;
+                    }
+                    continue;
+                }
+
+                if (inSingle)
+                {
+                    if (c == '\\' && i + 1 < hay.Length) { i++; continue; }
+                    if (c == '\'') inSingle = false;
+                    continue;
+                }
+
+                if (inDouble)
+                {
+                    if (c == '\\' && i + 1 < hay.Length) { i++; continue; }
+                    if (c == '"') inDouble = false;
+                    continue;
+                }
+
+                if (c == '/' && next == '*')
+                {
+                    inComment = true;
+                    i++;
+                    continue;
+                }
+
+                if (c == '\'') { inSingle = true; continue; }
+                if (c == '"') { inDouble = true; continue; }
+
+                if ((c == 'u' || c == 'U') &&
+                    i + 3 < hay.Length &&
+                    char.ToLowerInvariant(hay[i + 1]) == 'r' &&
+                    char.ToLowerInvariant(hay[i + 2]) == 'l' &&
+                    hay[i + 3] == '(')
+                    return i;
+            }
+
+            return -1;
         }
         static bool IsAbsoluteHttpUrl(string s) => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
         static bool IsProtocolRelative(string s) => s.StartsWith("//");
@@ -421,37 +556,509 @@ public static partial class FileInspector
         }
     }
 
-    private static bool TryParseDataUriBase64(string uri, out string? mediaType, out byte[]? sample)
+    private static bool TryClassifyDataUriPayload(string uri, out string? innerExt, out bool isBase64)
     {
-        mediaType = null; sample = null;
+        innerExt = null;
+        isBase64 = false;
+        try
+        {
+            if (!TryParseDataUriPayload(uri, out var mediaType, out var sample, out isBase64))
+                return false;
+
+            if (sample != null && sample.Length > 0)
+            {
+                try
+                {
+                    var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
+                    var ext = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+                    if (!string.IsNullOrWhiteSpace(ext) && ext is not "txt" and not "log")
+                        innerExt = ext;
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrWhiteSpace(innerExt))
+                innerExt = InferDataUriExtensionFromMediaType(mediaType);
+
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static string ReadScriptDataUriCandidate(string text, int startAt, out int consumedEnd)
+    {
+        consumedEnd = startAt;
+        if (string.IsNullOrEmpty(text) || startAt < 0 || startAt >= text.Length)
+            return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        int cursor = startAt;
+        int segments = 0;
+        while (cursor < text.Length && segments < 8)
+        {
+            int end = ReadDataUriSegment(text, cursor, sb, ref consumedEnd);
+            if (end <= cursor)
+                break;
+            segments++;
+
+            if (end >= text.Length || !IsStringDelimiter(text[end]))
+                break;
+
+            int p = end + 1;
+            bool continued = false;
+            while (true)
+            {
+                p = SkipWhitespaceAndClosers(text, p);
+                if (TryConsumeConcatCall(text, p, sb, ref consumedEnd, out int concatEnd))
+                {
+                    p = concatEnd;
+                    continued = true;
+                    continue;
+                }
+
+                if (p >= text.Length || text[p] != '+')
+                    break;
+
+                p++;
+                if (!TryConsumeStringExpressionPiece(text, p, sb, ref consumedEnd, out int pieceEnd))
+                    break;
+
+                p = pieceEnd;
+                continued = true;
+                continue;
+            }
+
+            if (!continued)
+                break;
+
+            cursor = p;
+        }
+
+        return sb.ToString();
+
+        static int ReadDataUriSegment(string value, int start, System.Text.StringBuilder buffer, ref int consumed)
+        {
+            int cursor = start;
+            int end = start;
+            while (end < value.Length)
+            {
+                if (value[end] == '$' && end + 1 < value.Length && value[end + 1] == '{')
+                {
+                    if (end > cursor)
+                        buffer.Append(value, cursor, end - cursor);
+
+                    consumed = Math.Max(consumed, end + 1);
+                    if (!TryReadSimpleStringExpression(value, end + 2, "}", out var interpolationValue, out int interpolationEnd))
+                        return end;
+
+                    buffer.Append(interpolationValue);
+                    consumed = Math.Max(consumed, interpolationEnd);
+                    end = interpolationEnd + 1;
+                    cursor = end;
+                    continue;
+                }
+
+                if (IsTerminal(value[end]))
+                    break;
+
+                end++;
+            }
+
+            if (end > cursor)
+                buffer.Append(value, cursor, end - cursor);
+
+            consumed = Math.Max(consumed, end);
+            return end;
+        }
+
+        static bool TryConsumeConcatCall(string value, int start, System.Text.StringBuilder buffer, ref int consumed, out int nextIndex)
+        {
+            nextIndex = start;
+            const string concatToken = ".concat";
+            if (start < 0 || start >= value.Length) return false;
+            if (!value.AsSpan(start).StartsWith(concatToken.AsSpan(), StringComparison.Ordinal))
+                return false;
+
+            int p = start + concatToken.Length;
+            while (p < value.Length && char.IsWhiteSpace(value[p])) p++;
+            if (p >= value.Length || value[p] != '(')
+                return false;
+            p++;
+
+            bool appended = false;
+            while (p < value.Length)
+            {
+                p = SkipWhitespaceAndOpeners(value, p);
+                if (p >= value.Length) return false;
+                if (value[p] == ')')
+                {
+                    nextIndex = p + 1;
+                    consumed = Math.Max(consumed, p);
+                    return appended;
+                }
+
+                if (!TryReadSimpleStringExpression(value, p, ",)", out var segment, out int segmentEnd))
+                    return false;
+
+                buffer.Append(segment);
+                appended = true;
+                p = segmentEnd;
+                consumed = Math.Max(consumed, segmentEnd);
+                if (p >= value.Length) return false;
+                if (value[p] == ',')
+                {
+                    p++;
+                    continue;
+                }
+
+                if (value[p] == ')')
+                {
+                    nextIndex = p + 1;
+                    consumed = Math.Max(consumed, p);
+                    return true;
+                }
+
+                return false;
+            }
+
+            return false;
+        }
+
+        static bool TryConsumeStringExpressionPiece(string value, int start, System.Text.StringBuilder buffer, ref int consumed, out int nextIndex)
+        {
+            nextIndex = start;
+            int p = SkipWhitespaceAndOpeners(value, start);
+            if (p >= value.Length)
+                return false;
+
+            if (IsStringDelimiter(value[p]))
+            {
+                if (!TryReadQuotedStringLiteral(value, p, out var literal, out int literalEnd))
+                    return false;
+
+                buffer.Append(literal);
+                consumed = Math.Max(consumed, literalEnd);
+                nextIndex = literalEnd + 1;
+                return true;
+            }
+
+            if (!TryReadSimpleArrayJoinExpression(value, p, out var joined, out int joinEnd))
+                return false;
+
+            buffer.Append(joined);
+            consumed = Math.Max(consumed, joinEnd - 1);
+            nextIndex = joinEnd;
+            return true;
+        }
+
+        static bool TryReadSimpleStringExpression(string value, int start, string terminators, out string result, out int endIndex)
+        {
+            result = string.Empty;
+            endIndex = start;
+            var local = new System.Text.StringBuilder();
+            int p = start;
+            int parenDepth = 0;
+
+            while (p < value.Length)
+            {
+                p = SkipWhitespace(value, p);
+                while (p < value.Length && value[p] == '(')
+                {
+                    parenDepth++;
+                    p++;
+                    p = SkipWhitespace(value, p);
+                }
+
+                if (!TryConsumeStringExpressionPiece(value, p, local, ref endIndex, out int pieceEnd))
+                    return false;
+
+                p = pieceEnd;
+                p = SkipWhitespace(value, p);
+                while (true)
+                {
+                    while (parenDepth > 0 && p < value.Length && value[p] == ')')
+                    {
+                        parenDepth--;
+                        p++;
+                        p = SkipWhitespace(value, p);
+                    }
+
+                    int concatConsumed = p;
+                    if (!TryConsumeConcatCall(value, p, local, ref concatConsumed, out int concatEnd))
+                        break;
+
+                    p = SkipWhitespace(value, concatEnd);
+                }
+
+                if (p >= value.Length)
+                    return false;
+
+                if (value[p] == '+')
+                {
+                    p++;
+                    continue;
+                }
+
+                if (terminators.IndexOf(value[p]) >= 0)
+                {
+                    result = local.ToString();
+                    endIndex = p;
+                    return result.Length > 0;
+                }
+
+                return false;
+            }
+
+            return false;
+        }
+
+        static bool TryReadSimpleArrayJoinExpression(string value, int start, out string result, out int nextIndex)
+        {
+            result = string.Empty;
+            nextIndex = start;
+            if (start < 0 || start >= value.Length || value[start] != '[')
+                return false;
+
+            var local = new System.Text.StringBuilder();
+            bool hasItems = false;
+            int p = start + 1;
+            while (p < value.Length)
+            {
+                p = SkipWhitespace(value, p);
+                if (p >= value.Length)
+                    return false;
+
+                if (value[p] == ']')
+                {
+                    p++;
+                    break;
+                }
+
+                if (!TryReadQuotedStringLiteral(value, p, out var item, out int itemEnd))
+                    return false;
+
+                local.Append(item);
+                hasItems = true;
+                p = itemEnd + 1;
+                p = SkipWhitespace(value, p);
+                if (p >= value.Length)
+                    return false;
+
+                if (value[p] == ',')
+                {
+                    p++;
+                    continue;
+                }
+
+                if (value[p] == ']')
+                {
+                    p++;
+                    break;
+                }
+
+                return false;
+            }
+
+            if (!hasItems)
+                return false;
+
+            p = SkipWhitespace(value, p);
+            const string joinToken = ".join";
+            if (p >= value.Length || !value.AsSpan(p).StartsWith(joinToken.AsSpan(), StringComparison.Ordinal))
+                return false;
+
+            p += joinToken.Length;
+            p = SkipWhitespace(value, p);
+            if (p >= value.Length || value[p] != '(')
+                return false;
+
+            p++;
+            p = SkipWhitespace(value, p);
+            if (!TryReadQuotedStringLiteral(value, p, out var separator, out int separatorEnd))
+                return false;
+
+            if (separator.Length != 0)
+                return false;
+
+            p = separatorEnd + 1;
+            p = SkipWhitespace(value, p);
+            if (p >= value.Length || value[p] != ')')
+                return false;
+
+            nextIndex = p + 1;
+            result = local.ToString();
+            return true;
+        }
+
+        static bool TryReadQuotedStringLiteral(string value, int start, out string result, out int endIndex)
+        {
+            result = string.Empty;
+            endIndex = start;
+            if (start >= value.Length || !IsStringDelimiter(value[start]))
+                return false;
+
+            char delimiter = value[start];
+            var local = new System.Text.StringBuilder();
+            for (int i = start + 1; i < value.Length; i++)
+            {
+                char ch = value[i];
+                if (ch == '\\')
+                {
+                    if (i + 1 >= value.Length)
+                        return false;
+
+                    local.Append(value[i + 1]);
+                    i++;
+                    continue;
+                }
+
+                if (delimiter == '`' && ch == '$' && i + 1 < value.Length && value[i + 1] == '{')
+                    return false;
+
+                if (ch == delimiter)
+                {
+                    result = local.ToString();
+                    endIndex = i;
+                    return true;
+                }
+
+                local.Append(ch);
+            }
+
+            return false;
+        }
+
+        static bool IsTerminal(char c)
+            => c == '"' || c == '\'' || c == '`' || char.IsWhiteSpace(c) || c == ')' || c == '<' || c == '>';
+
+        static bool IsStringDelimiter(char c) => c == '"' || c == '\'' || c == '`';
+        static int SkipWhitespaceAndClosers(string value, int index)
+        {
+            int p = index;
+            while (p < value.Length)
+            {
+                if (char.IsWhiteSpace(value[p]) || value[p] == ')')
+                {
+                    p++;
+                    continue;
+                }
+
+                break;
+            }
+
+            return p;
+        }
+
+        static int SkipWhitespace(string value, int index)
+        {
+            int p = index;
+            while (p < value.Length && char.IsWhiteSpace(value[p]))
+                p++;
+            return p;
+        }
+
+        static int SkipWhitespaceAndOpeners(string value, int index)
+        {
+            int p = index;
+            while (p < value.Length)
+            {
+                if (char.IsWhiteSpace(value[p]) || value[p] == '(')
+                {
+                    p++;
+                    continue;
+                }
+
+                break;
+            }
+
+            return p;
+        }
+    }
+
+    private static bool TryParseDataUriPayload(string uri, out string? mediaType, out byte[]? sample, out bool isBase64)
+    {
+        mediaType = null;
+        sample = null;
+        isBase64 = false;
         try
         {
             if (!uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return false;
             int comma = uri.IndexOf(','); if (comma < 0) return false;
             var header = uri.Substring(5, comma - 5); // between data: and comma
             var lower = header.ToLowerInvariant();
-            if (!lower.Contains(";base64")) return false; // we only handle base64
             // Extract media type before first ';'
             int sc = header.IndexOf(';');
-            if (sc > 0) mediaType = header.Substring(0, sc);
+            if (sc > 0) mediaType = header.Substring(0, sc).Trim();
+            else if (!string.IsNullOrWhiteSpace(header)) mediaType = header.Trim();
             string payload = uri.Substring(comma + 1);
-            // Normalize and bound decode to avoid large allocations from untrusted payload size.
             int maxDecodedBytes = Math.Max(1, Settings.EncodedDecodeMaxBytes);
-            int maxBase64Chars = ((maxDecodedBytes + 2) / 3) * 4 + 8;
-            var sb = new System.Text.StringBuilder(Math.Min(payload.Length, maxBase64Chars));
-            foreach (var ch in payload)
+            isBase64 = lower.Contains(";base64");
+            if (isBase64)
             {
-                if (sb.Length >= maxBase64Chars) break;
-                if (ch == '-') sb.Append('+');
-                else if (ch == '_') sb.Append('/');
-                else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '+' || ch == '/' || ch == '=') sb.Append(ch);
+                int maxBase64Chars = ((maxDecodedBytes + 2) / 3) * 4 + 8;
+                var sb = new System.Text.StringBuilder(Math.Min(payload.Length, maxBase64Chars));
+                foreach (var ch in payload)
+                {
+                    if (sb.Length >= maxBase64Chars) break;
+                    if (ch == '-') sb.Append('+');
+                    else if (ch == '_') sb.Append('/');
+                    else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '+' || ch == '/' || ch == '=') sb.Append(ch);
+                }
+                var s = sb.ToString(); int mod = s.Length % 4; if (mod != 0) s = s.PadRight(s.Length + (4 - mod), '=');
+                var raw = Convert.FromBase64String(s);
+                int max = Math.Min(raw.Length, maxDecodedBytes);
+                sample = raw.Take(max).ToArray();
+                return sample.Length > 0;
             }
-            var s = sb.ToString(); int mod = s.Length % 4; if (mod != 0) s = s.PadRight(s.Length + (4 - mod), '=');
-            var raw = Convert.FromBase64String(s);
-            int max = Math.Min(raw.Length, maxDecodedBytes);
-            sample = raw.Take(max).ToArray();
-            return true;
+
+            var bytes = new List<byte>(Math.Min(maxDecodedBytes, Math.Max(16, payload.Length)));
+            for (int i = 0; i < payload.Length && bytes.Count < maxDecodedBytes; i++)
+            {
+                char ch = payload[i];
+                if (ch == '%' && i + 2 < payload.Length && Uri.IsHexDigit(payload[i + 1]) && Uri.IsHexDigit(payload[i + 2]))
+                {
+                    bytes.Add(Convert.ToByte(payload.Substring(i + 1, 2), 16));
+                    i += 2;
+                    continue;
+                }
+
+                if (ch <= 0x7F)
+                {
+                    bytes.Add((byte)ch);
+                    continue;
+                }
+
+                var utf8 = System.Text.Encoding.UTF8.GetBytes(ch.ToString());
+                foreach (var b in utf8)
+                {
+                    if (bytes.Count >= maxDecodedBytes) break;
+                    bytes.Add(b);
+                }
+            }
+
+            sample = bytes.Count > 0 ? bytes.ToArray() : Array.Empty<byte>();
+            return sample.Length > 0;
         } catch { return false; }
+    }
+
+    private static string? InferDataUriExtensionFromMediaType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType)) return null;
+        var normalized = mediaType!.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "application/javascript" or "text/javascript" or "application/x-javascript" => "js",
+            "text/html" => "html",
+            "application/json" or "text/json" => "json",
+            "application/xml" or "text/xml" => "xml",
+            "image/svg+xml" => "svg",
+            "text/css" => "css",
+            "text/plain" => "txt",
+            "text/x-powershell" or "application/x-powershell" => "ps1",
+            "text/vbscript" => "vbs",
+            "text/x-shellscript" or "application/x-sh" => "sh",
+            _ => null
+        };
     }
 
     private static void TryExtractInternetShortcut(string path, List<Reference> refs)
@@ -731,7 +1338,8 @@ public static partial class FileInspector
 
     private static string ExpandEnv(string value)
     {
-        try { return Environment.ExpandEnvironmentVariables(value); } catch { return value; }
+        var normalized = NormalizePathToken(value);
+        try { return Environment.ExpandEnvironmentVariables(normalized); } catch { return normalized; }
     }
 
     private static string ReadTextForReferences(string path, int maxBytes)
@@ -743,7 +1351,7 @@ public static partial class FileInspector
     private static bool LooksLikePath(string token)
     {
         if (string.IsNullOrWhiteSpace(token)) return false;
-        var t = token.Trim();
+        var t = NormalizePathToken(token);
         if (t.StartsWith("\\\\")) return true; // UNC
         if (t.Length >= 2 && char.IsLetter(t[0]) && t[1] == ':') return true; // drive
         if (t.StartsWith("/") || t.StartsWith(".\\") || t.StartsWith("..\\") || t.StartsWith("./") || t.StartsWith("../")) return true;
@@ -763,17 +1371,18 @@ public static partial class FileInspector
     private static ReferenceIssue ComputePathIssues(string raw, string expanded, bool treatAsCommandHead)
     {
         var issues = ReferenceIssue.None;
-        var t = raw.Trim();
+        var t = NormalizePathToken(raw);
+        var expandedNormalized = NormalizePathToken(expanded);
         bool hasSpaces = t.Contains(' ');
-        bool isQuoted = t.Length >= 2 && ((t[0] == '"' && t[t.Length - 1] == '"') || (t[0] == '\'' && t[t.Length - 1] == '\''));
-        if (treatAsCommandHead && hasSpaces && !isQuoted) issues |= ReferenceIssue.UnquotedPathWithSpaces;
+        bool wasQuoted = IsQuotedToken(raw);
+        if (treatAsCommandHead && hasSpaces && !wasQuoted) issues |= ReferenceIssue.UnquotedPathWithSpaces;
         if (t.StartsWith("\\\\")) issues |= ReferenceIssue.UncPath;
         if (t.Length >= 2 && char.IsLetter(t[0]) && t[1] == ':') issues |= ReferenceIssue.AbsolutePath;
         if (t.StartsWith(".\\") || t.StartsWith("..\\") || t.StartsWith("./") || t.StartsWith("../")) issues |= ReferenceIssue.RelativePath;
-        if (t.IndexOf('%') >= 0 && string.Equals(expanded, raw, StringComparison.Ordinal)) issues |= ReferenceIssue.ContainsEnvVars;
+        if (t.IndexOf('%') >= 0 && string.Equals(expandedNormalized, t, StringComparison.Ordinal)) issues |= ReferenceIssue.ContainsEnvVars;
 
         try {
-            var dir = System.IO.Path.GetDirectoryName(expanded) ?? string.Empty;
+            var dir = System.IO.Path.GetDirectoryName(expandedNormalized) ?? string.Empty;
             if (dir.Length > 0) {
                 var dl = dir.ToLowerInvariant();
                 if (dl.Contains("\\temp") || dl.Contains("/tmp") || dl.Contains("/var/tmp") || dl.Contains("/private/tmp")) issues |= ReferenceIssue.InsecureDirectory;
@@ -784,7 +1393,42 @@ public static partial class FileInspector
 
     private static bool FileExistsSafe(string? p)
     {
-        try { return !string.IsNullOrWhiteSpace(p) && File.Exists(p); } catch { return false; }
+        try
+        {
+            var normalized = NormalizePathToken(p);
+            return !string.IsNullOrWhiteSpace(normalized) && File.Exists(normalized);
+        }
+        catch { return false; }
+    }
+
+    private static bool IsReferenceFriendlyTextExtension(string? extension)
+    {
+        var ext = (extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        return string.IsNullOrEmpty(ext) ||
+               ext is "txt" or "text" or "log" or "cfg" or "conf" or "ini" or "inf" or
+                   "md" or "markdown" or "csv" or "tsv" or "json" or "xml" or
+                   "yml" or "yaml" or "toml";
+    }
+
+    private static string NormalizePathToken(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        if (trimmed.Length >= 2 &&
+            ((trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"') ||
+             (trimmed[0] == '\'' && trimmed[trimmed.Length - 1] == '\'')))
+        {
+            trimmed = trimmed.Substring(1, trimmed.Length - 2).Trim();
+        }
+
+        return trimmed;
+    }
+
+    private static bool IsQuotedToken(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return trimmed.Length >= 2 &&
+               ((trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"') ||
+                (trimmed[0] == '\'' && trimmed[trimmed.Length - 1] == '\''));
     }
 
     private static IEnumerable<string> TokenizeArgs(string args)

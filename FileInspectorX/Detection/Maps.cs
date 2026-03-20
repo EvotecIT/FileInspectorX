@@ -85,6 +85,7 @@ public static class MimeMaps {
         ["tsv"] = "text/tab-separated-values",
         ["txt"] = "text/plain",
         ["log"] = "text/plain",
+        ["qp"] = "message/quoted-printable",
         ["ini"] = "text/plain",
         ["inf"] = "text/plain",
         ["admx"] = "application/xml",

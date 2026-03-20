@@ -644,6 +644,23 @@ public class TextDetectionsTests {
     }
 
     [Fact]
+    public void Markdown_Heading_With_Blank_Line_And_Javascript_Snippet_Stays_Markdown()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "# Notes\n\nconst fs = require('fs')\nmodule.exports = fs\n");
+            var r = FileInspector.Detect(p);
+            Assert.NotNull(r);
+            Assert.Equal("md", r!.Extension);
+            Assert.Equal("text/markdown", r.MimeType);
+            Assert.NotNull(r.Alternatives);
+            Assert.Contains(r.Alternatives!, a => string.Equals(a.Extension, "js", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Semicolon_Path_List_Not_Classified_As_Csv()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");

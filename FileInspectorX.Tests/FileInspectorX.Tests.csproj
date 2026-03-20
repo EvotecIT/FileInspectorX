@@ -20,6 +20,12 @@
     <ProjectReference Include="..\FileInspectorX\FileInspectorX.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- net472 compatibility shims -->
   <PropertyGroup Condition=" '$(TargetFramework)' == 'net472' ">
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
