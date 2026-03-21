@@ -21,8 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Fixtures\**\*">
+    <None Update="Fixtures\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>%(Identity)</TargetPath>
     </None>
   </ItemGroup>
 
