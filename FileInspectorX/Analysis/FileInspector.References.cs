@@ -1377,7 +1377,8 @@ public static partial class FileInspector
         bool wasQuoted = IsQuotedToken(raw);
         if (treatAsCommandHead && hasSpaces && !wasQuoted) issues |= ReferenceIssue.UnquotedPathWithSpaces;
         if (t.StartsWith("\\\\")) issues |= ReferenceIssue.UncPath;
-        if (t.Length >= 2 && char.IsLetter(t[0]) && t[1] == ':') issues |= ReferenceIssue.AbsolutePath;
+        if (System.IO.Path.IsPathRooted(t) && !t.StartsWith(".\\") && !t.StartsWith("..\\") && !t.StartsWith("./") && !t.StartsWith("../"))
+            issues |= ReferenceIssue.AbsolutePath;
         if (t.StartsWith(".\\") || t.StartsWith("..\\") || t.StartsWith("./") || t.StartsWith("../")) issues |= ReferenceIssue.RelativePath;
         if (t.IndexOf('%') >= 0 && string.Equals(expandedNormalized, t, StringComparison.Ordinal)) issues |= ReferenceIssue.ContainsEnvVars;
 
