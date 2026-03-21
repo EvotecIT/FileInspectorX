@@ -93,6 +93,7 @@ StyleCopReport.xml
 *.tmp_proj
 *_wpftmp.csproj
 *.log
+!FileInspectorX.Tests/Fixtures/**/*.log
 *.vspscc
 *.vssscc
 .builds

@@ -1,0 +1,4 @@
+2026-03-17T18:00:00 INFO Startup complete for worker C:\TierBridge\agent\worker.exe
+2026-03-17T18:00:01 WARN Fetching https://contoso.example/bootstrap.json
+2026-03-17T18:00:02 WARN Fetching https://cdn.contoso.example/app.js for worker update
+2026-03-17T18:00:03 ERROR Retry scheduled for \\fileserver\drop\package.zip
