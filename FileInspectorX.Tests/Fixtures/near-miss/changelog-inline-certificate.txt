@@ -1,0 +1,3 @@
+2026-03-20
+- Added support for -----BEGIN CERTIFICATE----- and -----END CERTIFICATE----- marker parsing in docs.
+- No actual certificate data is included in this changelog entry.

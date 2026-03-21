@@ -200,8 +200,12 @@ public static partial class FileInspector
                 }
             }
         }
-        // Embedded base64 data URIs in HTML/scripts
-        if (securityFindings.Any(s => s.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) || s.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase)))
+        // Embedded data URIs in HTML/scripts
+        if (securityFindings.Any(s =>
+                s.StartsWith("html:data-uri=", StringComparison.OrdinalIgnoreCase) ||
+                s.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) ||
+                s.StartsWith("script:data-uri=", StringComparison.OrdinalIgnoreCase) ||
+                s.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase)))
         {
             Add("Encoded.Embedded", 10);
         }

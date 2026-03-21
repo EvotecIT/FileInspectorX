@@ -119,6 +119,16 @@ internal static partial class Signatures
         if (headLower.StartsWith("# ") || headLower.Contains("\n# ")) mdCuesLocal++;
         if (headLower.Contains("](")) mdCuesLocal++;
         if (headLower.Contains("\n- ") || headLower.Contains("\n* ") || headLower.Contains("\n1. ")) mdCuesLocal++;
+        if (mdCuesLocal == 1)
+        {
+            var lines = headStr.Split('\n');
+            for (int lineIndex = 1; lineIndex < lines.Length; lineIndex++)
+            {
+                if (lines[lineIndex].Trim().Length == 0) continue;
+                mdCuesLocal++;
+                break;
+            }
+        }
         bool mdLikely = mdStructuralLocal || mdCuesLocal >= 2 || (declaredMd && mdCuesLocal >= 1);
         int scriptPenaltyFromMarkdown = 0;
         if (mdLikely)
@@ -331,7 +341,12 @@ internal static partial class Signatures
             if (mdCues == 1)
             {
                 var lines = headStr.Split('\n');
-                if (lines.Length >= 2 && lines[1].Trim().Length > 0) mdCues++;
+                for (int lineIndex = 1; lineIndex < lines.Length; lineIndex++)
+                {
+                    if (lines[lineIndex].Trim().Length == 0) continue;
+                    mdCues++;
+                    break;
+                }
             }
             if (looksMd)
             {

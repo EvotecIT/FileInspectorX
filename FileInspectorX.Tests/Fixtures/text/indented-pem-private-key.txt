@@ -1,0 +1,5 @@
+    -----BEGIN PRIVATE KEY-----
+    Proc-Type: 4,ENCRYPTED
+    DEK-Info: AES-256-CBC,0123456789ABCDEF
+    ABCDEF==
+    -----END PRIVATE KEY-----

@@ -673,6 +673,26 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_NonBase64_Embedded_Data_Uri_Script_Payloads_Get_Script_Penalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "script:data-uri=1",
+                "script:data-exts=js:1"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(25, assessed.Score);
+        Assert.Contains("Encoded.Embedded", assessed.Codes);
+        Assert.Contains("Encoded.EmbeddedScript", assessed.Codes);
+        Assert.Equal(15, assessed.Factors["Encoded.EmbeddedScript"]);
+    }
+
+    [Fact]
     public void Assess_New_Sensitive_Signature_Codes_Are_Scored_And_Deduplicated()
     {
         var analysis = new FileAnalysis

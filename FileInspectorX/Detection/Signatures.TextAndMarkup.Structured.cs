@@ -8,6 +8,7 @@ internal static partial class Signatures
         var head = ctx.Head;
         var headStr = ctx.HeadStr;
         var headLower = ctx.HeadLower;
+        bool declaredMd = ctx.DeclaredMd;
         bool declaredIni = ctx.DeclaredIni;
         bool declaredInf = ctx.DeclaredInf;
         bool declaredToml = ctx.DeclaredToml;
@@ -159,21 +160,22 @@ internal static partial class Signatures
 
         // Quick PGP ASCII-armored blocks (place before YAML '---' to avoid front-matter collision)
         {
-            if (headLower.Contains("-----begin pgp message-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
-            if (headLower.Contains("-----begin pgp public key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
-            if (headLower.Contains("-----begin pgp signature-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
-            if (headLower.Contains("-----begin pgp private key block-----")) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
+            if (ContainsAsciiArmorBlock(headLower, "pgp message", "pgp message", skipMarkdownFenced: declaredMd || headLower.Contains("```"))) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-encrypted", Confidence = "Medium", Reason = "text:pgp-message" }; return true; }
+            if (ContainsAsciiArmorBlock(headLower, "pgp public key block", "pgp public key block", skipMarkdownFenced: declaredMd || headLower.Contains("```"))) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-public-key" }; return true; }
+            if (ContainsAsciiArmorBlock(headLower, "pgp signature", "pgp signature", skipMarkdownFenced: declaredMd || headLower.Contains("```"))) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-signature", Confidence = "Medium", Reason = "text:pgp-signature" }; return true; }
+            if (ContainsAsciiArmorBlock(headLower, "pgp private key block", "pgp private key block", skipMarkdownFenced: declaredMd || headLower.Contains("```"))) { result = new ContentTypeDetectionResult { Extension = "asc", MimeType = "application/pgp-keys", Confidence = "Medium", Reason = "text:pgp-private-key" }; return true; }
         }
 
         // PEM family (certificate / CSR / private keys) and OpenSSH key — must come before YAML
         // to avoid false positives from lines like "Proc-Type:" / "DEK-Info:".
         {
             var l = headLower;
-            if (l.Contains("-----begin certificate-----")) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true; }
-            if (l.Contains("-----begin x509 certificate-----") || l.Contains("-----begin trusted certificate-----")) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "text:pem-cert-variant" }; return true; }
-            if (l.Contains("-----begin certificate request-----") || l.Contains("-----begin new certificate request-----")) { result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pem-csr" }; return true; }
-            if (l.Contains("-----begin private key-----") || l.Contains("-----begin encrypted private key-----") || l.Contains("-----begin rsa private key-----") || l.Contains("-----begin ec private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
-            if (l.Contains("-----begin openssh private key-----")) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
+            bool skipMarkdownFenced = declaredMd || l.Contains("```");
+            if (ContainsAsciiArmorBlock(l, "certificate", "certificate", skipMarkdownFenced)) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Medium", Reason = "text:pem-cert" }; return true; }
+            if (ContainsAsciiArmorBlock(l, "x509 certificate", "x509 certificate", skipMarkdownFenced) || ContainsAsciiArmorBlock(l, "trusted certificate", "trusted certificate", skipMarkdownFenced)) { result = new ContentTypeDetectionResult { Extension = "crt", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "text:pem-cert-variant" }; return true; }
+            if (ContainsAsciiArmorBlock(l, "certificate request", "certificate request", skipMarkdownFenced) || ContainsAsciiArmorBlock(l, "new certificate request", "new certificate request", skipMarkdownFenced)) { result = new ContentTypeDetectionResult { Extension = "csr", MimeType = "application/pkcs10", Confidence = "Medium", Reason = "text:pem-csr" }; return true; }
+            if (ContainsAsciiArmorBlock(l, "private key", "private key", skipMarkdownFenced) || ContainsAsciiArmorBlock(l, "encrypted private key", "encrypted private key", skipMarkdownFenced) || ContainsAsciiArmorBlock(l, "rsa private key", "rsa private key", skipMarkdownFenced) || ContainsAsciiArmorBlock(l, "ec private key", "ec private key", skipMarkdownFenced)) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-pem-key", Confidence = "Medium", Reason = "text:pem-key" }; return true; }
+            if (ContainsAsciiArmorBlock(l, "openssh private key", "openssh private key", skipMarkdownFenced)) { result = new ContentTypeDetectionResult { Extension = "key", MimeType = "application/x-openssh-key", Confidence = "Medium", Reason = "text:openssh-key" }; return true; }
         }
 
         // YAML (document start) or refined key:value heuristics — guarded to avoid PEM/PGP collisions handled above.
@@ -309,5 +311,88 @@ internal static partial class Signatures
         }
 
         return false;
+    }
+
+    private static bool ContainsAsciiArmorBlock(string lower, string beginLabel, string endLabel, bool skipMarkdownFenced)
+    {
+        if (string.IsNullOrWhiteSpace(lower) || string.IsNullOrWhiteSpace(beginLabel) || string.IsNullOrWhiteSpace(endLabel))
+            return false;
+
+        string begin = "-----begin " + beginLabel + "-----";
+        string end = "-----end " + endLabel + "-----";
+        int search = 0;
+        while (search < lower.Length)
+        {
+            int beginIndex = lower.IndexOf(begin, search, StringComparison.Ordinal);
+            if (beginIndex < 0) return false;
+            search = beginIndex + begin.Length;
+            if (!IsArmorLineStart(lower, beginIndex)) continue;
+            if (skipMarkdownFenced && IsInsideMarkdownCodeRegion(lower, beginIndex)) continue;
+
+            int endIndex = lower.IndexOf(end, search, StringComparison.Ordinal);
+            if (endIndex < 0) continue;
+            if (!IsArmorLineStart(lower, endIndex)) continue;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsArmorLineStart(string text, int index)
+    {
+        if (index < 0 || index >= text.Length) return false;
+        int lineStart = index;
+        while (lineStart > 0 && text[lineStart - 1] != '\n' && text[lineStart - 1] != '\r')
+            lineStart--;
+
+        for (int i = lineStart; i < index; i++)
+        {
+            char ch = text[i];
+            if (ch != ' ' && ch != '\t') return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsInsideMarkdownCodeRegion(string text, int index)
+        => IsInsideMarkdownFence(text, index) || IsInsideMarkdownIndentedCode(text, index);
+
+    private static bool IsInsideMarkdownFence(string text, int index)
+    {
+        if (string.IsNullOrEmpty(text) || index <= 0) return false;
+        int fences = 0;
+        int search = 0;
+        while (search < index)
+        {
+            int fence = text.IndexOf("```", search, StringComparison.Ordinal);
+            if (fence < 0 || fence >= index) break;
+            fences++;
+            search = fence + 3;
+        }
+        return (fences % 2) == 1;
+    }
+
+    private static bool IsInsideMarkdownIndentedCode(string text, int index)
+    {
+        if (string.IsNullOrEmpty(text) || index < 0 || index >= text.Length) return false;
+        int lineStart = index;
+        while (lineStart > 0 && text[lineStart - 1] != '\n' && text[lineStart - 1] != '\r')
+            lineStart--;
+
+        int spaces = 0;
+        for (int i = lineStart; i < index; i++)
+        {
+            char ch = text[i];
+            if (ch == '\t') return true;
+            if (ch == ' ')
+            {
+                spaces++;
+                continue;
+            }
+
+            break;
+        }
+
+        return spaces >= 4;
     }
 }

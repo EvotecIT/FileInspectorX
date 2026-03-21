@@ -12,7 +12,7 @@ public static partial class FileInspector {
 
     private static bool TryDecodeEncodedHead(string path, string ext, out byte[] decoded, out string encKind)
     {
-        decoded = Array.Empty<byte>(); encKind = ext switch { "hex" => "hex", "b85" => "base85", "uu" => "uuencode", _ => "base64" };
+        decoded = Array.Empty<byte>(); encKind = ext switch { "hex" => "hex", "b85" => "base85", "uu" => "uuencode", "qp" => "quoted-printable", _ => "base64" };
         try {
             using var fs = File.OpenRead(path);
             int toRead = (int)Math.Min(Settings.EncodedProbeReadBytes, fs.Length);
@@ -38,18 +38,46 @@ public static partial class FileInspector {
                 }
                 if (core is null)
                 {
-                    // Fallback: take the longest run of base64/url-safe characters
-                    string allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-";
-                    int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+                    // Fallback: take the longest normalized run of base64/url-safe characters,
+                    // allowing MIME-style wrapping/whitespace inside the block.
+                    int bestLen = 0;
+                    var best = new System.Text.StringBuilder();
+                    var current = new System.Text.StringBuilder();
                     for (int i = 0; i < headStr.Length; i++)
                     {
-                        char ch = headStr[i]; bool ws = ch=='\r'||ch=='\n'||ch=='\t'||ch==' ';
-                        bool ok = !ws && allowed.IndexOf(ch) >= 0;
-                        if (ok) { if (curStart < 0) curStart = i; curLen++; }
-                        else { if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } curStart = -1; curLen = 0; }
+                        char ch = headStr[i];
+                        bool ws = ch == '\r' || ch == '\n' || ch == '\t' || ch == ' ';
+                        bool ok = (ch >= 'A' && ch <= 'Z') ||
+                                  (ch >= 'a' && ch <= 'z') ||
+                                  (ch >= '0' && ch <= '9') ||
+                                  ch == '+' || ch == '/' || ch == '=' || ch == '-' || ch == '_';
+                        if (ok)
+                        {
+                            current.Append(ch == '-' ? '+' : (ch == '_' ? '/' : ch));
+                        }
+                        else if (ws && current.Length > 0)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            if (current.Length > bestLen)
+                            {
+                                best.Clear();
+                                best.Append(current);
+                                bestLen = current.Length;
+                            }
+
+                            current.Clear();
+                        }
                     }
-                    if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
-                    if (bestLen >= 128 && bestStart >= 0) core = headStr.Substring(bestStart, bestLen);
+                    if (current.Length > bestLen)
+                    {
+                        best.Clear();
+                        best.Append(current);
+                        bestLen = current.Length;
+                    }
+                    if (bestLen >= 128) core = best.ToString();
                 }
                 if (string.IsNullOrWhiteSpace(core)) return false;
                 // Strip non-base64 and normalize URL-safe
@@ -71,18 +99,43 @@ public static partial class FileInspector {
             }
             else if (ext == "hex")
             {
-                // Extract longest run of hex digits (ignore spaces/newlines)
-                int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+                // Extract longest normalized run of hex digits, allowing whitespace-separated dumps.
+                int bestLen = 0;
+                var best = new System.Text.StringBuilder();
+                var current = new System.Text.StringBuilder();
                 for (int i = 0; i < headStr.Length; i++)
                 {
-                    char ch = headStr[i]; bool ws = ch=='\r'||ch=='\n'||ch=='\t'||ch==' ';
-                    bool hx = (ch>='0'&&ch<='9')||(ch>='A'&&ch<='F')||(ch>='a'&&ch<='f');
-                    if (!ws && hx) { if (curStart < 0) curStart = i; curLen++; }
-                    else { if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } curStart = -1; curLen = 0; }
+                    char ch = headStr[i];
+                    bool ws = ch == '\r' || ch == '\n' || ch == '\t' || ch == ' ';
+                    bool hx = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f');
+                    if (hx)
+                    {
+                        current.Append(ch);
+                    }
+                    else if (ws && current.Length > 0)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        if (current.Length > bestLen)
+                        {
+                            best.Clear();
+                            best.Append(current);
+                            bestLen = current.Length;
+                        }
+
+                        current.Clear();
+                    }
                 }
-                if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
-                if (bestLen < 160 || bestStart < 0) return false; // need at least 80 bytes
-                string hex = headStr.Substring(bestStart, bestLen);
+                if (current.Length > bestLen)
+                {
+                    best.Clear();
+                    best.Append(current);
+                    bestLen = current.Length;
+                }
+                if (bestLen < 160) return false; // need at least 80 bytes
+                string hex = best.ToString();
                 // Decode pairs
                 List<byte> outBytes = new List<byte>(Math.Min(Settings.EncodedDecodeMaxBytes, hex.Length/2));
                 int j = 0; int maxOut = Settings.EncodedDecodeMaxBytes;
@@ -123,6 +176,7 @@ public static partial class FileInspector {
                     int len = ((line[0] - 32) & 63);
                     if (len <= 0) continue;
                     int pos = 1;
+                    int lineWritten = 0;
                     while (pos + 3 < line.Length && outBytes.Count < Settings.EncodedDecodeMaxBytes)
                     {
                         int v1 = (line[pos++] - 32) & 63;
@@ -132,11 +186,62 @@ public static partial class FileInspector {
                         byte b1 = (byte)((v1 << 2) | (v2 >> 4));
                         byte b2 = (byte)(((v2 & 0xF) << 4) | (v3 >> 2));
                         byte b3 = (byte)(((v3 & 0x3) << 6) | v4);
-                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && outBytes.Count < len) outBytes.Add(b1);
-                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && outBytes.Count < len) outBytes.Add(b2);
-                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && outBytes.Count < len) outBytes.Add(b3);
+                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b1); lineWritten++; }
+                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b2); lineWritten++; }
+                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b3); lineWritten++; }
                     }
                 }
+                decoded = outBytes.ToArray();
+                return decoded.Length > 0;
+            }
+            else if (ext == "qp")
+            {
+                var outBytes = new List<byte>(Math.Min(Settings.EncodedDecodeMaxBytes, headStr.Length));
+                for (int i = 0; i < headStr.Length && outBytes.Count < Settings.EncodedDecodeMaxBytes; i++)
+                {
+                    char ch = headStr[i];
+                    if (ch == '=')
+                    {
+                        if (i + 2 < headStr.Length && IsHex(headStr[i + 1]) && IsHex(headStr[i + 2]))
+                        {
+                            byte val = (byte)((HexVal(headStr[i + 1]) << 4) | HexVal(headStr[i + 2]));
+                            outBytes.Add(val);
+                            i += 2;
+                            continue;
+                        }
+
+                        if (i + 1 < headStr.Length && headStr[i + 1] == '\n')
+                        {
+                            i += 1;
+                            continue;
+                        }
+
+                        if (i + 2 < headStr.Length && headStr[i + 1] == '\r' && headStr[i + 2] == '\n')
+                        {
+                            i += 2;
+                            continue;
+                        }
+                    }
+
+                    if (ch == '\r' || ch == '\n')
+                    {
+                        continue;
+                    }
+
+                    if (ch <= 0xFF)
+                    {
+                        outBytes.Add((byte)ch);
+                    }
+                    else
+                    {
+                        foreach (var b in System.Text.Encoding.UTF8.GetBytes(new[] { ch }))
+                        {
+                            if (outBytes.Count >= Settings.EncodedDecodeMaxBytes) break;
+                            outBytes.Add(b);
+                        }
+                    }
+                }
+
                 decoded = outBytes.ToArray();
                 return decoded.Length > 0;
             }
@@ -210,7 +315,7 @@ public static partial class FileInspector {
             }
 
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
-            if (det.Extension is "b64" or "hex" or "b85" or "uu")
+            if (det.Extension is "b64" or "hex" or "b85" or "uu" or "qp")
             {
                 try
                 {
@@ -237,7 +342,7 @@ public static partial class FileInspector {
                         var detInner = Detect(new ReadOnlySpan<byte>(toDetect, 0, Math.Min(toDetect.Length, Settings.EncodedDecodeMaxBytes)), null);
                         if (detInner != null) { res.EncodedInnerDetection = detInner; }
                         var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                        string encCode = encKind switch { "base64" => "enc:b64", "hex" => "enc:hex", "base85" => "enc:b85", "uuencode" => "enc:uu", _ => "enc:unk" };
+                        string encCode = encKind switch { "base64" => "enc:b64", "hex" => "enc:hex", "base85" => "enc:b85", "uuencode" => "enc:uu", "quoted-printable" => "enc:qp", _ => "enc:unk" };
                         list.Add(encCode);
                         if (detInner != null) list.Add($"enc:det:{detInner.Extension}");
                         res.SecurityFindings = list;
@@ -889,8 +994,10 @@ public static partial class FileInspector {
                         foreach (var r in res.References.Where(r => string.Equals(r.SourceTag, "summary", StringComparison.OrdinalIgnoreCase)))
                         {
                             var v = r.Value ?? string.Empty;
-                            if (v.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) ||
+                            if (v.StartsWith("html:data-uri=", StringComparison.OrdinalIgnoreCase) ||
+                                v.StartsWith("html:data-b64=", StringComparison.OrdinalIgnoreCase) ||
                                 v.StartsWith("html:data-exts=", StringComparison.OrdinalIgnoreCase) ||
+                                v.StartsWith("script:data-uri=", StringComparison.OrdinalIgnoreCase) ||
                                 v.StartsWith("script:data-b64=", StringComparison.OrdinalIgnoreCase) ||
                                 v.StartsWith("script:data-exts=", StringComparison.OrdinalIgnoreCase))
                             {

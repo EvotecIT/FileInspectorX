@@ -37,6 +37,7 @@ public static class FriendlyNames
             case "hex": return "Hex‑encoded data";
             case "b85": return "Base85/ASCII85‑encoded data";
             case "uu":  return "UUEncoded data";
+            case "qp":  return "Quoted-printable encoded data";
             case "pgp":
             case "gpg": return "PGP/GPG encrypted data";
             case "docx": return "Word document";

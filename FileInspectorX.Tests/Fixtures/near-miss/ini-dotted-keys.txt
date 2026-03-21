@@ -1,0 +1,3 @@
+[General]
+log.level=info
+app.mode=service

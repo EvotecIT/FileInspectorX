@@ -20,6 +20,17 @@
     <ProjectReference Include="..\FileInspectorX\FileInspectorX.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <FixtureFiles Include="Fixtures/**/*" />
+  </ItemGroup>
+
+  <Target Name="CopyFixtureFiles" AfterTargets="Build">
+    <Copy
+      SourceFiles="@(FixtureFiles)"
+      DestinationFiles="@(FixtureFiles->'$(TargetDir)Fixtures/%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- net472 compatibility shims -->
   <PropertyGroup Condition=" '$(TargetFramework)' == 'net472' ">
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
