@@ -21,11 +21,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Fixtures/**/*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>%(Identity)</TargetPath>
-    </None>
+    <FixtureFiles Include="Fixtures/**/*" />
   </ItemGroup>
+
+  <Target Name="CopyFixtureFiles" AfterTargets="Build">
+    <Copy
+      SourceFiles="@(FixtureFiles)"
+      DestinationFiles="@(FixtureFiles->'$(TargetDir)Fixtures/%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 
   <!-- net472 compatibility shims -->
   <PropertyGroup Condition=" '$(TargetFramework)' == 'net472' ">
