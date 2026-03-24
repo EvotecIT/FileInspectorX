@@ -1,4 +1,4 @@
-<!-- Badges -->
+3<!-- Badges -->
 
 # FileInspectorX — Content Type Detection and Analysis for .NET and PowerShell
 

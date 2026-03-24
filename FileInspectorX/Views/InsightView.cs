@@ -24,5 +24,7 @@ public enum InsightView
     /// <summary>Flattened installer/package metadata view.</summary>
     Installer = 8,
     /// <summary>Windows shell properties view (Explorer Details).</summary>
-    ShellProperties = 9
+    ShellProperties = 9,
+    /// <summary>Policy-oriented assessment summary for operator workflows.</summary>
+    Policy = 10
 }

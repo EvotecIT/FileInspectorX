@@ -1226,6 +1226,73 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void ToPolicySummaryView_Exposes_TopDrivers_Categories_And_RecommendedAction()
+    {
+        var analysis = new FileAnalysis
+        {
+            Assessment = new AssessmentResult
+            {
+                Score = 55,
+                Decision = AssessmentDecision.Warn,
+                Codes = new[] { "Secret.JWT", "Name.DoubleExtension" },
+                Factors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Secret.JWT"] = 40,
+                    ["Name.DoubleExtension"] = 15
+                }
+            },
+            AssessmentProfiles = new MultiAssessmentResult
+            {
+                Strict = new AssessmentResult { Score = 55, Decision = AssessmentDecision.Block },
+                Balanced = new AssessmentResult { Score = 55, Decision = AssessmentDecision.Warn },
+                Lenient = new AssessmentResult { Score = 55, Decision = AssessmentDecision.Allow }
+            },
+            Detection = new ContentTypeDetectionResult
+            {
+                Extension = "txt",
+                MimeType = "text/plain"
+            }
+        };
+
+        var view = analysis.ToPolicySummaryView(@"C:\sample.txt");
+
+        Assert.Equal(55, view.Score);
+        Assert.Equal("Warn", view.Decision);
+        Assert.Equal("Block", view.DecisionStrict);
+        Assert.Equal("Warn", view.DecisionBalanced);
+        Assert.Equal("Allow", view.DecisionLenient);
+        Assert.Contains("JWT", view.TopDrivers);
+        Assert.Contains("Secrets", view.Categories);
+        Assert.Contains("manual review", view.RecommendedAction, StringComparison.OrdinalIgnoreCase);
+        Assert.False(view.SafeForAutomation);
+    }
+
+    [Fact]
+    public void ReportView_From_Populates_PolicyAssessment_Fields()
+    {
+        var analysis = new FileAnalysis
+        {
+            Assessment = new AssessmentResult
+            {
+                Score = 0,
+                Decision = AssessmentDecision.Allow,
+                Codes = new[] { "DotNet.StrongName" },
+                Factors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["DotNet.StrongName"] = -5
+                }
+            }
+        };
+
+        var report = ReportView.From(analysis);
+
+        Assert.Equal("Allow", report.AssessmentDecision);
+        Assert.DoesNotContain("(0)", report.AssessmentSummary ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Allow automatically and keep routine logging.", report.AssessmentRecommendedAction);
+        Assert.True(report.AssessmentSafeForAutomation);
+    }
+
+    [Fact]
     public void Analyze_Timestamped_Service_Log_Does_Not_Add_Ambiguous_Type_Code()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".log");

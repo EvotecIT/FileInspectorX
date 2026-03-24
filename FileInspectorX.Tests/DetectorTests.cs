@@ -98,6 +98,38 @@ public class DetectorTests {
     }
 
     [Fact]
+    public void Analyze_Rar4_With_File_Headers_Exposes_Container_Summary()
+    {
+        var rar = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".rar");
+        try
+        {
+            File.WriteAllBytes(rar, CreateMinimalRar4ArchiveWithFiles(
+                "payload.exe",
+                "scripts\\deploy.ps1",
+                "nested\\inner.zip"));
+
+            var analysis = FI.Analyze(rar);
+
+            Assert.Equal(3, analysis.ContainerEntryCount);
+            Assert.NotNull(analysis.ContainerTopExtensions);
+            Assert.Contains("exe", analysis.ContainerTopExtensions!);
+            Assert.Contains("ps1", analysis.ContainerTopExtensions!);
+            Assert.Contains("zip", analysis.ContainerTopExtensions!);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsExecutables) != 0);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsScripts) != 0);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsArchives) != 0);
+            Assert.NotNull(analysis.ArchivePreviewEntries);
+            Assert.Contains(analysis.ArchivePreviewEntries!, p => string.Equals(p.Name, "payload.exe", StringComparison.Ordinal));
+            Assert.Contains(analysis.ArchivePreviewEntries!, p => string.Equals(p.Name, "scripts\\deploy.ps1", StringComparison.Ordinal));
+            Assert.Contains(analysis.ArchivePreviewEntries!, p => string.Equals(p.Name, "nested\\inner.zip", StringComparison.Ordinal));
+            Assert.NotNull(analysis.InnerExecutableExtCounts);
+            Assert.True(analysis.InnerExecutableExtCounts!.TryGetValue("exe", out var exeCount) && exeCount == 1);
+            Assert.Contains("rar4:enc=0/3", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally { if (File.Exists(rar)) File.Delete(rar); }
+    }
+
+    [Fact]
     public void Analyze_7z_With_Encrypted_Headers_Flags_Archive() {
         var sevenZip = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".7z");
         try {
@@ -121,6 +153,39 @@ public class DetectorTests {
             Assert.DoesNotContain("7z:headers-encrypted", analysis.SecurityFindings ?? Array.Empty<string>());
             Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ArchiveHasEncryptedEntries) == 0);
         } finally { if (File.Exists(sevenZip)) File.Delete(sevenZip); }
+    }
+
+    [Fact]
+    public void Analyze_7z_With_Plain_Header_Names_Exposes_Container_Summary()
+    {
+        var sevenZip = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".7z");
+        try
+        {
+            File.WriteAllBytes(sevenZip, CreateMinimal7zArchiveWithNames(
+                "payload.exe",
+                "scripts\\deploy.ps1",
+                "nested\\inner.zip"));
+
+            var analysis = FI.Analyze(sevenZip);
+
+            Assert.Equal(3, analysis.ContainerEntryCount);
+            Assert.NotNull(analysis.ContainerTopExtensions);
+            Assert.Contains("exe", analysis.ContainerTopExtensions!);
+            Assert.Contains("ps1", analysis.ContainerTopExtensions!);
+            Assert.Contains("zip", analysis.ContainerTopExtensions!);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsExecutables) != 0);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsScripts) != 0);
+            Assert.True((analysis.Flags & global::FileInspectorX.ContentFlags.ContainerContainsArchives) != 0);
+            Assert.NotNull(analysis.ArchivePreviewEntries);
+            Assert.Contains(analysis.ArchivePreviewEntries!, p => string.Equals(p.Name, "payload.exe", StringComparison.Ordinal));
+            Assert.Contains(analysis.ArchivePreviewEntries!, p => string.Equals(p.Name, "scripts\\deploy.ps1", StringComparison.Ordinal));
+            Assert.Contains(analysis.ArchivePreviewEntries!, p => string.Equals(p.Name, "nested\\inner.zip", StringComparison.Ordinal));
+            Assert.NotNull(analysis.InnerExecutableExtCounts);
+            Assert.True(analysis.InnerExecutableExtCounts!.TryGetValue("exe", out var exeCount) && exeCount == 1);
+            Assert.Contains("7z:files=3", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.Contains("7z:names-exe=1", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally { if (File.Exists(sevenZip)) File.Delete(sevenZip); }
     }
 
     [Fact]
@@ -642,5 +707,81 @@ public class DetectorTests {
         bytes[32] = 0x01;
         bytes[33] = headersEncrypted ? (byte)0x17 : (byte)0x00;
         return bytes;
+    }
+
+    private static byte[] CreateMinimal7zArchiveWithNames(params string[] names)
+    {
+        using var ms = new MemoryStream();
+        using var next = new MemoryStream();
+
+        next.WriteByte(0x01); // kHeader
+        next.WriteByte(0x0C); // kFilesInfo
+        next.WriteByte((byte)names.Length); // naive varuint file count for quick parser
+        foreach (var name in names)
+        {
+            var bytes = System.Text.Encoding.Unicode.GetBytes(name);
+            next.Write(bytes, 0, bytes.Length);
+            next.WriteByte(0x00);
+            next.WriteByte(0x00);
+        }
+
+        var nextBytes = next.ToArray();
+        var start = new byte[32];
+        start[0] = 0x37;
+        start[1] = 0x7A;
+        start[2] = 0xBC;
+        start[3] = 0xAF;
+        start[4] = 0x27;
+        start[5] = 0x1C;
+        BitConverter.GetBytes(0L).CopyTo(start, 12);
+        BitConverter.GetBytes((long)nextBytes.Length).CopyTo(start, 20);
+        ms.Write(start, 0, start.Length);
+        ms.Write(nextBytes, 0, nextBytes.Length);
+        return ms.ToArray();
+    }
+
+    private static byte[] CreateMinimalRar4ArchiveWithFiles(params string[] names)
+    {
+        using var ms = new MemoryStream();
+        ms.Write(new byte[] { 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00 });
+        ms.Write(CreateMinimalRar4MainHeader());
+        foreach (var name in names)
+            ms.Write(CreateMinimalRar4FileHeader(name, encrypted: false, packedSize: 0));
+        return ms.ToArray();
+    }
+
+    private static byte[] CreateMinimalRar4MainHeader()
+    {
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+        bw.Write((ushort)0); // HEAD_CRC
+        bw.Write((byte)0x73); // MAIN_HEAD
+        bw.Write((ushort)0); // flags
+        bw.Write((ushort)7); // HEAD_SIZE
+        return ms.ToArray();
+    }
+
+    private static byte[] CreateMinimalRar4FileHeader(string name, bool encrypted, uint packedSize)
+    {
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+        var nameBytes = System.Text.Encoding.GetEncoding(28591).GetBytes(name);
+        ushort flags = encrypted ? (ushort)0x0004 : (ushort)0x0000;
+        ushort headSize = (ushort)(7 + 25 + nameBytes.Length);
+        bw.Write((ushort)0); // HEAD_CRC
+        bw.Write((byte)0x74); // FILE_HEAD
+        bw.Write(flags);
+        bw.Write(headSize);
+        bw.Write(packedSize); // PACK_SIZE
+        bw.Write((uint)packedSize); // UNP_SIZE
+        bw.Write((byte)0); // HOST_OS
+        bw.Write((uint)0); // FILE_CRC
+        bw.Write((uint)0); // FTIME
+        bw.Write((byte)20); // UNP_VER
+        bw.Write((byte)0x30); // METHOD store
+        bw.Write((ushort)nameBytes.Length); // NAME_SIZE
+        bw.Write((uint)0); // ATTR
+        bw.Write(nameBytes);
+        return ms.ToArray();
     }
 }

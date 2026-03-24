@@ -38,6 +38,13 @@ public static class ViewExtensions
         v.Raw = a;
         return v;
     }
+    /// <summary>Projects assessment into a policy-oriented summary; attaches the original object to <c>Raw</c>.</summary>
+    public static PolicySummaryView ToPolicySummaryView(this FileAnalysis a, string path)
+    {
+        var v = PolicySummaryView.From(path, a);
+        v.Raw = a;
+        return v;
+    }
     /// <summary>Projects installer metadata into an <see cref="InstallerView"/>; attaches the original object to <c>Raw</c>.</summary>
     public static InstallerView ToInstallerView(this FileAnalysis a, string path) { var v = InstallerView.From(path, a.Installer); v.Raw = a; return v; }
     /// <summary>Projects Windows shell properties into <see cref="ShellPropertiesView"/> rows; attaches the original object to <c>Raw</c>.</summary>
