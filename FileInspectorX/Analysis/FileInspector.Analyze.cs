@@ -485,6 +485,25 @@ public static partial class FileInspector {
                             res.SecurityFindings = list;
                             res.InnerFindings = (res.InnerFindings ?? Array.Empty<string>()).Concat(new[]{ $"rar4:enc={encCount}/{totalCount}" }).ToArray();
                         }
+                        if (TryInspectRar4Entries(path,
+                            out int? entryCount,
+                            out IReadOnlyList<string>? topExt,
+                            out bool hasExecutables,
+                            out bool hasScripts,
+                            out bool hasNestedArchives,
+                            out List<InnerEntryPreview>? previewOut,
+                            out Dictionary<string,int>? innerExecExtCounts))
+                        {
+                            if (entryCount != null) res.ContainerEntryCount = entryCount;
+                            if (topExt != null) res.ContainerTopExtensions = topExt;
+                            if (hasExecutables) res.Flags |= ContentFlags.ContainerContainsExecutables;
+                            if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
+                            if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
+                            if (previewOut != null && previewOut.Count > 0)
+                                res.ArchivePreviewEntries = previewOut.Take(Settings.DeepContainerMaxEntries).ToList();
+                            if (innerExecExtCounts != null && innerExecExtCounts.Count > 0)
+                                res.InnerExecutableExtCounts = new Dictionary<string,int>(innerExecExtCounts);
+                        }
                         // Optional deep signer sampling for uncompressed, non-encrypted entries (store-only), bounded by budgets
                         if (Settings.DeepContainerScanEnabled)
                         {
@@ -524,24 +543,51 @@ public static partial class FileInspector {
                 }
                 else if (TryCount7zFilesQuick(path, Settings.DetectionReadBudgetBytes, out int files))
                 {
+                    res.ContainerEntryCount = files;
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.Add($"7z:files={files}");
                     res.SecurityFindings = list;
-                    // Best-effort: extract likely executable names from unencoded Next Header
-                    if (Settings.DeepContainerScanEnabled && TryScan7zExecutablesFromHeader(path, Settings.DetectionReadBudgetBytes, out var exeNames, out var dllNames))
+                    // Best-effort: extract plain entry names from an unencoded Next Header
+                    if (TryRead7zEntryNamesFromHeader(path, Settings.DetectionReadBudgetBytes, out var entryNames))
                     {
-                        int count = (exeNames?.Count ?? 0) + (dllNames?.Count ?? 0);
-                        if (count > 0)
+                        var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        var previews = new List<InnerEntryPreview>();
+                        var innerExecExtCounts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+                        bool hasExecutables = false, hasScripts = false, hasNestedArchives = false;
+
+                        foreach (var name in entryNames)
                         {
-                            res.Flags |= ContentFlags.ContainerContainsExecutables;
+                            var ext = GetExtension(name);
+                            if (!string.IsNullOrEmpty(ext))
+                                exts[ext] = exts.TryGetValue(ext, out var c) ? c + 1 : 1;
+
+                            if (IsExecutableName(name))
+                            {
+                                hasExecutables = true;
+                                if (!string.IsNullOrEmpty(ext))
+                                    innerExecExtCounts[ext] = innerExecExtCounts.TryGetValue(ext, out var c) ? c + 1 : 1;
+                            }
+                            if (IsScriptName(name)) hasScripts = true;
+                            if (IsArchiveLikeExtension(ext)) hasNestedArchives = true;
+
+                            if (previews.Count < Math.Min(5, Settings.DeepContainerMaxEntries))
+                                previews.Add(new InnerEntryPreview { Name = name, DetectedExtension = string.IsNullOrEmpty(ext) ? null : ext });
+                        }
+
+                        if (exts.Count > 0)
+                            res.ContainerTopExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
+                        if (hasExecutables) res.Flags |= ContentFlags.ContainerContainsExecutables;
+                        if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
+                        if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
+                        if (innerExecExtCounts.Count > 0) res.InnerExecutableExtCounts = innerExecExtCounts;
+                        if (previews.Count > 0) res.ArchivePreviewEntries = previews;
+
+                        int exeLikeCount = entryNames.Count(n => IsExecutableName(n));
+                        if (exeLikeCount > 0)
+                        {
                             var list2 = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                            list2.Add($"7z:names-exe={count}");
+                            list2.Add($"7z:names-exe={exeLikeCount}");
                             res.SecurityFindings = list2;
-                            // Preview a few
-                            var previews = new List<InnerEntryPreview>();
-                            foreach (var n in (exeNames ?? System.Linq.Enumerable.Empty<string>()).Take(5)) previews.Add(new InnerEntryPreview { Name = n, DetectedExtension = "exe" });
-                            foreach (var n in (dllNames ?? System.Linq.Enumerable.Empty<string>()).Take(Math.Max(0, 5 - previews.Count))) previews.Add(new InnerEntryPreview { Name = n, DetectedExtension = "dll" });
-                            if (previews.Count > 0) res.ArchivePreviewEntries = previews;
                         }
                     }
                 }
@@ -1214,6 +1260,123 @@ public static partial class FileInspector {
             if (total == 0) total = filesSeen;
             return true;
         } catch { return false; }
+    }
+
+    private static bool TryInspectRar4Entries(
+        string path,
+        out int? entryCount,
+        out IReadOnlyList<string>? topExtensions,
+        out bool hasExecutables,
+        out bool hasScripts,
+        out bool hasNestedArchives,
+        out List<InnerEntryPreview>? previews,
+        out Dictionary<string,int>? innerExecExtCounts)
+    {
+        entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null; innerExecExtCounts = null;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            var sig = new byte[]{ (byte)'R',(byte)'a',(byte)'r', (byte)'!', 0x1A, 0x07, 0x00 };
+            var head = new byte[sig.Length];
+            if (fs.Read(head, 0, head.Length) != head.Length) return false;
+            for (int i = 0; i < sig.Length; i++) if (head[i] != sig[i]) return false;
+
+            var br = new BinaryReader(fs);
+            int count = 0;
+            var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var localPreviews = new List<InnerEntryPreview>();
+            var execExts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+            int previewCap = Math.Min(5, Settings.DeepContainerMaxEntries);
+
+            while (fs.Position + 7 <= fs.Length)
+            {
+                long hdrStart = fs.Position;
+                br.ReadUInt16(); // head crc
+                byte headType = br.ReadByte();
+                ushort headFlags = br.ReadUInt16();
+                ushort headSize = br.ReadUInt16();
+                if (headSize < 7) break;
+                long headerEnd = hdrStart + headSize;
+
+                if (headType == 0x74) // FILE_HEADER
+                {
+                    long afterBase = fs.Position;
+                    if (afterBase + 4 + 4 + 1 + 4 + 4 + 1 + 1 + 2 + 4 > headerEnd)
+                    {
+                        fs.Seek(headerEnd, SeekOrigin.Begin);
+                        continue;
+                    }
+
+                    uint packLow = br.ReadUInt32();
+                    br.ReadUInt32(); // unpLow
+                    br.ReadByte();   // hostOS
+                    br.ReadUInt32(); // fileCRC
+                    br.ReadUInt32(); // ftime
+                    br.ReadByte();   // unpVer
+                    br.ReadByte();   // method
+                    ushort nameSize = br.ReadUInt16();
+                    br.ReadUInt32(); // attr
+
+                    ulong packSize = packLow;
+                    if ((headFlags & 0x0100) != 0)
+                    {
+                        if (fs.Position + 8 > headerEnd)
+                        {
+                            fs.Seek(headerEnd, SeekOrigin.Begin);
+                            continue;
+                        }
+                        uint highPack = br.ReadUInt32();
+                        br.ReadUInt32(); // highUnp
+                        packSize |= ((ulong)highPack << 32);
+                    }
+
+                    string name = string.Empty;
+                    try
+                    {
+                        int toRead = (int)Math.Min((long)nameSize, headerEnd - fs.Position);
+                        if (toRead > 0)
+                        {
+                            var nb = br.ReadBytes(toRead);
+                            name = Latin1String(nb);
+                        }
+                    }
+                    catch { }
+
+                    fs.Seek(headerEnd, SeekOrigin.Begin);
+
+                    count++;
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        var ext = GetExtension(name);
+                        if (!string.IsNullOrEmpty(ext))
+                            exts[ext] = exts.TryGetValue(ext, out var c) ? c + 1 : 1;
+                        if (IsExecutableName(name))
+                        {
+                            hasExecutables = true;
+                            if (!string.IsNullOrEmpty(ext))
+                                execExts[ext] = execExts.TryGetValue(ext, out var c) ? c + 1 : 1;
+                        }
+                        if (IsScriptName(name)) hasScripts = true;
+                        if (IsArchiveLikeExtension(ext)) hasNestedArchives = true;
+                        if (localPreviews.Count < previewCap)
+                            localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = string.IsNullOrEmpty(ext) ? null : ext });
+                    }
+
+                    long nextBlock = (long)Math.Min((ulong)fs.Length, (ulong)headerEnd + packSize);
+                    fs.Seek(nextBlock, SeekOrigin.Begin);
+                    continue;
+                }
+
+                fs.Seek(headerEnd, SeekOrigin.Begin);
+            }
+
+            entryCount = count;
+            if (exts.Count > 0) topExtensions = exts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(5).Select(kv => kv.Key).ToArray();
+            if (localPreviews.Count > 0) previews = localPreviews;
+            if (execExts.Count > 0) innerExecExtCounts = execExts;
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>
@@ -2015,10 +2178,10 @@ public static partial class FileInspector {
         return false;
     }
 
-    // Best-effort: read Next Header plain buffer and scan for UTF-16LE file names that end with .exe or .dll
-    private static bool TryScan7zExecutablesFromHeader(string path, int byteBudget, out List<string> exeNames, out List<string> dllNames)
+    // Best-effort: read a plain 7z Next Header buffer and extract likely UTF-16LE entry names.
+    private static bool TryRead7zEntryNamesFromHeader(string path, int byteBudget, out List<string> entryNames)
     {
-        exeNames = new List<string>(); dllNames = new List<string>();
+        entryNames = new List<string>();
         try
         {
             using var fs = File.OpenRead(path);
@@ -2033,41 +2196,80 @@ public static partial class FileInspector {
             var buf = new byte[toRead]; int n = fs.Read(buf, 0, toRead); if (n <= 0) return false;
             // If encoded header present, bail (we don't parse it)
             for (int i = 0; i < n; i++) if (buf[i] == 0x17) return false;
-            // Scan for UTF-16LE strings
-            int iPos = 0; int cap = Math.Min(n, toRead);
-            while (iPos + 2 < cap && (exeNames.Count + dllNames.Count) < 12)
+            int cap = Math.Min(n, toRead);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int offset = 0; offset <= 1 && entryNames.Count < 32; offset++)
             {
-                // Attempt to read a UTF-16LE run until NUL
-                int start = iPos; int lenBytes = 0; bool hasZero = false;
-                for (int p = iPos; p + 1 < cap; p += 2)
+                int usable = ((cap - offset) / 2) * 2;
+                if (usable < 4) continue;
+                string decoded;
+                try
                 {
-                    ushort ch = (ushort)(buf[p] | (buf[p+1] << 8));
-                    if (ch == 0) { hasZero = true; break; }
-                    // keep consuming printable-ish chars; break if too long
-                    lenBytes += 2; if (lenBytes > 512) break;
+                    decoded = System.Text.Encoding.Unicode.GetString(buf, offset, usable);
                 }
-                if (hasZero && lenBytes >= 6)
+                catch
                 {
-                    try
-                    {
-                        var s = System.Text.Encoding.Unicode.GetString(buf, start, lenBytes);
-                        if (!string.IsNullOrWhiteSpace(s) && s.IndexOf('.') >= 0)
-                        {
-                            var name = s.Trim('\0').Trim();
-                            var lower = name.ToLowerInvariant();
-                            if (lower.EndsWith(".exe")) { if (!exeNames.Contains(name)) exeNames.Add(name); }
-                            else if (lower.EndsWith(".dll")) { if (!dllNames.Contains(name)) dllNames.Add(name); }
-                        }
-                    } catch { }
-                    iPos += lenBytes + 2; // skip NUL
+                    continue;
                 }
-                else
+
+                foreach (var raw in decoded.Split('\0'))
                 {
-                    iPos += 2;
+                    if (entryNames.Count >= 32) break;
+                    var name = Normalize7zEntryName(raw);
+                    if (LooksLike7zEntryName(name) && seen.Add(name))
+                        entryNames.Add(name);
                 }
             }
-            return (exeNames.Count + dllNames.Count) > 0;
+            return entryNames.Count > 0;
         } catch { return false; }
+    }
+
+    // Backward-compatible helper for callers that only need executable-ish names.
+    private static bool TryScan7zExecutablesFromHeader(string path, int byteBudget, out List<string> exeNames, out List<string> dllNames)
+    {
+        exeNames = new List<string>(); dllNames = new List<string>();
+        if (!TryRead7zEntryNamesFromHeader(path, byteBudget, out var entryNames)) return false;
+        foreach (var name in entryNames)
+        {
+            var lower = name.ToLowerInvariant();
+            if (lower.EndsWith(".exe"))
+            {
+                if (!exeNames.Contains(name)) exeNames.Add(name);
+            }
+            else if (lower.EndsWith(".dll"))
+            {
+                if (!dllNames.Contains(name)) dllNames.Add(name);
+            }
+        }
+        return (exeNames.Count + dllNames.Count) > 0;
+    }
+
+    private static bool LooksLike7zEntryName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var name = value.Trim('\0').Trim();
+        if (name.Length < 3 || name.Length > 260) return false;
+        if (name.IndexOfAny(new[] { '\r', '\n', '\t' }) >= 0) return false;
+        if (name.Any(ch => char.IsControl(ch))) return false;
+        return name.IndexOf('.') >= 0 || name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0;
+    }
+
+    private static string Normalize7zEntryName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        var name = value.Trim('\0').Trim();
+        if (string.IsNullOrEmpty(name)) return string.Empty;
+
+        int start = 0;
+        while (start < name.Length)
+        {
+            var ch = name[start];
+            if (char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-' || ch == '\\' || ch == '/')
+                break;
+            start++;
+        }
+
+        return start > 0 ? name.Substring(start) : name;
     }
 
     private static void TryInspectTar(

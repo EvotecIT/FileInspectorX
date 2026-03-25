@@ -39,6 +39,7 @@ namespace FileInspectorX.PowerShell {
     [OutputType(typeof(SignatureView))]
     [OutputType(typeof(SummaryView))]
     [OutputType(typeof(AssessmentView))]
+    [OutputType(typeof(PolicySummaryView))]
     [OutputType(typeof(InstallerView))]
     [OutputType(typeof(ReferencesView))]
     [OutputType(typeof(ShellPropertiesView))]
@@ -50,7 +51,7 @@ namespace FileInspectorX.PowerShell {
         [Alias("FullName")]
         public string[] Path { get; set; } = Array.Empty<string>();
 
-        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Installer, ShellProperties.</summary>
+        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties.</summary>
         [Parameter()]
         public InsightView View { get; set; } = InsightView.Raw;
 
@@ -151,6 +152,10 @@ namespace FileInspectorX.PowerShell {
                             case InsightView.Assessment: {
                                 var a = FileInspector.Inspect(p, options);
                                 WriteObject(a.ToAssessmentView(p));
+                                break; }
+                            case InsightView.Policy: {
+                                var a = FileInspector.Inspect(p, options);
+                                WriteObject(a.ToPolicySummaryView(p));
                                 break; }
                             case InsightView.Installer: {
                                 var a = FileInspector.Inspect(p, options);

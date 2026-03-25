@@ -214,6 +214,16 @@ public sealed class ReportView
     public IReadOnlyDictionary<string,int>? AssessmentFactors { get; set; }
     /// <summary>Compact one-line assessment summary for hosts that want a single field.</summary>
     public string? AssessmentSummary { get; set; }
+    /// <summary>Top scoring assessment drivers in short form.</summary>
+    public string? AssessmentTopDrivers { get; set; }
+    /// <summary>Top scoring assessment drivers with longer explanations.</summary>
+    public string? AssessmentTopDriversLong { get; set; }
+    /// <summary>Distinct assessment categories ordered by strongest contribution.</summary>
+    public string? AssessmentCategories { get; set; }
+    /// <summary>Recommended operator action for the current assessment decision.</summary>
+    public string? AssessmentRecommendedAction { get; set; }
+    /// <summary>Conservative signal for whether the current result is safe to automate.</summary>
+    public bool? AssessmentSafeForAutomation { get; set; }
     /// <summary>Number of encrypted entries in ZIP (if applicable).</summary>
     public int? EncryptedEntryCount { get; set; }
     /// <summary>Neutral security findings emitted by heuristics (e.g., ps:encoded, js:activex).</summary>
@@ -645,6 +655,11 @@ public sealed class ReportView
                     r.AssessmentCodesHumanLong = AssessmentLegend.HumanizeCodes(r.AssessmentCodes, HumanizeStyle.Long);
                 }
                 r.AssessmentSummary = FormatAssessmentSummary(r);
+                r.AssessmentTopDrivers = AssessmentPolicyPresentation.FormatTopDrivers(r.AssessmentDetails);
+                r.AssessmentTopDriversLong = AssessmentPolicyPresentation.FormatTopDriversLong(r.AssessmentDetails);
+                r.AssessmentCategories = AssessmentPolicyPresentation.FormatCategories(r.AssessmentDetails);
+                r.AssessmentRecommendedAction = AssessmentPolicyPresentation.BuildRecommendedAction(r.AssessmentDecision, r.AssessmentScore);
+                r.AssessmentSafeForAutomation = AssessmentPolicyPresentation.IsSafeForAutomation(r.AssessmentDecision, r.AssessmentScore);
             }
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
@@ -1529,9 +1544,14 @@ public sealed class ReportView
         }
 
         var header = report.AssessmentDecision ?? "Assessment";
-        if (report.AssessmentScore.HasValue)
+        if (report.AssessmentScore.HasValue && report.AssessmentScore.Value > 0)
         {
             header += $" ({report.AssessmentScore.Value})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(report.AssessmentTopDrivers))
+        {
+            return $"{header}: {report.AssessmentTopDrivers}";
         }
 
         if (!string.IsNullOrWhiteSpace(report.AssessmentCodesHuman))
