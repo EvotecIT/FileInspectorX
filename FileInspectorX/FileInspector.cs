@@ -1128,9 +1128,23 @@ public static partial class FileInspector {
     }
 
     /// <summary>
+    /// Detects content type from an in-memory byte array without copying the buffer.
+    /// </summary>
+    public static ContentTypeDetectionResult? Detect(byte[] data, DetectionOptions? options = null, string? declaredExtension = null)
+    {
+        if (data == null) throw new ArgumentNullException(nameof(data));
+        return DetectCore(data, data, options, declaredExtension);
+    }
+
+    /// <summary>
     /// Detects content type from an in-memory span of bytes.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null) {
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
+    {
+        return DetectCore(data, null, options, declaredExtension);
+    }
+
+    private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
@@ -1143,9 +1157,18 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Finish(Enrich(ftyp, data, null, options));
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
-        if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
-        if (Signatures.TryMatchPkcs7SignedData(data, out var pkcs7)) return Finish(Enrich(pkcs7, data, null, options));
-        if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+        if (dataMemory.HasValue)
+        {
+            if (Signatures.TryMatchPkcs12(dataMemory.Value, out var p12Mem)) return Finish(Enrich(p12Mem, data, null, options));
+            if (Signatures.TryMatchPkcs7SignedData(dataMemory.Value, out var pkcs7Mem)) return Finish(Enrich(pkcs7Mem, data, null, options));
+            if (Signatures.TryMatchDerCertificate(dataMemory.Value, out var derMem)) return Finish(Enrich(derMem, data, null, options));
+        }
+        else
+        {
+            if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
+            if (Signatures.TryMatchPkcs7SignedData(data, out var pkcs7)) return Finish(Enrich(pkcs7, data, null, options));
+            if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+        }
         if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Finish(Enrich(pgpbin, data, null, options));
         if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));
         if (Signatures.TryMatch7z(data, out var _7z)) return Finish(Enrich(_7z, data, null, options));
