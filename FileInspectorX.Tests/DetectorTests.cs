@@ -650,6 +650,8 @@ public class DetectorTests {
         Array.Copy(sig, 0, header, 0, sig.Length);
         header[0x1E] = 0x09;
         header[0x1F] = 0x00;
+        // Our mini CFBF reader maps sector N to offset 512 + ((N + 1) * 512),
+        // so FAT sector SID 0 lives at 1024 and directory sector SID 2 lives at 2048.
         WriteLe32(header, 0x2C, 1);
         WriteLe32(header, 0x30, 2);
         WriteLe32(header, 0x4C, 0);

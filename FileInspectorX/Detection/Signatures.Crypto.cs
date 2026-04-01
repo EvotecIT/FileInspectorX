@@ -40,7 +40,7 @@ internal static partial class Signatures
             return false;
         }
 
-        if (version < 3)
+        if (version != 3)
         {
             return false;
         }

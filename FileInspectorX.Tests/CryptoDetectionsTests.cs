@@ -71,6 +71,23 @@ public class CryptoDetectionsTests
     }
 
     [Fact]
+    public void Detect_Pkcs12_DoesNotMatch_When_Pfx_Version_Is_Not_V3()
+    {
+        byte[] nonStandardVersion =
+        [
+            0x30, 0x12,
+            0x02, 0x01, 0x64,
+            0x30, 0x0D,
+            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01,
+            0xA0, 0x00
+        ];
+
+        var detection = FI.Detect(nonStandardVersion);
+
+        Assert.True(detection == null || !string.Equals(detection.Extension, "p12", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Detect_Der_X509_By_CertificateShape()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".cer");
