@@ -91,7 +91,6 @@ public static class MimeMaps {
         ["admx"] = "application/xml",
         ["adml"] = "application/xml",
         ["pol"] = "application/x-group-policy-registry-pol",
-        ["spc"] = "application/x-pkcs7-certificates",
         ["etl"] = "application/octet-stream"
     };
 

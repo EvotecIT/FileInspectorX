@@ -21,11 +21,11 @@ internal static partial class Signatures {
             if (fs.Read(header, 0, 8) != 8) return false;
             byte[] ole = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
             for (int i = 0; i < 8; i++) if (header[i] != ole[i]) return false;
-            var buf = new byte[64 * 1024];
             fs.Seek(0, SeekOrigin.Begin);
-            int read = fs.Read(buf, 0, buf.Length);
-            var span = new ReadOnlySpan<byte>(buf, 0, read);
-            if (span.IndexOf("__substg1.0_"u8) >= 0 || span.IndexOf("__properties_version1.0"u8) >= 0) {
+            if (FileInspector.TryGetOleDirectoryNames(fs, out var names) &&
+                names.Any(static nm =>
+                    nm.StartsWith("__substg1.0_", StringComparison.OrdinalIgnoreCase) ||
+                    nm.Equals("__properties_version1.0", StringComparison.OrdinalIgnoreCase))) {
                 result = new ContentTypeDetectionResult { Extension = "msg", MimeType = "application/vnd.ms-outlook", Confidence = "Medium", Reason = "msg:ole" };
                 return true;
             }

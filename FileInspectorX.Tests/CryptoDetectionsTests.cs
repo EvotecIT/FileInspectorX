@@ -3,6 +3,7 @@ using FI = FileInspectorX.FileInspector;
 
 namespace FileInspectorX.Tests;
 
+[Collection(nameof(DetectionSettingsCollection))]
 public class CryptoDetectionsTests
 {
     [Fact]
@@ -50,12 +51,8 @@ public class CryptoDetectionsTests
     [Fact]
     public void Detect_Pkcs12_DoesNotMatch_When_DataOid_Is_Not_TopLevel_ContentType()
     {
-        byte[] contentInfoOidLookalike =
-        [
-            0x30, 0x0F,
-            0x04, 0x02, 0x00, 0x00,
-            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01
-        ];
+        byte[] contentInfoOidLookalike = File.ReadAllBytes(
+            TestHelpers.GetFixturePath("crypto", "pkcs12-contenttype-lookalike.p12"));
 
         var detection = FI.Detect(contentInfoOidLookalike);
 
@@ -65,13 +62,8 @@ public class CryptoDetectionsTests
     [Fact]
     public void Detect_Pkcs12_DoesNotMatch_When_AuthSafe_Wrapper_Is_Missing()
     {
-        byte[] missingAuthSafeWrapper =
-        [
-            0x30, 0x0E,
-            0x02, 0x01, 0x03,
-            0x30, 0x09,
-            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01
-        ];
+        byte[] missingAuthSafeWrapper = File.ReadAllBytes(
+            TestHelpers.GetFixturePath("crypto", "pkcs12-missing-authsafe-wrapper.p12"));
 
         var detection = FI.Detect(missingAuthSafeWrapper);
 
@@ -172,12 +164,8 @@ public class CryptoDetectionsTests
     [Fact]
     public void Detect_DerCertificate_DoesNotMatch_When_RsaOid_Appears_Inside_Unrelated_Blob()
     {
-        byte[] rsaOidLookalike =
-        [
-            0x30, 0x12,
-            0x04, 0x0A, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x00,
-            0x05, 0x04, 0x01, 0x02, 0x03, 0x04
-        ];
+        byte[] rsaOidLookalike = File.ReadAllBytes(
+            TestHelpers.GetFixturePath("crypto", "der-cert-rsa-oid-lookalike.cer"));
 
         var detection = FI.Detect(rsaOidLookalike);
 
@@ -187,13 +175,8 @@ public class CryptoDetectionsTests
     [Fact]
     public void Detect_DerCertificate_DoesNotMatch_When_TopLevel_CertificateShape_Is_Incomplete()
     {
-        byte[] incompleteCertificateEnvelope =
-        [
-            0x30, 0x14,
-            0x30, 0x09, 0x02, 0x01, 0x01, 0x30, 0x04, 0x06, 0x02, 0x2A, 0x03,
-            0x30, 0x04, 0x06, 0x02, 0x2A, 0x03,
-            0x03, 0x01, 0x00
-        ];
+        byte[] incompleteCertificateEnvelope = File.ReadAllBytes(
+            TestHelpers.GetFixturePath("crypto", "der-cert-incomplete-envelope.cer"));
 
         var detection = FI.Detect(incompleteCertificateEnvelope);
 
@@ -203,12 +186,8 @@ public class CryptoDetectionsTests
     [Fact]
     public void Detect_Pkcs7SignedData_DoesNotMatch_When_Oid_Is_Not_TopLevel_ContentType()
     {
-        byte[] signedDataOidLookalike =
-        [
-            0x30, 0x0F,
-            0x04, 0x02, 0x00, 0x00,
-            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02
-        ];
+        byte[] signedDataOidLookalike = File.ReadAllBytes(
+            TestHelpers.GetFixturePath("crypto", "pkcs7-signeddata-oid-lookalike.p7b"));
 
         var detection = FI.Detect(signedDataOidLookalike);
 
@@ -218,12 +197,8 @@ public class CryptoDetectionsTests
     [Fact]
     public void Detect_Pkcs7SignedData_DoesNotMatch_When_ContentWrapper_Is_Missing()
     {
-        byte[] missingExplicitWrapper =
-        [
-            0x30, 0x0D,
-            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02,
-            0x05, 0x00
-        ];
+        byte[] missingExplicitWrapper = File.ReadAllBytes(
+            TestHelpers.GetFixturePath("crypto", "pkcs7-missing-explicit-wrapper.p7b"));
 
         var detection = FI.Detect(missingExplicitWrapper);
 

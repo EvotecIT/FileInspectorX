@@ -367,6 +367,7 @@ public static partial class FileInspector {
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
+        var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
@@ -380,9 +381,9 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
-        if (Signatures.TryMatchPkcs12(src, out var p12)) return Finish(Enrich(p12, src, stream, options));
-        if (Signatures.TryMatchPkcs7SignedData(src, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
-        if (Signatures.TryMatchDerCertificate(src, out var der)) return Finish(Enrich(der, src, stream, options));
+        if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
+        if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
+        if (Signatures.TryMatchDerCertificate(srcMemory, out var der)) return Finish(Enrich(der, src, stream, options));
         if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Finish(Enrich(pgpbin, src, stream, options));
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
@@ -1052,7 +1053,7 @@ public static partial class FileInspector {
         return null;
     }
 
-    private static bool TryGetOleDirectoryNames(Stream stream, out List<string> names)
+    internal static bool TryGetOleDirectoryNames(Stream stream, out List<string> names)
     {
         names = new List<string>();
         long save = stream.CanSeek ? stream.Position : 0;

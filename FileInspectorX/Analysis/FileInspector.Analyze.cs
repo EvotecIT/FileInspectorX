@@ -2426,10 +2426,12 @@ public static partial class FileInspector {
                     {
                         return false;
                     }
+
+                    // .crt/.cer may still be DER-encoded, so fall through to the bounded raw-byte import below.
                 }
                 else
                 {
-#if NET5_0_OR_GREATER || NET8_0_OR_GREATER
+#if NET5_0_OR_GREATER
                     try
                     {
                         cert = X509Certificate2.CreateFromPem(pemBlock);
@@ -2553,7 +2555,7 @@ public static partial class FileInspector {
     {
         try
         {
-#if NET5_0_OR_GREATER || NET8_0_OR_GREATER
+#if NET5_0_OR_GREATER
             return System.Text.Encoding.Latin1.GetString(bytes);
 #else
             return System.Text.Encoding.GetEncoding(28591).GetString(bytes); // ISO-8859-1 for .NET Framework / netstandard
