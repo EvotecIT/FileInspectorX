@@ -33,47 +33,158 @@ internal static partial class Signatures
     {
         result = null;
         if (src.Length < 16) return false;
-        // Basic ASN.1 SEQUENCE start
         if (src[0] != 0x30) return false;
-        // Look for OID 1.2.840.113549.1.12.10.1.* in the first 256 bytes: 2A 86 48 86 F7 0D 01 0C 0A 01
-        byte[] pfxOid = new byte[] { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x0C, 0x0A, 0x01 };
-        int window = Math.Min(src.Length, 256);
-        for (int i = 0; i <= window - pfxOid.Length; i++)
+
+        try
         {
-            if (src.Slice(i, pfxOid.Length).SequenceEqual(pfxOid))
+            var reader = new System.Formats.Asn1.AsnReader(src.ToArray(), System.Formats.Asn1.AsnEncodingRules.BER);
+            var pfx = reader.ReadSequence();
+
+            if (!pfx.TryReadInt32(out var version) || version < 3)
             {
-                result = new ContentTypeDetectionResult { Extension = "p12", MimeType = "application/x-pkcs12", Confidence = "Low", Reason = "asn1:pkcs12" };
-                return true;
+                return false;
             }
+
+            var authSafe = pfx.ReadSequence();
+            var contentType = authSafe.ReadObjectIdentifier();
+            if (!string.Equals(contentType, "1.2.840.113549.1.7.1", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!authSafe.HasData)
+            {
+                return false;
+            }
+
+            var contentTag = authSafe.PeekTag();
+            if (contentTag.TagClass != System.Formats.Asn1.TagClass.ContextSpecific ||
+                contentTag.TagValue != 0 ||
+                !contentTag.IsConstructed)
+            {
+                return false;
+            }
+
+            result = new ContentTypeDetectionResult
+            {
+                Extension = "p12",
+                MimeType = "application/x-pkcs12",
+                Confidence = "Low",
+                Reason = "asn1:pkcs12"
+            };
+            return true;
         }
-        return false;
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryMatchPkcs7SignedData(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (src.Length < 16) return false;
+        if (src[0] != 0x30) return false; // ASN.1 SEQUENCE
+
+        try
+        {
+            var reader = new System.Formats.Asn1.AsnReader(src.ToArray(), System.Formats.Asn1.AsnEncodingRules.BER);
+            var contentInfo = reader.ReadSequence();
+            var contentType = contentInfo.ReadObjectIdentifier();
+            if (!string.Equals(contentType, "1.2.840.113549.1.7.2", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!contentInfo.HasData)
+            {
+                return false;
+            }
+
+            var contentTag = contentInfo.PeekTag();
+            if (contentTag.TagClass != System.Formats.Asn1.TagClass.ContextSpecific ||
+                contentTag.TagValue != 0 ||
+                !contentTag.IsConstructed)
+            {
+                return false;
+            }
+
+            result = new ContentTypeDetectionResult
+            {
+                Extension = "p7b",
+                MimeType = "application/pkcs7-mime",
+                Confidence = "Low",
+                Reason = "asn1:pkcs7-signed-data"
+            };
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static bool TryMatchDerCertificate(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length < 8) return false;
+        if (src.Length < 16) return false;
         if (src[0] != 0x30) return false; // SEQUENCE
-        // Check long-form length
-        int i = 1;
-        int len = src[i++];
-        if ((len & 0x80) != 0)
-        {
-            int n = len & 0x7F; if (n <= 0 || n > 3 || src.Length < 2 + n) return false; i += n;
-        }
-        // Heuristic: presence of common OID prefixes for signature algorithms within the first 128 bytes
-        byte[] rsaPrefix = new byte[] { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01 }; // 1.2.840.113549.1.1
-        byte[] ecdsaPrefix = new byte[] { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04 }; // 1.2.840.10045.4 (ECDSA)
-        int w = Math.Min(src.Length, 128);
-        bool hasAlg = ContainsSeq(src.Slice(0, w), rsaPrefix) || ContainsSeq(src.Slice(0, w), ecdsaPrefix);
-        if (!hasAlg) return false;
-        result = new ContentTypeDetectionResult { Extension = "cer", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "asn1:der-cert" };
-        return true;
 
-        static bool ContainsSeq(ReadOnlySpan<byte> hay, byte[] needle)
+        try
         {
-            for (int k = 0; k <= hay.Length - needle.Length; k++)
-                if (hay.Slice(k, needle.Length).SequenceEqual(needle)) return true;
+            var reader = new System.Formats.Asn1.AsnReader(src.ToArray(), System.Formats.Asn1.AsnEncodingRules.BER);
+            var certificate = reader.ReadSequence();
+
+            var tbsCertificate = certificate.ReadSequence();
+            if (tbsCertificate.HasData)
+            {
+                var firstTag = tbsCertificate.PeekTag();
+                if (firstTag.TagClass == System.Formats.Asn1.TagClass.ContextSpecific &&
+                    firstTag.TagValue == 0 &&
+                    firstTag.IsConstructed)
+                {
+                    tbsCertificate.ReadSequence(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 0, isConstructed: true));
+                }
+            }
+
+            tbsCertificate.ReadIntegerBytes(); // serialNumber
+
+            var tbsSignatureAlgorithm = tbsCertificate.ReadSequence();
+            var tbsSignatureOid = tbsSignatureAlgorithm.ReadObjectIdentifier();
+            if (string.IsNullOrWhiteSpace(tbsSignatureOid))
+            {
+                return false;
+            }
+
+            tbsCertificate.ReadSequence(); // issuer
+            tbsCertificate.ReadSequence(); // validity
+            tbsCertificate.ReadSequence(); // subject
+            tbsCertificate.ReadSequence(); // subjectPublicKeyInfo
+
+            var certificateSignatureAlgorithm = certificate.ReadSequence();
+            var certificateSignatureOid = certificateSignatureAlgorithm.ReadObjectIdentifier();
+            if (!string.Equals(tbsSignatureOid, certificateSignatureOid, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var signatureValue = certificate.ReadBitString(out _);
+            if (signatureValue.Length == 0)
+            {
+                return false;
+            }
+
+            result = new ContentTypeDetectionResult
+            {
+                Extension = "cer",
+                MimeType = "application/pkix-cert",
+                Confidence = "Low",
+                Reason = "asn1:der-cert"
+            };
+            return true;
+        }
+        catch
+        {
             return false;
         }
     }

@@ -175,11 +175,11 @@ public class FileAnalysis {
     public CertificateInfo? Certificate { get; set; }
 
     /// <summary>
-    /// For PKCS#7 certificate bundles (.p7b/.spc): number of certificates and their subjects (best-effort).
+    /// For PKCS#7 certificate/signature payloads (.p7b/.spc/.p7s): number of certificates and their subjects (best-effort).
     /// </summary>
     public int? CertificateBundleCount { get; set; }
     /// <summary>
-    /// Subjects present in a PKCS#7 certificate bundle, when parsed.
+    /// Subjects present in a PKCS#7 certificate/signature payload, when parsed.
     /// </summary>
     public IReadOnlyList<string>? CertificateBundleSubjects { get; set; }
 
