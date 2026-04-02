@@ -3,7 +3,7 @@ Import-Module PSPublishModule -Force -RequiredVersion '2.0.26'
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
     $Manifest = [ordered] @{
-        ModuleVersion        = '1.0.7'
+        ModuleVersion        = '1.0.10'
         CompatiblePSEditions = @('Desktop', 'Core')
         GUID                 = 'bb5de776-1f68-4af0-8d68-5c0fa2ab3cf9'
         Author               = 'Przemyslaw Klys'
