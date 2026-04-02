@@ -5,6 +5,10 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures
 {
+    private const string Pkcs7DataOid = "1.2.840.113549.1.7.1";
+    private const string Pkcs7SignedDataOid = "1.2.840.113549.1.7.2";
+    private const string Pkcs7EncryptedDataOid = "1.2.840.113549.1.7.6";
+
     internal static bool TryMatchOpenPgpBinary(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
@@ -30,6 +34,8 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPkcs12(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
+        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
         => TryMatchPkcs12(new ReadOnlyMemory<byte>(src.ToArray()), out result);
 
     internal static bool TryMatchPkcs12(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
@@ -45,7 +51,8 @@ internal static partial class Signatures
             return false;
         }
 
-        if (!string.Equals(contentTypeOid, "1.2.840.113549.1.7.1", StringComparison.Ordinal))
+        if (!string.Equals(contentTypeOid, Pkcs7DataOid, StringComparison.Ordinal) &&
+            !string.Equals(contentTypeOid, Pkcs7EncryptedDataOid, StringComparison.Ordinal))
         {
             return false;
         }
@@ -61,12 +68,14 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPkcs7SignedData(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
+        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
         => TryMatchPkcs7SignedData(new ReadOnlyMemory<byte>(src.ToArray()), out result);
 
     internal static bool TryMatchPkcs7SignedData(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (!Asn1DetectionHelpers.TryMatchTopLevelContentInfo(src, "1.2.840.113549.1.7.2"))
+        if (!Asn1DetectionHelpers.TryMatchTopLevelContentInfo(src, Pkcs7SignedDataOid))
         {
             return false;
         }
@@ -82,6 +91,8 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchDerCertificate(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
+        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
         => TryMatchDerCertificate(new ReadOnlyMemory<byte>(src.ToArray()), out result);
 
     internal static bool TryMatchDerCertificate(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)

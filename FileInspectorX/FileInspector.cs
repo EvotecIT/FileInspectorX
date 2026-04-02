@@ -1133,11 +1133,22 @@ public static partial class FileInspector {
     public static ContentTypeDetectionResult? Detect(byte[] data, DetectionOptions? options = null, string? declaredExtension = null)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
-        return DetectCore(data, data, options, declaredExtension);
+        return Detect(data.AsMemory(), options, declaredExtension);
+    }
+
+    /// <summary>
+    /// Detects content type from in-memory data without copying the underlying buffer.
+    /// </summary>
+    public static ContentTypeDetectionResult? Detect(ReadOnlyMemory<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
+    {
+        return DetectCore(data.Span, data, options, declaredExtension);
     }
 
     /// <summary>
     /// Detects content type from an in-memory span of bytes.
+    /// Prefer the <see cref="Detect(byte[], DetectionOptions?, string?)"/> or
+    /// <see cref="Detect(ReadOnlyMemory{byte}, DetectionOptions?, string?)"/> overloads when the input is array-backed,
+    /// because crypto ASN.1 parsing needs ReadOnlyMemory and span-only callers pay a bridge allocation.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
     {

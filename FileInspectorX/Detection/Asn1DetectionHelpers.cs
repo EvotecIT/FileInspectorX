@@ -41,6 +41,7 @@ internal static class Asn1DetectionHelpers
                 return false;
             }
 
+            // Keep ContentInfo strict: once we consume the EXPLICIT [0] wrapper there should be no extra fields.
             return !contentInfo.HasData;
         }
         catch
@@ -92,6 +93,7 @@ internal static class Asn1DetectionHelpers
 
             if (pfx.HasData)
             {
+                // PKCS#12 allows one trailing macData element after authSafe; a second extra TLV is non-conformant.
                 pfx.ReadEncodedValue();
             }
 
@@ -167,6 +169,7 @@ internal static class Asn1DetectionHelpers
                 tbsCertificate.ReadEncodedValue();
             }
 
+            // Keep the outer certificate strict too: trailing garbage after signatureValue should not match.
             return !certificate.HasData;
         }
         catch

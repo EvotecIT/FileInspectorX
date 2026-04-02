@@ -49,6 +49,31 @@ public class CryptoDetectionsTests
     }
 
     [Fact]
+    public void Detect_PasswordProtected_Pkcs12_By_TopLevel_Pfx_Shape()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".pfx");
+        try
+        {
+            using var rsa = System.Security.Cryptography.RSA.Create(2048);
+            var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                "CN=FileInspectorX Encrypted PFX Test",
+                rsa,
+                System.Security.Cryptography.HashAlgorithmName.SHA256,
+                System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(7));
+            File.WriteAllBytes(
+                p,
+                certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pkcs12, "secret-password"));
+
+            var res = FI.Detect(p);
+            Assert.NotNull(res);
+            Assert.Equal("p12", res!.Extension);
+            Assert.Equal("application/x-pkcs12", res.MimeType);
+        }
+        finally { if (File.Exists(p)) File.Delete(p); }
+    }
+
+    [Fact]
     public void Detect_Pkcs12_DoesNotMatch_When_DataOid_Is_Not_TopLevel_ContentType()
     {
         byte[] contentInfoOidLookalike = File.ReadAllBytes(
@@ -222,7 +247,7 @@ public class CryptoDetectionsTests
         Assert.True(detection == null || !string.Equals(detection.Extension, "p7b", StringComparison.OrdinalIgnoreCase));
     }
 
-#if NET8_0_OR_GREATER
+#if NET5_0_OR_GREATER
     [Fact]
     public void Analyze_PemCertificate_UsesBoundedHeadRead()
     {
