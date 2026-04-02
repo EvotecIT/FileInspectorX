@@ -367,6 +367,7 @@ public static partial class FileInspector {
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = stream.Read(header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
+        var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
@@ -380,8 +381,9 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
         if (Signatures.TryMatchFtyp(src, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
-        if (Signatures.TryMatchPkcs12(src, out var p12)) return Finish(Enrich(p12, src, stream, options));
-        if (Signatures.TryMatchDerCertificate(src, out var der)) return Finish(Enrich(der, src, stream, options));
+        if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
+        if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
+        if (Signatures.TryMatchDerCertificate(srcMemory, out var der)) return Finish(Enrich(der, src, stream, options));
         if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Finish(Enrich(pgpbin, src, stream, options));
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
@@ -918,7 +920,7 @@ public static partial class FileInspector {
     {
         try
         {
-            var raw = File.ReadAllBytes(path);
+            if (!TryReadFileBytesWithinBudget(path, GetCertificateParseReadBudgetBytes(), out var raw)) return;
             var cms = new System.Security.Cryptography.Pkcs.SignedCms();
             cms.Decode(raw);
             var certs = cms.Certificates;
@@ -1051,7 +1053,7 @@ public static partial class FileInspector {
         return null;
     }
 
-    private static bool TryGetOleDirectoryNames(Stream stream, out List<string> names)
+    internal static bool TryGetOleDirectoryNames(Stream stream, out List<string> names)
     {
         names = new List<string>();
         long save = stream.CanSeek ? stream.Position : 0;
@@ -1126,9 +1128,34 @@ public static partial class FileInspector {
     }
 
     /// <summary>
-    /// Detects content type from an in-memory span of bytes.
+    /// Detects content type from an in-memory byte array without copying the buffer.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null) {
+    public static ContentTypeDetectionResult? Detect(byte[] data, DetectionOptions? options = null, string? declaredExtension = null)
+    {
+        if (data == null) throw new ArgumentNullException(nameof(data));
+        return Detect(data.AsMemory(), options, declaredExtension);
+    }
+
+    /// <summary>
+    /// Detects content type from in-memory data without copying the underlying buffer.
+    /// </summary>
+    public static ContentTypeDetectionResult? Detect(ReadOnlyMemory<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
+    {
+        return DetectCore(data.Span, data, options, declaredExtension);
+    }
+
+    /// <summary>
+    /// Detects content type from an in-memory span of bytes.
+    /// Prefer the <see cref="Detect(byte[], DetectionOptions?, string?)"/> or
+    /// <see cref="Detect(ReadOnlyMemory{byte}, DetectionOptions?, string?)"/> overloads when the input is array-backed,
+    /// because crypto ASN.1 parsing needs ReadOnlyMemory and span-only callers pay a bridge allocation.
+    /// </summary>
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
+    {
+        return DetectCore(data, null, options, declaredExtension);
+    }
+
+    private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
@@ -1141,8 +1168,18 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Finish(Enrich(ftyp, data, null, options));
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
-        if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
-        if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+        if (dataMemory.HasValue)
+        {
+            if (Signatures.TryMatchPkcs12(dataMemory.Value, out var p12Mem)) return Finish(Enrich(p12Mem, data, null, options));
+            if (Signatures.TryMatchPkcs7SignedData(dataMemory.Value, out var pkcs7Mem)) return Finish(Enrich(pkcs7Mem, data, null, options));
+            if (Signatures.TryMatchDerCertificate(dataMemory.Value, out var derMem)) return Finish(Enrich(derMem, data, null, options));
+        }
+        else
+        {
+            if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
+            if (Signatures.TryMatchPkcs7SignedData(data, out var pkcs7)) return Finish(Enrich(pkcs7, data, null, options));
+            if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+        }
         if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Finish(Enrich(pgpbin, data, null, options));
         if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));
         if (Signatures.TryMatch7z(data, out var _7z)) return Finish(Enrich(_7z, data, null, options));
@@ -1303,7 +1340,7 @@ public static partial class FileInspector {
 
     private static string NormalizeMime(string ext, string mime) {
         if (string.Equals(mime, "application/octet-stream", StringComparison.OrdinalIgnoreCase)) {
-            if (MimeMaps.Default.TryGetValue(ext, out var better)) return better;
+            if (MimeMaps.TryGetByExtension(ext, out var better) && !string.IsNullOrWhiteSpace(better)) return better!;
         }
         return mime;
     }
@@ -1352,6 +1389,18 @@ public static partial class FileInspector {
             det.Extension = "inf";
             det.MimeType = NormalizeMime(det.Extension, det.MimeType);
             det.Reason = AppendReason(det.Reason, "bias:decl:inf");
+            det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
+            return det;
+        }
+
+        // PKCS#7 payloads often arrive as .spc/.p7s; preserve the declared subtype for reporting.
+        if ((decl == "spc" || decl == "p7s") && string.Equals(det.Extension, "p7b", StringComparison.OrdinalIgnoreCase))
+        {
+            det.Extension = decl;
+            det.MimeType = MimeMaps.TryGetByExtension(det.Extension, out var preferredMime) && !string.IsNullOrWhiteSpace(preferredMime)
+                ? preferredMime!
+                : NormalizeMime(det.Extension, det.MimeType);
+            det.Reason = AppendReason(det.Reason, $"bias:decl:{decl}");
             det.IsDangerous = det.IsDangerous || DangerousExtensions.IsDangerous(det.Extension);
             return det;
         }

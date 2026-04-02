@@ -104,7 +104,8 @@ public static class MimeMaps {
         mime = null;
         if (string.IsNullOrWhiteSpace(extension)) return false;
         var key = extension!.Trim().TrimStart('.');
-        return Default.TryGetValue(key, out mime);
+        if (Default.TryGetValue(key, out mime)) return true;
+        return ExtraMime.Crypto.TryGetValue(key, out mime);
     }
 }
 
@@ -127,6 +128,7 @@ internal static class ExtraMime
         ["key"] = "application/x-pem-key",
         ["pub"] = "application/x-pem-key",
         ["p7b"] = "application/pkcs7-mime",
+        ["spc"] = "application/x-pkcs7-certificates",
         ["p7s"] = "application/pkcs7-signature",
         ["p12"] = "application/x-pkcs12",
         ["pfx"] = "application/x-pkcs12",

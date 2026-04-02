@@ -5,6 +5,10 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures
 {
+    private const string Pkcs7DataOid = "1.2.840.113549.1.7.1";
+    private const string Pkcs7SignedDataOid = "1.2.840.113549.1.7.2";
+    private const string Pkcs7EncryptedDataOid = "1.2.840.113549.1.7.6";
+
     internal static bool TryMatchOpenPgpBinary(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
@@ -30,51 +34,82 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPkcs12(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
+        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
+        => TryMatchPkcs12(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+
+    internal static bool TryMatchPkcs12(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length < 16) return false;
-        // Basic ASN.1 SEQUENCE start
-        if (src[0] != 0x30) return false;
-        // Look for OID 1.2.840.113549.1.12.10.1.* in the first 256 bytes: 2A 86 48 86 F7 0D 01 0C 0A 01
-        byte[] pfxOid = new byte[] { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x0C, 0x0A, 0x01 };
-        int window = Math.Min(src.Length, 256);
-        for (int i = 0; i <= window - pfxOid.Length; i++)
+        if (!Asn1DetectionHelpers.TryReadPfxAuthSafe(src, out var version, out var contentTypeOid, out _))
         {
-            if (src.Slice(i, pfxOid.Length).SequenceEqual(pfxOid))
-            {
-                result = new ContentTypeDetectionResult { Extension = "p12", MimeType = "application/x-pkcs12", Confidence = "Low", Reason = "asn1:pkcs12" };
-                return true;
-            }
+            return false;
         }
-        return false;
+
+        if (version != 3)
+        {
+            return false;
+        }
+
+        if (!string.Equals(contentTypeOid, Pkcs7DataOid, StringComparison.Ordinal) &&
+            !string.Equals(contentTypeOid, Pkcs7EncryptedDataOid, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        result = new ContentTypeDetectionResult
+        {
+            Extension = "p12",
+            MimeType = "application/x-pkcs12",
+            Confidence = "Low",
+            Reason = "asn1:pkcs12"
+        };
+        return true;
+    }
+
+    internal static bool TryMatchPkcs7SignedData(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
+        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
+        => TryMatchPkcs7SignedData(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+
+    internal static bool TryMatchPkcs7SignedData(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!Asn1DetectionHelpers.TryMatchTopLevelContentInfo(src, Pkcs7SignedDataOid))
+        {
+            return false;
+        }
+
+        result = new ContentTypeDetectionResult
+        {
+            Extension = "p7b",
+            MimeType = "application/pkcs7-mime",
+            Confidence = "Low",
+            Reason = "asn1:pkcs7-signed-data"
+        };
+        return true;
     }
 
     internal static bool TryMatchDerCertificate(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
+        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
+        => TryMatchDerCertificate(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+
+    internal static bool TryMatchDerCertificate(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length < 8) return false;
-        if (src[0] != 0x30) return false; // SEQUENCE
-        // Check long-form length
-        int i = 1;
-        int len = src[i++];
-        if ((len & 0x80) != 0)
+        if (!Asn1DetectionHelpers.TryMatchDerCertificateEnvelope(src))
         {
-            int n = len & 0x7F; if (n <= 0 || n > 3 || src.Length < 2 + n) return false; i += n;
-        }
-        // Heuristic: presence of common OID prefixes for signature algorithms within the first 128 bytes
-        byte[] rsaPrefix = new byte[] { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01 }; // 1.2.840.113549.1.1
-        byte[] ecdsaPrefix = new byte[] { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04 }; // 1.2.840.10045.4 (ECDSA)
-        int w = Math.Min(src.Length, 128);
-        bool hasAlg = ContainsSeq(src.Slice(0, w), rsaPrefix) || ContainsSeq(src.Slice(0, w), ecdsaPrefix);
-        if (!hasAlg) return false;
-        result = new ContentTypeDetectionResult { Extension = "cer", MimeType = "application/pkix-cert", Confidence = "Low", Reason = "asn1:der-cert" };
-        return true;
-
-        static bool ContainsSeq(ReadOnlySpan<byte> hay, byte[] needle)
-        {
-            for (int k = 0; k <= hay.Length - needle.Length; k++)
-                if (hay.Slice(k, needle.Length).SequenceEqual(needle)) return true;
             return false;
         }
+
+        result = new ContentTypeDetectionResult
+        {
+            Extension = "cer",
+            MimeType = "application/pkix-cert",
+            Confidence = "Low",
+            Reason = "asn1:der-cert"
+        };
+        return true;
     }
 }
