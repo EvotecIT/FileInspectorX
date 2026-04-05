@@ -70,4 +70,44 @@ public class FriendlyNamesTests
 
         Assert.Equal("Windows cabinet archive", label);
     }
+
+    [Fact]
+    public void GetTypeLabel_Returns_Apk_Label_From_Zip_Subtype()
+    {
+        var detection = new ContentTypeDetectionResult
+        {
+            Extension = "zip",
+            MimeType = "application/vnd.android.package-archive",
+            GuessedExtension = "apk"
+        };
+
+        var label = FriendlyNames.GetTypeLabel(detection, new FileAnalysis
+        {
+            ContainerSubtype = "apk"
+        });
+
+        Assert.Equal("Android package (APK)", label);
+    }
+
+    [Theory]
+    [InlineData("parquet", "Apache Parquet data file")]
+    [InlineData("pcapng", "Packet capture (PCAPNG)")]
+    [InlineData("wasm", "WebAssembly module")]
+    [InlineData("heic", "HEIC image")]
+    [InlineData("png", "PNG image")]
+    [InlineData("p7b", "PKCS#7 certificate bundle")]
+    [InlineData("mp4", "MPEG-4 video")]
+    [InlineData("xz", "XZ compressed file")]
+    public void GetTypeLabel_Returns_Friendly_Label_For_Additional_Specialized_Types(string extension, string expected)
+    {
+        var detection = new ContentTypeDetectionResult
+        {
+            Extension = extension,
+            MimeType = "application/octet-stream"
+        };
+
+        var label = FriendlyNames.GetTypeLabel(detection, new FileAnalysis());
+
+        Assert.Equal(expected, label);
+    }
 }

@@ -232,6 +232,36 @@ public class DetectorTests {
     }
 
     [Fact]
+    public void Detect_Apk_ByZipSubtype_UsesSubtypeMime_And_DeclaredComparison()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".apk");
+        try
+        {
+            using (var fs = File.Create(path))
+            using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                za.CreateEntry("AndroidManifest.xml");
+                za.CreateEntry("classes.dex");
+            }
+
+            var res = FI.Detect(path);
+
+            Assert.NotNull(res);
+            Assert.Equal("zip", res!.Extension);
+            Assert.Equal("apk", res.GuessedExtension);
+            Assert.Equal("application/vnd.android.package-archive", res.MimeType);
+
+            var cmp = FI.CompareDeclaredDetailed(".apk", res);
+            Assert.False(cmp.Mismatch);
+            Assert.Equal("apk", cmp.DetectedExtension);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Detect_Tar_ByUstar() {
         var tar = Path.GetTempFileName();
         try {
