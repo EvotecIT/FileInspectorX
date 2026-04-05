@@ -30,6 +30,26 @@ public static partial class FileInspector
         cmp.Mismatch = baseCmp.Mismatch;
         cmp.Reason = baseCmp.Reason ?? string.Empty;
 
+        if (!string.IsNullOrEmpty(decl) &&
+            !string.IsNullOrEmpty(detGuess) &&
+            !string.Equals(detExt, detGuess, StringComparison.OrdinalIgnoreCase))
+        {
+            var guessOnlyCmp = CompareDeclared(
+                decl,
+                new ContentTypeDetectionResult
+                {
+                    Extension = detGuess ?? string.Empty,
+                    MimeType = detected?.MimeType ?? string.Empty,
+                    Confidence = detected?.Confidence ?? string.Empty,
+                    Reason = detected?.Reason ?? string.Empty
+                });
+
+            if (!guessOnlyCmp.Mismatch)
+            {
+                cmp.DetectedExtension = detGuess;
+            }
+        }
+
         if (detected == null || string.IsNullOrEmpty(decl))
             return cmp;
 

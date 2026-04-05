@@ -126,6 +126,14 @@ public static partial class FileInspector {
             return false;
         }
 
+        if (!string.IsNullOrEmpty(detGuess) &&
+            !Equivalent(decl, det) &&
+            Equivalent(decl, detGuess!))
+        {
+            det = detGuess!;
+            detLabel = detGuess! + "(guess)";
+        }
+
         static bool InPlainTextFamily(string ext)
         {
             // Conservative set: generic text and common note/config/log formats; excludes csv/tsv/scripts
@@ -402,9 +410,18 @@ public static partial class FileInspector {
                     if (refined != null) return Finish(Enrich(refined, src, stream, options));
                     var confZip = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
                     var guess = TryGuessZipSubtype(stream, out var guessMime);
+                    if (string.IsNullOrWhiteSpace(guessMime) &&
+                        !string.IsNullOrWhiteSpace(guess) &&
+                        MimeMaps.TryGetByExtension(guess, out var guessedMime) &&
+                        !string.IsNullOrWhiteSpace(guessedMime))
+                    {
+                        guessMime = guessedMime;
+                    }
                     var basicZip = new ContentTypeDetectionResult {
                         Extension = sig.Extension,
-                        MimeType = NormalizeMime(sig.Extension, sig.MimeType),
+                        MimeType = !string.IsNullOrWhiteSpace(guessMime)
+                            ? guessMime!
+                            : NormalizeMime(sig.Extension, sig.MimeType),
                         Confidence = confZip,
                         Reason = $"magic:{sig.Extension}",
                         GuessedExtension = guess
