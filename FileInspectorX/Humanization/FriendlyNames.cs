@@ -21,11 +21,47 @@ public static class FriendlyNames
         var mime = det?.MimeType?.ToLowerInvariant();
         if (string.IsNullOrEmpty(ext) && string.IsNullOrEmpty(mime)) return null;
 
+        var subtype = a.ContainerSubtype?.ToLowerInvariant();
+        if (string.IsNullOrEmpty(subtype) && ext == "zip")
+        {
+            subtype = det?.GuessedExtension?.ToLowerInvariant();
+        }
+
+        switch (subtype)
+        {
+            case "jar": return "Java archive (JAR)";
+            case "apk": return "Android package (APK)";
+            case "ipa": return "iOS application archive (IPA)";
+            case "epub": return "EPUB e-book";
+            case "odt": return "OpenDocument text document";
+            case "ods": return "OpenDocument spreadsheet";
+            case "odp": return "OpenDocument presentation";
+            case "odg": return "OpenDocument drawing";
+            case "kmz": return "Google Earth KMZ archive";
+            case "vsix": return "Visual Studio extension (VSIX)";
+            case "nupkg": return "NuGet package (NUPKG)";
+            case "xap": return "Silverlight application package (XAP)";
+            case "appx":
+            case "msix": return "Windows app package";
+        }
+
         // Extension-first friendly map
         switch (ext)
         {
+            case "png": return "PNG image";
+            case "jpg":
+            case "jpeg": return "JPEG image";
+            case "gif": return "GIF image";
+            case "bmp": return "Bitmap image";
+            case "webp": return "WebP image";
+            case "tif":
+            case "tiff": return "TIFF image";
+            case "ico": return "Icon image";
             case "pfx":
             case "p12": return "PKCS#12 / PFX archive";
+            case "p7b": return "PKCS#7 certificate bundle";
+            case "spc": return "Software publisher certificate bundle";
+            case "p7s": return "PKCS#7 signature";
             case "crt":
             case "cer": return "X.509 certificate";
             case "csr": return "Certificate signing request (CSR)";
@@ -90,9 +126,23 @@ public static class FriendlyNames
             case "gz":   return "GZIP compressed file";
             case "cab":  return "Windows cabinet archive";
             case "nupkg": return "NuGet package (NUPKG)";
-            case "xap":   return "Silverlight application package (XAP)";
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
+            case "parquet": return "Apache Parquet data file";
+            case "pcap": return "Packet capture (PCAP)";
+            case "pcapng": return "Packet capture (PCAPNG)";
+            case "wasm": return "WebAssembly module";
+            case "heic": return "HEIC image";
+            case "flac": return "FLAC audio";
+            case "wav": return "WAV audio";
+            case "mp3": return "MP3 audio";
+            case "m4a": return "AAC audio (M4A)";
+            case "mp4": return "MPEG-4 video";
+            case "avi": return "AVI video";
+            case "3gp": return "3GPP media";
+            case "bz2": return "BZip2 compressed file";
+            case "xz": return "XZ compressed file";
+            case "zst": return "Zstandard compressed file";
             case "dmp":
                 if (string.Equals(mime, "application/x-ms-protected-dump", System.StringComparison.OrdinalIgnoreCase))
                     return "Protected Windows crash dump";
