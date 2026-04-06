@@ -247,6 +247,7 @@ public class DetectorTests {
             var res = FI.Detect(path);
 
             Assert.NotNull(res);
+            // ZIP subtype detection intentionally keeps the base container extension while upgrading the MIME/guess.
             Assert.Equal("zip", res!.Extension);
             Assert.Equal("apk", res.GuessedExtension);
             Assert.Equal("application/vnd.android.package-archive", res.MimeType);
@@ -254,6 +255,36 @@ public class DetectorTests {
             var cmp = FI.CompareDeclaredDetailed(".apk", res);
             Assert.False(cmp.Mismatch);
             Assert.Equal("apk", cmp.DetectedExtension);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Detect_Jar_ByZipSubtype_UsesSubtypeMime_And_DeclaredComparison()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".jar");
+        try
+        {
+            using (var fs = File.Create(path))
+            using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                za.CreateEntry("META-INF/MANIFEST.MF");
+                za.CreateEntry("com/example/App.class");
+            }
+
+            var res = FI.Detect(path);
+
+            Assert.NotNull(res);
+            Assert.Equal("zip", res!.Extension);
+            Assert.Equal("jar", res.GuessedExtension);
+            Assert.Equal("application/java-archive", res.MimeType);
+
+            var cmp = FI.CompareDeclaredDetailed(".jar", res);
+            Assert.False(cmp.Mismatch);
+            Assert.Equal("jar", cmp.DetectedExtension);
         }
         finally
         {

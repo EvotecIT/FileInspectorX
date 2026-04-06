@@ -126,7 +126,6 @@ public static class FriendlyNames
             case "gz":   return "GZIP compressed file";
             case "cab":  return "Windows cabinet archive";
             case "nupkg": return "NuGet package (NUPKG)";
-            case "xap":   return "Silverlight application package (XAP)";
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
             case "parquet": return "Apache Parquet data file";

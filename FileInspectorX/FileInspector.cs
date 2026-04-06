@@ -131,7 +131,8 @@ public static partial class FileInspector {
             Equivalent(decl, detGuess!))
         {
             det = detGuess!;
-            detLabel = detGuess! + "(guess)";
+            // Keep the detected extension as the base ZIP family while still showing that the guess resolved the declared subtype.
+            detLabel = detGuess! + " (guess)";
         }
 
         static bool InPlainTextFamily(string ext)

@@ -30,6 +30,11 @@ public static partial class FileInspector
         cmp.Mismatch = baseCmp.Mismatch;
         cmp.Reason = baseCmp.Reason ?? string.Empty;
 
+        if (detected == null || string.IsNullOrEmpty(decl))
+            return cmp;
+
+        var detection = detected;
+
         if (!string.IsNullOrEmpty(decl) &&
             !string.IsNullOrEmpty(detGuess) &&
             !string.Equals(detExt, detGuess, StringComparison.OrdinalIgnoreCase))
@@ -50,10 +55,7 @@ public static partial class FileInspector
             }
         }
 
-        if (detected == null || string.IsNullOrEmpty(decl))
-            return cmp;
-
-        var strong = GetStrongAlternatives(detected, detExt);
+        var strong = GetStrongAlternatives(detection, detExt);
         if (strong.Count > 0)
         {
             cmp.StrongAlternatives = strong;
@@ -82,7 +84,7 @@ public static partial class FileInspector
             cmp.StrongDangerousAlternativeExtensions = dangerousAlt;
 
         cmp.IsDeclaredDangerous = !string.IsNullOrEmpty(decl) && IsDangerous(decl);
-        bool detectedDanger = detected.IsDangerous ||
+        bool detectedDanger = detection.IsDangerous ||
                               (!string.IsNullOrEmpty(detExt) && IsDangerous(detExt));
         if (dangerousAlt.Count > 0) detectedDanger = true;
         cmp.IsDetectedDangerous = detectedDanger;
