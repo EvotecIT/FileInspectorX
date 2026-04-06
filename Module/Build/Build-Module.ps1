@@ -1,4 +1,4 @@
-Import-Module PSPublishModule -Force -RequiredVersion '2.0.26'
+Import-Module PSPublishModule -Force
 
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
