@@ -801,6 +801,24 @@ public static partial class FileInspector {
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScriptFromText(heuristicsText, declaredExt, includeSecrets: false);
                 if (sf.Count > 0) res.SecurityFindings = sf;
+                var sfEvidence = SecurityHeuristics.AssessScriptEvidenceFromText(heuristicsText, declaredExt);
+                sfEvidence = sfEvidence
+                    .Where(detail => !SecurityHeuristics.IsDuplicateCredentialDumpHint(detail.Code, sf))
+                    .ToList();
+                if (sfEvidence.Count > 0)
+                {
+                    res.SecurityFindingEvidence = sfEvidence;
+                    var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
+                    foreach (var detail in sfEvidence)
+                    {
+                        if (!string.IsNullOrWhiteSpace(detail.Code) &&
+                            !list.Contains(detail.Code, StringComparer.OrdinalIgnoreCase))
+                        {
+                            list.Add(detail.Code);
+                        }
+                    }
+                    res.SecurityFindings = list;
+                }
                 // Cmdlets: best-effort extraction for presentation (PowerShell only)
                 var psLang = res.ScriptLanguage ?? res.TextSubtype;
                 if (string.Equals(psLang, "powershell", StringComparison.OrdinalIgnoreCase))
@@ -873,10 +891,15 @@ public static partial class FileInspector {
 #endif
 
             // Standalone certificate parsing for .cer/.crt/.der/.pem
-            var detExtStandalone = det?.Extension;
-            if (detExtStandalone is "cer" or "crt" or "der" or "pem")
+            var detExtStandalone = det?.Extension?.Trim().ToLowerInvariant();
+            var declaredExtStandalone = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
+            var certificateExt =
+                detExtStandalone is "cer" or "crt" or "der" or "pem" ? detExtStandalone :
+                declaredExtStandalone is "cer" or "crt" or "der" or "pem" ? declaredExtStandalone :
+                null;
+            if (certificateExt != null)
             {
-                if (TryLoadCertificateFromFile(path, detExtStandalone!, out var cert))
+                if (TryLoadCertificateFromFile(path, certificateExt, out var cert))
                 {
                     var ci = new CertificateInfo();
                     try { ci.Subject = cert.Subject; } catch { }

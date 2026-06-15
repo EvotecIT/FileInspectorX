@@ -100,6 +100,27 @@ public static class AssessmentLegend
         ["Script.UncShares"]          = new("Script.UncShares", "UNC share references", "Script references one or more UNC shares or remote administrative paths.", "Content", 30),
         ["Script.NetworkDriveMapping"] = new("Script.NetworkDriveMapping", "Network drive mapping", "Script maps or mounts remote network shares.", "Content", 35),
         ["Script.ExternalHosts"]      = new("Script.ExternalHosts", "External host references", "Script references one or more external network hosts.", "Content", 45),
+        ["Script.BitsadminTransfer"]  = new("Script.BitsadminTransfer", "BITS transfer", "Script starts a BITS transfer job.", "Content", 45),
+        ["Script.AmsiBypass"]         = new("Script.AmsiBypass", "AMSI bypass indicator", "Script references AMSI bypass internals.", "Content", 75),
+        ["Script.KeyloggingApi"]      = new("Script.KeyloggingApi", "Keyboard capture API", "Script references keyboard hook or key-state APIs.", "Content", 85),
+        ["Script.PInvoke"]            = new("Script.PInvoke", "Native API invocation", "Script uses P/Invoke or native Windows API loading.", "Content", 45),
+        ["Script.ForegroundWindowRead"] = new("Script.ForegroundWindowRead", "Window text inspection", "Script reads foreground window or window text state.", "Content", 35),
+        ["Script.Persistence"]        = new("Script.Persistence", "Persistence mechanism", "Script references autorun keys, scheduled tasks, or startup-folder persistence.", "Content", 65),
+        ["Script.RegistryModify"]     = new("Script.RegistryModify", "Registry modification", "Script modifies registry values or properties.", "Content", 35),
+        ["Script.ShadowCopyDeletion"] = new("Script.ShadowCopyDeletion", "Shadow copy deletion", "Script deletes Windows shadow copies.", "Content", 85),
+        ["Script.CipherWipe"]         = new("Script.CipherWipe", "Cipher wipe", "Script invokes cipher wipe behavior.", "Content", 70),
+        ["Script.FormatDrive"]        = new("Script.FormatDrive", "Drive format command", "Script invokes drive format behavior.", "Content", 90),
+        ["Script.RecursiveForceDelete"] = new("Script.RecursiveForceDelete", "Recursive forced delete", "Script removes files recursively with force flags.", "Content", 60),
+        ["Script.BootConfigEdit"]     = new("Script.BootConfigEdit", "Boot configuration edit", "Script edits Windows boot configuration.", "Content", 60),
+        ["Script.HiddenWindow"]       = new("Script.HiddenWindow", "Hidden window launch", "Script launches processes hidden from view.", "Content", 45),
+        ["Script.IndirectExecution"]  = new("Script.IndirectExecution", "Indirect execution host", "Script invokes dual-use execution hosts.", "Content", 60),
+        ["Script.AttribHidden"]       = new("Script.AttribHidden", "Hidden attribute set", "Script hides files with attrib.", "Content", 35),
+        ["Script.PlaintextCredential"] = new("Script.PlaintextCredential", "Plaintext credential conversion", "Script converts plaintext into credential material.", "Content", 45),
+        ["Script.ClipboardRead"]      = new("Script.ClipboardRead", "Clipboard read", "Script reads clipboard contents.", "Content", 35),
+        ["Script.ElevationRequest"]   = new("Script.ElevationRequest", "Elevation request", "Script requests administrator execution.", "Content", 35),
+        ["Script.ExecutionPolicyBypass"] = new("Script.ExecutionPolicyBypass", "Execution policy bypass", "Script bypasses or relaxes PowerShell execution policy.", "Content", 50),
+        ["Script.SecurityToolTamper"] = new("Script.SecurityToolTamper", "Security tool tampering", "Script disables or weakens Defender, firewall, or security exclusions.", "Content", 85),
+        ["Sig.CredentialDumpHint"]    = new("Sig.CredentialDumpHint", "Credential dumping hint", "Script references credential dumping or LSASS-related terms.", "Content", 80),
 
         // Naming and file identity
         ["Html.ExternalLinks"]        = new("Html.ExternalLinks", "HTML external links", "HTML content references external links.", "Markup", 15),
@@ -148,6 +169,10 @@ public static class AssessmentLegend
 
     /// <summary>Returns a stable, typed legend for assessment codes.</summary>
     public static IReadOnlyList<LegendEntry> GetLegend() => s_codes.Values
+        .Concat(ScriptFindingRuleCatalog.Rules
+            .Where(rule => !s_codes.ContainsKey(rule.AssessmentCode))
+            .GroupBy(rule => rule.AssessmentCode, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First().ToAssessmentLegend()))
         .OrderByDescending(e => e.Severity ?? 0)
         .ThenBy(e => e.Short, StringComparer.OrdinalIgnoreCase)
         .ToList();
@@ -160,7 +185,8 @@ public static class AssessmentLegend
         foreach (var c in codes)
         {
             if (string.IsNullOrWhiteSpace(c)) continue;
-            if (s_codes.TryGetValue(c, out var entry)) labels.Add(style == HumanizeStyle.Long ? entry.Long : entry.Short);
+            if (ScriptFindingRuleCatalog.TryGetAssessmentRule(c, out var scriptRule)) labels.Add(style == HumanizeStyle.Long ? scriptRule.AssessmentLong : scriptRule.AssessmentShort);
+            else if (s_codes.TryGetValue(c, out var entry)) labels.Add(style == HumanizeStyle.Long ? entry.Long : entry.Short);
             else labels.Add(c);
         }
         return string.Join(separator, labels);

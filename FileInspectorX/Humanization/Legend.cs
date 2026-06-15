@@ -41,6 +41,29 @@ public static class Legend
         ["py:exec-b64"] = new("py:exec-b64", "Python base64 exec",         "Python exec with base64-decoded strings.",             "Script", 60),
         ["lua:exec"]    = new("lua:exec",    "Lua exec",                   "Lua code execution helpers.",                           "Script", 40),
         ["rb:eval"]     = new("rb:eval",     "Ruby eval",                  "Ruby eval/dynamic execution.",                          "Script", 40),
+        ["script:bitsadmin-transfer"] = new("script:bitsadmin-transfer", "BITS transfer", "Script starts a BITS transfer job.", "Script", 45),
+        ["script:amsi-bypass"] = new("script:amsi-bypass", "AMSI bypass indicator", "Script references AMSI bypass internals.", "Script", 75),
+        ["script:keylogging-api"] = new("script:keylogging-api", "Keyboard capture API", "Script references keyboard hook or key-state APIs.", "Script", 85),
+        ["script:pinvoke"] = new("script:pinvoke", "Native API invocation", "Script uses P/Invoke or native Windows API loading.", "Script", 45),
+        ["script:foreground-window"] = new("script:foreground-window", "Window text inspection", "Script reads foreground window or window text state.", "Script", 35),
+        ["script:registry-run-key"] = new("script:registry-run-key", "Registry run key", "Script references Windows autorun registry paths.", "Script", 65),
+        ["script:registry-modify"] = new("script:registry-modify", "Registry modification", "Script modifies registry values or properties.", "Script", 35),
+        ["script:scheduled-task"] = new("script:scheduled-task", "Scheduled task creation", "Script creates or registers scheduled tasks.", "Script", 65),
+        ["script:startup-folder"] = new("script:startup-folder", "Startup folder persistence", "Script references the Windows startup folder.", "Script", 60),
+        ["script:vssadmin-shadows"] = new("script:vssadmin-shadows", "Shadow copy deletion", "Script deletes Windows shadow copies.", "Script", 85),
+        ["script:cipher-wipe"] = new("script:cipher-wipe", "Cipher wipe", "Script invokes cipher wipe behavior.", "Script", 70),
+        ["script:format-drive"] = new("script:format-drive", "Drive format command", "Script invokes drive format behavior.", "Script", 90),
+        ["script:recursive-force-delete"] = new("script:recursive-force-delete", "Recursive forced delete", "Script removes files recursively with force flags.", "Script", 60),
+        ["script:bcdedit"] = new("script:bcdedit", "Boot configuration edit", "Script edits Windows boot configuration.", "Script", 60),
+        ["script:hidden-window"] = new("script:hidden-window", "Hidden window launch", "Script launches processes hidden from view.", "Script", 45),
+        ["script:indirect-exec"] = new("script:indirect-exec", "Indirect execution host", "Script invokes dual-use hosts such as rundll32, mshta, regsvr32, wscript, or cscript.", "Script", 60),
+        ["script:attrib-hidden"] = new("script:attrib-hidden", "Hidden attribute set", "Script hides files with attrib.", "Script", 35),
+        ["script:credential-dump-hint"] = new("script:credential-dump-hint", "Credential dumping hint", "Script references credential dumping or LSASS-related terms.", "Script", 80),
+        ["script:plaintext-credential"] = new("script:plaintext-credential", "Plaintext credential conversion", "Script converts plaintext into credential material.", "Script", 45),
+        ["script:clipboard-read"] = new("script:clipboard-read", "Clipboard read", "Script reads clipboard contents.", "Script", 35),
+        ["script:elevation-request"] = new("script:elevation-request", "Elevation request", "Script requests administrator execution.", "Script", 35),
+        ["script:execution-policy-bypass"] = new("script:execution-policy-bypass", "Execution policy bypass", "Script bypasses or relaxes PowerShell execution policy.", "Script", 50),
+        ["script:defender-tamper"] = new("script:defender-tamper", "Security tool tampering", "Script disables or weakens Defender, firewall, or security exclusions.", "Script", 85),
         // Container encryption notes
         ["rar5:headers-encrypted"] = new("rar5:headers-encrypted", "RAR5 encrypted headers", "RAR v5 archive has encrypted headers; entry counting unavailable without password.", "Archive", 55),
         ["7z:headers-encrypted"]   = new("7z:headers-encrypted",   "7z encrypted headers",   "7z archive uses encrypted headers; entry counting unavailable without password.",   "Archive", 55),
@@ -108,7 +131,13 @@ public static class Legend
 
     /// <summary>Returns legend for known heuristic/security findings.</summary>
     public static IReadOnlyList<LegendEntry> GetHeuristicsLegend()
-        => s_heuristicsLegend.Values.OrderByDescending(e => e.Severity ?? 0).ThenBy(e => e.Short, StringComparer.OrdinalIgnoreCase).ToList();
+        => s_heuristicsLegend.Values
+            .Concat(ScriptFindingRuleCatalog.Rules
+                .Where(rule => !s_heuristicsLegend.ContainsKey(rule.Code))
+                .Select(rule => rule.ToFindingLegend()))
+            .OrderByDescending(e => e.Severity ?? 0)
+            .ThenBy(e => e.Short, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>
     /// Humanizes a CSV of analysis flag codes (e.g., "Macros,ZipEnc") using short or long labels.
@@ -155,6 +184,10 @@ public static class Legend
                 var shortTxt = $"Tool: {val}";
                 var longTxt  = $"Known tool detected by name: {val}";
                 friendly.Add(style == HumanizeStyle.Long ? longTxt : shortTxt);
+            }
+            else if (ScriptFindingRuleCatalog.TryGetRule(f, out var scriptRule))
+            {
+                friendly.Add(style == HumanizeStyle.Long ? scriptRule.LongText : scriptRule.ShortText);
             }
             else if (s_heuristicsLegend.TryGetValue(f, out var entry) && entry is not null)
             {

