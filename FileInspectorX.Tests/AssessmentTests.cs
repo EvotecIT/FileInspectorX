@@ -838,6 +838,40 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_SourceEvidence_Script_Indicators_Are_Scored_And_Deduplicated()
+    {
+        var analysis = new FileAnalysis
+        {
+            SecurityFindings = new[]
+            {
+                "script:amsi-bypass",
+                "script:keylogging-api",
+                "script:registry-run-key",
+                "script:scheduled-task",
+                "script:vssadmin-shadows",
+                "script:defender-tamper",
+                "script:defender-tamper"
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(100, assessed.Score);
+        Assert.Contains("Script.AmsiBypass", assessed.Codes);
+        Assert.Contains("Script.KeyloggingApi", assessed.Codes);
+        Assert.Contains("Script.Persistence", assessed.Codes);
+        Assert.Contains("Script.ShadowCopyDeletion", assessed.Codes);
+        Assert.Contains("Script.SecurityToolTamper", assessed.Codes);
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Script.Persistence"));
+        Assert.Equal(1, assessed.Codes.Count(c => c == "Script.SecurityToolTamper"));
+        Assert.Equal(30, assessed.Factors["Script.AmsiBypass"]);
+        Assert.Equal(35, assessed.Factors["Script.KeyloggingApi"]);
+        Assert.Equal(25, assessed.Factors["Script.Persistence"]);
+        Assert.Equal(35, assessed.Factors["Script.ShadowCopyDeletion"]);
+        Assert.Equal(35, assessed.Factors["Script.SecurityToolTamper"]);
+    }
+
+    [Fact]
     public void Assess_External_Script_Host_Indicators_Are_Scored()
     {
         var analysis = new FileAnalysis

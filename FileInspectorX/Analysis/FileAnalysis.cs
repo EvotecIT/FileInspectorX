@@ -70,6 +70,12 @@ public class FileAnalysis {
     public IReadOnlyList<string>? SecurityFindings { get; set; }
 
     /// <summary>
+    /// Bounded source evidence for selected security findings, such as a script line and redacted snippet.
+    /// Codes match entries in <see cref="SecurityFindings"/> when evidence is available.
+    /// </summary>
+    public IReadOnlyList<FindingEvidence>? SecurityFindingEvidence { get; set; }
+
+    /// <summary>
     /// For scripts, best-effort list of notable cmdlets/verbs seen (e.g., Start-Process, Invoke-WebRequest).
     /// </summary>
     public IReadOnlyList<string>? ScriptCmdlets { get; set; }

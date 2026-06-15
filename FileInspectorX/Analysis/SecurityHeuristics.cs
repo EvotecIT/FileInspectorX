@@ -6,7 +6,7 @@ namespace FileInspectorX;
 internal static partial class SecurityHeuristics
 {
     // ACTIVE (default): Base64-encoded indicators decoded at runtime to avoid static signatures
-    private static readonly string[] SensitiveIndicators = DecodeB64(new[]
+    internal static readonly string[] SensitiveIndicators = DecodeB64(new[]
     {
         // Neutral indicator set decoded from Base64 at runtime; keep raw trigger text out of source.
         "bWltaWthdHo=",
@@ -93,6 +93,17 @@ internal static partial class SecurityHeuristics
             // If the script declared extension itself is risky, add a generic hint
             if (declaredExt is "ps1" or "psm1" or "psd1" or "sh" or "bash" or "zsh" or "bat" or "cmd" or "js" or "rb" or "py" or "lua")
                 findings.Add("script:dangerous-kind");
+
+            foreach (var detail in AssessScriptEvidenceFromText(source, declaredExt))
+            {
+                if (IsDuplicateCredentialDumpHint(detail.Code, findings))
+                {
+                    continue;
+                }
+
+                if (!findings.Contains(detail.Code, StringComparer.OrdinalIgnoreCase))
+                    findings.Add(detail.Code);
+            }
 
             // Network paths and share mappings (UNC, net use, PSDrive)
             var uncShares = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1595,4 +1606,13 @@ internal static partial class SecurityHeuristics
         if (!(lower.Contains("{") && lower.Contains("}"))) return false;
         foreach (var k in keys) if (!lower.Contains(k)) return false; return true;
     }
+
+    internal static bool IsDuplicateCredentialDumpHint(string? code, IEnumerable<string> findings)
+        => string.Equals(code, "script:credential-dump-hint", StringComparison.OrdinalIgnoreCase) &&
+           findings.Any(IsCredentialDumpSignatureCode);
+
+    private static bool IsCredentialDumpSignatureCode(string? code)
+        => string.Equals(code, "sig:mkatz", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(code, "sig:sekurlsa", StringComparison.OrdinalIgnoreCase) ||
+           (code != null && code.StartsWith("sig:X100", StringComparison.OrdinalIgnoreCase));
 }

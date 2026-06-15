@@ -285,6 +285,12 @@ public static partial class FileInspector
         // Scripts/text cues (neutral codes from SecurityFindings)
         foreach (var f in securityFindings)
         {
+            if (ScriptFindingRuleCatalog.TryGetRule(f, out var scriptRule))
+            {
+                AddSecurityFindingCode(scriptRule.AssessmentCode, scriptRule.AssessmentWeight);
+                continue;
+            }
+
             switch (f)
             {
                 case var t when t != null && t.StartsWith("tool:"):
@@ -302,6 +308,29 @@ public static partial class FileInspector
                 case "py:exec": AddSecurityFindingCode("Script.PyExec", 10); break;
                 case "rb:eval": AddSecurityFindingCode("Script.RbEval", 10); break;
                 case "lua:exec": AddSecurityFindingCode("Script.LuaExec", 10); break;
+                case "script:bitsadmin-transfer": AddSecurityFindingCode("Script.BitsadminTransfer", 15); break;
+                case "script:amsi-bypass": AddSecurityFindingCode("Script.AmsiBypass", 30); break;
+                case "script:keylogging-api": AddSecurityFindingCode("Script.KeyloggingApi", 35); break;
+                case "script:pinvoke": AddSecurityFindingCode("Script.PInvoke", 10); break;
+                case "script:foreground-window": AddSecurityFindingCode("Script.ForegroundWindowRead", 6); break;
+                case "script:registry-run-key": AddSecurityFindingCode("Script.Persistence", 25); break;
+                case "script:registry-modify": AddSecurityFindingCode("Script.RegistryModify", 8); break;
+                case "script:scheduled-task": AddSecurityFindingCode("Script.Persistence", 25); break;
+                case "script:startup-folder": AddSecurityFindingCode("Script.Persistence", 20); break;
+                case "script:vssadmin-shadows": AddSecurityFindingCode("Script.ShadowCopyDeletion", 35); break;
+                case "script:cipher-wipe": AddSecurityFindingCode("Script.CipherWipe", 25); break;
+                case "script:format-drive": AddSecurityFindingCode("Script.FormatDrive", 40); break;
+                case "script:recursive-force-delete": AddSecurityFindingCode("Script.RecursiveForceDelete", 15); break;
+                case "script:bcdedit": AddSecurityFindingCode("Script.BootConfigEdit", 20); break;
+                case "script:hidden-window": AddSecurityFindingCode("Script.HiddenWindow", 10); break;
+                case "script:indirect-exec": AddSecurityFindingCode("Script.IndirectExecution", 20); break;
+                case "script:attrib-hidden": AddSecurityFindingCode("Script.AttribHidden", 8); break;
+                case "script:credential-dump-hint": AddSecurityFindingCode("Sig.CredentialDumpHint", 30); break;
+                case "script:plaintext-credential": AddSecurityFindingCode("Script.PlaintextCredential", 10); break;
+                case "script:clipboard-read": AddSecurityFindingCode("Script.ClipboardRead", 8); break;
+                case "script:elevation-request": AddSecurityFindingCode("Script.ElevationRequest", 8); break;
+                case "script:execution-policy-bypass": AddSecurityFindingCode("Script.ExecutionPolicyBypass", 10); break;
+                case "script:defender-tamper": AddSecurityFindingCode("Script.SecurityToolTamper", 35); break;
                 case "archive:inner-script-encoded": AddSecurityFindingCode("Archive.InnerScriptEncoded", 10); break;
                 case "archive:inner-script-exec": AddSecurityFindingCode("Archive.InnerScriptExec", 15); break;
                 case "archive:inner-script-download": AddSecurityFindingCode("Archive.InnerScriptDownload", 15); break;

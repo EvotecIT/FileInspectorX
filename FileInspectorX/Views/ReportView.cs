@@ -228,6 +228,8 @@ public sealed class ReportView
     public int? EncryptedEntryCount { get; set; }
     /// <summary>Neutral security findings emitted by heuristics (e.g., ps:encoded, js:activex).</summary>
     public IReadOnlyList<string>? SecurityFindings { get; set; }
+    /// <summary>Bounded source evidence for selected top-level heuristic findings.</summary>
+    public IReadOnlyList<FindingEvidence>? SecurityFindingEvidence { get; set; }
     /// <summary>Structured detail rows for top-level heuristic findings.</summary>
     public IReadOnlyList<FindingView>? SecurityFindingDetails { get; set; }
     /// <summary>Humanized security findings (short form).</summary>
@@ -664,6 +666,7 @@ public sealed class ReportView
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
         r.SecurityFindings = a.SecurityFindings;
+        r.SecurityFindingEvidence = a.SecurityFindingEvidence;
         r.TopTokens = a.TopTokens;
         r.InnerFindings = a.InnerFindings;
         r.InnerExecutablesSampled = a.InnerExecutablesSampled;
@@ -777,7 +780,7 @@ public sealed class ReportView
         {
             r.SecurityFindingsHumanShort = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Short);
             r.SecurityFindingsHumanLong  = Legend.HumanizeFindings(r.SecurityFindings, HumanizeStyle.Long);
-            r.SecurityFindingDetails = FindingView.From(r.SecurityFindings).ToList();
+            r.SecurityFindingDetails = FindingView.From(r.SecurityFindings, r.SecurityFindingEvidence).ToList();
         }
         if (r.InnerFindings != null && r.InnerFindings.Count > 0)
         {
@@ -1376,6 +1379,7 @@ public sealed class ReportView
         if (ArchiveEntryCount.HasValue) d["ArchiveEntryCount"] = ArchiveEntryCount.Value;
         if (ArchiveTopExtensions != null && ArchiveTopExtensions.Count > 0) d["ArchiveTopExtensions"] = ArchiveTopExtensions;
         if (SecurityFindings != null && SecurityFindings.Count > 0) d["SecurityFindings"] = SecurityFindings;
+        if (SecurityFindingEvidence != null && SecurityFindingEvidence.Count > 0) d["SecurityFindingEvidence"] = SecurityFindingEvidence;
         if (SecurityFindingDetails != null && SecurityFindingDetails.Count > 0) d["SecurityFindingDetails"] = SecurityFindingDetails;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanShort)) d["SecurityFindingsHuman"] = SecurityFindingsHumanShort;
         if (!string.IsNullOrEmpty(SecurityFindingsHumanLong))  d["SecurityFindingsHumanLong"] = SecurityFindingsHumanLong;
