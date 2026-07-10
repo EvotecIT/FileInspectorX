@@ -57,7 +57,7 @@ public sealed class AuthenticodeInfo
     public string? TimestampAuthorityCN { get; set; }
 
     /// <summary>
-    /// Note about what was verified; cross‑platform builds only verify the PKCS#7 envelope and chain, not the file re-hash.
+    /// Note about what was verified, including the PKCS#7 envelope, file digest, chain, or Windows policy as applicable.
     /// </summary>
     public string? VerificationNote { get; set; }
 

@@ -366,15 +366,31 @@ public static partial class FileInspector {
     }
 
     /// <summary>
-    /// Detects content type from a readable stream; the stream is rewound where possible.
+    /// Detects content type from a readable stream; the original position is restored where possible.
     /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(Stream stream, DetectionOptions? options = null, string? declaredExtension = null) {
+        if (stream == null) throw new ArgumentNullException(nameof(stream));
+        var originalPosition = stream.CanSeek ? stream.Position : (long?)null;
+        try
+        {
+            return DetectStreamCore(stream, options, declaredExtension);
+        }
+        finally
+        {
+            if (originalPosition.HasValue)
+            {
+                try { stream.Seek(originalPosition.Value, SeekOrigin.Begin); } catch { }
+            }
+        }
+    }
+
+    private static ContentTypeDetectionResult? DetectStreamCore(Stream stream, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
         var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
-        var read = stream.Read(header, 0, header.Length);
+        var read = ReadAvailable(stream, header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
@@ -461,6 +477,18 @@ public static partial class FileInspector {
             return finished;
         }
         return Finish(Enrich(null, src, stream, options));
+    }
+
+    private static int ReadAvailable(Stream stream, byte[] buffer, int offset, int count)
+    {
+        var total = 0;
+        while (total < count)
+        {
+            var read = stream.Read(buffer, offset + total, count - total);
+            if (read <= 0) break;
+            total += read;
+        }
+        return total;
     }
 
     private static ContentTypeDetectionResult? TryRefineGltfJson(Stream stream) {
@@ -1224,6 +1252,8 @@ public static partial class FileInspector {
     private static ContentTypeDetectionResult? TryRefineZipOOxml(string path) {
         try {
             using var fs = OpenReadShared(path);
+            var budget = ArchiveInspectionBudget.FromSettings();
+            if (!budget.CheckCentralDirectory(fs, out _)) return null;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             // OOXML key parts
             bool hasContentTypes = za.GetEntry("[Content_Types].xml") != null;
@@ -1242,6 +1272,12 @@ public static partial class FileInspector {
         try {
             long pos = stream.CanSeek ? stream.Position : 0;
             if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
+            var budget = ArchiveInspectionBudget.FromSettings();
+            if (!budget.CheckCentralDirectory(stream, out _))
+            {
+                if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                return null;
+            }
             using var za = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
             bool hasContentTypes = za.GetEntry("[Content_Types].xml") != null;
             if (!hasContentTypes) { if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return null; }
@@ -1261,6 +1297,12 @@ public static partial class FileInspector {
         try {
             long pos = stream.CanSeek ? stream.Position : 0;
             if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
+            var budget = ArchiveInspectionBudget.FromSettings();
+            if (!budget.CheckCentralDirectory(stream, out _))
+            {
+                if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                return null;
+            }
             using var za = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
             int entryLimit = Math.Max(0, Settings.ZipSubtypeMaxEntries);
             if (entryLimit == 0)
@@ -1279,6 +1321,11 @@ public static partial class FileInspector {
             int entriesSeen = 0;
             foreach (var entry in za.Entries)
             {
+                if (!budget.TryVisitEntry())
+                {
+                    if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
+                    return null;
+                }
                 entriesSeen++;
                 if (entriesSeen > entryLimit)
                 {
@@ -1299,9 +1346,7 @@ public static partial class FileInspector {
 
             var mimetypeEntry = za.GetEntry("mimetype");
             if (mimetypeEntry != null) {
-                using var s = mimetypeEntry.Open();
-                using var sr = new StreamReader(s);
-                var mt = sr.ReadToEnd().Trim();
+                var mt = (budget.ReadText(mimetypeEntry) ?? string.Empty).Trim();
                 switch (mt) {
                     case "application/epub+zip": mime = mt; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "epub";
                     case "application/vnd.oasis.opendocument.text": mime = mt; if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin); return "odt";

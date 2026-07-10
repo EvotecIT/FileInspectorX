@@ -12,12 +12,15 @@ public static partial class FileInspector
     private static void TryPopulateAppxManifest(string path, FileAnalysis res)
     {
 #if NET8_0_OR_GREATER || NET472
+        var budget = ArchiveInspectionBudget.FromSettings();
         try {
             using var fs = File.OpenRead(path);
+            if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("AppxManifest.xml");
             if (entry == null) return;
-            using var s = entry.Open();
+            using var s = budget.OpenEntry(entry, checked((int)Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes)));
+            if (s == null) return;
             var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreComments = true, IgnoreWhitespace = true, CloseInput = true };
             using var xr = XmlReader.Create(s, settings);
             var doc = new XmlDocument { XmlResolver = null };
@@ -82,19 +85,24 @@ public static partial class FileInspector
             } catch { }
 
             res.Installer = info;
-        } catch { }
+        } catch (OutOfMemoryException) { throw; }
+        catch { }
+        finally { ApplyArchiveInspectionBudget(res, budget); }
 #endif
     }
 
     private static void TryPopulateVsixManifest(string path, FileAnalysis res)
     {
 #if NET8_0_OR_GREATER || NET472
+        var budget = ArchiveInspectionBudget.FromSettings();
         try {
             using var fs = File.OpenRead(path);
+            if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("extension.vsixmanifest");
             if (entry == null) return;
-            using var s = entry.Open();
+            using var s = budget.OpenEntry(entry, checked((int)Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes)));
+            if (s == null) return;
             var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreComments = true, IgnoreWhitespace = true, CloseInput = true };
             using var xr = XmlReader.Create(s, settings);
             var doc = new XmlDocument { XmlResolver = null };
@@ -114,7 +122,9 @@ public static partial class FileInspector
             }
             if (disp != null) info.Name = disp.InnerText?.Trim();
             res.Installer = info;
-        } catch { }
+        } catch (OutOfMemoryException) { throw; }
+        catch { }
+        finally { ApplyArchiveInspectionBudget(res, budget); }
 #endif
     }
 

@@ -357,7 +357,8 @@ public static partial class FileInspector {
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
                     out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings,
                     out List<Reference>? archiveReferences,
-                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out Dictionary<string,int>? innerPublishersValid, out Dictionary<string,int>? innerPublishersSelf, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts);
+                    out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out Dictionary<string,int>? innerPublishersValid, out Dictionary<string,int>? innerPublishersSelf, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts,
+                    out bool archiveInspectionComplete, out IReadOnlyList<string>? archiveInspectionIssues);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
@@ -408,6 +409,11 @@ public static partial class FileInspector {
                 if (innerExecExtCounts != null && innerExecExtCounts.Count > 0)
                 {
                     res.InnerExecutableExtCounts = innerExecExtCounts;
+                }
+                if (!archiveInspectionComplete)
+                {
+                    res.AnalysisComplete = false;
+                    res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, archiveInspectionIssues);
                 }
                 if ((options?.IncludeReferences != false) && archiveReferences != null && archiveReferences.Count > 0)
                 {
@@ -1164,7 +1170,18 @@ public static partial class FileInspector {
                 res.AssessmentProfiles = AssessMulti(res.Assessment);
             }
 
-        } catch { }
+        }
+        catch (OutOfMemoryException) { throw; }
+        catch (Exception ex)
+        {
+            res.AnalysisComplete = false;
+            res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { "analysis:unhandled-error" });
+            Breadcrumbs.Write("ANALYZE_ERROR", message: ex.GetType().Name, path: path);
+        }
+        finally
+        {
+            Breadcrumbs.Write("ANALYZE_END", path: path);
+        }
         return res;
     }
 
@@ -1495,7 +1512,7 @@ public static partial class FileInspector {
                                 if (ia?.Authenticode?.Present == true)
                                 {
                                     innerSigned++;
-                                    bool v = ia.Authenticode.IsTrustedWindowsPolicy == true || ia.Authenticode.ChainValid == true;
+                                    bool v = GetSignatureStatus(ia)?.IsValid == true;
                                     if (v) innerValid++;
                                     var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
                                     if (publishers == null) publishers = pubs;
@@ -1526,17 +1543,24 @@ public static partial class FileInspector {
             return true;
         }
         catch { return false; }
-        finally { Breadcrumbs.Write("ANALYZE_END", path: path); }
     }
 
     private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
         out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut, out List<Reference>? referencesOut,
-        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts) {
+        out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts,
+        out bool inspectionComplete, out IReadOnlyList<string>? inspectionIssues) {
         hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; encryptedEntryCount = 0; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null; referencesOut = null;
         innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; innerPublisherValidCounts = null; innerPublisherSelfCounts = null; previewOut = null; innerExecExtCounts = null;
+        inspectionComplete = true; inspectionIssues = null;
+        var budget = ArchiveInspectionBudget.FromSettings();
         try {
             using var fs = File.OpenRead(path);
+            if (!budget.CheckCentralDirectory(fs, out var declaredEntryCount))
+            {
+                entryCount = declaredEntryCount;
+                return;
+            }
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int count = 0;
@@ -1563,6 +1587,7 @@ public static partial class FileInspector {
             bool hasManifestMf = false; bool hasClass = false; bool hasJarSig = false;
             bool hasAndroidManifest = false; bool hasDex = false; bool hasApkSig = false;
             foreach (var e in za.Entries) {
+                if (!budget.TryVisitEntry()) break;
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
                 var name = e.FullName;
@@ -1601,15 +1626,13 @@ public static partial class FileInspector {
                 try {
                     if (!ooxmlRemoteTemplate && (name.EndsWith("word/_rels/document.xml.rels", StringComparison.OrdinalIgnoreCase) || name.EndsWith("_rels/.rels", StringComparison.OrdinalIgnoreCase)))
                     {
-                        using var s = e.Open(); using var sr = new StreamReader(s);
-                        var rels = sr.ReadToEnd();
+                        var rels = budget.ReadText(e) ?? string.Empty;
                         if (rels.IndexOf("attachedTemplate", StringComparison.OrdinalIgnoreCase) >= 0 && (rels.IndexOf("TargetMode=\"External\"", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("http://", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("https://", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("\\\\", StringComparison.OrdinalIgnoreCase) >= 0))
                             ooxmlRemoteTemplate = true;
                     }
                     if (!ooxmlDde && (name.Equals("word/document.xml", StringComparison.OrdinalIgnoreCase) || name.EndsWith("/document.xml", StringComparison.OrdinalIgnoreCase)))
                     {
-                        using var s2 = e.Open(); using var sr2 = new StreamReader(s2);
-                        var docxml = sr2.ReadToEnd();
+                        var docxml = budget.ReadText(e) ?? string.Empty;
                         if (docxml.IndexOf("DDEAUTO", StringComparison.OrdinalIgnoreCase) >= 0 || docxml.IndexOf(" DDE ", StringComparison.OrdinalIgnoreCase) >= 0)
                             ooxmlDde = true;
                     }
@@ -1619,8 +1642,7 @@ public static partial class FileInspector {
                     }
                     if (name.Equals("xl/_rels/workbook.xml.rels", StringComparison.OrdinalIgnoreCase))
                     {
-                        using var s3 = e.Open(); using var sr3 = new StreamReader(s3);
-                        var rels = sr3.ReadToEnd();
+                        var rels = budget.ReadText(e) ?? string.Empty;
                         // Count targets that point to externalLinks folder
                         int pos = 0; int local = 0; while (true) { int at = rels.IndexOf("externalLinks/", pos, StringComparison.OrdinalIgnoreCase); if (at < 0) break; local++; pos = at + 8; }
                         if (local > 0) { ooxmlExtLinks = true; extLinksCount += local; }
@@ -1629,8 +1651,7 @@ public static partial class FileInspector {
                     }
                     if (name.StartsWith("xl/externalLinks/_rels/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
                     {
-                        using var s4 = e.Open(); using var sr4 = new StreamReader(s4);
-                        var rels2 = sr4.ReadToEnd();
+                        var rels2 = budget.ReadText(e) ?? string.Empty;
                         CountOoxmlExternalTargets(rels2, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
                     }
                 } catch { }
@@ -1652,7 +1673,8 @@ public static partial class FileInspector {
                 // Light inner-archive sampler: detect nested archives by magic (bounded by samples and size)
                 if (!hasNestedArchives && sampled < maxSamples && e.Length >= 4) {
                     try {
-                        using var es = e.Open();
+                        using var es = budget.OpenEntry(e, headSample);
+                        if (es == null) throw new InvalidDataException("zip:entry-budget");
                         var head = new byte[Math.Min(headSample, (int)Math.Min(e.Length, headSample))];
                         int n = es.Read(head, 0, head.Length);
                         if (n > 0) {
@@ -1683,7 +1705,8 @@ public static partial class FileInspector {
                             }
                         }
                         // Content-based disguise check
-                        using var es2 = e.Open();
+                        using var es2 = budget.OpenEntry(e, deepBytes);
+                        if (es2 == null) throw new InvalidDataException("zip:entry-budget");
                         int cap = (int)Math.Min(Math.Min(e.Length, deepBytes), deepBytes);
                         var buf = new byte[Math.Max(64, cap)];
                         int nn = es2.Read(buf, 0, buf.Length);
@@ -1718,7 +1741,8 @@ public static partial class FileInspector {
                                 try {
                                     byte[] ReadEntryBytesBounded()
                                     {
-                                        using var rs = e.Open();
+                                        using var rs = budget.OpenEntry(e, cap);
+                                        if (rs == null) throw new InvalidDataException("zip:entry-budget");
                                         using var ms = new System.IO.MemoryStream();
                                         int left = cap;
                                         var tmpbuf = new byte[8192];
@@ -1751,9 +1775,10 @@ public static partial class FileInspector {
                                 {
                                     tmp = System.IO.Path.GetTempFileName();
                                     byte[] entryBytes;
-                                    using (var rs = e.Open())
+                                    using (var rs = budget.OpenEntry(e, cap))
                                     using (var ms = new System.IO.MemoryStream())
                                     {
+                                        if (rs == null) throw new InvalidDataException("zip:entry-budget");
                                         int left = cap;
                                         var tmpbuf = new byte[8192];
                                         while (left > 0)
@@ -1775,7 +1800,7 @@ public static partial class FileInspector {
                                     if (ia?.Authenticode?.Present == true)
                                     {
                                         innerSignedExecutables++;
-                                        bool v = ia.Authenticode.IsTrustedWindowsPolicy == true || ia.Authenticode.ChainValid == true;
+                                        bool v = GetSignatureStatus(ia)?.IsValid == true;
                                         if (v) innerValidSignedExecutables++;
                                         var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
                                         if (innerPublishers.TryGetValue(pub, out var pc)) innerPublishers[pub] = pc + 1; else innerPublishers[pub] = 1;
@@ -1791,9 +1816,10 @@ public static partial class FileInspector {
                                 try
                                 {
                                     tmp = System.IO.Path.GetTempFileName();
-                                    using (var rs = e.Open())
+                                    using (var rs = budget.OpenEntry(e, cap))
                                     using (var outFs = System.IO.File.Create(tmp))
                                     {
+                                        if (rs == null) throw new InvalidDataException("zip:entry-budget");
                                         int left = cap;
                                         var tmpbuf = new byte[8192];
                                         while (left > 0)
@@ -1835,9 +1861,10 @@ public static partial class FileInspector {
                                 {
                                     int nestedCap = (int)Math.Min(e.Length, GetNestedArchiveDeepScanBytes());
                                     tmp = System.IO.Path.GetTempFileName();
-                                    using (var rs = e.Open())
+                                    using (var rs = budget.OpenEntry(e, nestedCap))
                                     using (var outFs = System.IO.File.Create(tmp))
                                     {
+                                        if (rs == null) throw new InvalidDataException("zip:entry-budget");
                                         int left = nestedCap;
                                         var tmpbuf = new byte[8192];
                                         while (left > 0)
@@ -1963,6 +1990,8 @@ public static partial class FileInspector {
             if (encCount > 0) { hasEncryptedEntries = true; encryptedEntryCount = encCount; }
             // OOXML encrypted packages present these two entries at root
             isOoxmlEncrypted = sawEncryptionInfo && sawEncryptedPackage;
+            if (!budget.IsComplete)
+                localFindings.AddRange(budget.Issues.Where(issue => !localFindings.Contains(issue)));
             findingsOut = localFindings.Count > 0 ? localFindings : null;
             if (innerExecutablesSampled > 0)
             {
@@ -1972,7 +2001,13 @@ public static partial class FileInspector {
             }
             if (previews.Count > 0) previewOut = previews;
             // Attach inner findings via the caller's FileAnalysis when available (handled by Analyze caller)
-        } catch { }
+        } catch (OutOfMemoryException) { throw; }
+        catch { budget.AddIssue("archive:inspection-error"); }
+        finally
+        {
+            inspectionComplete = budget.IsComplete;
+            inspectionIssues = budget.IsComplete ? null : budget.Issues;
+        }
     }
 
     private static bool ZipCentralDirectoryHasEncryptedEntries(Stream fs)
@@ -2392,7 +2427,7 @@ public static partial class FileInspector {
                                 if (ia?.Authenticode?.Present == true)
                                 {
                                     innerSignedExecutables++;
-                                    bool v = ia.Authenticode.IsTrustedWindowsPolicy == true || ia.Authenticode.ChainValid == true;
+                                    bool v = GetSignatureStatus(ia)?.IsValid == true;
                                     if (v) innerValidSignedExecutables++;
                                     var pub = ia.Authenticode.SignerSubjectCN ?? ia.Authenticode.SignerSubject ?? "<unknown>";
                                     if (innerPublishers.TryGetValue(pub, out var pc)) innerPublishers[pub] = pc + 1; else innerPublishers[pub] = 1;
@@ -2916,15 +2951,15 @@ public static partial class FileInspector {
     private static void TryPopulateAppxSignature(string path, FileAnalysis res)
     {
 #if NET8_0_OR_GREATER || NET472
+        var budget = ArchiveInspectionBudget.FromSettings();
         try {
             using var fs = File.OpenRead(path);
+            if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var sigEntry = za.GetEntry("AppxSignature.p7x") ?? za.GetEntry("AppxSignature.p7s");
             if (sigEntry == null) return;
-            using var s = sigEntry.Open();
-            using var ms = new MemoryStream();
-            s.CopyTo(ms);
-            var data = ms.ToArray();
+            var data = budget.ReadBytes(sigEntry);
+            if (data == null || data.Length == 0) return;
             var cms = new System.Security.Cryptography.Pkcs.SignedCms();
             cms.Decode(data);
             var ai = res.Authenticode ?? new AuthenticodeInfo();
@@ -2941,7 +2976,9 @@ public static partial class FileInspector {
                 try { cms.CheckSignature(true); ai.EnvelopeSignatureValid = true; } catch { ai.EnvelopeSignatureValid = false; }
             }
             res.Authenticode = ai;
-        } catch { }
+        } catch (OutOfMemoryException) { throw; }
+        catch { }
+        finally { ApplyArchiveInspectionBudget(res, budget); }
 #endif
     }
 

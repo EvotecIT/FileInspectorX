@@ -208,7 +208,15 @@ var detFa = FileInspector.Inspect(path, new FileInspector.DetectionOptions { Det
 // Full analysis
 var full = FileInspector.Inspect(path, new FileInspector.DetectionOptions { ComputeSha256 = true });
 var summary = full.ToSummaryView(path);
+
+if (!full.AnalysisComplete) {
+    Console.WriteLine(string.Join(", ", full.AnalysisIssues ?? Array.Empty<string>()));
+}
 ```
+
+`AnalysisComplete` is `false` when a requested analyzer hits a safety budget or cannot finish.
+Assessments return `Defer` in that case, across all assessment profiles, so automation cannot
+treat partial evidence as an allow decision.
 
 ## Detection Ordering & Declared Extension Bias
 
@@ -355,6 +363,11 @@ Example keys: `DetectedTypeExtension`, `DetectedTypeName`, `DetectionConfidence`
 Settings.DeepContainerScanEnabled = true;      // default: false
 Settings.DeepContainerMaxEntries = 64;         // sample cap
 Settings.DeepContainerMaxEntryBytes = 262144;  // per‑entry cap (256 KB)
+Settings.ArchiveMaxEntries = 4096;
+Settings.ArchiveMaxCentralDirectoryBytes = 8L * 1024 * 1024;
+Settings.ArchiveMaxEntryReadBytes = 1L * 1024 * 1024;
+Settings.ArchiveMaxTotalReadBytes = 16L * 1024 * 1024;
+Settings.ArchiveMaxCompressionRatio = 200;
 Settings.KnownToolNameIndicators = new[] { "pingcastle", "bloodhound" };
 Settings.KnownToolHashes = new Dictionary<string,string> { /* name => lowercase sha256 */ };
 

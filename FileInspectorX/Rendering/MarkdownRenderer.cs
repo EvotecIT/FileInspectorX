@@ -26,6 +26,14 @@ public static class MarkdownRenderer
     public static string From(ReportView r)
     {
         var sb = new StringBuilder();
+        if (!r.AnalysisComplete)
+        {
+            sb.AppendLine("### Analysis incomplete");
+            sb.AppendLine("Some requested analyzers did not finish; keep this file for manual review.");
+            if (r.AnalysisIssues is { Count: > 0 })
+                sb.AppendLine($"- Issues: {string.Join(", ", r.AnalysisIssues)}");
+            sb.AppendLine();
+        }
         // Header
         if (HasTypeAnalysis(r))
         {
