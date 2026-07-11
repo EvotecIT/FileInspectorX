@@ -98,12 +98,35 @@ public static partial class FileInspector
         var status = new SignatureStatus
         {
             IsSigned = isSigned,
-            IsValid = auth.IsTrustedWindowsPolicy ?? auth.ChainValid,
+            IsValid = GetAuthenticodeValidity(auth),
             SignerSubject = !string.IsNullOrWhiteSpace(auth.SignerSubjectCN) ? auth.SignerSubjectCN : auth.SignerSubject,
             SignerThumbprint = auth.SignerThumbprint,
             SigningTimeUtc = auth.TimestampTime?.UtcDateTime
         };
         return status;
+    }
+
+    private static bool? GetAuthenticodeValidity(AuthenticodeInfo auth)
+    {
+        // WinVerifyTrust is the authoritative Windows policy result when it was run.
+        if (auth.IsTrustedWindowsPolicy.HasValue)
+            return auth.IsTrustedWindowsPolicy.Value;
+
+        // Cross-platform verification is only complete when the envelope, the
+        // embedded file digest, and the certificate chain all validate. A chain
+        // result by itself says nothing about whether the signed file was changed.
+        if (auth.EnvelopeSignatureValid == false ||
+            auth.FileHashMatches == false ||
+            auth.ChainValid == false)
+            return false;
+
+        if (auth.Present &&
+            auth.EnvelopeSignatureValid == true &&
+            auth.FileHashMatches == true &&
+            auth.ChainValid == true)
+            return true;
+
+        return null;
     }
 
     /// <summary>

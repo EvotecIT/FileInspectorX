@@ -8,7 +8,7 @@ namespace FileInspectorX.Tests;
 
 public class WinTrustHelperTests
 {
-    private const int VerificationIterations = 200; // stress repeated calls to cover caching/interop stability
+    private const int VerificationIterations = 50; // stress repeated interop calls without retaining trust decisions
 
     [Fact]
     public void VerifyFileSignature_UnsignedFile_NotTrusted_And_DoesNotThrow()
@@ -87,6 +87,43 @@ public class WinTrustHelperTests
         finally
         {
             Settings.VerifyAuthenticodeWithWinTrust = oldSetting;
+        }
+    }
+
+    [Fact]
+    public void VerifyAuthenticodePolicy_DoesNotReuseTrust_AfterContentChanges()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return;
+
+        var source = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");
+        if (!File.Exists(source) || !IsValidAuthenticodeSample(source))
+            return;
+
+        var temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".exe");
+        try
+        {
+            File.Copy(source, temp);
+            if (FileInspector.VerifyAuthenticodePolicy(temp) != true)
+                return;
+
+            var timestamp = File.GetLastWriteTimeUtc(temp);
+            using (var stream = new FileStream(temp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var offset = Math.Min(1024L, Math.Max(0L, stream.Length - 1));
+                stream.Position = offset;
+                var value = stream.ReadByte();
+                Assert.NotEqual(-1, value);
+                stream.Position = offset;
+                stream.WriteByte((byte)(value ^ 0x01));
+            }
+            File.SetLastWriteTimeUtc(temp, timestamp);
+
+            Assert.False(FileInspector.VerifyAuthenticodePolicy(temp) == true);
+        }
+        finally
+        {
+            TestHelpers.SafeDelete(temp);
         }
     }
 

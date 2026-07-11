@@ -6,6 +6,31 @@ namespace FileInspectorX.Tests;
 public class AssessmentTests
 {
     [Fact]
+    public void Assess_IncompleteAnalysis_Defers_AllProfiles()
+    {
+        var analysis = new FileAnalysis
+        {
+            AnalysisComplete = false,
+            AnalysisIssues = new[] { "archive:compression-ratio-limit" }
+        };
+
+        var assessed = FileInspector.AssessMulti(analysis);
+
+        Assert.Equal(AssessmentDecision.Defer, assessed.Strict.Decision);
+        Assert.Equal(AssessmentDecision.Defer, assessed.Balanced.Decision);
+        Assert.Equal(AssessmentDecision.Defer, assessed.Lenient.Decision);
+        Assert.Contains("Analysis.Incomplete", assessed.Balanced.Codes);
+
+        analysis.Assessment = assessed.Balanced;
+        analysis.AssessmentProfiles = assessed;
+        var report = ReportView.From(analysis);
+        Assert.False(report.AnalysisComplete);
+        Assert.Equal(analysis.AnalysisIssues, report.AnalysisIssues);
+        Assert.Equal(false, report.ToDictionary()["AnalysisComplete"]);
+        Assert.Contains("Analysis incomplete", MarkdownRenderer.From(report), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void AssessMulti_Profiles_ShareScore_AndShiftDecisions()
     {
         int oldWarn = Settings.AssessmentWarnThreshold;

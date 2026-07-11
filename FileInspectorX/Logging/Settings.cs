@@ -402,14 +402,16 @@ public class Settings {
     public static bool VerifyAuthenticodeRevocation { get; set; } = false;
 
     /// <summary>
-    /// WinTrust/chain cache TTL in minutes. Cached policy results older than this are discarded. Default 360 minutes (6 hours).
+    /// Obsolete compatibility setting. WinTrust results are intentionally not cached.
     /// </summary>
-    public static int WinTrustCacheTtlMinutes { get; set; } = 360;
+    [Obsolete("WinTrust results are no longer cached because file metadata cannot safely identify file content.")]
+    public static int WinTrustCacheTtlMinutes { get; set; } = 0;
 
     /// <summary>
-    /// Maximum number of entries to keep in the WinTrust/chain cache. Oldest entries are pruned opportunistically. Default 1024.
+    /// Obsolete compatibility setting. WinTrust results are intentionally not cached.
     /// </summary>
-    public static int WinTrustCacheMaxEntries { get; set; } = 1024;
+    [Obsolete("WinTrust results are no longer cached because file metadata cannot safely identify file content.")]
+    public static int WinTrustCacheMaxEntries { get; set; } = 0;
 
     /// <summary>
     /// When true, safe MSI/AppX/Installer metadata enrichment is collected by default.
@@ -526,6 +528,21 @@ public class Settings {
     /// Maximum number of bytes to read from each inner entry during deep scan. Default 262144 (256 KB).
     /// </summary>
     public static int DeepContainerMaxEntryBytes { get; set; } = 262_144;
+
+    /// <summary>Maximum number of archive entries materialized or enumerated during one inspection.</summary>
+    public static int ArchiveMaxEntries { get; set; } = 4_096;
+
+    /// <summary>Maximum ZIP central-directory size accepted before entries are materialized. Defaults to 8 MB.</summary>
+    public static long ArchiveMaxCentralDirectoryBytes { get; set; } = 8L * 1024 * 1024;
+
+    /// <summary>Maximum expanded bytes read from any one archive entry. Defaults to 1 MB.</summary>
+    public static long ArchiveMaxEntryReadBytes { get; set; } = 1L * 1024 * 1024;
+
+    /// <summary>Maximum expanded bytes read across all entries in one archive inspection. Defaults to 16 MB.</summary>
+    public static long ArchiveMaxTotalReadBytes { get; set; } = 16L * 1024 * 1024;
+
+    /// <summary>Maximum uncompressed-to-compressed ratio for an entry that will be opened. Defaults to 200.</summary>
+    public static double ArchiveMaxCompressionRatio { get; set; } = 200d;
 
     /// <summary>
     /// Name indicators for well-known admin/security tools. Checked against inner entry names (case-insensitive) to emit neutral findings like "tool:pingcastle".

@@ -5,6 +5,12 @@ namespace FileInspectorX;
 /// Produced by <see cref="FileInspector.Analyze(string, FileInspector.DetectionOptions?)"/>.
 /// </summary>
 public class FileAnalysis {
+    /// <summary>True when all requested analyzers completed within their safety budgets.</summary>
+    public bool AnalysisComplete { get; set; } = true;
+
+    /// <summary>Stable reason codes explaining why requested analysis was partial.</summary>
+    public IReadOnlyList<string>? AnalysisIssues { get; set; }
+
     /// <summary>Result of magic/heuristic content type detection.</summary>
     public ContentTypeDetectionResult? Detection { get; set; }
     /// <summary>Detected extension (cached from <see cref="Detection"/>).</summary>

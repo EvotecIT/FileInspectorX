@@ -77,4 +77,38 @@ public class AnalyzeDirectoryTests {
         Assert.Contains("root\\healthy\\child.txt", files);
         Assert.DoesNotContain(files, f => f.Contains("missing", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void EnumerateFilesSafeForTest_Catches_Exceptions_Thrown_During_Lazy_Iteration()
+    {
+        const string root = "root";
+        const string healthy = "root\\healthy";
+
+        static IEnumerable<string> RootFiles()
+        {
+            yield return "root\\top.txt";
+            throw new UnauthorizedAccessException("access changed during enumeration");
+        }
+
+        static IEnumerable<string> EnumerateFiles(string path) => path switch
+        {
+            root => RootFiles(),
+            healthy => new[] { "root\\healthy\\child.txt" },
+            _ => Array.Empty<string>()
+        };
+
+        static IEnumerable<string> EnumerateDirectories(string path) => path switch
+        {
+            root => new[] { healthy },
+            _ => Array.Empty<string>()
+        };
+
+        var files = FileInspector.EnumerateFilesSafeForTest(
+            root,
+            SearchOption.AllDirectories,
+            EnumerateFiles,
+            EnumerateDirectories).ToList();
+
+        Assert.Equal(new[] { "root\\top.txt", "root\\healthy\\child.txt" }, files);
+    }
 }

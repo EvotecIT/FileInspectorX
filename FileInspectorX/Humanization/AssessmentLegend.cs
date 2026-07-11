@@ -12,6 +12,8 @@ public static class AssessmentLegend
 {
     private static readonly Dictionary<string, LegendEntry> s_codes = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["Analysis.Incomplete"]         = new("Analysis.Incomplete", "Analysis incomplete", "One or more requested analyzers stopped at a safety limit or encountered an error; defer the final trust decision.", "Analysis", 85),
+
         // Archives
         ["Archive.PathTraversal"]       = new("Archive.PathTraversal", "Archive path traversal", "Archive contains entries with path traversal patterns (e.g., ../ or ..\\).", "Archive", 90),
         ["Archive.Symlink"]             = new("Archive.Symlink",       "Archive symlinks",     "Archive contains symbolic links.", "Archive", 60),

@@ -17,9 +17,10 @@ public static partial class FileInspector
             {
                 if (a.Authenticode.IsTrustedWindowsPolicy.HasValue)
                     return a.Authenticode.IsTrustedWindowsPolicy.Value;
-                // If no explicit WinTrust result but signature present, fall back to chain validity
+                // If WinTrust was unavailable, require the full cross-platform
+                // envelope, file-digest, and chain verification result.
                 if (a.Authenticode.Present)
-                    return a.Authenticode.ChainValid == true;
+                    return GetSignatureStatus(a)?.IsValid;
             }
             // No signature or not applicable
             return null;

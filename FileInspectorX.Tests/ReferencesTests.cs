@@ -57,7 +57,7 @@ public class ReferencesTests
             File.WriteAllText(p, xml);
             var a = FileInspector.Analyze(p);
             var refs = a.References ?? Array.Empty<Reference>();
-            var pathRef = Assert.Single(refs.Where(r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "task:exec", StringComparison.OrdinalIgnoreCase)));
+            var pathRef = Assert.Single(refs, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "task:exec", StringComparison.OrdinalIgnoreCase));
             Assert.Equal($"\"{exePath}\"", pathRef.Value);
             Assert.Equal(exePath, pathRef.ExpandedValue);
             Assert.True(pathRef.Exists);
@@ -89,7 +89,7 @@ public class ReferencesTests
             File.WriteAllText(p, ini);
             var a = FileInspector.Analyze(p);
             var refs = a.References ?? Array.Empty<Reference>();
-            var pathRef = Assert.Single(refs.Where(r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "gpo:scripts.ini", StringComparison.OrdinalIgnoreCase)));
+            var pathRef = Assert.Single(refs, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "gpo:scripts.ini", StringComparison.OrdinalIgnoreCase));
             Assert.Equal($"\"{exePath}\"", pathRef.Value);
             Assert.Equal(exePath, pathRef.ExpandedValue);
             Assert.True(pathRef.Exists);

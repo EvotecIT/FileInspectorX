@@ -1,14 +1,14 @@
 namespace FileInspectorX;
 
 /// <summary>
-/// Flattened, presentation-friendly summary of a FileAnalysis, with helpers to export a key/value map.
-/// Intended to let hosts (like TierBridge) present findings without reassembling logic.
-/// </summary>
-/// <summary>
-/// Flattened analysis summary for presentation.
+/// Flattened, presentation-friendly summary of a <see cref="FileAnalysis"/>.
 /// </summary>
 public sealed class ReportView
 {
+    /// <summary>True when every requested analyzer completed within its safety budgets.</summary>
+    public bool AnalysisComplete { get; set; } = true;
+    /// <summary>Stable reason codes explaining why requested analysis was partial.</summary>
+    public IReadOnlyList<string>? AnalysisIssues { get; set; }
     /// <summary>Detected extension.</summary>
     public string? DetectedTypeExtension { get; set; }
     /// <summary>Detected MIME type.</summary>
@@ -436,7 +436,11 @@ public sealed class ReportView
     /// </summary>
     public static ReportView From(FileAnalysis a)
     {
-        var r = new ReportView();
+        var r = new ReportView
+        {
+            AnalysisComplete = a.AnalysisComplete,
+            AnalysisIssues = a.AnalysisIssues
+        };
         if (a.Detection != null)
         {
             r.DetectedTypeExtension = a.Detection.Extension;
@@ -1249,13 +1253,12 @@ public sealed class ReportView
            !string.IsNullOrWhiteSpace(r.InnerBinariesSummary) ||
            (r.ArchivePreview != null && r.ArchivePreview.Count > 0);
 
-    /// <summary>
-    /// Exports the report as a dictionary compatible with typical templating and logging sinks.
-    /// </summary>
     /// <summary>Exports the report as a key/value map.</summary>
     public Dictionary<string, object?> ToDictionary()
     {
         var d = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        d["AnalysisComplete"] = AnalysisComplete;
+        if (AnalysisIssues != null && AnalysisIssues.Count > 0) d["AnalysisIssues"] = AnalysisIssues;
         if (DetectedTypeExtension != null) d["DetectedTypeExtension"] = DetectedTypeExtension;
         if (DetectedTypeName != null) d["DetectedTypeName"] = DetectedTypeName;
         if (!string.IsNullOrEmpty(DetectedTypeFriendly)) d["DetectedTypeFriendly"] = DetectedTypeFriendly;

@@ -23,7 +23,8 @@ public static partial class FileInspector {
         foreach (var f in files) {
             if (filter != null && !filter(f)) continue;
             FileAnalysis? analysis = null;
-            try { analysis = Analyze(f, options); } catch { }
+            try { analysis = Analyze(f, options); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
             if (analysis != null) yield return analysis;
         }
     }
@@ -75,7 +76,8 @@ public static partial class FileInspector {
             try {
                 await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = ct }, async (file, token) => {
                     FileAnalysis? result = null;
-                    try { result = Analyze(file, options); } catch { }
+                    try { result = Analyze(file, options); }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException) { }
                     if (result != null)
                         await channel.Writer.WriteAsync(result, token);
                 });
@@ -117,36 +119,49 @@ public static partial class FileInspector {
         while (pending.Count > 0)
         {
             var current = pending.Pop();
-            IEnumerable<string> files;
-            try
-            {
-                files = enumerateFiles(current);
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-            {
-                continue;
-            }
-
-            foreach (var file in files)
+            foreach (var file in EnumerateSafely(() => enumerateFiles(current)))
             {
                 yield return file;
             }
 
             if (searchOption != SearchOption.AllDirectories) continue;
 
-            IEnumerable<string> directories;
-            try
-            {
-                directories = enumerateDirectories(current);
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-            {
-                continue;
-            }
-
-            foreach (var directory in directories)
+            foreach (var directory in EnumerateSafely(() => enumerateDirectories(current)))
             {
                 pending.Push(directory);
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateSafely(Func<IEnumerable<string>> enumerableFactory)
+    {
+        IEnumerator<string>? enumerator;
+        try
+        {
+            enumerator = enumerableFactory().GetEnumerator();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+        {
+            yield break;
+        }
+
+        using (enumerator)
+        {
+            while (true)
+            {
+                bool moved;
+                string current;
+                try
+                {
+                    moved = enumerator.MoveNext();
+                    if (!moved) yield break;
+                    current = enumerator.Current;
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+                {
+                    yield break;
+                }
+                yield return current;
             }
         }
     }

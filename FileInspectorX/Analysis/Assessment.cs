@@ -82,8 +82,9 @@ public static partial class FileInspector
     {
         if (balanced == null) throw new ArgumentNullException(nameof(balanced));
 
-        var strictDecision = DecideForProfile(balanced.Score, AssessmentProfile.Strict);
-        var lenientDecision = DecideForProfile(balanced.Score, AssessmentProfile.Lenient);
+        var incomplete = balanced.Decision == AssessmentDecision.Defer && balanced.Codes.Contains("Analysis.Incomplete");
+        var strictDecision = incomplete ? AssessmentDecision.Defer : DecideForProfile(balanced.Score, AssessmentProfile.Strict);
+        var lenientDecision = incomplete ? AssessmentDecision.Defer : DecideForProfile(balanced.Score, AssessmentProfile.Lenient);
         return new MultiAssessmentResult
         {
             Strict = CloneWithDecision(balanced, strictDecision),
@@ -145,6 +146,8 @@ public static partial class FileInspector
         }
         bool IsEmbeddedExecutableExtension(string ext) => ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx";
         bool IsEmbeddedScriptExtension(string ext) => ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "vbe" or "wsf" or "wsh" or "py" or "rb";
+
+        if (!a.AnalysisComplete) Add("Analysis.Incomplete", 0);
 
         // Containers and archives
         bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
@@ -544,7 +547,11 @@ public static partial class FileInspector
 
         // Guardrails and clamp
         if (score < 0) score = 0; if (score > 100) score = 100;
-        var decision = score >= Settings.AssessmentBlockThreshold ? AssessmentDecision.Block : (score >= Settings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
+        var decision = !a.AnalysisComplete
+            ? AssessmentDecision.Defer
+            : score >= Settings.AssessmentBlockThreshold
+                ? AssessmentDecision.Block
+                : (score >= Settings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
 
         return new AssessmentResult { Score = score, Decision = decision, Codes = codes, Factors = factors };
 
