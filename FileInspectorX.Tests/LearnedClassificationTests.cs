@@ -238,6 +238,40 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_ExtensionlessLearnedOutputCanAgreeWithMachO()
+    {
+        var result = FileInspector.Detect(
+            new byte[] { 0xFE, 0xED, 0xFA, 0xCE },
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(CreatePrediction("macho", extension: null)),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("macho", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
+        Assert.Equal("macho", result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
+    public void Detect_TiffAndTifExtensionsAgree()
+    {
+        var result = FileInspector.Detect(
+            new byte[] { 0x49, 0x49, 0x2A, 0x00 },
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(CreatePrediction("tiff", "tiff")),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("tif", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
+        Assert.Equal("tif", result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
     public void Analyze_PathArbitratesAfterFullDeterministicRefinement()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".exe");
@@ -413,7 +447,7 @@ public sealed class LearnedClassificationTests
     }
 #endif
 
-    private static LearnedContentPrediction CreatePrediction(string label, string extension)
+    private static LearnedContentPrediction CreatePrediction(string label, string? extension)
         => new()
         {
             Provider = "Test",

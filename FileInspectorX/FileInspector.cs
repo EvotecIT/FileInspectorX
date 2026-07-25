@@ -372,7 +372,8 @@ public static partial class FileInspector {
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
                     return Finish(new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" });
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
+                catch (Exception ex) when (
+                    ex is not OutOfMemoryException and not LearnedClassificationException)
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";

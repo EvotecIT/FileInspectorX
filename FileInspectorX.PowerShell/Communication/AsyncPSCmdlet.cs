@@ -17,6 +17,7 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
         Output,
         OutputEnumerate,
         Error,
+        TerminatingError,
         Warning,
         Verbose,
         Debug,
@@ -109,6 +110,10 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
                     base.WriteError((ErrorRecord)data!);
                     break;
 
+                case PipelineType.TerminatingError:
+                    base.ThrowTerminatingError((ErrorRecord)data!);
+                    break;
+
                 case PipelineType.Warning:
                     base.WriteWarning((string)data!);
                     break;
@@ -176,6 +181,16 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
     public new void WriteError(ErrorRecord errorRecord) {
         ThrowIfStopped();
         _currentOutPipe?.Add((errorRecord, PipelineType.Error));
+    }
+
+    /// <summary>
+    /// Writes a terminating error from asynchronous work through the PowerShell pipeline thread.
+    /// The caller must return immediately after queueing the error.
+    /// </summary>
+    /// <param name="errorRecord">The terminating error record.</param>
+    protected void WriteTerminatingError(ErrorRecord errorRecord) {
+        ThrowIfStopped();
+        _currentOutPipe?.Add((errorRecord, PipelineType.TerminatingError));
     }
 
     /// <summary>

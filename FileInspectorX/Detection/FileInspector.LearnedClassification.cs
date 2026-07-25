@@ -145,7 +145,8 @@ public static partial class FileInspector
         var deterministicCandidates = result.Candidates;
         var deterministicAlternatives = result.Alternatives;
         var learnedExtension = NormalizeExtension(prediction.Extension);
-        var agreementExtension = FindDeterministicAgreementExtension(result, learnedExtension);
+        var learnedAgreementExtension = learnedExtension ?? NormalizeExtension(prediction.OutputLabel);
+        var agreementExtension = FindDeterministicAgreementExtension(result, learnedAgreementExtension);
         var learnedIsGeneric = string.IsNullOrWhiteSpace(learnedExtension) ||
                                prediction.OutputLabel.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
                                prediction.OutputLabel.Equals("txt", StringComparison.OrdinalIgnoreCase);
@@ -319,7 +320,11 @@ public static partial class FileInspector
                (leftValue.Equals("yaml", StringComparison.OrdinalIgnoreCase) &&
                 rightValue.Equals("yml", StringComparison.OrdinalIgnoreCase)) ||
                (leftValue.Equals("yml", StringComparison.OrdinalIgnoreCase) &&
-                rightValue.Equals("yaml", StringComparison.OrdinalIgnoreCase));
+                rightValue.Equals("yaml", StringComparison.OrdinalIgnoreCase)) ||
+               (leftValue.Equals("tif", StringComparison.OrdinalIgnoreCase) &&
+                rightValue.Equals("tiff", StringComparison.OrdinalIgnoreCase)) ||
+               (leftValue.Equals("tiff", StringComparison.OrdinalIgnoreCase) &&
+                rightValue.Equals("tif", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string LearnedConfidence(double probability)

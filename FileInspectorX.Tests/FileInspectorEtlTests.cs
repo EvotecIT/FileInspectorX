@@ -292,12 +292,49 @@ public class FileInspectorEtlTests
         }
     }
 
+    [Fact]
+    public void Detect_EtlMagic_RequiredLearnedFailureInvokesClassifierOnce()
+    {
+        var prevMode = Settings.EtlValidation;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        var temp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x00, 0x01 });
+            var classifier = new EtlThrowingClassifier();
+
+            Assert.Throws<LearnedClassificationException>(() =>
+                FileInspector.Detect(
+                    temp,
+                    new FileInspector.DetectionOptions
+                    {
+                        LearnedClassifier = classifier,
+                        LearnedClassificationMode = LearnedClassificationMode.Required
+                    }));
+
+            Assert.Equal(1, classifier.CallCount);
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            TestHelpers.SafeDelete(temp);
+        }
+    }
+
     private sealed class EtlThrowingClassifier : ILearnedContentClassifier
     {
+        internal int CallCount { get; private set; }
+
         public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
-            => throw new InvalidOperationException("test");
+        {
+            CallCount++;
+            throw new InvalidOperationException("test");
+        }
 
         public LearnedContentPrediction Predict(Stream content)
-            => throw new InvalidOperationException("test");
+        {
+            CallCount++;
+            throw new InvalidOperationException("test");
+        }
     }
 }

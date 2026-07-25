@@ -238,11 +238,12 @@ namespace FileInspectorX.PowerShell {
                     }
                 } catch (PipelineStoppedException) { throw; }
                 catch (LearnedClassificationException ex) {
-                    ThrowTerminatingError(new ErrorRecord(
+                    WriteTerminatingError(new ErrorRecord(
                         ex,
                         "RequiredLearnedClassificationFailure",
                         ErrorCategory.NotSpecified,
                         input));
+                    return Task.CompletedTask;
                 }
                 catch (Exception ex) {
                     WriteError(new ErrorRecord(ex, "GetFileInsightFailure", ErrorCategory.NotSpecified, input));
