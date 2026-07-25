@@ -238,7 +238,7 @@ namespace FileInspectorX.PowerShell {
                     }
                 } catch (PipelineStoppedException) { throw; }
                 catch (LearnedClassificationException ex) {
-                    WriteTerminatingError(new ErrorRecord(
+                    ThrowTerminatingError(new ErrorRecord(
                         ex,
                         "RequiredLearnedClassificationFailure",
                         ErrorCategory.NotSpecified,
