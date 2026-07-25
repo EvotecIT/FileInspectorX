@@ -24,6 +24,7 @@ public static partial class FileInspector {
             if (filter != null && !filter(f)) continue;
             FileAnalysis? analysis = null;
             try { analysis = Analyze(f, options); }
+            catch (LearnedClassificationException) { throw; }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
             if (analysis != null) yield return analysis;
         }
@@ -77,6 +78,7 @@ public static partial class FileInspector {
                 await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = ct }, async (file, token) => {
                     FileAnalysis? result = null;
                     try { result = Analyze(file, options); }
+                    catch (LearnedClassificationException) { throw; }
                     catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException) { }
                     if (result != null)
                         await channel.Writer.WriteAsync(result, token);

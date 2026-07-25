@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>Optional Magika-compatible learned content classification for FileInspectorX</Description>
+    <AssemblyName>FileInspectorX.Magika</AssemblyName>
+    <VersionPrefix>1.1.0</VersionPrefix>
+    <PackageReadmeFile>README.MD</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EvotecIT/FileInspectorX.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>file type detection;magika;onnx;machine learning</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FileInspectorX\FileInspectorX.csproj" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Models\standard_v3_3\model.onnx"
+                      LogicalName="FileInspectorX.Magika.Models.standard_v3_3.model.onnx" />
+    <EmbeddedResource Include="Models\standard_v3_3\config.min.json"
+                      LogicalName="FileInspectorX.Magika.Models.standard_v3_3.config.min.json" />
+    <EmbeddedResource Include="Models\standard_v3_3\content_types_kb.min.json"
+                      LogicalName="FileInspectorX.Magika.Models.standard_v3_3.content_types_kb.min.json" />
+    <None Include="..\README.MD" Pack="true" PackagePath="/" Link="README.MD" />
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+    <None Include="THIRD-PARTY-LICENSES\Magika-Apache-2.0.txt"
+          Pack="true"
+          PackagePath="THIRD-PARTY-LICENSES/" />
+  </ItemGroup>
+</Project>

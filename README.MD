@@ -39,6 +39,13 @@ FileInspectorX is a library for content type detection (magic bytes + heuristics
 dotnet add package FileInspectorX
 ```
 
+The base package uses deterministic signatures and heuristics and does not load a model or
+ONNX Runtime. Install the optional package only when you want learned classification:
+
+```bash
+dotnet add package FileInspectorX.Magika
+```
+
 ### PowerShell (Module)
 
 ```powershell
@@ -65,6 +72,67 @@ var sig     = SignatureView.From(path, analysis.Authenticode);
 // Detection only
 var detOnly = FileInspector.Detect(path, options);
 ```
+
+### Optional learned classification
+
+`FileInspectorX.Magika` runs Google's pinned `standard_v3_3` model in C#. It is explicit
+because the model and native ONNX Runtime materially increase deployment size. The default
+`FileInspectorX` behavior does not change.
+
+```csharp
+using FileInspectorX;
+using FileInspectorX.Magika;
+
+using var magika = new MagikaContentClassifier(new MagikaClassifierOptions {
+    PredictionMode = MagikaPredictionMode.HighConfidence
+});
+
+var detection = FileInspector.Detect(path, new FileInspector.DetectionOptions {
+    LearnedClassificationMode = LearnedClassificationMode.Assist,
+    LearnedClassifier = magika
+});
+
+Console.WriteLine(detection?.Extension);
+Console.WriteLine(detection?.LearnedClassification?.Prediction?.OutputLabel);
+Console.WriteLine(detection?.LearnedClassification?.Prediction?.Probability);
+Console.WriteLine(detection?.LearnedClassification?.Disposition);
+```
+
+`Assist` records provider failures and continues with deterministic detection. `Required`
+throws when the learned provider cannot run. A learned prediction can fill an unknown or
+generic low-confidence result, but validated magic and structural evidence stays authoritative.
+When they disagree, `LearnedClassification.Disposition` is `Conflict` and both results remain
+available for policy decisions.
+
+The integration is typed end to end: `MagikaContentClassifier` implements
+`ILearnedContentClassifier`, the prediction and arbitration evidence are normal C# models, and
+the deterministic detector always runs before learned arbitration. Optional hosts compile the
+Magika construction path in only when their feature property is enabled; they do not discover
+the provider through reflection. Embedded model metadata uses a source-generated JSON context.
+A packaged `net8.0` consumer has also been published and executed successfully with Native AOT.
+
+Measured for `standard_v3_3`, ONNX Runtime 1.27.1, Release, `win-x64`:
+
+| Artifact | Size |
+| --- | ---: |
+| `FileInspectorX.Magika` NuGet package | 2.82 MiB |
+| Normal PowerShell build output | 1.73 MiB |
+| Magika-enabled PowerShell publish | 19.96 MiB |
+
+The native deployment cost is runtime- and publish-style-specific. Publish for a concrete RID
+instead of copying the raw multi-platform ONNX package output.
+
+For example, this creates the opt-in Windows x64 binary payload used by the PowerShell module:
+
+```powershell
+dotnet publish .\FileInspectorX.PowerShell\FileInspectorX.PowerShell.csproj `
+    -c Release -f net8.0 -r win-x64 --self-contained false `
+    -p:IncludeMagika=true -o .\Artefacts\FileInspectorX.Magika\win-x64
+```
+
+The cmdlet loads the packaged ONNX native companion for the current process architecture before
+constructing `MagikaContentClassifier`. This prevents PowerShell from binding to an unrelated
+machine-wide ONNX Runtime.
 
 ## C# Recipes
 
@@ -126,7 +194,19 @@ Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences -Exclude
 
 # Back-compat: detection only
 Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
+
+# Explicit learned classification in a Magika-enabled module build;
+# deterministic validators still win conflicts
+Get-FileInsight -Path .\source.txt -UseMagika -View Detection |
+    Format-List Path,Extension,Confidence,Reason,LearnedClassification
+
+# Fail the file operation if the optional provider cannot run
+Get-FileInsight -Path .\source.txt -UseMagika -LearnedClassificationMode Required
 ```
+
+`-UseMagika` requires a module artifact built with `IncludeMagika=true`. The normal module build
+contains no ONNX dependency; a missing provider is reported as failed evidence in `Assist` mode
+and as a terminating error in `Required` mode.
 
 ### PowerShell quick help
 
@@ -145,7 +225,7 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -
 ## Views
 
 - SummaryView: Path, Kind, Extension, MimeType, Confidence, Reason, Flags
-- DetectionView: Path, Extension, MimeType, Confidence, Reason, ReasonDetails, BytesInspected, Sha256Hex, MagicHeaderHex
+- DetectionView: Path, Extension, MimeType, Confidence, Reason, ReasonDetails, BytesInspected, Sha256Hex, MagicHeaderHex, LearnedClassification
 - AnalysisView: container/text/script/PE/Auth summaries
 - PermissionsView (Windows & Unix): Owner/Group (+ IDs), ModeOctal/ModeSymbolic, IsExecutable, Everyone/Users/Admins read/write, HasDenyEntries
 - SignatureView: Present, EnvelopeSignatureValid, ChainValid, Timestamp, signer info, FileHashMatches, SubjectCN/Org, IssuerCN/Org, IsSelfSigned

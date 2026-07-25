@@ -62,4 +62,11 @@ public class ContentTypeDetectionResult {
 
     /// <summary>Optional ranked candidates including the primary.</summary>
     public IReadOnlyList<ContentTypeDetectionCandidate>? Candidates { get; set; }
+
+    /// <summary>
+    /// Optional learned-classification evidence. Null unless a caller explicitly enables
+    /// <see cref="LearnedClassificationMode.Assist"/> or
+    /// <see cref="LearnedClassificationMode.Required"/>.
+    /// </summary>
+    public LearnedClassificationEvidence? LearnedClassification { get; set; }
 }

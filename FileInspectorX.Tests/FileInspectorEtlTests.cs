@@ -5,6 +5,7 @@ using Xunit;
 
 namespace FileInspectorX.Tests;
 
+[Collection(nameof(DetectionSettingsCollection))]
 public class FileInspectorEtlTests
 {
     [Fact]
@@ -260,5 +261,43 @@ public class FileInspectorEtlTests
             Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
             TestHelpers.SafeDelete(temp);
         }
+    }
+
+    [Fact]
+    public void Inspect_LargeEtl_RequiredLearnedFailurePropagates()
+    {
+        var prevMode = Settings.EtlValidation;
+        var prevQuickBytes = Settings.EtlLargeFileQuickScanBytes;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        Settings.EtlLargeFileQuickScanBytes = 1;
+        var temp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x00, 0x01 });
+
+            Assert.Throws<LearnedClassificationException>(() =>
+                FileInspector.Inspect(
+                    temp,
+                    new FileInspector.DetectionOptions
+                    {
+                        LearnedClassifier = new EtlThrowingClassifier(),
+                        LearnedClassificationMode = LearnedClassificationMode.Required
+                    }));
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
+            TestHelpers.SafeDelete(temp);
+        }
+    }
+
+    private sealed class EtlThrowingClassifier : ILearnedContentClassifier
+    {
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+            => throw new InvalidOperationException("test");
+
+        public LearnedContentPrediction Predict(Stream content)
+            => throw new InvalidOperationException("test");
     }
 }

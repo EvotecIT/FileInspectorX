@@ -38,6 +38,15 @@ public static partial class FileInspector {
         public bool IncludeAssessment { get; set; } = true;
         /// <summary>Include Windows shell properties (Explorer Details). Default true.</summary>
         public bool IncludeShellProperties { get; set; } = true;
+
+        /// <summary>
+        /// Optional learned classifier. It is never invoked while
+        /// <see cref="LearnedClassificationMode"/> is <see cref="FileInspectorX.LearnedClassificationMode.Off"/>.
+        /// </summary>
+        public ILearnedContentClassifier? LearnedClassifier { get; set; }
+
+        /// <summary>Controls optional learned classification. Default is <see cref="FileInspectorX.LearnedClassificationMode.Off"/>.</summary>
+        public LearnedClassificationMode LearnedClassificationMode { get; set; } = FileInspectorX.LearnedClassificationMode.Off;
     }
 
     /// <summary>
@@ -263,13 +272,27 @@ public static partial class FileInspector {
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path, DetectionOptions? options) {
         try {
-            if (Signatures.TryMatchUdf(path, out var udf)) return udf;
-            if (Signatures.TryMatchIso(path, out var iso)) return iso;
-            if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
+            options ??= new DetectionOptions();
+            var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
+                ? options
+                : WithoutLearnedClassification(options);
+            ContentTypeDetectionResult? FinishPathOnly(ContentTypeDetectionResult? result)
+            {
+                if (options.LearnedClassificationMode == LearnedClassificationMode.Off)
+                    return result;
+                using var learnedStream = OpenReadShared(path);
+                return ApplyLearnedClassification(result, learnedStream, options);
+            }
+            if (Signatures.TryMatchUdf(path, out var udf)) return FinishPathOnly(udf);
+            if (Signatures.TryMatchIso(path, out var iso)) return FinishPathOnly(iso);
+            if (Signatures.TryMatchDmg(path, out var dmg)) return FinishPathOnly(dmg);
             using var fs = OpenReadShared(path);
-            if (Signatures.TryMatchMsg(path, out var msg)) return msg;
+            ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? result)
+                => ApplyLearnedClassification(result, fs, options);
+            if (Signatures.TryMatchMsg(path, out var msg))
+                return Finish(msg);
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            var det = Detect(fs, options, extDeclared);
+            var det = Detect(fs, deterministicOptions, extDeclared);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
                     // A successful PE parse is stronger evidence than the 2-byte MZ prefix alone.
@@ -307,7 +330,7 @@ public static partial class FileInspector {
                         if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                         {
                             Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-ok", path: path);
-                            return detEtl;
+                            return Finish(detEtl);
                         }
 
                         bool? okNative = null;
@@ -320,7 +343,7 @@ public static partial class FileInspector {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
                                 detEtl.Confidence = "High";
                                 detEtl.Reason = "etw:ok";
-                                return detEtl;
+                                return Finish(detEtl);
                             }
                         }
 
@@ -334,34 +357,35 @@ public static partial class FileInspector {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
                                 detEtl.Confidence = "High";
                                 detEtl.Reason = "tracerpt:ok";
-                                return detEtl;
+                                return Finish(detEtl);
                             }
                             if (okTr == false) detEtl.Reason = AppendReason(detEtl.Reason, "tracerpt-fail");
                             else if (okTr == null) detEtl.Reason = AppendReason(detEtl.Reason, "tracerpt-n/a");
                         }
 
                         Breadcrumbs.Write("ETL_VALIDATE_END", message: okNative == false ? "native-fail" : "no-success", path: path);
-                        return detEtl;
+                        return Finish(detEtl);
                     }
                 }
                 catch (IOException ex)
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_IO_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" };
+                    return Finish(new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" });
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" };
+                    return Finish(new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" });
                 }
             }
             det = ApplyDeclaredBias(det, extDeclared);
             TryValidateStructuredTextWithBudget(fs, det, skipAdmxAdml: true);
             TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
-            return det;
+            return Finish(det);
         } catch (OutOfMemoryException) { throw; }
+        catch (LearnedClassificationException) { throw; }
         catch { return null; }
     }
 
@@ -393,7 +417,8 @@ public static partial class FileInspector {
         var read = ReadAvailable(stream, header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
-        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
+            => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
@@ -472,9 +497,9 @@ public static partial class FileInspector {
                 if (refined != null) return Finish(Enrich(refined, src, stream, options));
             }
             var enriched = Enrich(text, src, stream, options);
-            var finished = Finish(enriched);
-            TryValidateStructuredTextWithBudget(stream, finished, skipAdmxAdml: false);
-            return finished;
+            var deterministic = ApplyDeclaredBias(enriched, declaredExtension);
+            TryValidateStructuredTextWithBudget(stream, deterministic, skipAdmxAdml: false);
+            return ApplyLearnedClassification(deterministic, stream, options);
         }
         return Finish(Enrich(null, src, stream, options));
     }
@@ -1035,6 +1060,12 @@ public static partial class FileInspector {
                         }
 
                         var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
+                        if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
+                        {
+                            using var learnedStream = OpenReadShared(path);
+                            det = ApplyLearnedClassification(det, learnedStream, options)
+                                  ?? det;
+                        }
                         var quick = new FileAnalysis
                         {
                             Detection = det,
@@ -1050,6 +1081,7 @@ public static partial class FileInspector {
                     }
                 }
             }
+            catch (LearnedClassificationException) { throw; }
             catch { /* non-fatal */ }
 
             if (options.DetectOnly)
@@ -1203,7 +1235,16 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
-        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
+        var learnedData = options.LearnedClassificationMode != LearnedClassificationMode.Off
+            ? dataMemory ?? new ReadOnlyMemory<byte>(data.ToArray())
+            : default(ReadOnlyMemory<byte>?);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
+        {
+            var biased = ApplyDeclaredBias(det, declaredExtension);
+            return learnedData.HasValue
+                ? ApplyLearnedClassification(biased, learnedData.Value, options)
+                : biased;
+        }
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
         if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
         if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));

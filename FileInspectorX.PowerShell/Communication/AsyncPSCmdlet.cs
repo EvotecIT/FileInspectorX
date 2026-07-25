@@ -235,7 +235,7 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
     /// <summary>
     /// Disposes the resources used by the cmdlet.
     /// </summary>
-    public void Dispose() {
+    public virtual void Dispose() {
         _cancelSource?.Dispose();
     }
 }

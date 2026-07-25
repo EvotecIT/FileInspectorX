@@ -33,6 +33,8 @@ public sealed class DetectionView
     public string? Sha256Hex { get; set; }
     /// <summary>Optional magic header bytes as hex (when requested).</summary>
     public string? MagicHeaderHex { get; set; }
+    /// <summary>Optional learned-classification evidence when explicitly enabled.</summary>
+    public LearnedClassificationEvidence? LearnedClassification { get; set; }
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
@@ -54,6 +56,7 @@ public sealed class DetectionView
         Candidates = r.Candidates,
         Sha256Hex = r.Sha256Hex,
         MagicHeaderHex = r.MagicHeaderHex,
+        LearnedClassification = r.LearnedClassification,
         Raw = null
     };
 }

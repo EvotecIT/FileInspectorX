@@ -1,9 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Management.Automation;
+using System.Threading;
 using System.Threading.Tasks;
 using FileInspectorX;
+#if FILEINSPECTORX_MAGIKA
+using FileInspectorX.Magika;
+#endif
 
 namespace FileInspectorX.PowerShell {
     /// <summary>
@@ -28,6 +33,10 @@ namespace FileInspectorX.PowerShell {
     /// <example>
     ///  <para>Include SHA-256 and first 16 bytes header (hex)</para>
     ///  <code>Get-FileInsight -Path .\\app.exe -ComputeSha256 -MagicHeaderBytes 16</code>
+    /// </example>
+    /// <example>
+    ///  <para>Opt in to Magika learned classification while preserving deterministic validators</para>
+    ///  <code>Get-FileInsight -Path .\\source.txt -UseMagika -View Detection</code>
     /// </example>
     /// <seealso cref="FileInspectorX.PowerShell.AsyncPSCmdlet" />
     /// </summary>
@@ -83,8 +92,28 @@ namespace FileInspectorX.PowerShell {
         /// <summary>Exclude Windows shell properties (Explorer Details).</summary>
         [Parameter()] public SwitchParameter ExcludeShellProperties { get; set; }
 
+        /// <summary>
+        /// Opt in to the bundled Magika learned classifier. Deterministic magic and structural
+        /// validation remain authoritative when evidence conflicts.
+        /// </summary>
+        [Parameter()]
+        public SwitchParameter UseMagika { get; set; }
+
+        /// <summary>Magika probability policy. Defaults to HighConfidence.</summary>
+        [Parameter()]
+        [ValidateSet("HighConfidence", "MediumConfidence", "BestGuess")]
+        public string MagikaPredictionMode { get; set; } = "HighConfidence";
+
+        /// <summary>
+        /// Failure behavior for the optional classifier. Assist records provider failures and continues;
+        /// Required reports a terminating per-file error.
+        /// </summary>
+        [Parameter()]
+        public LearnedClassificationMode LearnedClassificationMode { get; set; } = FileInspectorX.LearnedClassificationMode.Assist;
 
         private InternalLogger? _logger;
+        private ILearnedContentClassifier? _magikaClassifier;
+        private IDisposable? _magikaDisposable;
 
 
         /// <inheritdoc />
@@ -92,11 +121,38 @@ namespace FileInspectorX.PowerShell {
             // Bridge internal logger to PowerShell streams (optional; zero logic beyond wiring).
             _logger = new InternalLogger(false);
             _ = new InternalLoggerPowerShell(_logger, this.WriteVerbose, this.WriteWarning, this.WriteDebug, this.WriteError, this.WriteProgress, this.WriteInformation);
+            if (UseMagika && LearnedClassificationMode != FileInspectorX.LearnedClassificationMode.Off)
+            {
+                try
+                {
+                    _magikaClassifier = CreateMagikaClassifier(MagikaPredictionMode);
+                    _magikaDisposable = _magikaClassifier as IDisposable;
+                }
+                catch when (LearnedClassificationMode == FileInspectorX.LearnedClassificationMode.Assist)
+                {
+                    WriteWarning(
+                        "The optional Magika provider could not be initialized. " +
+                        "Assist mode will keep deterministic results and record a learned-classification failure for each file.");
+                }
+            }
             return Task.CompletedTask;
         }
 
         /// <inheritdoc />
         protected override async Task ProcessRecordAsync() {
+            try
+            {
+                await ProcessFilesAsync();
+            }
+            finally
+            {
+                if (CancelToken.IsCancellationRequested)
+                    DisposeMagikaClassifier();
+            }
+        }
+
+        private Task ProcessFilesAsync()
+        {
             var options = new FileInspector.DetectionOptions {
                 ComputeSha256 = ComputeSha256,
                 MagicHeaderBytes = MagicHeaderBytes,
@@ -106,7 +162,11 @@ namespace FileInspectorX.PowerShell {
                 IncludeInstaller = !ExcludeInstaller,
                 IncludeContainer = !ExcludeContainer,
                 IncludeAssessment = !ExcludeAssessment,
-                IncludeShellProperties = !ExcludeShellProperties
+                IncludeShellProperties = !ExcludeShellProperties,
+                LearnedClassifier = _magikaClassifier,
+                LearnedClassificationMode = UseMagika
+                    ? LearnedClassificationMode
+                    : FileInspectorX.LearnedClassificationMode.Off
             };
 
             // Resolve each incoming path through PS provider
@@ -180,7 +240,50 @@ namespace FileInspectorX.PowerShell {
                     WriteError(new ErrorRecord(ex, "GetFileInsightFailure", ErrorCategory.NotSpecified, input));
                 }
             }
-            await Task.CompletedTask;
+            return Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        protected override Task EndProcessingAsync()
+        {
+            DisposeMagikaClassifier();
+            return Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        public override void Dispose()
+        {
+            DisposeMagikaClassifier();
+            base.Dispose();
+        }
+
+        private void DisposeMagikaClassifier()
+        {
+            var disposable = Interlocked.Exchange(ref _magikaDisposable, null);
+            _magikaClassifier = null;
+            disposable?.Dispose();
+        }
+
+        private static ILearnedContentClassifier CreateMagikaClassifier(string predictionMode)
+        {
+#if FILEINSPECTORX_MAGIKA
+            MagikaNativeRuntimeLoader.EnsureLoaded();
+            if (!Enum.TryParse<MagikaPredictionMode>(predictionMode, true, out var parsedMode) ||
+                !Enum.IsDefined(typeof(MagikaPredictionMode), parsedMode))
+            {
+                throw new ArgumentException(
+                    "Expected HighConfidence, MediumConfidence, or BestGuess.",
+                    nameof(predictionMode));
+            }
+            return new MagikaContentClassifier(new MagikaClassifierOptions
+            {
+                PredictionMode = parsedMode
+            });
+#else
+            throw new InvalidOperationException(
+                "Magika is optional and is not included in this PowerShell module build. " +
+                "Install or publish a module built with IncludeMagika=true.");
+#endif
         }
     }
 }

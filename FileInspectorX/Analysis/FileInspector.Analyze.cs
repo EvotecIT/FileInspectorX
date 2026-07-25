@@ -288,7 +288,11 @@ public static partial class FileInspector {
     /// </summary>
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
-        var det = Detect(path, options);
+        options ??= new DetectionOptions();
+        var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
+            ? options
+            : WithoutLearnedClassification(options);
+        var det = Detect(path, deterministicOptions);
         var res = new FileAnalysis {
             Detection = det,
             Kind = KindClassifier.Classify(det),
@@ -298,7 +302,18 @@ public static partial class FileInspector {
         bool msiPropsDone = false;
 
         try {
-            if (det is null) return res;
+            if (det is null)
+            {
+                if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
+                {
+                    det = ApplyLearnedClassificationFromPath(det, path, options);
+                    res.Detection = det;
+                    res.Kind = KindClassifier.Classify(det);
+                    res.GuessedExtension ??= det?.GuessedExtension;
+                    PopulateDetectionSummary(res);
+                }
+                return res;
+            }
             string? headTextCached = null;
             int headTextCap = 0;
             string ReadHeadTextCached(int cap)
@@ -1161,6 +1176,16 @@ public static partial class FileInspector {
                 }
             } catch { }
 
+            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off)
+            {
+                if (det != null)
+                    det.GuessedExtension ??= res.GuessedExtension;
+                det = ApplyLearnedClassificationFromPath(det, path, options);
+                res.Detection = det;
+                res.Kind = KindClassifier.Classify(det);
+                res.GuessedExtension ??= det?.GuessedExtension;
+            }
+
             PopulateDetectionSummary(res);
 
             // Assessment (optional)
@@ -1172,11 +1197,23 @@ public static partial class FileInspector {
 
         }
         catch (OutOfMemoryException) { throw; }
+        catch (LearnedClassificationException) { throw; }
         catch (Exception ex)
         {
             res.AnalysisComplete = false;
             res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { "analysis:unhandled-error" });
             Breadcrumbs.Write("ANALYZE_ERROR", message: ex.GetType().Name, path: path);
+            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off &&
+                res.Detection?.LearnedClassification is null)
+            {
+                if (det != null)
+                    det.GuessedExtension ??= res.GuessedExtension;
+                det = ApplyLearnedClassificationFromPath(det, path, options);
+                res.Detection = det;
+                res.Kind = KindClassifier.Classify(det);
+                res.GuessedExtension ??= det?.GuessedExtension;
+                PopulateDetectionSummary(res);
+            }
         }
         finally
         {
