@@ -385,6 +385,12 @@ public static partial class FileInspector {
             return Finish(det);
         } catch (OutOfMemoryException) { throw; }
         catch (LearnedClassificationException) { throw; }
+        catch (Exception ex) when (
+            options?.LearnedClassificationMode == LearnedClassificationMode.Required &&
+            ex is IOException or UnauthorizedAccessException) {
+            throw new LearnedClassificationException(
+                "The required learned content classifier could not read the file.", ex);
+        }
         catch { return null; }
     }
 

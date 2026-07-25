@@ -128,7 +128,8 @@ namespace FileInspectorX.PowerShell {
                     _magikaClassifier = CreateMagikaClassifier(MagikaPredictionMode);
                     _magikaDisposable = _magikaClassifier as IDisposable;
                 }
-                catch when (LearnedClassificationMode == FileInspectorX.LearnedClassificationMode.Assist)
+                catch (Exception ex) when (ex is not OutOfMemoryException &&
+                                           LearnedClassificationMode == FileInspectorX.LearnedClassificationMode.Assist)
                 {
                     WriteWarning(
                         "The optional Magika provider could not be initialized. " +

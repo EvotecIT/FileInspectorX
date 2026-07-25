@@ -81,7 +81,14 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
             {
                 content.Seek(0, SeekOrigin.Begin);
                 var sample = new byte[(int)Math.Min(_config.BlockSize, content.Length)];
-                var read = content.Read(sample, 0, sample.Length);
+                var read = 0;
+                while (read < sample.Length)
+                {
+                    var current = content.Read(sample, read, sample.Length - read);
+                    if (current == 0)
+                        break;
+                    read += current;
+                }
                 return CreateRulePrediction(IsValidUtf8(new ReadOnlySpan<byte>(sample, 0, read)) ? "txt" : "unknown", 1);
             }
             finally
@@ -139,8 +146,8 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
         return CreatePrediction(rawLabel, outputLabel, probability, threshold, thresholdMet, overwriteReason);
     }
 
-    private LearnedContentPrediction CreateRulePrediction(string label, double probability)
-        => CreatePrediction(label, label, probability, 1, true, null);
+    private LearnedContentPrediction CreateRulePrediction(string outputLabel, double probability)
+        => CreatePrediction("undefined", outputLabel, probability, 1, true, null);
 
     private LearnedContentPrediction CreatePrediction(
         string rawLabel,

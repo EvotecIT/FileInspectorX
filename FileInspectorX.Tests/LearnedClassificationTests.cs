@@ -111,6 +111,20 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_PathRequiredPropagatesFileOpenFailure()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        var options = new FileInspector.DetectionOptions
+        {
+            LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
+            LearnedClassificationMode = LearnedClassificationMode.Required
+        };
+
+        Assert.Throws<LearnedClassificationException>(
+            () => FileInspector.Detect(path, options));
+    }
+
+    [Fact]
     public void Detect_PathArbitratesAfterPeFamilyRefinement()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".exe");
@@ -285,8 +299,10 @@ public sealed class LearnedClassificationTests
         }
     }
 
-    [Fact]
-    public void Analyze_LearnedOnlyDetectionBuildsAssessment()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Analyze_LearnedOnlyDetectionBuildsAssessment(bool enrichUnknown)
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
         File.WriteAllBytes(path, Array.Empty<byte>());
@@ -298,6 +314,8 @@ public sealed class LearnedClassificationTests
                 {
                     LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
                     LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    ComputeSha256 = enrichUnknown,
+                    MagicHeaderBytes = enrichUnknown ? 8 : 0,
                     IncludeAuthenticode = false,
                     IncludePermissions = false,
                     IncludeShellProperties = false

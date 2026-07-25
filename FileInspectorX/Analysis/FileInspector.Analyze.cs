@@ -302,7 +302,7 @@ public static partial class FileInspector {
         bool msiPropsDone = false;
 
         try {
-            if (det is null)
+            if (det is null || string.IsNullOrWhiteSpace(det.Extension))
             {
                 if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
                 {
