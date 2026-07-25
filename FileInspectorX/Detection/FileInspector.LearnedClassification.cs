@@ -281,6 +281,7 @@ public static partial class FileInspector
 
         analysis.NameIssues = AnalyzeName(path, result);
         var scriptLanguage = MapScriptLanguageFromExtension(result.Extension);
+        analysis.TextSubtype = MapTextSubtypeFromExtension(result.Extension);
         if (string.IsNullOrEmpty(scriptLanguage))
             return;
 
@@ -290,6 +291,12 @@ public static partial class FileInspector
         if (scriptLanguage is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
             analysis.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
     }
+
+    private static ContentKind ClassifyKindWithLearnedText(ContentTypeDetectionResult? result)
+        => result?.LearnedClassification?.Disposition == LearnedClassificationDisposition.Promoted &&
+           result.LearnedClassification.Prediction?.IsText == true
+            ? ContentKind.Text
+            : KindClassifier.Classify(result);
 
     private static string? FindDeterministicAgreementExtension(
         ContentTypeDetectionResult result,

@@ -473,6 +473,65 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Analyze_LearnedTextPromotionRefreshesTextSubtype()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, "ordinary prose without deterministic markdown cues");
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("markdown", "md")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("md", result.Detection!.Extension);
+            Assert.Equal("markdown", result.TextSubtype);
+            Assert.Null(result.ScriptLanguage);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_LearnedTextPredictionSetsTextKindWithoutKnownExtensionOrMime()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        File.WriteAllBytes(path, Array.Empty<byte>());
+        try
+        {
+            var prediction = CreatePrediction("custom_text", "customtxt");
+            prediction.MimeType = "application/octet-stream";
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(prediction),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal(LearnedClassificationDisposition.Promoted, result.Detection!.LearnedClassification!.Disposition);
+            Assert.Equal(ContentKind.Text, result.Kind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AnalyzeDirectory_RequiredPropagatesProviderFailure()
     {
         var directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));

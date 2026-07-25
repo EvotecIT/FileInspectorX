@@ -135,6 +135,16 @@ namespace FileInspectorX.PowerShell {
                         "The optional Magika provider could not be initialized. " +
                         "Assist mode will keep deterministic results and record a learned-classification failure for each file.");
                 }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    ThrowTerminatingError(new ErrorRecord(
+                        new LearnedClassificationException(
+                            "The required Magika provider could not be initialized.",
+                            ex),
+                        "RequiredLearnedClassificationFailure",
+                        ErrorCategory.NotSpecified,
+                        targetObject: null));
+                }
             }
             return Task.CompletedTask;
         }

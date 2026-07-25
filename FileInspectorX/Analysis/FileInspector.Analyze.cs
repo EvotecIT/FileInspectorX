@@ -308,7 +308,7 @@ public static partial class FileInspector {
                 {
                     det = ApplyLearnedClassificationFromPath(det, path, options);
                     res.Detection = det;
-                    res.Kind = KindClassifier.Classify(det);
+                    res.Kind = ClassifyKindWithLearnedText(det);
                     res.GuessedExtension ??= det?.GuessedExtension;
                 }
                 if (det is null)
@@ -1183,7 +1183,7 @@ public static partial class FileInspector {
                     det.GuessedExtension ??= res.GuessedExtension;
                 det = ApplyLearnedClassificationFromPath(det, path, options);
                 res.Detection = det;
-                res.Kind = KindClassifier.Classify(det);
+                res.Kind = ClassifyKindWithLearnedText(det);
                 res.GuessedExtension ??= det?.GuessedExtension;
             }
             if (det != null)
@@ -1213,7 +1213,7 @@ public static partial class FileInspector {
                     det.GuessedExtension ??= res.GuessedExtension;
                 det = ApplyLearnedClassificationFromPath(det, path, options);
                 res.Detection = det;
-                res.Kind = KindClassifier.Classify(det);
+                res.Kind = ClassifyKindWithLearnedText(det);
                 res.GuessedExtension ??= det?.GuessedExtension;
                 PopulateDetectionSummary(res);
             }
