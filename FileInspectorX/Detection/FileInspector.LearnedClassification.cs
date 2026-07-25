@@ -183,7 +183,10 @@ public static partial class FileInspector
                  !string.IsNullOrWhiteSpace(learnedExtension))
         {
             result.Extension = learnedExtension!;
-            result.MimeType = prediction.MimeType ?? string.Empty;
+            result.MimeType = ResolveLearnedMimeType(
+                prediction.MimeType,
+                learnedExtension!,
+                deterministicMime);
             result.Confidence = LearnedConfidence(prediction.Probability);
             result.Score = null;
             result.Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel;
@@ -195,6 +198,12 @@ public static partial class FileInspector
                 deterministicCandidates,
                 deterministicAlternatives);
             disposition = LearnedClassificationDisposition.Promoted;
+        }
+        else if (IsGenericTextDetection(result) &&
+                 prediction.IsText &&
+                 string.IsNullOrWhiteSpace(learnedExtension))
+        {
+            disposition = LearnedClassificationDisposition.Supplemental;
         }
         else if (!learnedIsGeneric && !string.IsNullOrWhiteSpace(deterministicExtension))
         {
@@ -218,6 +227,49 @@ public static partial class FileInspector
             Message = message
         };
         return result;
+    }
+
+    private static ContentTypeDetectionResult ReconcileLearnedClassificationAfterAnalysis(
+        ContentTypeDetectionResult result)
+    {
+        var evidence = result.LearnedClassification;
+        if (evidence?.Prediction is null ||
+            evidence.Disposition is LearnedClassificationDisposition.Promoted or
+                LearnedClassificationDisposition.Failed)
+        {
+            return result;
+        }
+
+        result.LearnedClassification = null;
+        return ArbitrateLearnedPrediction(result, evidence.Prediction);
+    }
+
+    private static bool IsGenericTextDetection(ContentTypeDetectionResult result)
+        => string.Equals(
+               NormalizeExtension(result.Extension),
+               "txt",
+               StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(
+               EmptyToNull(result.MimeType),
+               "text/plain",
+               StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveLearnedMimeType(
+        string? learnedMimeType,
+        string learnedExtension,
+        string? deterministicMimeType)
+    {
+        var normalizedLearnedMime = EmptyToNull(learnedMimeType);
+        if (normalizedLearnedMime != null)
+            return normalizedLearnedMime;
+
+        if (MimeMaps.Default.TryGetValue(learnedExtension, out var mappedMime) &&
+            !string.IsNullOrWhiteSpace(mappedMime))
+        {
+            return mappedMime;
+        }
+
+        return deterministicMimeType ?? "application/octet-stream";
     }
 
     private static void AlignCandidatesAfterLearnedPromotion(

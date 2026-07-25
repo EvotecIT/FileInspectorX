@@ -289,10 +289,7 @@ public static partial class FileInspector {
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
         options ??= new DetectionOptions();
-        var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
-            ? options
-            : WithoutLearnedClassification(options);
-        var det = Detect(path, deterministicOptions);
+        var det = Detect(path, options);
         var res = new FileAnalysis {
             Detection = det,
             Kind = KindClassifier.Classify(det),
@@ -304,13 +301,6 @@ public static partial class FileInspector {
         try {
             if (det is null || string.IsNullOrWhiteSpace(det.Extension))
             {
-                if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
-                {
-                    det = ApplyLearnedClassificationFromPath(det, path, options);
-                    res.Detection = det;
-                    res.Kind = ClassifyKindWithLearnedText(det);
-                    res.GuessedExtension ??= det?.GuessedExtension;
-                }
                 if (det is null)
                     return res;
             }
@@ -1177,11 +1167,10 @@ public static partial class FileInspector {
             } catch { }
 
             if (options!.LearnedClassificationMode != LearnedClassificationMode.Off &&
-                det?.LearnedClassification is null)
+                det?.LearnedClassification?.Prediction is not null)
             {
-                if (det != null)
-                    det.GuessedExtension ??= res.GuessedExtension;
-                det = ApplyLearnedClassificationFromPath(det, path, options);
+                det.GuessedExtension ??= res.GuessedExtension;
+                det = ReconcileLearnedClassificationAfterAnalysis(det);
                 res.Detection = det;
                 res.Kind = ClassifyKindWithLearnedText(det);
                 res.GuessedExtension ??= det?.GuessedExtension;
@@ -1206,17 +1195,6 @@ public static partial class FileInspector {
             res.AnalysisComplete = false;
             res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { "analysis:unhandled-error" });
             Breadcrumbs.Write("ANALYZE_ERROR", message: ex.GetType().Name, path: path);
-            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off &&
-                res.Detection?.LearnedClassification is null)
-            {
-                if (det != null)
-                    det.GuessedExtension ??= res.GuessedExtension;
-                det = ApplyLearnedClassificationFromPath(det, path, options);
-                res.Detection = det;
-                res.Kind = ClassifyKindWithLearnedText(det);
-                res.GuessedExtension ??= det?.GuessedExtension;
-                PopulateDetectionSummary(res);
-            }
         }
         finally
         {

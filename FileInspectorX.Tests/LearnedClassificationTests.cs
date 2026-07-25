@@ -532,6 +532,99 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Analyze_LearnedPromotionPreservesDeterministicMimeWhenPredictionOmitsIt()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, "ordinary prose without deterministic language cues");
+        try
+        {
+            var prediction = CreatePrediction("solidity", "sol");
+            prediction.MimeType = null;
+
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(prediction),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal(LearnedClassificationDisposition.Promoted, result.Detection!.LearnedClassification!.Disposition);
+            Assert.Equal("sol", result.Detection.Extension);
+            Assert.Equal("text/plain", result.Detection.MimeType);
+            Assert.Equal("text/plain", result.Detection.Candidates![0].MimeType);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_ExtensionlessLearnedTextSupplementsGenericText()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, "FROM scratch\nRUN echo hello");
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("dockerfile", null)),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("txt", result.Detection!.Extension);
+            Assert.Equal(
+                LearnedClassificationDisposition.Supplemental,
+                result.Detection.LearnedClassification!.Disposition);
+            Assert.Null(result.Detection.LearnedClassification.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_CapturesLearnedPredictionOnceBeforeFullAnalysis()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, "ordinary prose");
+        try
+        {
+            var classifier = new StubClassifier(CreatePrediction("markdown", "md"));
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = classifier,
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.NotNull(result.Detection!.LearnedClassification);
+            Assert.Equal(1, classifier.CallCount);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AnalyzeDirectory_RequiredPropagatesProviderFailure()
     {
         var directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
