@@ -168,8 +168,7 @@ public static partial class FileInspector
         var learnedExtension = NormalizeExtension(prediction.Extension);
         var learnedAgreementExtensions = GetLearnedAgreementExtensions(prediction, learnedExtension);
         var agreementExtension = FindDeterministicAgreementExtension(result, learnedAgreementExtensions);
-        var learnedIsGeneric = string.IsNullOrWhiteSpace(learnedExtension) ||
-                               prediction.OutputLabel.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
+        var learnedIsGeneric = prediction.OutputLabel.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
                                prediction.OutputLabel.Equals("txt", StringComparison.OrdinalIgnoreCase);
 
         LearnedClassificationDisposition disposition;
@@ -179,11 +178,14 @@ public static partial class FileInspector
         {
             disposition = LearnedClassificationDisposition.Agreed;
         }
-        else if (CanLearnedPredictionFill(result) && !learnedIsGeneric)
+        else if (CanLearnedPredictionFill(result) &&
+                 !learnedIsGeneric &&
+                 !string.IsNullOrWhiteSpace(learnedExtension))
         {
             result.Extension = learnedExtension!;
             result.MimeType = prediction.MimeType ?? string.Empty;
             result.Confidence = LearnedConfidence(prediction.Probability);
+            result.Score = null;
             result.Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel;
             result.ReasonDetails = "model:" + prediction.ModelId;
             result.IsDangerous = DangerousExtensions.IsDangerous(result.Extension);

@@ -36,8 +36,9 @@ public sealed class LearnedClassificationTests
         Assert.NotNull(result);
         Assert.Equal("js", result!.Extension);
         Assert.Equal(LearnedClassificationDisposition.Promoted, result.LearnedClassification!.Disposition);
-        Assert.NotEqual(result.Score, (int?)(result.LearnedClassification.Prediction!.Probability * 100));
+        Assert.Null(result.Score);
         Assert.Equal("js", result.Candidates![0].Extension);
+        Assert.Equal(0, result.Candidates[0].Score);
         Assert.Contains(result.Alternatives!, candidate => candidate.Extension == "txt");
     }
 
@@ -252,6 +253,28 @@ public sealed class LearnedClassificationTests
         Assert.Equal("macho", result!.Extension);
         Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
         Assert.Equal("macho", result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
+    public void Detect_ExtensionlessSpecificLearnedOutputConflictsWithDifferentStrongType()
+    {
+        var png = new byte[]
+        {
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0, 0, 0, 0, 0, 0, 0, 0
+        };
+
+        var result = FileInspector.Detect(
+            png,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(CreatePrediction("macho", extension: null)),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("png", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Conflict, result.LearnedClassification!.Disposition);
     }
 
     [Fact]
