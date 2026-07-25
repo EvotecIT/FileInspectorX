@@ -62,6 +62,20 @@ public sealed class MagikaFeatureExtractorTests
         Assert.Equal(new[] { 97, 98, 99, 256, 256, 97, 98, 99 }, features);
     }
 
+    [Fact]
+    public void Predict_UsesActualBytesReadForMinimumModelEligibility()
+    {
+        using var classifier = new MagikaContentClassifier();
+        using var stream = new ReportedLengthStream(
+            Encoding.ASCII.GetBytes("abc"),
+            reportedLength: 4096);
+
+        var prediction = classifier.Predict(stream);
+
+        Assert.Equal("txt", prediction.OutputLabel);
+        Assert.Equal("undefined", prediction.RawLabel);
+    }
+
     private sealed class ReportedLengthStream : Stream
     {
         private readonly MemoryStream _inner;

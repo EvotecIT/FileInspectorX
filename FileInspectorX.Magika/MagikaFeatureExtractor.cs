@@ -12,6 +12,13 @@ internal static class MagikaFeatureExtractor
     }
 
     internal static int[] Extract(Stream content, MagikaModelConfig config)
+        => Extract(content, config, out _, out _);
+
+    internal static int[] Extract(
+        Stream content,
+        MagikaModelConfig config,
+        out byte[] beginningBlock,
+        out int beginningLength)
     {
         if (!content.CanRead)
             throw new ArgumentException("The content stream must be readable.", nameof(content));
@@ -24,9 +31,9 @@ internal static class MagikaFeatureExtractor
             var length = content.Length;
             if (length > int.MaxValue)
             {
-                return ExtractBlocks(content, length, config);
+                return ExtractBlocks(content, length, config, out beginningBlock, out beginningLength);
             }
-            return ExtractBlocks(content, length, config);
+            return ExtractBlocks(content, length, config, out beginningBlock, out beginningLength);
         }
         finally
         {
@@ -34,14 +41,19 @@ internal static class MagikaFeatureExtractor
         }
     }
 
-    private static int[] ExtractBlocks(Stream content, long length, MagikaModelConfig config)
+    private static int[] ExtractBlocks(
+        Stream content,
+        long length,
+        MagikaModelConfig config,
+        out byte[] beginning,
+        out int beginningLength)
     {
         var blockLength = (int)Math.Min(config.BlockSize, length);
-        var beginning = new byte[blockLength];
+        beginning = new byte[blockLength];
         var ending = new byte[blockLength];
 
         content.Seek(0, SeekOrigin.Begin);
-        var beginningLength = ReadExactlyAvailable(content, beginning);
+        beginningLength = ReadExactlyAvailable(content, beginning);
         content.Seek(Math.Max(0, length - blockLength), SeekOrigin.Begin);
         var endingLength = ReadExactlyAvailable(content, ending);
 

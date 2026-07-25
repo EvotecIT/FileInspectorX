@@ -96,7 +96,21 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
                 content.Seek(original, SeekOrigin.Begin);
             }
         }
-        var features = MagikaFeatureExtractor.Extract(content, _config);
+        var features = MagikaFeatureExtractor.Extract(
+            content,
+            _config,
+            out var beginningBlock,
+            out var beginningLength);
+        if (beginningLength == 0)
+            return CreateRulePrediction("empty", 1);
+        if (beginningLength < _config.MinimumFileSizeForModel)
+        {
+            return CreateRulePrediction(
+                IsValidUtf8(new ReadOnlySpan<byte>(beginningBlock, 0, beginningLength))
+                    ? "txt"
+                    : "unknown",
+                1);
+        }
         return RunModel(features);
     }
 
