@@ -145,8 +145,8 @@ public static partial class FileInspector
         var deterministicCandidates = result.Candidates;
         var deterministicAlternatives = result.Alternatives;
         var learnedExtension = NormalizeExtension(prediction.Extension);
-        var learnedAgreementExtension = learnedExtension ?? NormalizeExtension(prediction.OutputLabel);
-        var agreementExtension = FindDeterministicAgreementExtension(result, learnedAgreementExtension);
+        var learnedAgreementExtensions = GetLearnedAgreementExtensions(prediction, learnedExtension);
+        var agreementExtension = FindDeterministicAgreementExtension(result, learnedAgreementExtensions);
         var learnedIsGeneric = string.IsNullOrWhiteSpace(learnedExtension) ||
                                prediction.OutputLabel.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
                                prediction.OutputLabel.Equals("txt", StringComparison.OrdinalIgnoreCase);
@@ -270,27 +270,49 @@ public static partial class FileInspector
 
     private static string? FindDeterministicAgreementExtension(
         ContentTypeDetectionResult result,
-        string? learnedExtension)
+        IReadOnlyList<string> learnedExtensions)
     {
-        if (string.IsNullOrWhiteSpace(learnedExtension))
+        if (learnedExtensions.Count == 0)
             return null;
 
         var primaryExtension = NormalizeExtension(result.Extension);
-        if (ExtensionsEquivalent(primaryExtension, learnedExtension))
+        if (learnedExtensions.Any(extension => ExtensionsEquivalent(primaryExtension, extension)))
             return primaryExtension;
 
         var guessedExtension = NormalizeExtension(result.GuessedExtension);
-        if (ExtensionsEquivalent(guessedExtension, learnedExtension))
+        if (learnedExtensions.Any(extension => ExtensionsEquivalent(guessedExtension, extension)))
             return guessedExtension;
 
         foreach (var candidate in GetStrongAlternatives(result, primaryExtension))
         {
             var candidateExtension = NormalizeExtension(candidate.Extension);
-            if (ExtensionsEquivalent(candidateExtension, learnedExtension))
+            if (learnedExtensions.Any(extension => ExtensionsEquivalent(candidateExtension, extension)))
                 return candidateExtension;
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<string> GetLearnedAgreementExtensions(
+        LearnedContentPrediction prediction,
+        string? canonicalExtension)
+    {
+        var extensions = new List<string>();
+
+        void Add(string? value)
+        {
+            var normalized = NormalizeExtension(value);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return;
+            if (!extensions.Contains(normalized!, StringComparer.OrdinalIgnoreCase))
+                extensions.Add(normalized!);
+        }
+
+        Add(canonicalExtension);
+        foreach (var alias in prediction.ExtensionAliases ?? Array.Empty<string>())
+            Add(alias);
+        Add(prediction.OutputLabel);
+        return extensions;
     }
 
     private static bool CanLearnedPredictionFill(ContentTypeDetectionResult result)

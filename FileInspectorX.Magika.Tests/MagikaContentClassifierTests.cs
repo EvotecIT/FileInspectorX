@@ -22,6 +22,8 @@ public sealed class MagikaContentClassifierTests
         Assert.Equal("cs", prediction.RawLabel);
         Assert.Equal("cs", prediction.OutputLabel);
         Assert.Equal("cs", prediction.Extension);
+        Assert.Contains("cs", prediction.ExtensionAliases);
+        Assert.Contains("csx", prediction.ExtensionAliases);
         Assert.True(prediction.Probability >= 0.5);
     }
 

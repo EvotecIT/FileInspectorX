@@ -165,6 +165,7 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
             RawLabel = rawLabel,
             OutputLabel = outputLabel,
             Extension = contentType.Extensions.FirstOrDefault(),
+            ExtensionAliases = contentType.Extensions.ToArray(),
             MimeType = contentType.MimeType,
             Probability = probability,
             Threshold = threshold,

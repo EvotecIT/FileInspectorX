@@ -21,6 +21,12 @@ public sealed class LearnedContentPrediction
     /// <summary>Canonical extension without a leading dot, when the label has one.</summary>
     public string? Extension { get; set; }
 
+    /// <summary>
+    /// All extensions recognized for the final label, including <see cref="Extension"/> when present.
+    /// These aliases are agreement evidence and do not independently authorize promotion.
+    /// </summary>
+    public string[] ExtensionAliases { get; set; } = Array.Empty<string>();
+
     /// <summary>MIME type associated with the final output label.</summary>
     public string? MimeType { get; set; }
 

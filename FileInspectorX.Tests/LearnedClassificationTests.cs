@@ -272,6 +272,58 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_LearnedCertificateAliasesAgreeWithDeterministicCer()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            "CN=FileInspectorX Learned Alias Test",
+            rsa,
+            System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(1));
+        var bytes = certificate.Export(
+            System.Security.Cryptography.X509Certificates.X509ContentType.Cert);
+
+        var result = FileInspector.Detect(
+            bytes,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(
+                    CreatePrediction("crt", "der", "der", "cer", "crt")),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("cer", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
+        Assert.Equal("cer", result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
+    public void Detect_LearnedHeifAliasesAgreeWithDeterministicHeic()
+    {
+        var bytes = new byte[16];
+        Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
+        Encoding.ASCII.GetBytes("heic").CopyTo(bytes, 8);
+
+        var result = FileInspector.Detect(
+            bytes,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(
+                    CreatePrediction("heif", "heif", "heif", "heifs", "heic", "heics")),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("heic", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
+        Assert.Equal("heic", result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
     public void Analyze_PathArbitratesAfterFullDeterministicRefinement()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".exe");
@@ -447,7 +499,10 @@ public sealed class LearnedClassificationTests
     }
 #endif
 
-    private static LearnedContentPrediction CreatePrediction(string label, string? extension)
+    private static LearnedContentPrediction CreatePrediction(
+        string label,
+        string? extension,
+        params string[] extensionAliases)
         => new()
         {
             Provider = "Test",
@@ -455,6 +510,7 @@ public sealed class LearnedClassificationTests
             RawLabel = label,
             OutputLabel = label,
             Extension = extension,
+            ExtensionAliases = extensionAliases,
             MimeType = "application/javascript",
             Probability = 0.99,
             Threshold = 0.5,
