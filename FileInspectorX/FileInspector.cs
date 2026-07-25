@@ -1099,6 +1099,7 @@ public static partial class FileInspector {
                     }
                 }
             }
+            catch (OutOfMemoryException) { throw; }
             catch (LearnedClassificationException) { throw; }
             catch { /* non-fatal */ }
 

@@ -497,6 +497,47 @@ public sealed class LearnedClassificationTests
             directory.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public async Task AnalyzeDirectoryAsync_SerializesClassifierWithoutConcurrencyContract()
+    {
+        var directory = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        try
+        {
+            for (var index = 0; index < 6; index++)
+                File.WriteAllText(Path.Combine(directory.FullName, $"{index}.txt"), "plain text");
+
+            var classifier = new ConcurrencyTrackingClassifier(
+                CreatePrediction("text", "txt"));
+            var options = new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = classifier,
+                LearnedClassificationMode = LearnedClassificationMode.Assist,
+                IncludeAssessment = false,
+                IncludeAuthenticode = false,
+                IncludePermissions = false,
+                IncludeShellProperties = false
+            };
+
+            var results = new List<FileAnalysis>();
+            await foreach (var result in FileInspector.AnalyzeDirectoryAsync(
+                               directory.FullName,
+                               options: options,
+                               maxDegreeOfParallelism: 4))
+            {
+                results.Add(result);
+            }
+
+            Assert.Equal(6, results.Count);
+            Assert.Equal(6, classifier.CallCount);
+            Assert.Equal(1, classifier.MaxObservedConcurrency);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
 #endif
 
     private static LearnedContentPrediction CreatePrediction(
@@ -614,6 +655,53 @@ public sealed class LearnedClassificationTests
             Content = buffer.ToArray();
             content.Position = originalPosition;
             return _prediction;
+        }
+    }
+
+    private sealed class ConcurrencyTrackingClassifier : ILearnedContentClassifier
+    {
+        private readonly LearnedContentPrediction _prediction;
+        private int _active;
+        private int _callCount;
+        private int _maxObservedConcurrency;
+
+        internal ConcurrencyTrackingClassifier(LearnedContentPrediction prediction)
+            => _prediction = prediction;
+
+        internal int CallCount => _callCount;
+        internal int MaxObservedConcurrency => _maxObservedConcurrency;
+
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+            => PredictCore();
+
+        public LearnedContentPrediction Predict(Stream content)
+            => PredictCore();
+
+        private LearnedContentPrediction PredictCore()
+        {
+            Interlocked.Increment(ref _callCount);
+            var active = Interlocked.Increment(ref _active);
+            int observed;
+            while (active > (observed = _maxObservedConcurrency))
+            {
+                if (Interlocked.CompareExchange(
+                        ref _maxObservedConcurrency,
+                        active,
+                        observed) == observed)
+                {
+                    break;
+                }
+            }
+
+            try
+            {
+                Thread.Sleep(20);
+                return _prediction;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _active);
+            }
         }
     }
 

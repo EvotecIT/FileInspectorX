@@ -9,7 +9,7 @@ namespace FileInspectorX.Magika;
 /// Runs Google's pinned Magika <c>standard_v3_3</c> ONNX model through ONNX Runtime.
 /// The classifier is safe for concurrent prediction and should be reused and disposed.
 /// </summary>
-public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDisposable
+public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifier, IDisposable
 {
     /// <summary>Identifier for the bundled upstream model and source revision.</summary>
     public const string BundledModelId = "google-magika/standard_v3_3@5e2f437fb7b7452368c8c1fa9354858f5487a5c4";

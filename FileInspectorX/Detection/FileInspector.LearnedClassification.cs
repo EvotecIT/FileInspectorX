@@ -2,6 +2,10 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        ILearnedContentClassifier,
+        object> LearnedClassifierLocks = new();
+
     private static DetectionOptions WithoutLearnedClassification(DetectionOptions options)
         => new()
         {
@@ -24,10 +28,12 @@ public static partial class FileInspector
         Stream content,
         DetectionOptions options)
     {
+        var classifier = options.LearnedClassifier;
         return ApplyLearnedClassificationCore(
             deterministic,
             options,
-            () => options.LearnedClassifier!.Predict(content));
+            classifier,
+            () => classifier!.Predict(content));
     }
 
     private static ContentTypeDetectionResult? ApplyLearnedClassification(
@@ -35,10 +41,12 @@ public static partial class FileInspector
         ReadOnlyMemory<byte> content,
         DetectionOptions options)
     {
+        var classifier = options.LearnedClassifier;
         return ApplyLearnedClassificationCore(
             deterministic,
             options,
-            () => options.LearnedClassifier!.Predict(content));
+            classifier,
+            () => classifier!.Predict(content));
     }
 
     private static ContentTypeDetectionResult? ApplyLearnedClassificationFromPath(
@@ -78,12 +86,13 @@ public static partial class FileInspector
     private static ContentTypeDetectionResult? ApplyLearnedClassificationCore(
         ContentTypeDetectionResult? deterministic,
         DetectionOptions options,
+        ILearnedContentClassifier? classifier,
         Func<LearnedContentPrediction> predict)
     {
         if (options.LearnedClassificationMode == LearnedClassificationMode.Off)
             return deterministic;
 
-        if (options.LearnedClassifier is null)
+        if (classifier is null)
         {
             var missing = new InvalidOperationException(
                 "Learned classification was enabled without an ILearnedContentClassifier.");
@@ -94,7 +103,7 @@ public static partial class FileInspector
 
         try
         {
-            var prediction = predict();
+            var prediction = InvokeLearnedClassifier(classifier, predict);
             return ArbitrateLearnedPrediction(deterministic, prediction);
         }
         catch (LearnedClassificationException ex)
@@ -110,6 +119,18 @@ public static partial class FileInspector
                     "The required learned content classifier failed.", ex);
             return AttachLearnedFailure(deterministic, ex);
         }
+    }
+
+    private static LearnedContentPrediction InvokeLearnedClassifier(
+        ILearnedContentClassifier classifier,
+        Func<LearnedContentPrediction> predict)
+    {
+        if (classifier is IConcurrentLearnedContentClassifier)
+            return predict();
+
+        var syncRoot = LearnedClassifierLocks.GetValue(classifier, static _ => new object());
+        lock (syncRoot)
+            return predict();
     }
 
     private static ContentTypeDetectionResult AttachLearnedFailure(

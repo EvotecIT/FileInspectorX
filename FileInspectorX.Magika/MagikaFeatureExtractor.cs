@@ -41,11 +41,14 @@ internal static class MagikaFeatureExtractor
         var ending = new byte[blockLength];
 
         content.Seek(0, SeekOrigin.Begin);
-        ReadExactlyAvailable(content, beginning);
+        var beginningLength = ReadExactlyAvailable(content, beginning);
         content.Seek(Math.Max(0, length - blockLength), SeekOrigin.Begin);
-        ReadExactlyAvailable(content, ending);
+        var endingLength = ReadExactlyAvailable(content, ending);
 
-        return Build(beginning, ending, config);
+        return Build(
+            beginning.AsSpan(0, beginningLength),
+            ending.AsSpan(0, endingLength),
+            config);
     }
 
     private static int[] Build(
@@ -72,7 +75,7 @@ internal static class MagikaFeatureExtractor
         return features;
     }
 
-    private static void ReadExactlyAvailable(Stream stream, byte[] buffer)
+    private static int ReadExactlyAvailable(Stream stream, byte[] buffer)
     {
         var offset = 0;
         while (offset < buffer.Length)
@@ -82,6 +85,7 @@ internal static class MagikaFeatureExtractor
                 break;
             offset += read;
         }
+        return offset;
     }
 
     private static ReadOnlySpan<byte> TrimLeftAsciiWhitespace(ReadOnlySpan<byte> value)

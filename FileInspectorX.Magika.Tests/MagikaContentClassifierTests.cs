@@ -19,6 +19,7 @@ public sealed class MagikaContentClassifierTests
 
         var prediction = classifier.Predict(Encoding.UTF8.GetBytes(source));
 
+        Assert.IsAssignableFrom<IConcurrentLearnedContentClassifier>(classifier);
         Assert.Equal("cs", prediction.RawLabel);
         Assert.Equal("cs", prediction.OutputLabel);
         Assert.Equal("cs", prediction.Extension);
