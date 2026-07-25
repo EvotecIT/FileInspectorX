@@ -310,9 +310,9 @@ public static partial class FileInspector {
                     res.Detection = det;
                     res.Kind = KindClassifier.Classify(det);
                     res.GuessedExtension ??= det?.GuessedExtension;
-                    PopulateDetectionSummary(res);
                 }
-                return res;
+                if (det is null)
+                    return res;
             }
             string? headTextCached = null;
             int headTextCap = 0;
@@ -1176,7 +1176,8 @@ public static partial class FileInspector {
                 }
             } catch { }
 
-            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off)
+            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off &&
+                det?.LearnedClassification is null)
             {
                 if (det != null)
                     det.GuessedExtension ??= res.GuessedExtension;
@@ -1185,6 +1186,8 @@ public static partial class FileInspector {
                 res.Kind = KindClassifier.Classify(det);
                 res.GuessedExtension ??= det?.GuessedExtension;
             }
+            if (det != null)
+                RefreshDerivedAnalysisAfterLearnedPromotion(res, path, det);
 
             PopulateDetectionSummary(res);
 

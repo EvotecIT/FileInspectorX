@@ -280,8 +280,7 @@ public static partial class FileInspector {
             {
                 if (options.LearnedClassificationMode == LearnedClassificationMode.Off)
                     return result;
-                using var learnedStream = OpenReadShared(path);
-                return ApplyLearnedClassification(result, learnedStream, options);
+                return ApplyLearnedClassificationFromPath(result, path, options);
             }
             if (Signatures.TryMatchUdf(path, out var udf)) return FinishPathOnly(udf);
             if (Signatures.TryMatchIso(path, out var iso)) return FinishPathOnly(iso);
@@ -411,6 +410,18 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? DetectStreamCore(Stream stream, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
+        if (!stream.CanSeek && options.LearnedClassificationMode != LearnedClassificationMode.Off)
+        {
+            var unsupported = new NotSupportedException(
+                "Learned classification requires a seekable stream containing the complete content.");
+            if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
+                throw new LearnedClassificationException(unsupported.Message, unsupported);
+            var deterministic = DetectStreamCore(
+                stream,
+                WithoutLearnedClassification(options),
+                declaredExtension);
+            return AttachLearnedFailure(deterministic, unsupported);
+        }
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
         var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);

@@ -58,9 +58,11 @@ public static partial class FileInspector
         {
             throw;
         }
-        catch (LearnedClassificationException)
+        catch (LearnedClassificationException ex)
         {
-            throw;
+            if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
+                throw;
+            return AttachLearnedFailure(deterministic, ex);
         }
         catch (Exception ex)
         {
@@ -95,8 +97,13 @@ public static partial class FileInspector
             var prediction = predict();
             return ArbitrateLearnedPrediction(deterministic, prediction);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException &&
-                                   ex is not LearnedClassificationException)
+        catch (LearnedClassificationException ex)
+        {
+            if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
+                throw;
+            return AttachLearnedFailure(deterministic, ex);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
                 throw new LearnedClassificationException(
@@ -134,6 +141,9 @@ public static partial class FileInspector
         var deterministicMime = EmptyToNull(result.MimeType);
         var deterministicConfidence = EmptyToNull(result.Confidence);
         var deterministicReason = EmptyToNull(result.Reason);
+        var deterministicPrimary = CreateCandidate(result);
+        var deterministicCandidates = result.Candidates;
+        var deterministicAlternatives = result.Alternatives;
         var learnedExtension = NormalizeExtension(prediction.Extension);
         var agreementExtension = FindDeterministicAgreementExtension(result, learnedExtension);
         var learnedIsGeneric = string.IsNullOrWhiteSpace(learnedExtension) ||
@@ -155,6 +165,11 @@ public static partial class FileInspector
             result.Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel;
             result.ReasonDetails = "model:" + prediction.ModelId;
             result.IsDangerous = DangerousExtensions.IsDangerous(result.Extension);
+            AlignCandidatesAfterLearnedPromotion(
+                result,
+                deterministicPrimary,
+                deterministicCandidates,
+                deterministicAlternatives);
             disposition = LearnedClassificationDisposition.Promoted;
         }
         else if (!learnedIsGeneric && !string.IsNullOrWhiteSpace(deterministicExtension))
@@ -179,6 +194,77 @@ public static partial class FileInspector
             Message = message
         };
         return result;
+    }
+
+    private static void AlignCandidatesAfterLearnedPromotion(
+        ContentTypeDetectionResult result,
+        ContentTypeDetectionCandidate deterministicPrimary,
+        IReadOnlyList<ContentTypeDetectionCandidate>? deterministicCandidates,
+        IReadOnlyList<ContentTypeDetectionCandidate>? deterministicAlternatives)
+    {
+        var candidates = new List<ContentTypeDetectionCandidate>
+        {
+            CreateCandidate(result)
+        };
+
+        void AddCandidate(ContentTypeDetectionCandidate candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.Extension))
+                return;
+            if (candidates.Any(existing => ExtensionsEquivalent(existing.Extension, candidate.Extension)))
+                return;
+            candidates.Add(candidate);
+        }
+
+        if (deterministicCandidates is { Count: > 0 })
+        {
+            foreach (var candidate in deterministicCandidates)
+                AddCandidate(candidate);
+        }
+        else
+        {
+            AddCandidate(deterministicPrimary);
+            if (deterministicAlternatives != null)
+            {
+                foreach (var candidate in deterministicAlternatives)
+                    AddCandidate(candidate);
+            }
+        }
+
+        result.Candidates = candidates;
+        result.Alternatives = candidates.Skip(1).ToArray();
+    }
+
+    private static ContentTypeDetectionCandidate CreateCandidate(ContentTypeDetectionResult result)
+        => new()
+        {
+            Extension = result.Extension,
+            MimeType = result.MimeType,
+            Confidence = result.Confidence,
+            Reason = result.Reason,
+            ReasonDetails = result.ReasonDetails,
+            Score = result.Score ?? 0,
+            IsDangerous = result.IsDangerous
+        };
+
+    private static void RefreshDerivedAnalysisAfterLearnedPromotion(
+        FileAnalysis analysis,
+        string path,
+        ContentTypeDetectionResult result)
+    {
+        if (result.LearnedClassification?.Disposition != LearnedClassificationDisposition.Promoted)
+            return;
+
+        analysis.NameIssues = AnalyzeName(path, result);
+        var scriptLanguage = MapScriptLanguageFromExtension(result.Extension);
+        if (string.IsNullOrEmpty(scriptLanguage))
+            return;
+
+        analysis.ScriptLanguage = scriptLanguage;
+        analysis.TextSubtype = scriptLanguage;
+        analysis.Flags |= ContentFlags.IsScript;
+        if (scriptLanguage is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
+            analysis.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
     }
 
     private static string? FindDeterministicAgreementExtension(

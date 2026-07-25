@@ -37,6 +37,8 @@ public sealed class LearnedClassificationTests
         Assert.Equal("js", result!.Extension);
         Assert.Equal(LearnedClassificationDisposition.Promoted, result.LearnedClassification!.Disposition);
         Assert.NotEqual(result.Score, (int?)(result.LearnedClassification.Prediction!.Probability * 100));
+        Assert.Equal("js", result.Candidates![0].Extension);
+        Assert.Contains(result.Alternatives!, candidate => candidate.Extension == "txt");
     }
 
     [Fact]
@@ -77,6 +79,22 @@ public sealed class LearnedClassificationTests
         Assert.NotNull(result);
         Assert.Equal(LearnedClassificationDisposition.Failed, result!.LearnedClassification!.Disposition);
         Assert.Equal("provider-failed:InvalidOperationException", result.LearnedClassification.Message);
+    }
+
+    [Fact]
+    public void Detect_AssistRecordsProviderLearnedClassificationException()
+    {
+        var result = FileInspector.Detect(
+            Encoding.UTF8.GetBytes("plain text"),
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new LearnedExceptionClassifier(),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal(LearnedClassificationDisposition.Failed, result!.LearnedClassification!.Disposition);
+        Assert.Equal("provider-failed:LearnedClassificationException", result.LearnedClassification.Message);
     }
 
     [Fact]
@@ -138,6 +156,43 @@ public sealed class LearnedClassificationTests
         Assert.Contains("json:validation-error", result.Reason);
         Assert.Equal("Low", result.LearnedClassification!.DeterministicConfidence);
         Assert.Contains("json:validation-error", result.LearnedClassification.DeterministicReason);
+    }
+
+    [Fact]
+    public void Detect_AssistRejectsNonSeekableStreamBeforeInvokingLearnedClassifier()
+    {
+        var bytes = Encoding.UTF8.GetBytes(new string('a', Settings.HeaderReadBytes + 4096));
+        var classifier = new RecordingClassifier(CreatePrediction("javascript", "js"));
+        using var content = new NonSeekableReadStream(bytes);
+
+        var result = FileInspector.Detect(
+            content,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = classifier,
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Null(classifier.Content);
+        Assert.Equal(LearnedClassificationDisposition.Failed, result!.LearnedClassification!.Disposition);
+        Assert.Equal("provider-failed:NotSupportedException", result.LearnedClassification.Message);
+    }
+
+    [Fact]
+    public void Detect_RequiredRejectsNonSeekableStreamBeforeInvokingLearnedClassifier()
+    {
+        var classifier = new RecordingClassifier(CreatePrediction("javascript", "js"));
+        using var content = new NonSeekableReadStream(Encoding.UTF8.GetBytes("plain text"));
+        var options = new FileInspector.DetectionOptions
+        {
+            LearnedClassifier = classifier,
+            LearnedClassificationMode = LearnedClassificationMode.Required
+        };
+
+        Assert.Throws<LearnedClassificationException>(
+            () => FileInspector.Detect(content, options));
+        Assert.Null(classifier.Content);
     }
 
     [Fact]
@@ -223,6 +278,66 @@ public sealed class LearnedClassificationTests
             Assert.Equal("docm", result.Detection.GuessedExtension);
             Assert.Equal(LearnedClassificationDisposition.Agreed, result.Detection.LearnedClassification!.Disposition);
             Assert.Equal("docm", result.Detection.LearnedClassification.DeterministicAgreementExtension);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_LearnedOnlyDetectionBuildsAssessment()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        File.WriteAllBytes(path, Array.Empty<byte>());
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("js", result.Detection!.Extension);
+            Assert.Equal(LearnedClassificationDisposition.Promoted, result.Detection.LearnedClassification!.Disposition);
+            Assert.NotNull(result.Assessment);
+            Assert.NotNull(result.AssessmentProfiles);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_LearnedPromotionRefreshesNameAndScriptAnalysis()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, "ordinary prose without deterministic script cues");
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("js", result.Detection!.Extension);
+            Assert.True((result.NameIssues & NameIssues.ExtensionMismatch) != 0);
+            Assert.Equal("javascript", result.ScriptLanguage);
+            Assert.True((result.Flags & ContentFlags.IsScript) != 0);
+            Assert.True((result.Flags & ContentFlags.ScriptsPotentiallyDangerous) != 0);
+            Assert.NotNull(result.Assessment);
         }
         finally
         {
@@ -356,5 +471,82 @@ public sealed class LearnedClassificationTests
 
         public LearnedContentPrediction Predict(Stream content)
             => throw new InvalidOperationException("test");
+    }
+
+    private sealed class LearnedExceptionClassifier : ILearnedContentClassifier
+    {
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+            => throw new LearnedClassificationException("test", new InvalidOperationException("inner"));
+
+        public LearnedContentPrediction Predict(Stream content)
+            => throw new LearnedClassificationException("test", new InvalidOperationException("inner"));
+    }
+
+    private sealed class RecordingClassifier : ILearnedContentClassifier
+    {
+        private readonly LearnedContentPrediction _prediction;
+
+        internal RecordingClassifier(LearnedContentPrediction prediction) => _prediction = prediction;
+
+        internal byte[]? Content { get; private set; }
+
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+        {
+            Content = content.ToArray();
+            return _prediction;
+        }
+
+        public LearnedContentPrediction Predict(Stream content)
+        {
+            Assert.True(content.CanSeek);
+            var originalPosition = content.Position;
+            content.Position = 0;
+            using var buffer = new MemoryStream();
+            content.CopyTo(buffer);
+            Content = buffer.ToArray();
+            content.Position = originalPosition;
+            return _prediction;
+        }
+    }
+
+    private sealed class NonSeekableReadStream : Stream
+    {
+        private readonly MemoryStream _inner;
+
+        internal NonSeekableReadStream(byte[] content)
+            => _inner = new MemoryStream(content, writable: false);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => _inner.Read(buffer, offset, count);
+
+        public override long Seek(long offset, SeekOrigin origin)
+            => throw new NotSupportedException();
+
+        public override void SetLength(long value)
+            => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count)
+            => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _inner.Dispose();
+            base.Dispose(disposing);
+        }
     }
 }
