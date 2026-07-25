@@ -1,6 +1,5 @@
 #if FILEINSPECTORX_MAGIKA
 using System;
-using System.ComponentModel;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -13,9 +12,8 @@ namespace FileInspectorX.PowerShell
     /// </summary>
     internal static class MagikaNativeRuntimeLoader
     {
-        private const int RtldNow = 2;
-        private const int RtldGlobal = 0x100;
         private static readonly object LoadSync = new();
+        private static IntPtr _nativeHandle;
         private static bool _loaded;
 
         internal static void EnsureLoaded()
@@ -79,30 +77,22 @@ namespace FileInspectorX.PowerShell
 
         private static void Load(string path)
         {
-            IntPtr handle;
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                handle = LoadLibraryWindows(path);
-                if (handle == IntPtr.Zero)
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-                return;
-            }
-
-            handle = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-                ? DlopenMac(path, RtldNow | RtldGlobal)
-                : DlopenLinux(path, RtldNow | RtldGlobal);
-            if (handle == IntPtr.Zero)
+#if NET8_0_OR_GREATER
+            _nativeHandle = NativeLibrary.Load(path);
+#else
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                throw new PlatformNotSupportedException(
+                    "Magika native loading on Linux and macOS requires the net8.0 PowerShell module build.");
+            _nativeHandle = LoadLibraryWindows(path);
+#endif
+            if (_nativeHandle == IntPtr.Zero)
                 throw new InvalidOperationException("The Magika ONNX native runtime could not be loaded.");
         }
 
+#if !NET8_0_OR_GREATER
         [DllImport("kernel32", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryWindows(string path);
-
-        [DllImport("libdl.so.2", EntryPoint = "dlopen")]
-        private static extern IntPtr DlopenLinux(string path, int flags);
-
-        [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "dlopen")]
-        private static extern IntPtr DlopenMac(string path, int flags);
+#endif
     }
 }
 #endif

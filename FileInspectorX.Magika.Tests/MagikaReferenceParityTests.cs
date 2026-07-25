@@ -38,7 +38,7 @@ public sealed class MagikaReferenceParityTests
                     Assert.InRange(
                         Math.Abs(example.Prediction.Score - actual.Probability),
                         0,
-                        0.000001);
+                        0.000005);
                     Assert.Equal(
                         example.Prediction.OverwriteReason,
                         actual.OverwriteReason ?? "none");

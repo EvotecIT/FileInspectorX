@@ -57,9 +57,9 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
         if (content.Length == 0)
             return CreateRulePrediction("empty", 1);
 
-        var features = MagikaFeatureExtractor.Extract(content, _config);
-        if (IsBelowModelMinimum(features))
+        if (content.Length < _config.MinimumFileSizeForModel)
             return CreateRulePrediction(IsValidUtf8(content.Span) ? "txt" : "unknown", 1);
+        var features = MagikaFeatureExtractor.Extract(content, _config);
         return RunModel(features);
     }
 
@@ -74,8 +74,7 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
         if (content.Length == 0)
             return CreateRulePrediction("empty", 1);
 
-        var features = MagikaFeatureExtractor.Extract(content, _config);
-        if (IsBelowModelMinimum(features))
+        if (content.Length < _config.MinimumFileSizeForModel)
         {
             var original = content.Position;
             try
@@ -90,6 +89,7 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
                 content.Seek(original, SeekOrigin.Begin);
             }
         }
+        var features = MagikaFeatureExtractor.Extract(content, _config);
         return RunModel(features);
     }
 
@@ -179,9 +179,6 @@ public sealed class MagikaContentClassifier : ILearnedContentClassifier, IDispos
                 : _config.MediumConfidenceThreshold
         };
     }
-
-    private bool IsBelowModelMinimum(int[] features)
-        => features[_config.MinimumFileSizeForModel - 1] == _config.PaddingToken;
 
     private MagikaContentType ContentType(string label)
         => _contentTypes.TryGetValue(label, out var contentType)

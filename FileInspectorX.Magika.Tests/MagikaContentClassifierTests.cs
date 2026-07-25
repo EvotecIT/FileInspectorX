@@ -37,6 +37,19 @@ public sealed class MagikaContentClassifierTests
     }
 
     [Fact]
+    public void Predict_UsesModelWhenMeaningfulContentFollowsWhitespacePrefix()
+    {
+        var source = new string('\n', 4096) +
+                     "using System; public sealed class Demo { public static void Main() { } }";
+        using var classifier = new MagikaContentClassifier();
+
+        var prediction = classifier.Predict(Encoding.UTF8.GetBytes(source));
+
+        Assert.Equal("cs", prediction.RawLabel);
+        Assert.NotEqual(1, prediction.Probability);
+    }
+
+    [Fact]
     public void Predict_RestoresStreamPosition()
     {
         using var classifier = new MagikaContentClassifier();
