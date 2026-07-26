@@ -293,7 +293,7 @@ public static partial class FileInspector {
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
             var det = Detect(fs, deterministicOptions, extDeclared);
             try {
-                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
+                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
                     // A successful PE parse is stronger evidence than the 2-byte MZ prefix alone.
                     det.Confidence = "High";
                     det.Reason = AppendReason(det.Reason, "pe:header");

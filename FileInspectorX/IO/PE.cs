@@ -11,16 +11,31 @@ internal static class PeReader {
     /// Attempts to parse a PE image from <paramref name="path"/> and populate <see cref="PeInfo"/>.
     /// </summary>
     public static bool TryReadPe(string path, out PeInfo info) {
-        info = new PeInfo();
         try {
             using var fs = File.OpenRead(path);
-            using var br = new BinaryReader(fs);
-            if (fs.Length < 0x100) return false;
+            return TryReadPe(fs, out info);
+        } catch {
+            info = new PeInfo();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to parse a PE image from the current retained content stream.
+    /// </summary>
+    public static bool TryReadPe(Stream stream, out PeInfo info) {
+        info = new PeInfo();
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            stream.Seek(0, SeekOrigin.Begin);
+            using var br = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+            if (stream.Length < 0x100) return false;
             if (br.ReadByte() != 0x4D || br.ReadByte() != 0x5A) return false; // MZ
-            fs.Seek(0x3C, SeekOrigin.Begin);
+            stream.Seek(0x3C, SeekOrigin.Begin);
             int e_lfanew = br.ReadInt32();
-            if (e_lfanew <= 0 || e_lfanew > fs.Length - 256) return false;
-            fs.Seek(e_lfanew, SeekOrigin.Begin);
+            if (e_lfanew <= 0 || e_lfanew > stream.Length - 256) return false;
+            stream.Seek(e_lfanew, SeekOrigin.Begin);
             if (br.ReadByte() != (byte)'P' || br.ReadByte() != (byte)'E' || br.ReadByte() != 0 || br.ReadByte() != 0) return false;
             info.IsPE = true;
             br.ReadUInt16(); // Machine
@@ -30,18 +45,18 @@ internal static class PeReader {
             br.ReadUInt32(); // NumberOfSymbols
             ushort sizeOptionalHeader = br.ReadUInt16();
             ushort characteristics = br.ReadUInt16(); info.Characteristics = characteristics;
-            long optStart = fs.Position; info.OptionalHeaderStart = optStart;
+            long optStart = stream.Position; info.OptionalHeaderStart = optStart;
             ushort magic = br.ReadUInt16();
             bool isPlus = magic == 0x20b; info.IsPEPlus = isPlus;
             // Read up to DllCharacteristics
             // After CheckSum (at +0x40), Subsystem (2), then DllCharacteristics (2)
-            fs.Seek(optStart + 0x44, SeekOrigin.Begin);
+            stream.Seek(optStart + 0x44, SeekOrigin.Begin);
             info.Subsystem = br.ReadUInt16();
             info.DllCharacteristics = br.ReadUInt16();
             int ddOffset = isPlus ? 0x70 : 0x60;
             // Checksum field is at OptionalHeader + 0x40 for both PE32 and PE32+
             info.ChecksumFileOffset = optStart + 0x40;
-            fs.Seek(optStart + ddOffset, SeekOrigin.Begin);
+            stream.Seek(optStart + ddOffset, SeekOrigin.Begin);
             uint[] ddVa = new uint[16];
             uint[] ddSz = new uint[16];
             for (int i = 0; i < 16; i++) { ddVa[i] = br.ReadUInt32(); ddSz[i] = br.ReadUInt32(); }
@@ -49,7 +64,7 @@ internal static class PeReader {
             info.ResourceRva = ddVa[2]; info.ResourceSize = ddSz[2];
             info.SecurityOffset = ddVa[4]; info.SecuritySize = ddSz[4];
             info.ClrRva = ddVa[14]; info.ClrSize = ddSz[14];
-            fs.Seek(optStart + sizeOptionalHeader, SeekOrigin.Begin);
+            stream.Seek(optStart + sizeOptionalHeader, SeekOrigin.Begin);
             var secs = new List<Section>(numberOfSections);
             for (int i = 0; i < numberOfSections; i++) {
                 var nameBytes = br.ReadBytes(8);
@@ -58,7 +73,7 @@ internal static class PeReader {
                 uint virtualAddress = br.ReadUInt32();
                 uint sizeOfRawData = br.ReadUInt32();
                 uint pointerToRawData = br.ReadUInt32();
-                fs.Seek(16, SeekOrigin.Current);
+                stream.Seek(16, SeekOrigin.Current);
                 secs.Add(new Section { Name = secName, VirtualAddress = virtualAddress, VirtualSize = virtualSize, SizeOfRawData = sizeOfRawData, PointerToRawData = pointerToRawData });
             }
             info.Sections = secs.ToArray();
@@ -74,14 +89,18 @@ internal static class PeReader {
                     //   0x08: MetaData RVA (DWORD)
                     //   0x0C: MetaData Size (DWORD)
                     //   0x10: Flags (DWORD)
-                    fs.Seek(cliOff + 0x10, SeekOrigin.Begin);
+                    stream.Seek(cliOff + 0x10, SeekOrigin.Begin);
                     uint flags = br.ReadUInt32();
                     const uint COMIMAGE_FLAGS_STRONGNAMESIGNED = 0x00000008;
                     info.DotNetStrongNameSigned = (flags & COMIMAGE_FLAGS_STRONGNAMESIGNED) != 0;
                 }
             } catch { /* non-fatal */ }
             return true;
-        } catch { return false; }
+        } catch {
+            return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     /// <summary>

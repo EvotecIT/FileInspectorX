@@ -212,6 +212,25 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_DeclaredTextBiasRemainsFillableBySpecificLearnedPrediction()
+    {
+        var result = FileInspector.Detect(
+            Encoding.UTF8.GetBytes("ordinary prose"),
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            },
+            declaredExtension: "md");
+
+        Assert.NotNull(result);
+        Assert.Equal("js", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Promoted, result.LearnedClassification!.Disposition);
+        Assert.Equal("md", result.LearnedClassification.DeterministicExtension);
+        Assert.Contains("bias:decl:md", result.LearnedClassification.DeterministicReason);
+    }
+
+    [Fact]
     public void Detect_AssistRejectsNonSeekableStreamBeforeInvokingLearnedClassifier()
     {
         var bytes = Encoding.UTF8.GetBytes(new string('a', Settings.HeaderReadBytes + 4096));

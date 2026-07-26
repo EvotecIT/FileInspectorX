@@ -510,7 +510,8 @@ public static partial class FileInspector
             return false;
 
         return result.Extension.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
-               result.Extension.Equals("text", StringComparison.OrdinalIgnoreCase);
+               result.Extension.Equals("text", StringComparison.OrdinalIgnoreCase) ||
+               result.Reason.Contains("bias:decl:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ExtensionsEquivalent(string? left, string? right)
