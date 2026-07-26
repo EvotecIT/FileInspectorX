@@ -45,10 +45,9 @@ internal static partial class Signatures {
         return false;
     }
 
-    internal static bool TryMatchIso(string path, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchIso(Stream fs, out ContentTypeDetectionResult? result) {
         result = null;
         try {
-            using var fs = File.OpenRead(path);
             static bool checkAt(Stream s, long offset) {
                 if (s.Length < offset + 5) return false;
                 var arr = new byte[5];
@@ -65,10 +64,9 @@ internal static partial class Signatures {
         return false;
     }
 
-    internal static bool TryMatchUdf(string path, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchUdf(Stream fs, out ContentTypeDetectionResult? result) {
         result = null;
         try {
-            using var fs = File.OpenRead(path);
             const int sector = 2048;
             long start = 16L * sector + 1; // byte index for 5-char id
             var ids = new[] {
@@ -98,11 +96,10 @@ internal static partial class Signatures {
         return false;
     }
 
-    internal static bool TryMatchDmg(string path, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchDmg(Stream fs, out ContentTypeDetectionResult? result) {
         // Apple UDIF (DMG) has 512-byte trailer at EOF starting with 'koly'
         result = null;
         try {
-            using var fs = File.OpenRead(path);
             if (fs.Length < 512) return false;
             fs.Seek(-512, SeekOrigin.End);
             var buf = new byte[4];

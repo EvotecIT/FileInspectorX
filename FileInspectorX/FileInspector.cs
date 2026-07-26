@@ -276,16 +276,16 @@ public static partial class FileInspector {
             var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
                 ? options
                 : WithoutLearnedClassification(options);
+            using var fs = OpenReadShared(path);
             ContentTypeDetectionResult? FinishPathOnly(ContentTypeDetectionResult? result)
             {
                 if (options.LearnedClassificationMode == LearnedClassificationMode.Off)
                     return result;
-                return ApplyLearnedClassificationFromPath(result, path, options);
+                return ApplyLearnedClassification(result, fs, options);
             }
-            if (Signatures.TryMatchUdf(path, out var udf)) return FinishPathOnly(udf);
-            if (Signatures.TryMatchIso(path, out var iso)) return FinishPathOnly(iso);
-            if (Signatures.TryMatchDmg(path, out var dmg)) return FinishPathOnly(dmg);
-            using var fs = OpenReadShared(path);
+            if (Signatures.TryMatchUdf(fs, out var udf)) return FinishPathOnly(udf);
+            if (Signatures.TryMatchIso(fs, out var iso)) return FinishPathOnly(iso);
+            if (Signatures.TryMatchDmg(fs, out var dmg)) return FinishPathOnly(dmg);
             ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? result)
                 => ApplyLearnedClassification(result, fs, options);
             if (Signatures.TryMatchMsg(path, out var msg))

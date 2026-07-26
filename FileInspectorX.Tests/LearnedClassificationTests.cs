@@ -67,6 +67,44 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_ExtensionlessLearnedConflictDoesNotResolveNullExtension()
+    {
+        var prediction = new LearnedContentPrediction
+        {
+            Provider = "Test",
+            ModelId = "test-v1",
+            RawLabel = "cad",
+            OutputLabel = "cad",
+            Extension = null,
+            ExtensionAliases = Array.Empty<string>(),
+            MimeType = null,
+            Probability = 0.99,
+            Threshold = 0.5,
+            ThresholdMet = true,
+            PredictionMode = "HighConfidence",
+            IsText = false
+        };
+        var png = new byte[]
+        {
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0, 0, 0, 0, 0, 0, 0, 0
+        };
+
+        var result = FileInspector.Detect(
+            png,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(prediction),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("png", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Conflict, result.LearnedClassification!.Disposition);
+        Assert.DoesNotContain(result.Candidates!, candidate => string.IsNullOrWhiteSpace(candidate.Extension));
+    }
+
+    [Fact]
     public void Detect_AssistRecordsProviderFailure()
     {
         var result = FileInspector.Detect(

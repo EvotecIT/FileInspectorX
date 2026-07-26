@@ -209,7 +209,7 @@ public static partial class FileInspector
         {
             disposition = LearnedClassificationDisposition.Conflict;
             message = "deterministic-and-learned-disagree";
-            AlignCandidatesAfterLearnedConflict(result, prediction, learnedExtension!);
+            AlignCandidatesAfterLearnedConflict(result, prediction, learnedExtension);
         }
         else
         {
@@ -345,7 +345,7 @@ public static partial class FileInspector
     private static void AlignCandidatesAfterLearnedConflict(
         ContentTypeDetectionResult result,
         LearnedContentPrediction prediction,
-        string learnedExtension)
+        string? learnedExtension)
     {
         var candidates = new List<ContentTypeDetectionCandidate>
         {
@@ -367,16 +367,20 @@ public static partial class FileInspector
                 AddCandidate(candidate);
         }
 
-        AddCandidate(new ContentTypeDetectionCandidate
+        if (!string.IsNullOrWhiteSpace(learnedExtension))
         {
-            Extension = learnedExtension,
-            MimeType = ResolveLearnedMimeType(prediction.MimeType, learnedExtension, null),
-            Confidence = LearnedConfidence(prediction.Probability),
-            Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel,
-            ReasonDetails = "model:" + prediction.ModelId,
-            Score = 0,
-            IsDangerous = DangerousExtensions.IsDangerous(learnedExtension)
-        });
+            var concreteLearnedExtension = learnedExtension!;
+            AddCandidate(new ContentTypeDetectionCandidate
+            {
+                Extension = concreteLearnedExtension,
+                MimeType = ResolveLearnedMimeType(prediction.MimeType, concreteLearnedExtension, null),
+                Confidence = LearnedConfidence(prediction.Probability),
+                Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel,
+                ReasonDetails = "model:" + prediction.ModelId,
+                Score = 0,
+                IsDangerous = DangerousExtensions.IsDangerous(concreteLearnedExtension)
+            });
+        }
 
         result.Candidates = candidates;
         result.Alternatives = candidates.Skip(1).ToArray();
