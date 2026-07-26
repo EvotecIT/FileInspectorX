@@ -289,20 +289,35 @@ public static partial class FileInspector {
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
         options ??= new DetectionOptions();
-        var det = Detect(path, options);
+        ValidateLearnedClassificationMode(options);
+        var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
+            ? options
+            : WithoutLearnedClassification(options);
+        var det = Detect(path, deterministicOptions);
         var res = new FileAnalysis {
             Detection = det,
             Kind = KindClassifier.Classify(det),
             Flags = ContentFlags.None,
             GuessedExtension = det?.GuessedExtension
         };
+        var learnedApplied = false;
         bool msiPropsDone = false;
 
         try {
             if (det is null || string.IsNullOrWhiteSpace(det.Extension))
             {
                 if (det is null)
-                    return res;
+                {
+                    if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
+                    {
+                        det = ApplyLearnedClassificationFromPath(null, path, options);
+                        learnedApplied = true;
+                        res.Detection = det;
+                        res.Kind = ClassifyKindWithLearnedText(det);
+                    }
+                    if (det is null)
+                        return res;
+                }
             }
             string? headTextCached = null;
             int headTextCap = 0;
@@ -1167,10 +1182,11 @@ public static partial class FileInspector {
             } catch { }
 
             if (options!.LearnedClassificationMode != LearnedClassificationMode.Off &&
-                det?.LearnedClassification?.Prediction is not null)
+                !learnedApplied)
             {
-                det.GuessedExtension ??= res.GuessedExtension;
-                det = ReconcileLearnedClassificationAfterAnalysis(det);
+                if (det != null)
+                    det.GuessedExtension ??= res.GuessedExtension;
+                det = ApplyLearnedClassificationFromPath(det, path, options);
                 res.Detection = det;
                 res.Kind = ClassifyKindWithLearnedText(det);
                 res.GuessedExtension ??= det?.GuessedExtension;

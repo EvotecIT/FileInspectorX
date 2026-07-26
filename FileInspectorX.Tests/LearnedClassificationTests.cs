@@ -7,6 +7,42 @@ namespace FileInspectorX.Tests;
 public sealed class LearnedClassificationTests
 {
     [Fact]
+    public void Detect_RejectsUndefinedLearnedClassificationMode()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => FileInspector.Detect(
+                Encoding.UTF8.GetBytes("plain text"),
+                new FileInspector.DetectionOptions {
+                    LearnedClassificationMode = (LearnedClassificationMode)999
+                }));
+    }
+
+    [Fact]
+    public void Inspect_DetectOnlyUsesLearnedTextKind()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "fn main() { println!(\"hello\"); }");
+
+            var result = FileInspector.Inspect(
+                path,
+                new FileInspector.DetectionOptions {
+                    DetectOnly = true,
+                    LearnedClassifier = new StubClassifier(CreatePrediction("rust", "rs")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist
+                });
+
+            Assert.Equal("rs", result.Detection?.Extension);
+            Assert.Equal(ContentKind.Text, result.Kind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Detect_DefaultDoesNotInvokeLearnedClassifier()
     {
         var classifier = new StubClassifier(CreatePrediction("javascript", "js"));

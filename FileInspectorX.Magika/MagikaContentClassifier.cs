@@ -36,6 +36,11 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
     {
         if (options is null)
             throw new ArgumentNullException(nameof(options));
+        if (!Enum.IsDefined(typeof(MagikaPredictionMode), options.PredictionMode))
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                options.PredictionMode,
+                "The prediction mode is not defined.");
 
         _predictionMode = options.PredictionMode;
         _config = JsonSerializer.Deserialize(

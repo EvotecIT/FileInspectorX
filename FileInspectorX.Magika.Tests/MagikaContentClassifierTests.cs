@@ -5,6 +5,16 @@ namespace FileInspectorX.Magika.Tests;
 public sealed class MagikaContentClassifierTests
 {
     [Fact]
+    public void Constructor_RejectsUndefinedPredictionMode()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MagikaContentClassifier(
+                new MagikaClassifierOptions {
+                    PredictionMode = (MagikaPredictionMode)999
+                }));
+    }
+
+    [Fact]
     public void Predict_ClassifiesCSharpWithoutUsingAFileName()
     {
         const string source = """

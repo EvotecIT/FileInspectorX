@@ -259,6 +259,15 @@ public static partial class FileInspector {
 
     private static FileStream OpenReadShared(string path)
         => new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    private static void ValidateLearnedClassificationMode(DetectionOptions options) {
+        if (!Enum.IsDefined(typeof(LearnedClassificationMode), options.LearnedClassificationMode))
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                options.LearnedClassificationMode,
+                "The learned-classification mode is not defined.");
+    }
+
     /// <summary>
     /// Detects content type from a file path using magic bytes and heuristics. Returns null when unknown.
     /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
@@ -273,6 +282,7 @@ public static partial class FileInspector {
     public static ContentTypeDetectionResult? Detect(string path, DetectionOptions? options) {
         try {
             options ??= new DetectionOptions();
+            ValidateLearnedClassificationMode(options);
             var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
                 ? options
                 : WithoutLearnedClassification(options);
@@ -386,6 +396,7 @@ public static partial class FileInspector {
             return Finish(det);
         } catch (OutOfMemoryException) { throw; }
         catch (LearnedClassificationException) { throw; }
+        catch (ArgumentOutOfRangeException) { throw; }
         catch (Exception ex) when (
             options?.LearnedClassificationMode == LearnedClassificationMode.Required &&
             ex is IOException or UnauthorizedAccessException) {
@@ -417,6 +428,7 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? DetectStreamCore(Stream stream, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
+        ValidateLearnedClassificationMode(options);
         if (!stream.CanSeek && options.LearnedClassificationMode != LearnedClassificationMode.Off)
         {
             var unsupported = new NotSupportedException(
@@ -1039,6 +1051,7 @@ public static partial class FileInspector {
         public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
         {
             options ??= new DetectionOptions();
+            ValidateLearnedClassificationMode(options);
 
             // Fast-path ETL: avoid full analysis (which can be expensive/fragile on multi‑GB traces).
             try
@@ -1109,7 +1122,11 @@ public static partial class FileInspector {
             if (options.DetectOnly)
             {
                 var det = Detect(path, options);
-                return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+                return new FileAnalysis {
+                    Detection = det,
+                    Kind = ClassifyKindWithLearnedText(det),
+                    Flags = ContentFlags.None
+                };
             }
         return Analyze(path, options);
     }
@@ -1257,6 +1274,7 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
+        ValidateLearnedClassificationMode(options);
         var learnedData = options.LearnedClassificationMode != LearnedClassificationMode.Off
             ? dataMemory ?? new ReadOnlyMemory<byte>(data.ToArray())
             : default(ReadOnlyMemory<byte>?);
