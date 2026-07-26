@@ -103,7 +103,7 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
-    public void Detect_ExtensionlessLearnedConflictDoesNotResolveNullExtension()
+    public void Detect_ExtensionlessLearnedLabelIsSupplemental()
     {
         var prediction = new LearnedContentPrediction
         {
@@ -136,8 +136,10 @@ public sealed class LearnedClassificationTests
 
         Assert.NotNull(result);
         Assert.Equal("png", result!.Extension);
-        Assert.Equal(LearnedClassificationDisposition.Conflict, result.LearnedClassification!.Disposition);
-        Assert.DoesNotContain(result.Candidates!, candidate => string.IsNullOrWhiteSpace(candidate.Extension));
+        Assert.Equal(LearnedClassificationDisposition.Supplemental, result.LearnedClassification!.Disposition);
+        Assert.DoesNotContain(
+            result.Candidates ?? Array.Empty<ContentTypeDetectionCandidate>(),
+            candidate => string.IsNullOrWhiteSpace(candidate.Extension));
     }
 
     [Fact]
@@ -333,7 +335,7 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
-    public void Detect_ExtensionlessLearnedOutputCanAgreeWithMachO()
+    public void Detect_ExtensionlessLearnedOutputIsSupplementalToMachO()
     {
         var result = FileInspector.Detect(
             new byte[] { 0xFE, 0xED, 0xFA, 0xCE },
@@ -345,12 +347,36 @@ public sealed class LearnedClassificationTests
 
         Assert.NotNull(result);
         Assert.Equal("macho", result!.Extension);
-        Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
-        Assert.Equal("macho", result.LearnedClassification.DeterministicAgreementExtension);
+        Assert.Equal(LearnedClassificationDisposition.Supplemental, result.LearnedClassification!.Disposition);
+        Assert.Null(result.LearnedClassification.DeterministicAgreementExtension);
     }
 
     [Fact]
-    public void Detect_ExtensionlessSpecificLearnedOutputConflictsWithDifferentStrongType()
+    public void Detect_OutputLabelDoesNotOverrideCanonicalExtensionAgreement()
+    {
+        var png = new byte[]
+        {
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0, 0, 0, 0, 0, 0, 0, 0
+        };
+        var prediction = CreatePrediction("png", "exe", "exe");
+
+        var result = FileInspector.Detect(
+            png,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(prediction),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("png", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Conflict, result.LearnedClassification!.Disposition);
+        Assert.Null(result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
+    public void Detect_ExtensionlessSpecificLearnedOutputIsSupplemental()
     {
         var png = new byte[]
         {
@@ -368,7 +394,7 @@ public sealed class LearnedClassificationTests
 
         Assert.NotNull(result);
         Assert.Equal("png", result!.Extension);
-        Assert.Equal(LearnedClassificationDisposition.Conflict, result.LearnedClassification!.Disposition);
+        Assert.Equal(LearnedClassificationDisposition.Supplemental, result.LearnedClassification!.Disposition);
     }
 
     [Fact]

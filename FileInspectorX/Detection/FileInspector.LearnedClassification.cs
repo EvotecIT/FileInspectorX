@@ -205,7 +205,9 @@ public static partial class FileInspector
         {
             disposition = LearnedClassificationDisposition.Supplemental;
         }
-        else if (!learnedIsGeneric && !string.IsNullOrWhiteSpace(deterministicExtension))
+        else if (!learnedIsGeneric &&
+                 !string.IsNullOrWhiteSpace(deterministicExtension) &&
+                 !string.IsNullOrWhiteSpace(learnedExtension))
         {
             disposition = LearnedClassificationDisposition.Conflict;
             message = "deterministic-and-learned-disagree";
@@ -513,7 +515,6 @@ public static partial class FileInspector
         Add(canonicalExtension);
         foreach (var alias in prediction.ExtensionAliases ?? Array.Empty<string>())
             Add(alias);
-        Add(prediction.OutputLabel);
         return extensions;
     }
 
