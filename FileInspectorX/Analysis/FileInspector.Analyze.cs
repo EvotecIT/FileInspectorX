@@ -290,29 +290,19 @@ public static partial class FileInspector {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
-        var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
-            ? options
-            : WithoutLearnedClassification(options);
-        var det = Detect(path, deterministicOptions);
+        var det = Detect(path, options);
+        var learnedApplied = det?.LearnedClassification != null;
+        if (learnedApplied && det != null)
+            PrepareDeterministicDetectionForAnalysis(det);
         var res = new FileAnalysis {
             Detection = det,
             Kind = KindClassifier.Classify(det),
             Flags = ContentFlags.None,
             GuessedExtension = det?.GuessedExtension
         };
-        var learnedApplied = false;
         bool msiPropsDone = false;
 
         try {
-            if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
-            {
-                det = ApplyLearnedClassificationFromPath(det, path, options);
-                learnedApplied = true;
-                res.Detection = det;
-                res.Kind = ClassifyKindWithLearnedText(det);
-                res.GuessedExtension ??= det?.GuessedExtension;
-            }
-
             if (det is null || string.IsNullOrWhiteSpace(det.Extension))
             {
                 if (det is null)
@@ -1189,7 +1179,7 @@ public static partial class FileInspector {
                     det.GuessedExtension ??= res.GuessedExtension;
                 det = learnedApplied && det != null
                     ? ReconcileLearnedClassificationAfterAnalysis(det)
-                    : ApplyLearnedClassificationFromPath(det, path, options);
+                    : det;
                 res.Detection = det;
                 res.Kind = ClassifyKindWithLearnedText(det);
                 res.GuessedExtension ??= det?.GuessedExtension;

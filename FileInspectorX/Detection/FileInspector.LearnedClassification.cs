@@ -247,13 +247,17 @@ public static partial class FileInspector
         {
             var learnedExtension = NormalizeExtension(evidence.Prediction.Extension);
             var learnedExtensions = GetLearnedAgreementExtensions(evidence.Prediction, learnedExtension);
-            if (learnedExtensions.Any(extension =>
+            var stillCarriesLearnedPrimary =
+                result.Reason?.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) == true;
+            if (stillCarriesLearnedPrimary &&
+                learnedExtensions.Any(extension =>
                     ExtensionsEquivalent(result.Extension, extension)))
             {
                 return result;
             }
 
-            RestoreDeterministicMetadataAfterAnalysis(result, evidence);
+            if (stillCarriesLearnedPrimary)
+                RestoreDeterministicMetadataAfterAnalysis(result, evidence);
             var analyzedCandidates = result.Candidates;
             var analyzedAlternatives = result.Alternatives;
             AlignCandidatesAfterLearnedPromotion(
@@ -265,6 +269,37 @@ public static partial class FileInspector
 
         result.LearnedClassification = null;
         return ArbitrateLearnedPrediction(result, evidence.Prediction);
+    }
+
+    private static void PrepareDeterministicDetectionForAnalysis(
+        ContentTypeDetectionResult result)
+    {
+        var evidence = result.LearnedClassification;
+        if (evidence?.Prediction is null ||
+            evidence.Disposition != LearnedClassificationDisposition.Promoted)
+        {
+            return;
+        }
+
+        var deterministicCandidates = (result.Candidates ?? Array.Empty<ContentTypeDetectionCandidate>())
+            .Where(candidate =>
+                candidate.Reason?.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) != true)
+            .ToArray();
+        var deterministicPrimary = deterministicCandidates.FirstOrDefault(candidate =>
+            ExtensionsEquivalent(candidate.Extension, evidence.DeterministicExtension));
+
+        result.Extension = evidence.DeterministicExtension ?? string.Empty;
+        result.MimeType = evidence.DeterministicMimeType ?? string.Empty;
+        result.Confidence = evidence.DeterministicConfidence ?? string.Empty;
+        result.Reason = evidence.DeterministicReason ?? string.Empty;
+        result.ReasonDetails = deterministicPrimary?.ReasonDetails;
+        result.Score = deterministicPrimary?.Score;
+        result.IsDangerous = DangerousExtensions.IsDangerous(result.Extension);
+
+        if (deterministicCandidates.Length == 0)
+            deterministicCandidates = new[] { CreateCandidate(result) };
+        result.Candidates = deterministicCandidates;
+        result.Alternatives = deterministicCandidates.Skip(1).ToArray();
     }
 
     private static void RestoreDeterministicMetadataAfterAnalysis(
@@ -440,6 +475,7 @@ public static partial class FileInspector
         analysis.NameIssues = AnalyzeName(path, result);
         var scriptLanguage = MapScriptLanguageFromExtension(result.Extension);
         analysis.TextSubtype = MapTextSubtypeFromExtension(result.Extension);
+        analysis.Flags &= ~ContentFlags.JsLooksMinified;
         if (string.IsNullOrEmpty(scriptLanguage))
         {
             analysis.ScriptLanguage = null;
@@ -456,6 +492,16 @@ public static partial class FileInspector
         analysis.Flags |= ContentFlags.IsScript;
         if (scriptLanguage is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
             analysis.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+        if (scriptLanguage == "javascript" &&
+            LooksMinifiedJs(
+                path,
+                Settings.DetectionReadBudgetBytes,
+                Settings.JsMinifiedMinLength,
+                Settings.JsMinifiedAvgLineThreshold,
+                Settings.JsMinifiedDensityThreshold))
+        {
+            analysis.Flags |= ContentFlags.JsLooksMinified;
+        }
         if (scriptLanguage == "powershell")
         {
             var cmdlets = SecurityHeuristics.GetCmdlets(

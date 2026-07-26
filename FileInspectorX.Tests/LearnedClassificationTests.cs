@@ -629,6 +629,52 @@ public sealed class LearnedClassificationTests
                 result.Detection.LearnedClassification!.Disposition);
             Assert.Equal("msi", result.Detection.LearnedClassification.DeterministicExtension);
             Assert.Contains(result.Detection.Candidates!, candidate => candidate.Extension == "js");
+            Assert.Null(result.ScriptLanguage);
+            Assert.Null(result.TextSubtype);
+            Assert.True((result.Flags & ContentFlags.IsScript) == 0);
+            Assert.True((result.Flags & ContentFlags.ScriptsPotentiallyDangerous) == 0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_BinaryLearnedPromotionDoesNotSkipDeterministicTextStructure()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(
+            path,
+            "function RenderReport {\n" +
+            "    param($Name)\n" +
+            "    Get-Content $Name\n" +
+            "}\n");
+        try
+        {
+            var prediction = CreatePrediction("portable-executable", "exe");
+            prediction.IsText = false;
+            prediction.MimeType = "application/vnd.microsoft.portable-executable";
+
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(prediction),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("ps1", result.Detection!.Extension);
+            Assert.Equal(
+                LearnedClassificationDisposition.Conflict,
+                result.Detection.LearnedClassification!.Disposition);
+            Assert.Equal("powershell", result.ScriptLanguage);
+            Assert.Contains("ps:structure", result.SecurityFindings!);
+            Assert.True((result.Flags & ContentFlags.IsScript) != 0);
         }
         finally
         {
