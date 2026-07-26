@@ -549,7 +549,11 @@ public static partial class FileInspector
                (leftValue.Equals("tif", StringComparison.OrdinalIgnoreCase) &&
                 rightValue.Equals("tiff", StringComparison.OrdinalIgnoreCase)) ||
                (leftValue.Equals("tiff", StringComparison.OrdinalIgnoreCase) &&
-                rightValue.Equals("tif", StringComparison.OrdinalIgnoreCase));
+                rightValue.Equals("tif", StringComparison.OrdinalIgnoreCase)) ||
+               (leftValue.Equals("bat", StringComparison.OrdinalIgnoreCase) &&
+                rightValue.Equals("cmd", StringComparison.OrdinalIgnoreCase)) ||
+               (leftValue.Equals("cmd", StringComparison.OrdinalIgnoreCase) &&
+                rightValue.Equals("bat", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string LearnedConfidence(double probability)

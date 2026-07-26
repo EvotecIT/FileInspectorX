@@ -389,6 +389,23 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_BatAndCmdExtensionsAgree()
+    {
+        var result = FileInspector.Detect(
+            Encoding.UTF8.GetBytes("@echo off\r\nsetlocal\r\necho test\r\n"),
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(CreatePrediction("cmd", "cmd")),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("bat", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Agreed, result.LearnedClassification!.Disposition);
+        Assert.Equal("bat", result.LearnedClassification.DeterministicAgreementExtension);
+    }
+
+    [Fact]
     public void Detect_LearnedCertificateAliasesAgreeWithDeterministicCer()
     {
         using var rsa = System.Security.Cryptography.RSA.Create(2048);
