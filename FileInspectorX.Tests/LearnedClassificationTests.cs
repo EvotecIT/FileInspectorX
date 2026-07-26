@@ -103,6 +103,32 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Detect_CanonicalExtensionWinsOverGenericProviderLabel()
+    {
+        var prediction = CreatePrediction("unknown", "exe");
+        prediction.IsText = false;
+        prediction.MimeType = "application/vnd.microsoft.portable-executable";
+        var png = new byte[]
+        {
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0, 0, 0, 0, 0, 0, 0, 0
+        };
+
+        var result = FileInspector.Detect(
+            png,
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(prediction),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("png", result!.Extension);
+        Assert.Equal(LearnedClassificationDisposition.Conflict, result.LearnedClassification!.Disposition);
+        Assert.Contains(result.Candidates!, candidate => candidate.Extension == "exe");
+    }
+
+    [Fact]
     public void Detect_ExtensionlessLearnedLabelIsSupplemental()
     {
         var prediction = new LearnedContentPrediction
@@ -643,6 +669,37 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Analyze_SuffixlessLearnedJavaScriptRunsMinificationAnalysis()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        File.WriteAllText(path, string.Concat(Enumerable.Repeat("a=1;b=2;", 300)));
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("js", result.Detection!.Extension);
+            Assert.Equal(
+                LearnedClassificationDisposition.Promoted,
+                result.Detection.LearnedClassification!.Disposition);
+            Assert.True((result.Flags & ContentFlags.JsLooksMinified) != 0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void RefreshDerivedAnalysisAfterLearnedPromotion_RecomputesPowerShellCmdlets()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
@@ -881,6 +938,37 @@ public sealed class LearnedClassificationTests
 
             Assert.Equal(LearnedClassificationDisposition.Promoted, result.Detection!.LearnedClassification!.Disposition);
             Assert.Equal(ContentKind.Text, result.Kind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Analyze_LearnedSvgTextPredictionKeepsImageKind()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        File.WriteAllBytes(path, Array.Empty<byte>());
+        try
+        {
+            var prediction = CreatePrediction("svg", "svg");
+            prediction.MimeType = "image/svg+xml";
+            prediction.IsText = true;
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(prediction),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal(LearnedClassificationDisposition.Promoted, result.Detection!.LearnedClassification!.Disposition);
+            Assert.Equal(ContentKind.Image, result.Kind);
         }
         finally
         {

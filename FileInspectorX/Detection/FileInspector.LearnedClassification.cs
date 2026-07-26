@@ -168,8 +168,9 @@ public static partial class FileInspector
         var learnedExtension = NormalizeExtension(prediction.Extension);
         var learnedAgreementExtensions = GetLearnedAgreementExtensions(prediction, learnedExtension);
         var agreementExtension = FindDeterministicAgreementExtension(result, learnedAgreementExtensions);
-        var learnedIsGeneric = prediction.OutputLabel.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
-                               prediction.OutputLabel.Equals("txt", StringComparison.OrdinalIgnoreCase);
+        var learnedIsGeneric = string.IsNullOrWhiteSpace(learnedExtension) ||
+                               string.Equals(learnedExtension, "unknown", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(learnedExtension, "txt", StringComparison.OrdinalIgnoreCase);
 
         LearnedClassificationDisposition disposition;
         string? message = null;
@@ -465,10 +466,16 @@ public static partial class FileInspector
     }
 
     private static ContentKind ClassifyKindWithLearnedText(ContentTypeDetectionResult? result)
-        => result?.LearnedClassification?.Disposition == LearnedClassificationDisposition.Promoted &&
-           result.LearnedClassification.Prediction?.IsText == true
+    {
+        var classified = KindClassifier.Classify(result);
+        if (classified != ContentKind.Unknown)
+            return classified;
+
+        return result?.LearnedClassification?.Disposition == LearnedClassificationDisposition.Promoted &&
+               result.LearnedClassification.Prediction?.IsText == true
             ? ContentKind.Text
-            : KindClassifier.Classify(result);
+            : ContentKind.Unknown;
+    }
 
     private static string? FindDeterministicAgreementExtension(
         ContentTypeDetectionResult result,

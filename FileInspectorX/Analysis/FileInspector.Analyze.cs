@@ -304,17 +304,19 @@ public static partial class FileInspector {
         bool msiPropsDone = false;
 
         try {
+            if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
+            {
+                det = ApplyLearnedClassificationFromPath(det, path, options);
+                learnedApplied = true;
+                res.Detection = det;
+                res.Kind = ClassifyKindWithLearnedText(det);
+                res.GuessedExtension ??= det?.GuessedExtension;
+            }
+
             if (det is null || string.IsNullOrWhiteSpace(det.Extension))
             {
                 if (det is null)
                 {
-                    if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
-                    {
-                        det = ApplyLearnedClassificationFromPath(null, path, options);
-                        learnedApplied = true;
-                        res.Detection = det;
-                        res.Kind = ClassifyKindWithLearnedText(det);
-                    }
                     if (det is null)
                         return res;
                 }
@@ -712,7 +714,7 @@ public static partial class FileInspector {
                     if (detectedExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd" or "vbs" or "js")
                         res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
-                if (declaredExt == "js") {
+                if (declaredExt == "js" || detectedExt == "js") {
                     var jsHead = ReadHeadTextCached(Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
                     if (LooksMinifiedJs(path, Settings.DetectionReadBudgetBytes,
                         Settings.JsMinifiedMinLength,
