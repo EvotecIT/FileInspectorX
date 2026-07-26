@@ -1,9 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/EvotecIT/PSPublishModule/main/Schemas/project.build.schema.json",
   "RootPath": "..",
-  "ExpectedVersion": "1.0.X",
+  "ExpectedVersion": "1.1.X",
   "ExcludeProjects": [
     "FileInspectorX.Tests",
+    "FileInspectorX.Magika.Tests",
     "FileInspectorX.Examples",
     "FileInspectorX.PowerShell"
   ],

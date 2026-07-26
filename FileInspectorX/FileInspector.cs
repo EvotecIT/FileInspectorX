@@ -38,6 +38,15 @@ public static partial class FileInspector {
         public bool IncludeAssessment { get; set; } = true;
         /// <summary>Include Windows shell properties (Explorer Details). Default true.</summary>
         public bool IncludeShellProperties { get; set; } = true;
+
+        /// <summary>
+        /// Optional learned classifier. It is never invoked while
+        /// <see cref="LearnedClassificationMode"/> is <see cref="FileInspectorX.LearnedClassificationMode.Off"/>.
+        /// </summary>
+        public ILearnedContentClassifier? LearnedClassifier { get; set; }
+
+        /// <summary>Controls optional learned classification. Default is <see cref="FileInspectorX.LearnedClassificationMode.Off"/>.</summary>
+        public LearnedClassificationMode LearnedClassificationMode { get; set; } = FileInspectorX.LearnedClassificationMode.Off;
     }
 
     /// <summary>
@@ -250,6 +259,15 @@ public static partial class FileInspector {
 
     private static FileStream OpenReadShared(string path)
         => new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    private static void ValidateLearnedClassificationMode(DetectionOptions options) {
+        if (!Enum.IsDefined(typeof(LearnedClassificationMode), options.LearnedClassificationMode))
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                options.LearnedClassificationMode,
+                "The learned-classification mode is not defined.");
+    }
+
     /// <summary>
     /// Detects content type from a file path using magic bytes and heuristics. Returns null when unknown.
     /// Fast and minimal: does not perform container/PDF/PE/permission analysis.
@@ -263,15 +281,29 @@ public static partial class FileInspector {
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path, DetectionOptions? options) {
         try {
-            if (Signatures.TryMatchUdf(path, out var udf)) return udf;
-            if (Signatures.TryMatchIso(path, out var iso)) return iso;
-            if (Signatures.TryMatchDmg(path, out var dmg)) return dmg;
+            options ??= new DetectionOptions();
+            ValidateLearnedClassificationMode(options);
+            var deterministicOptions = options.LearnedClassificationMode == LearnedClassificationMode.Off
+                ? options
+                : WithoutLearnedClassification(options);
             using var fs = OpenReadShared(path);
-            if (Signatures.TryMatchMsg(path, out var msg)) return msg;
+            ContentTypeDetectionResult? FinishPathOnly(ContentTypeDetectionResult? result)
+            {
+                if (options.LearnedClassificationMode == LearnedClassificationMode.Off)
+                    return result;
+                return ApplyLearnedClassification(result, fs, options);
+            }
+            if (Signatures.TryMatchUdf(fs, out var udf)) return FinishPathOnly(udf);
+            if (Signatures.TryMatchIso(fs, out var iso)) return FinishPathOnly(iso);
+            if (Signatures.TryMatchDmg(fs, out var dmg)) return FinishPathOnly(dmg);
+            ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? result)
+                => ApplyLearnedClassification(result, fs, options);
+            if (Signatures.TryMatchMsg(fs, out var msg))
+                return Finish(msg);
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            var det = Detect(fs, options, extDeclared);
+            var det = Detect(fs, deterministicOptions, extDeclared);
             try {
-                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(path, out var pe)) {
+                if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
                     // A successful PE parse is stronger evidence than the 2-byte MZ prefix alone.
                     det.Confidence = "High";
                     det.Reason = AppendReason(det.Reason, "pe:header");
@@ -307,7 +339,7 @@ public static partial class FileInspector {
                         if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                         {
                             Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-ok", path: path);
-                            return detEtl;
+                            return Finish(detEtl);
                         }
 
                         bool? okNative = null;
@@ -320,7 +352,7 @@ public static partial class FileInspector {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "native-ok", path: path);
                                 detEtl.Confidence = "High";
                                 detEtl.Reason = "etw:ok";
-                                return detEtl;
+                                return Finish(detEtl);
                             }
                         }
 
@@ -334,34 +366,43 @@ public static partial class FileInspector {
                                 Breadcrumbs.Write("ETL_VALIDATE_END", message: "tracerpt-ok", path: path);
                                 detEtl.Confidence = "High";
                                 detEtl.Reason = "tracerpt:ok";
-                                return detEtl;
+                                return Finish(detEtl);
                             }
                             if (okTr == false) detEtl.Reason = AppendReason(detEtl.Reason, "tracerpt-fail");
                             else if (okTr == null) detEtl.Reason = AppendReason(detEtl.Reason, "tracerpt-n/a");
                         }
 
                         Breadcrumbs.Write("ETL_VALIDATE_END", message: okNative == false ? "native-fail" : "no-success", path: path);
-                        return detEtl;
+                        return Finish(detEtl);
                     }
                 }
                 catch (IOException ex)
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_IO_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" };
+                    return Finish(new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" });
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
+                catch (Exception ex) when (
+                    ex is not OutOfMemoryException and not LearnedClassificationException)
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                    return new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" };
+                    return Finish(new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" });
                 }
             }
             det = ApplyDeclaredBias(det, extDeclared);
             TryValidateStructuredTextWithBudget(fs, det, skipAdmxAdml: true);
             TryValidateAdmxAdmlXmlWellFormedness(fs, path, det, extDeclared);
-            return det;
+            return Finish(det);
         } catch (OutOfMemoryException) { throw; }
+        catch (LearnedClassificationException) { throw; }
+        catch (ArgumentOutOfRangeException) { throw; }
+        catch (Exception ex) when (
+            options?.LearnedClassificationMode == LearnedClassificationMode.Required &&
+            ex is IOException or UnauthorizedAccessException) {
+            throw new LearnedClassificationException(
+                "The required learned content classifier could not read the file.", ex);
+        }
         catch { return null; }
     }
 
@@ -387,13 +428,27 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? DetectStreamCore(Stream stream, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
+        ValidateLearnedClassificationMode(options);
+        if (!stream.CanSeek && options.LearnedClassificationMode != LearnedClassificationMode.Off)
+        {
+            var unsupported = new NotSupportedException(
+                "Learned classification requires a seekable stream containing the complete content.");
+            if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
+                throw new LearnedClassificationException(unsupported.Message, unsupported);
+            var deterministic = DetectStreamCore(
+                stream,
+                WithoutLearnedClassification(options),
+                declaredExtension);
+            return AttachLearnedFailure(deterministic, unsupported);
+        }
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
         var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = ReadAvailable(stream, header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
-        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
+            => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
@@ -472,9 +527,9 @@ public static partial class FileInspector {
                 if (refined != null) return Finish(Enrich(refined, src, stream, options));
             }
             var enriched = Enrich(text, src, stream, options);
-            var finished = Finish(enriched);
-            TryValidateStructuredTextWithBudget(stream, finished, skipAdmxAdml: false);
-            return finished;
+            var deterministic = ApplyDeclaredBias(enriched, declaredExtension);
+            TryValidateStructuredTextWithBudget(stream, deterministic, skipAdmxAdml: false);
+            return ApplyLearnedClassification(deterministic, stream, options);
         }
         return Finish(Enrich(null, src, stream, options));
     }
@@ -996,6 +1051,7 @@ public static partial class FileInspector {
         public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
         {
             options ??= new DetectionOptions();
+            ValidateLearnedClassificationMode(options);
 
             // Fast-path ETL: avoid full analysis (which can be expensive/fragile on multi‑GB traces).
             try
@@ -1007,55 +1063,70 @@ public static partial class FileInspector {
                     var threshold = Settings.EtlLargeFileQuickScanBytes;
                     var mode = Settings.EtlValidation;
                     bool allowQuick = threshold > 0 && len >= threshold;
-                    if (allowQuick && TryMatchEtlMagic(path))
+                    if (allowQuick)
                     {
-                        Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
-                        string reason = "etl:magic";
-                        string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                        string confidence = "Medium";
-                        if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
+                        using var quickStream = OpenReadShared(path);
+                        if (TryMatchEtlMagic(quickStream))
                         {
-                            reason = "etl:magic";
-                        }
-                        else
-                        {
-                            // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
-                            try
+                            Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
+                            string reason = "etl:magic";
+                            string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                            string confidence = "Medium";
+                            if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                             {
-                                var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
-                                if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "High"; }
-                                else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
-                                else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                                reason = "etl:magic";
                             }
-                            catch (Exception ex)
+                            else
                             {
-                                Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
-                                reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                                // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
+                                try
+                                {
+                                    var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                                    if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "High"; }
+                                    else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
+                                    else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                                    reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                                }
                             }
-                        }
 
-                        var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
-                        var quick = new FileAnalysis
-                        {
-                            Detection = det,
-                            DetectedExtension = det.Extension,
-                            DetectedMimeType = det.MimeType,
-                            DetectionConfidence = det.Confidence,
-                            DetectionReason = det.Reason,
-                            Kind = KindClassifier.Classify(det),
-                            Flags = ContentFlags.None
-                        };
-                        Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
-                        return quick;
+                            var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
+                            if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
+                            {
+                                det = ApplyLearnedClassification(det, quickStream, options)
+                                      ?? det;
+                            }
+                            var quick = new FileAnalysis
+                            {
+                                Detection = det,
+                                DetectedExtension = det.Extension,
+                                DetectedMimeType = det.MimeType,
+                                DetectionConfidence = det.Confidence,
+                                DetectionReason = det.Reason,
+                                Kind = KindClassifier.Classify(det),
+                                Flags = ContentFlags.None
+                            };
+                            Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
+                            return quick;
+                        }
                     }
                 }
             }
+            catch (OutOfMemoryException) { throw; }
+            catch (LearnedClassificationException) { throw; }
             catch { /* non-fatal */ }
 
             if (options.DetectOnly)
             {
                 var det = Detect(path, options);
-                return new FileAnalysis { Detection = det, Kind = KindClassifier.Classify(det), Flags = ContentFlags.None };
+                return new FileAnalysis {
+                    Detection = det,
+                    Kind = ClassifyKindWithLearnedText(det),
+                    Flags = ContentFlags.None
+                };
             }
         return Analyze(path, options);
     }
@@ -1203,7 +1274,17 @@ public static partial class FileInspector {
 
     private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
         options ??= new DetectionOptions();
-        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det) => ApplyDeclaredBias(det, declaredExtension);
+        ValidateLearnedClassificationMode(options);
+        var learnedData = options.LearnedClassificationMode != LearnedClassificationMode.Off
+            ? dataMemory ?? new ReadOnlyMemory<byte>(data.ToArray())
+            : default(ReadOnlyMemory<byte>?);
+        ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
+        {
+            var biased = ApplyDeclaredBias(det, declaredExtension);
+            return learnedData.HasValue
+                ? ApplyLearnedClassification(biased, learnedData.Value, options)
+                : biased;
+        }
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
         if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
         if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));

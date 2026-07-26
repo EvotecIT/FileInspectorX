@@ -5,6 +5,7 @@ using Xunit;
 
 namespace FileInspectorX.Tests;
 
+[Collection(nameof(DetectionSettingsCollection))]
 public class FileInspectorEtlTests
 {
     [Fact]
@@ -259,6 +260,130 @@ public class FileInspectorEtlTests
             Settings.EtlValidation = prevMode;
             Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
             TestHelpers.SafeDelete(temp);
+        }
+    }
+
+    [Fact]
+    public void Inspect_LargeEtl_RequiredLearnedFailurePropagates()
+    {
+        var prevMode = Settings.EtlValidation;
+        var prevQuickBytes = Settings.EtlLargeFileQuickScanBytes;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        Settings.EtlLargeFileQuickScanBytes = 1;
+        var temp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x00, 0x01 });
+
+            Assert.Throws<LearnedClassificationException>(() =>
+                FileInspector.Inspect(
+                    temp,
+                    new FileInspector.DetectionOptions
+                    {
+                        LearnedClassifier = new EtlThrowingClassifier(),
+                        LearnedClassificationMode = LearnedClassificationMode.Required
+                    }));
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
+            TestHelpers.SafeDelete(temp);
+        }
+    }
+
+    [Fact]
+    public void Detect_EtlMagic_RequiredLearnedFailureInvokesClassifierOnce()
+    {
+        var prevMode = Settings.EtlValidation;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        var temp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x00, 0x01 });
+            var classifier = new EtlThrowingClassifier();
+
+            Assert.Throws<LearnedClassificationException>(() =>
+                FileInspector.Detect(
+                    temp,
+                    new FileInspector.DetectionOptions
+                    {
+                        LearnedClassifier = classifier,
+                        LearnedClassificationMode = LearnedClassificationMode.Required
+                    }));
+
+            Assert.Equal(1, classifier.CallCount);
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            TestHelpers.SafeDelete(temp);
+        }
+    }
+
+    [Fact]
+    public void Inspect_LargeEtl_OutOfMemoryPropagatesAndInvokesClassifierOnce()
+    {
+        var prevMode = Settings.EtlValidation;
+        var prevQuickBytes = Settings.EtlLargeFileQuickScanBytes;
+        Settings.EtlValidation = Settings.EtlValidationMode.MagicOnly;
+        Settings.EtlLargeFileQuickScanBytes = 1;
+        var temp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x00, 0x01 });
+            var classifier = new EtlOutOfMemoryClassifier();
+
+            Assert.Throws<OutOfMemoryException>(() =>
+                FileInspector.Inspect(
+                    temp,
+                    new FileInspector.DetectionOptions
+                    {
+                        LearnedClassifier = classifier,
+                        LearnedClassificationMode = LearnedClassificationMode.Assist
+                    }));
+
+            Assert.Equal(1, classifier.CallCount);
+        }
+        finally
+        {
+            Settings.EtlValidation = prevMode;
+            Settings.EtlLargeFileQuickScanBytes = prevQuickBytes;
+            TestHelpers.SafeDelete(temp);
+        }
+    }
+
+    private sealed class EtlThrowingClassifier : ILearnedContentClassifier
+    {
+        internal int CallCount { get; private set; }
+
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+        {
+            CallCount++;
+            throw new InvalidOperationException("test");
+        }
+
+        public LearnedContentPrediction Predict(Stream content)
+        {
+            CallCount++;
+            throw new InvalidOperationException("test");
+        }
+    }
+
+    private sealed class EtlOutOfMemoryClassifier : ILearnedContentClassifier
+    {
+        internal int CallCount { get; private set; }
+
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+        {
+            CallCount++;
+            throw new OutOfMemoryException("test");
+        }
+
+        public LearnedContentPrediction Predict(Stream content)
+        {
+            CallCount++;
+            throw new OutOfMemoryException("test");
         }
     }
 }

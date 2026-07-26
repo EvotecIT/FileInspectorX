@@ -70,6 +70,9 @@ jobs:
         if: runner.os == 'Windows'
         run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net472 --no-build --logger "trx;LogFileName=test-results-net472.trx" --results-directory ./TestResults/net472
 
+      - name: Test Magika provider
+        run: dotnet test FileInspectorX.Magika.Tests/FileInspectorX.Magika.Tests.csproj -c Release --no-build --logger "trx;LogFileName=test-results-magika.trx" --results-directory ./TestResults/magika
+
       - name: Upload test results
         if: always() && hashFiles('TestResults/**/*.trx') != ''
         uses: actions/upload-artifact@v7

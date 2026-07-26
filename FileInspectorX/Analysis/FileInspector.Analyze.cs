@@ -288,7 +288,12 @@ public static partial class FileInspector {
     /// </summary>
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
+        options ??= new DetectionOptions();
+        ValidateLearnedClassificationMode(options);
         var det = Detect(path, options);
+        var learnedApplied = det?.LearnedClassification != null;
+        if (learnedApplied && det != null)
+            PrepareDeterministicDetectionForAnalysis(det);
         var res = new FileAnalysis {
             Detection = det,
             Kind = KindClassifier.Classify(det),
@@ -298,7 +303,14 @@ public static partial class FileInspector {
         bool msiPropsDone = false;
 
         try {
-            if (det is null) return res;
+            if (det is null || string.IsNullOrWhiteSpace(det.Extension))
+            {
+                if (det is null)
+                {
+                    if (det is null)
+                        return res;
+                }
+            }
             string? headTextCached = null;
             int headTextCap = 0;
             string ReadHeadTextCached(int cap)
@@ -692,7 +704,7 @@ public static partial class FileInspector {
                     if (detectedExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd" or "vbs" or "js")
                         res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
-                if (declaredExt == "js") {
+                if (declaredExt == "js" || detectedExt == "js") {
                     var jsHead = ReadHeadTextCached(Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
                     if (LooksMinifiedJs(path, Settings.DetectionReadBudgetBytes,
                         Settings.JsMinifiedMinLength,
@@ -1161,6 +1173,20 @@ public static partial class FileInspector {
                 }
             } catch { }
 
+            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off)
+            {
+                if (det != null)
+                    det.GuessedExtension ??= res.GuessedExtension;
+                det = learnedApplied && det != null
+                    ? ReconcileLearnedClassificationAfterAnalysis(det)
+                    : det;
+                res.Detection = det;
+                res.Kind = ClassifyKindWithLearnedText(det);
+                res.GuessedExtension ??= det?.GuessedExtension;
+            }
+            if (det != null)
+                RefreshDerivedAnalysisAfterLearnedPromotion(res, path, det);
+
             PopulateDetectionSummary(res);
 
             // Assessment (optional)
@@ -1172,6 +1198,7 @@ public static partial class FileInspector {
 
         }
         catch (OutOfMemoryException) { throw; }
+        catch (LearnedClassificationException) { throw; }
         catch (Exception ex)
         {
             res.AnalysisComplete = false;

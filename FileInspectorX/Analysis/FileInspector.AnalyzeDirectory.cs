@@ -18,12 +18,14 @@ public static partial class FileInspector {
         SearchOption searchOption = SearchOption.TopDirectoryOnly,
         Func<string, bool>? filter = null,
         DetectionOptions? options = null) {
+        if (options != null) ValidateLearnedClassificationMode(options);
         if (!Directory.Exists(path)) yield break;
         var files = EnumerateFilesSafe(path, searchOption);
         foreach (var f in files) {
             if (filter != null && !filter(f)) continue;
             FileAnalysis? analysis = null;
             try { analysis = Analyze(f, options); }
+            catch (LearnedClassificationException) { throw; }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
             if (analysis != null) yield return analysis;
         }
@@ -64,6 +66,7 @@ public static partial class FileInspector {
         DetectionOptions? options = null,
         int maxDegreeOfParallelism = 0,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) {
+        if (options != null) ValidateLearnedClassificationMode(options);
         if (!Directory.Exists(path)) yield break;
 
         var files = EnumerateFilesSafe(path, searchOption);
@@ -77,6 +80,7 @@ public static partial class FileInspector {
                 await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = ct }, async (file, token) => {
                     FileAnalysis? result = null;
                     try { result = Analyze(file, options); }
+                    catch (LearnedClassificationException) { throw; }
                     catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException) { }
                     if (result != null)
                         await channel.Writer.WriteAsync(result, token);
