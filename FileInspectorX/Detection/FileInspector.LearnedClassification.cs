@@ -352,6 +352,7 @@ public static partial class FileInspector
 
         if (deterministicCandidates is { Count: > 0 })
         {
+            AddCandidate(deterministicPrimary);
             foreach (var candidate in deterministicCandidates)
                 AddCandidate(candidate);
         }
@@ -437,7 +438,13 @@ public static partial class FileInspector
         var scriptLanguage = MapScriptLanguageFromExtension(result.Extension);
         analysis.TextSubtype = MapTextSubtypeFromExtension(result.Extension);
         if (string.IsNullOrEmpty(scriptLanguage))
+        {
+            analysis.ScriptLanguage = null;
+            analysis.Flags &= ~(ContentFlags.IsScript | ContentFlags.ScriptsPotentiallyDangerous);
+            if (result.LearnedClassification?.Prediction?.IsText != true)
+                analysis.TextSubtype = null;
             return;
+        }
 
         analysis.ScriptLanguage = scriptLanguage;
         analysis.TextSubtype = scriptLanguage;

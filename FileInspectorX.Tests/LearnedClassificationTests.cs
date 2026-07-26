@@ -264,6 +264,7 @@ public sealed class LearnedClassificationTests
         Assert.Equal(LearnedClassificationDisposition.Promoted, result.LearnedClassification!.Disposition);
         Assert.Equal("md", result.LearnedClassification.DeterministicExtension);
         Assert.Contains("bias:decl:md", result.LearnedClassification.DeterministicReason);
+        Assert.Contains(result.Candidates!, candidate => candidate.Extension == "md");
     }
 
     [Fact]
@@ -535,6 +536,38 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Analyze_ReconcilesLearnedOnlyPromotionWithDeclaredInstallerAnalysis()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".msi");
+        File.WriteAllBytes(path, Array.Empty<byte>());
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("javascript", "js")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("msi", result.Detection!.Extension);
+            Assert.Equal(
+                LearnedClassificationDisposition.Conflict,
+                result.Detection.LearnedClassification!.Disposition);
+            Assert.Equal("msi", result.Detection.LearnedClassification.DeterministicExtension);
+            Assert.Contains(result.Detection.Candidates!, candidate => candidate.Extension == "js");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Analyze_LearnedPromotionRefreshesNameAndScriptAnalysis()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
@@ -648,6 +681,43 @@ public sealed class LearnedClassificationTests
         Assert.Equal("custombin", result!.Extension);
         Assert.Equal("application/octet-stream", result.MimeType);
         Assert.Equal(LearnedClassificationDisposition.Promoted, result.LearnedClassification!.Disposition);
+    }
+
+    [Fact]
+    public void Analyze_BinaryLearnedPromotionClearsDeclaredScriptMetadata()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
+        File.WriteAllText(path, "ordinary prose without deterministic script cues");
+        try
+        {
+            var prediction = CreatePrediction("custom_binary", "custombin");
+            prediction.IsText = false;
+            prediction.MimeType = "application/octet-stream";
+
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(prediction),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("custombin", result.Detection!.Extension);
+            Assert.Equal(
+                LearnedClassificationDisposition.Promoted,
+                result.Detection.LearnedClassification!.Disposition);
+            Assert.Null(result.ScriptLanguage);
+            Assert.Null(result.TextSubtype);
+            Assert.Equal(ContentFlags.None, result.Flags & (ContentFlags.IsScript | ContentFlags.ScriptsPotentiallyDangerous));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

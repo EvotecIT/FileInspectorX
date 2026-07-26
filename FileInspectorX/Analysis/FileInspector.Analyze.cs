@@ -1181,12 +1181,13 @@ public static partial class FileInspector {
                 }
             } catch { }
 
-            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off &&
-                !learnedApplied)
+            if (options!.LearnedClassificationMode != LearnedClassificationMode.Off)
             {
                 if (det != null)
                     det.GuessedExtension ??= res.GuessedExtension;
-                det = ApplyLearnedClassificationFromPath(det, path, options);
+                det = learnedApplied && det != null
+                    ? ReconcileLearnedClassificationAfterAnalysis(det)
+                    : ApplyLearnedClassificationFromPath(det, path, options);
                 res.Detection = det;
                 res.Kind = ClassifyKindWithLearnedText(det);
                 res.GuessedExtension ??= det?.GuessedExtension;
