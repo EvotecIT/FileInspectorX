@@ -426,7 +426,7 @@ public static partial class FileInspector
         result.Alternatives = candidates.Skip(1).ToArray();
     }
 
-    private static void RefreshDerivedAnalysisAfterLearnedPromotion(
+    internal static void RefreshDerivedAnalysisAfterLearnedPromotion(
         FileAnalysis analysis,
         string path,
         ContentTypeDetectionResult result)
@@ -440,6 +440,7 @@ public static partial class FileInspector
         if (string.IsNullOrEmpty(scriptLanguage))
         {
             analysis.ScriptLanguage = null;
+            analysis.ScriptCmdlets = null;
             analysis.Flags &= ~(ContentFlags.IsScript | ContentFlags.ScriptsPotentiallyDangerous);
             if (result.LearnedClassification?.Prediction?.IsText != true)
                 analysis.TextSubtype = null;
@@ -448,9 +449,17 @@ public static partial class FileInspector
 
         analysis.ScriptLanguage = scriptLanguage;
         analysis.TextSubtype = scriptLanguage;
+        analysis.ScriptCmdlets = null;
         analysis.Flags |= ContentFlags.IsScript;
         if (scriptLanguage is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
             analysis.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
+        if (scriptLanguage == "powershell")
+        {
+            var cmdlets = SecurityHeuristics.GetCmdlets(
+                path,
+                Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024)));
+            analysis.ScriptCmdlets = cmdlets.Count > 0 ? cmdlets : null;
+        }
     }
 
     private static ContentKind ClassifyKindWithLearnedText(ContentTypeDetectionResult? result)

@@ -18,6 +18,7 @@ public static partial class FileInspector {
         SearchOption searchOption = SearchOption.TopDirectoryOnly,
         Func<string, bool>? filter = null,
         DetectionOptions? options = null) {
+        if (options != null) ValidateLearnedClassificationMode(options);
         if (!Directory.Exists(path)) yield break;
         var files = EnumerateFilesSafe(path, searchOption);
         foreach (var f in files) {
@@ -65,6 +66,7 @@ public static partial class FileInspector {
         DetectionOptions? options = null,
         int maxDegreeOfParallelism = 0,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) {
+        if (options != null) ValidateLearnedClassificationMode(options);
         if (!Directory.Exists(path)) yield break;
 
         var files = EnumerateFilesSafe(path, searchOption);

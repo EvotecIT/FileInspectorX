@@ -571,7 +571,7 @@ public sealed class LearnedClassificationTests
     public void Analyze_LearnedPromotionRefreshesNameAndScriptAnalysis()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
-        File.WriteAllText(path, "ordinary prose without deterministic script cues");
+        File.WriteAllText(path, "ordinary prose without deterministic script structure");
         try
         {
             var result = FileInspector.Analyze(
@@ -590,12 +590,78 @@ public sealed class LearnedClassificationTests
             Assert.Equal("javascript", result.ScriptLanguage);
             Assert.True((result.Flags & ContentFlags.IsScript) != 0);
             Assert.True((result.Flags & ContentFlags.ScriptsPotentiallyDangerous) != 0);
+            Assert.Null(result.ScriptCmdlets);
             Assert.NotNull(result.Assessment);
         }
         finally
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void RefreshDerivedAnalysisAfterLearnedPromotion_RecomputesPowerShellCmdlets()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, "Get-Content ./input.txt");
+        try
+        {
+            var analysis = new FileAnalysis
+            {
+                ScriptCmdlets = new[] { "stale-cmdlet" }
+            };
+            var result = new ContentTypeDetectionResult
+            {
+                Extension = "ps1",
+                MimeType = "text/plain",
+                Confidence = "High",
+                Reason = "learned:stub:powershell",
+                LearnedClassification = new LearnedClassificationEvidence
+                {
+                    Disposition = LearnedClassificationDisposition.Promoted,
+                    Prediction = CreatePrediction("powershell", "ps1")
+                }
+            };
+
+            FileInspector.RefreshDerivedAnalysisAfterLearnedPromotion(analysis, path, result);
+
+            Assert.Equal("powershell", analysis.ScriptLanguage);
+            Assert.Contains("get-content", analysis.ScriptCmdlets!);
+            Assert.DoesNotContain("stale-cmdlet", analysis.ScriptCmdlets!);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RefreshDerivedAnalysisAfterLearnedPromotion_ClearsNonPowerShellCmdlets()
+    {
+        var analysis = new FileAnalysis
+        {
+            ScriptCmdlets = new[] { "stale-cmdlet" }
+        };
+        var result = new ContentTypeDetectionResult
+        {
+            Extension = "js",
+            MimeType = "text/javascript",
+            Confidence = "High",
+            Reason = "learned:stub:javascript",
+            LearnedClassification = new LearnedClassificationEvidence
+            {
+                Disposition = LearnedClassificationDisposition.Promoted,
+                Prediction = CreatePrediction("javascript", "js")
+            }
+        };
+
+        FileInspector.RefreshDerivedAnalysisAfterLearnedPromotion(
+            analysis,
+            "unused.txt",
+            result);
+
+        Assert.Equal("javascript", analysis.ScriptLanguage);
+        Assert.Null(analysis.ScriptCmdlets);
     }
 
     [Fact]
@@ -894,6 +960,30 @@ public sealed class LearnedClassificationTests
         }
     }
 
+    [Fact]
+    public void AnalyzeDirectory_RejectsUndefinedLearnedClassificationMode()
+    {
+        var directory = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        try
+        {
+            File.WriteAllText(Path.Combine(directory.FullName, "sample.txt"), "plain text");
+            var options = new FileInspector.DetectionOptions
+            {
+                LearnedClassificationMode = (LearnedClassificationMode)999
+            };
+
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+            {
+                _ = FileInspector.AnalyzeDirectory(directory.FullName, options: options).ToList();
+            });
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
 #if NET8_0_OR_GREATER
     [Fact]
     public async Task AnalyzeDirectoryAsync_RequiredPropagatesProviderFailure()
@@ -911,6 +1001,34 @@ public sealed class LearnedClassificationTests
             await Assert.ThrowsAsync<LearnedClassificationException>(async () =>
             {
                 await foreach (var _ in FileInspector.AnalyzeDirectoryAsync(directory.FullName, options: options))
+                {
+                }
+            });
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AnalyzeDirectoryAsync_RejectsUndefinedLearnedClassificationMode()
+    {
+        var directory = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        try
+        {
+            File.WriteAllText(Path.Combine(directory.FullName, "sample.txt"), "plain text");
+            var options = new FileInspector.DetectionOptions
+            {
+                LearnedClassificationMode = (LearnedClassificationMode)999
+            };
+
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
+            {
+                await foreach (var _ in FileInspector.AnalyzeDirectoryAsync(
+                                   directory.FullName,
+                                   options: options))
                 {
                 }
             });
