@@ -1050,52 +1050,55 @@ public static partial class FileInspector {
                     var threshold = Settings.EtlLargeFileQuickScanBytes;
                     var mode = Settings.EtlValidation;
                     bool allowQuick = threshold > 0 && len >= threshold;
-                    if (allowQuick && TryMatchEtlMagic(path))
+                    if (allowQuick)
                     {
-                        Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
-                        string reason = "etl:magic";
-                        string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
-                        string confidence = "Medium";
-                        if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
+                        using var quickStream = OpenReadShared(path);
+                        if (TryMatchEtlMagic(quickStream))
                         {
-                            reason = "etl:magic";
-                        }
-                        else
-                        {
-                            // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
-                            try
+                            Breadcrumbs.Write("ETL_QUICK_BEGIN", path: path);
+                            string reason = "etl:magic";
+                            string mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
+                            string confidence = "Medium";
+                            if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                             {
-                                var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
-                                if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "High"; }
-                                else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
-                                else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                                reason = "etl:magic";
                             }
-                            catch (Exception ex)
+                            else
                             {
-                                Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
-                                reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                                // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
+                                try
+                                {
+                                    var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                                    if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "High"; }
+                                    else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
+                                    else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Breadcrumbs.Write("ETL_QUICK_NATIVE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
+                                    reason = string.IsNullOrEmpty(reason) ? "tracerpt-error" : reason + ";tracerpt-error";
+                                }
                             }
-                        }
 
-                        var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
-                        if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
-                        {
-                            using var learnedStream = OpenReadShared(path);
-                            det = ApplyLearnedClassification(det, learnedStream, options)
-                                  ?? det;
+                            var det = new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = confidence, Reason = reason };
+                            if (options.LearnedClassificationMode != LearnedClassificationMode.Off)
+                            {
+                                det = ApplyLearnedClassification(det, quickStream, options)
+                                      ?? det;
+                            }
+                            var quick = new FileAnalysis
+                            {
+                                Detection = det,
+                                DetectedExtension = det.Extension,
+                                DetectedMimeType = det.MimeType,
+                                DetectionConfidence = det.Confidence,
+                                DetectionReason = det.Reason,
+                                Kind = KindClassifier.Classify(det),
+                                Flags = ContentFlags.None
+                            };
+                            Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
+                            return quick;
                         }
-                        var quick = new FileAnalysis
-                        {
-                            Detection = det,
-                            DetectedExtension = det.Extension,
-                            DetectedMimeType = det.MimeType,
-                            DetectionConfidence = det.Confidence,
-                            DetectionReason = det.Reason,
-                            Kind = KindClassifier.Classify(det),
-                            Flags = ContentFlags.None
-                        };
-                        Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
-                        return quick;
                     }
                 }
             }

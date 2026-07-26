@@ -186,7 +186,7 @@ public static partial class FileInspector
             result.MimeType = ResolveLearnedMimeType(
                 prediction.MimeType,
                 learnedExtension!,
-                deterministicMime);
+                prediction.IsText ? deterministicMime : null);
             result.Confidence = LearnedConfidence(prediction.Probability);
             result.Score = null;
             result.Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel;
@@ -250,6 +250,7 @@ public static partial class FileInspector
                 return result;
             }
 
+            RestoreDeterministicMetadataAfterAnalysis(result, evidence);
             var analyzedCandidates = result.Candidates;
             var analyzedAlternatives = result.Alternatives;
             AlignCandidatesAfterLearnedPromotion(
@@ -261,6 +262,44 @@ public static partial class FileInspector
 
         result.LearnedClassification = null;
         return ArbitrateLearnedPrediction(result, evidence.Prediction);
+    }
+
+    private static void RestoreDeterministicMetadataAfterAnalysis(
+        ContentTypeDetectionResult result,
+        LearnedClassificationEvidence evidence)
+    {
+        var analyzedCandidate = (result.Candidates ?? Array.Empty<ContentTypeDetectionCandidate>())
+            .Concat(result.Alternatives ?? Array.Empty<ContentTypeDetectionCandidate>())
+            .FirstOrDefault(candidate =>
+                ExtensionsEquivalent(candidate.Extension, result.Extension) &&
+                candidate.Reason?.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) != true);
+        if (analyzedCandidate is not null)
+        {
+            result.Confidence = analyzedCandidate.Confidence;
+            result.Reason = analyzedCandidate.Reason;
+            result.ReasonDetails = analyzedCandidate.ReasonDetails;
+            result.Score = analyzedCandidate.Score;
+            return;
+        }
+
+        var deterministicReason = string.Join(
+            ";",
+            (result.Reason ?? string.Empty)
+                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(segment =>
+                    !segment.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) &&
+                    !segment.StartsWith("model:", StringComparison.OrdinalIgnoreCase)));
+        if (string.IsNullOrWhiteSpace(deterministicReason))
+            deterministicReason = evidence.DeterministicReason ?? string.Empty;
+
+        result.Reason = deterministicReason;
+        result.ReasonDetails = null;
+        result.Score = null;
+        result.Confidence = deterministicReason.IndexOf("confirmed", StringComparison.OrdinalIgnoreCase) >= 0
+            ? "High"
+            : deterministicReason.IndexOf("structure", StringComparison.OrdinalIgnoreCase) >= 0
+                ? "Medium"
+                : evidence.DeterministicConfidence ?? result.Confidence;
     }
 
     private static bool IsGenericTextDetection(ContentTypeDetectionResult result)

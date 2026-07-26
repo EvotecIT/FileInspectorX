@@ -63,6 +63,26 @@ public sealed class MagikaFeatureExtractorTests
     }
 
     [Fact]
+    public void Extract_ReusesActualBeginningAsEndAfterEarlyEof()
+    {
+        var config = new MagikaModelConfig
+        {
+            BeginningSize = 4,
+            MiddleSize = 0,
+            EndSize = 4,
+            BlockSize = 4096,
+            PaddingToken = 256
+        };
+        using var stream = new ReportedLengthStream(
+            Encoding.ASCII.GetBytes("abcdefgh"),
+            reportedLength: 8192);
+
+        var features = MagikaFeatureExtractor.Extract(stream, config);
+
+        Assert.Equal(new[] { 97, 98, 99, 100, 101, 102, 103, 104 }, features);
+    }
+
+    [Fact]
     public void Predict_UsesActualBytesReadForMinimumModelEligibility()
     {
         using var classifier = new MagikaContentClassifier();

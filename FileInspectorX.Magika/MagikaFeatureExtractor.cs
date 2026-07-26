@@ -54,8 +54,17 @@ internal static class MagikaFeatureExtractor
 
         content.Seek(0, SeekOrigin.Begin);
         beginningLength = ReadExactlyAvailable(content, beginning);
-        content.Seek(Math.Max(0, length - blockLength), SeekOrigin.Begin);
-        var endingLength = ReadExactlyAvailable(content, ending);
+        int endingLength;
+        if (beginningLength < blockLength)
+        {
+            Array.Copy(beginning, ending, beginningLength);
+            endingLength = beginningLength;
+        }
+        else
+        {
+            content.Seek(Math.Max(0, length - blockLength), SeekOrigin.Begin);
+            endingLength = ReadExactlyAvailable(content, ending);
+        }
 
         return Build(
             beginning.AsSpan(0, beginningLength),

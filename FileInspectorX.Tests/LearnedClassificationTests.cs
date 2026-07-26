@@ -523,6 +523,16 @@ public sealed class LearnedClassificationTests
             "}\n");
         try
         {
+            var deterministic = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    MagicHeaderBytes = 24,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
             var result = FileInspector.Analyze(
                 path,
                 new FileInspector.DetectionOptions
@@ -537,6 +547,11 @@ public sealed class LearnedClassificationTests
                 });
 
             Assert.Equal("ps1", result.Detection!.Extension);
+            Assert.Equal("text/x-powershell", result.Detection.MimeType);
+            Assert.Equal(deterministic.Detection!.Confidence, result.Detection.Confidence);
+            Assert.Equal(deterministic.Detection.Reason, result.Detection.Reason);
+            Assert.Equal(deterministic.Detection.ReasonDetails, result.Detection.ReasonDetails);
+            Assert.Equal(deterministic.Detection.Score, result.Detection.Score);
             Assert.Equal(LearnedClassificationDisposition.Conflict, result.Detection.LearnedClassification!.Disposition);
             Assert.Equal("ps1", result.Detection.LearnedClassification.DeterministicExtension);
             Assert.Equal("deterministic-and-learned-disagree", result.Detection.LearnedClassification.Message);
@@ -547,6 +562,37 @@ public sealed class LearnedClassificationTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void Detect_BinaryLearnedPromotionDoesNotRetainGenericTextMime()
+    {
+        var prediction = new LearnedContentPrediction
+        {
+            Provider = "Test",
+            ModelId = "test-v1",
+            RawLabel = "custom_binary",
+            OutputLabel = "custom_binary",
+            Extension = "custombin",
+            Probability = 0.99,
+            Threshold = 0.5,
+            ThresholdMet = true,
+            PredictionMode = "HighConfidence",
+            IsText = false
+        };
+
+        var result = FileInspector.Detect(
+            System.Text.Encoding.UTF8.GetBytes("ordinary generic text"),
+            new FileInspector.DetectionOptions
+            {
+                LearnedClassifier = new StubClassifier(prediction),
+                LearnedClassificationMode = LearnedClassificationMode.Assist
+            });
+
+        Assert.NotNull(result);
+        Assert.Equal("custombin", result!.Extension);
+        Assert.Equal("application/octet-stream", result.MimeType);
+        Assert.Equal(LearnedClassificationDisposition.Promoted, result.LearnedClassification!.Disposition);
     }
 
     [Fact]
