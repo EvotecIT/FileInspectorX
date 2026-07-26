@@ -288,7 +288,7 @@ public static partial class FileInspector {
             if (Signatures.TryMatchDmg(fs, out var dmg)) return FinishPathOnly(dmg);
             ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? result)
                 => ApplyLearnedClassification(result, fs, options);
-            if (Signatures.TryMatchMsg(path, out var msg))
+            if (Signatures.TryMatchMsg(fs, out var msg))
                 return Finish(msg);
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
             var det = Detect(fs, deterministicOptions, extDeclared);
