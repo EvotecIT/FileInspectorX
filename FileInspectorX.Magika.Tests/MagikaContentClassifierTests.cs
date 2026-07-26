@@ -67,6 +67,18 @@ public sealed class MagikaContentClassifierTests
     }
 
     [Fact]
+    public void Predict_UsesEmptyRuleWhenShortStreamIsTruncatedBeforeReading()
+    {
+        using var classifier = new MagikaContentClassifier();
+        using var stream = new TruncatedSeekableStream(reportedLength: 8);
+
+        var prediction = classifier.Predict(stream);
+
+        Assert.Equal("undefined", prediction.RawLabel);
+        Assert.Equal("empty", prediction.OutputLabel);
+    }
+
+    [Fact]
     public void Predict_UsesModelWhenMeaningfulContentFollowsWhitespacePrefix()
     {
         var source = new string('\n', 4096) +
@@ -136,5 +148,45 @@ public sealed class MagikaContentClassifierTests
                 _inner.Dispose();
             base.Dispose(disposing);
         }
+    }
+
+    private sealed class TruncatedSeekableStream(long reportedLength) : Stream
+    {
+        private long _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => reportedLength;
+        public override long Position
+        {
+            get => _position;
+            set => _position = value;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => 0;
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            _position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => _position + offset,
+                SeekOrigin.End => reportedLength + offset,
+                _ => throw new ArgumentOutOfRangeException(nameof(origin))
+            };
+            return _position;
+        }
+
+        public override void SetLength(long value)
+            => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count)
+            => throw new NotSupportedException();
     }
 }

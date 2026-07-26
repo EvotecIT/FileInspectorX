@@ -473,6 +473,45 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
+    public void Analyze_ReconcilesLearnedPromotionWhenStrongAnalysisDerivesPowerShell()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(
+            path,
+            "ordinary preamble that keeps the detector's short read generic\n" +
+            "function RenderReport {\n" +
+            "    param($Name)\n" +
+            "    \"Report for $Name\"\n" +
+            "}\n");
+        try
+        {
+            var result = FileInspector.Analyze(
+                path,
+                new FileInspector.DetectionOptions
+                {
+                    LearnedClassifier = new StubClassifier(CreatePrediction("yaml", "yaml")),
+                    LearnedClassificationMode = LearnedClassificationMode.Assist,
+                    MagicHeaderBytes = 24,
+                    IncludeAssessment = false,
+                    IncludeAuthenticode = false,
+                    IncludePermissions = false,
+                    IncludeShellProperties = false
+                });
+
+            Assert.Equal("ps1", result.Detection!.Extension);
+            Assert.Equal(LearnedClassificationDisposition.Conflict, result.Detection.LearnedClassification!.Disposition);
+            Assert.Equal("ps1", result.Detection.LearnedClassification.DeterministicExtension);
+            Assert.Equal("deterministic-and-learned-disagree", result.Detection.LearnedClassification.Message);
+            Assert.Equal("ps1", result.Detection.Candidates![0].Extension);
+            Assert.Contains(result.Detection.Candidates, candidate => candidate.Extension == "yaml");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Analyze_LearnedTextPromotionRefreshesTextSubtype()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");

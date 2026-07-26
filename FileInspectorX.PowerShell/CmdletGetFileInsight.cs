@@ -255,7 +255,7 @@ namespace FileInspectorX.PowerShell {
                         input));
                     return Task.CompletedTask;
                 }
-                catch (Exception ex) {
+                catch (Exception ex) when (ex is not OutOfMemoryException) {
                     WriteError(new ErrorRecord(ex, "GetFileInsightFailure", ErrorCategory.NotSpecified, input));
                 }
             }

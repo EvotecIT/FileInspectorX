@@ -89,6 +89,8 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
                         break;
                     read += current;
                 }
+                if (read == 0)
+                    return CreateRulePrediction("empty", 1);
                 return CreateRulePrediction(IsValidUtf8(new ReadOnlySpan<byte>(sample, 0, read)) ? "txt" : "unknown", 1);
             }
             finally

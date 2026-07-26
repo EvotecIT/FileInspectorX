@@ -209,6 +209,7 @@ public static partial class FileInspector
         {
             disposition = LearnedClassificationDisposition.Conflict;
             message = "deterministic-and-learned-disagree";
+            AlignCandidatesAfterLearnedConflict(result, prediction, learnedExtension!);
         }
         else
         {
@@ -234,10 +235,28 @@ public static partial class FileInspector
     {
         var evidence = result.LearnedClassification;
         if (evidence?.Prediction is null ||
-            evidence.Disposition is LearnedClassificationDisposition.Promoted or
-                LearnedClassificationDisposition.Failed)
+            evidence.Disposition == LearnedClassificationDisposition.Failed)
         {
             return result;
+        }
+
+        if (evidence.Disposition == LearnedClassificationDisposition.Promoted)
+        {
+            var learnedExtension = NormalizeExtension(evidence.Prediction.Extension);
+            var learnedExtensions = GetLearnedAgreementExtensions(evidence.Prediction, learnedExtension);
+            if (learnedExtensions.Any(extension =>
+                    ExtensionsEquivalent(result.Extension, extension)))
+            {
+                return result;
+            }
+
+            var analyzedCandidates = result.Candidates;
+            var analyzedAlternatives = result.Alternatives;
+            AlignCandidatesAfterLearnedPromotion(
+                result,
+                CreateCandidate(result),
+                analyzedCandidates,
+                analyzedAlternatives);
         }
 
         result.LearnedClassification = null;
@@ -323,6 +342,46 @@ public static partial class FileInspector
             IsDangerous = result.IsDangerous
         };
 
+    private static void AlignCandidatesAfterLearnedConflict(
+        ContentTypeDetectionResult result,
+        LearnedContentPrediction prediction,
+        string learnedExtension)
+    {
+        var candidates = new List<ContentTypeDetectionCandidate>
+        {
+            CreateCandidate(result)
+        };
+
+        void AddCandidate(ContentTypeDetectionCandidate candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.Extension))
+                return;
+            if (candidates.Any(existing => ExtensionsEquivalent(existing.Extension, candidate.Extension)))
+                return;
+            candidates.Add(candidate);
+        }
+
+        if (result.Candidates != null)
+        {
+            foreach (var candidate in result.Candidates)
+                AddCandidate(candidate);
+        }
+
+        AddCandidate(new ContentTypeDetectionCandidate
+        {
+            Extension = learnedExtension,
+            MimeType = ResolveLearnedMimeType(prediction.MimeType, learnedExtension, null),
+            Confidence = LearnedConfidence(prediction.Probability),
+            Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel,
+            ReasonDetails = "model:" + prediction.ModelId,
+            Score = 0,
+            IsDangerous = DangerousExtensions.IsDangerous(learnedExtension)
+        });
+
+        result.Candidates = candidates;
+        result.Alternatives = candidates.Skip(1).ToArray();
+    }
+
     private static void RefreshDerivedAnalysisAfterLearnedPromotion(
         FileAnalysis analysis,
         string path,
@@ -367,6 +426,8 @@ public static partial class FileInspector
 
         foreach (var candidate in GetStrongAlternatives(result, primaryExtension))
         {
+            if (candidate.Reason?.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) == true)
+                continue;
             var candidateExtension = NormalizeExtension(candidate.Extension);
             if (learnedExtensions.Any(extension => ExtensionsEquivalent(candidateExtension, extension)))
                 return candidateExtension;
