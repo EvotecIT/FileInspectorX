@@ -63,6 +63,10 @@ Build-Module -ModuleName 'FileInspectorX' {
 
     New-ConfigurationImportModule -ImportSelf -ImportRequiredModules
 
+    New-ConfigurationInformation `
+        -IncludeRoot '*.psm1', '*.psd1', '*.Libraries.ps1', 'License*', 'THIRD-PARTY-NOTICES.md' `
+        -IncludeAll 'Images', 'Resources', 'Templates', 'Bin', 'Lib', 'en-US', 'THIRD-PARTY-LICENSES'
+
     $newConfigurationBuildSplat = @{
         Enable                            = $true
         SignModule                        = $true
@@ -76,6 +80,7 @@ Build-Module -ModuleName 'FileInspectorX' {
         NETBinaryModule                   = 'FileInspectorX.PowerShell.dll'
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
+        NETHandleRuntimes                 = $true
         DotSourceLibraries                = $true
         NETSearchClass                    = 'FileInspectorX.PowerShell.CmdletGetFileInsight'
         NETBinaryModuleDocumentation      = $true
