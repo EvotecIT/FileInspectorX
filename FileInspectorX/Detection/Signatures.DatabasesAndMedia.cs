@@ -260,6 +260,14 @@ internal static partial class Signatures {
             result = new ContentTypeDetectionResult { Extension = "heic", MimeType = "image/heic", Confidence = "High", Reason = "ftyp:heif" };
             return true;
         }
+        if (HasBrand(brand, comp, "mif1"u8) || HasBrand(brand, comp, "mif2"u8) || HasBrand(brand, comp, "msf1"u8)) {
+            result = new ContentTypeDetectionResult { Extension = "heif", MimeType = "image/heif", Confidence = "High", Reason = "ftyp:heif-generic" };
+            return true;
+        }
+        if (brand.SequenceEqual("heif"u8)) {
+            result = new ContentTypeDetectionResult { Extension = "heif", MimeType = "image/heif", Confidence = "Medium", Reason = "ftyp:heif-legacy-brand" };
+            return true;
+        }
         if (HasBrand(brand, comp, "qt  "u8)) {
             result = new ContentTypeDetectionResult { Extension = "mov", MimeType = "video/quicktime", Confidence = "High", Reason = "ftyp:quicktime" };
             return true;

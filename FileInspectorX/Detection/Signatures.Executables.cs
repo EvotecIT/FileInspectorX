@@ -137,8 +137,15 @@ internal static partial class Signatures {
         uint fileSize = ReadUInt32(src, 32, fieldsAreLittleEndian);
         uint headerSize = ReadUInt32(src, 36, fieldsAreLittleEndian);
         uint expectedHeaderSize = version >= 41 ? 0x78u : 0x70u;
-        if (headerSize != expectedHeaderSize || fileSize < headerSize ||
-            (completeLength.HasValue && fileSize != completeLength.Value) || src.Length < headerSize) return false;
+        if (headerSize != expectedHeaderSize || fileSize < headerSize || src.Length < headerSize) return false;
+        if (version == 41) {
+            uint containerSize = ReadUInt32(src, 112, fieldsAreLittleEndian);
+            uint headerOffset = ReadUInt32(src, 116, fieldsAreLittleEndian);
+            if (headerOffset != 0 || containerSize < headerSize || fileSize > containerSize ||
+                (fileSize < containerSize && (fileSize & 3) != 0) ||
+                (completeLength.HasValue && containerSize != completeLength.Value)) return false;
+        }
+        else if (completeLength.HasValue && fileSize != completeLength.Value) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "dex",

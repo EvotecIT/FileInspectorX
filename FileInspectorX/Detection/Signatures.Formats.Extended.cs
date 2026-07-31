@@ -230,7 +230,9 @@ internal static partial class Signatures
         }
         if (docType is not ("matroska" or "webm")) return false;
         if (src.Length < headerEnd + 4 || !src.Slice(headerEnd, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 })) return false;
-        result = BinaryResult(docType == "webm" ? "webm" : "mkv", docType == "webm" ? "video/webm" : "video/x-matroska", "ebml:doctype=" + docType);
+        result = docType == "webm"
+            ? BinaryResult("webm", "application/webm", "ebml:doctype=webm")
+            : BinaryResult("matroska", "application/x-matroska", "ebml:doctype=matroska");
         return true;
     }
 

@@ -33,7 +33,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("qoi", Qoi(), 12);
         yield return Sample("dcm", Dicom(), 136);
         yield return Sample("pst", Pst(), 8);
-        yield return Sample("mkv", Matroska(), 6);
+        yield return Sample("matroska", Matroska(), 6);
         yield return Sample("parquet", Parquet(), 12);
         yield return Sample("arrow", Arrow(), 25);
         yield return Sample("deb", Deb(), 80);

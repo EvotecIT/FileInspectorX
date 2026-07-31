@@ -63,20 +63,29 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchZip(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchZip(src, src.Length, out result);
+
+    internal static bool TryMatchZip(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         int localOffset = src.Length >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
         if (src.Length >= localOffset + 30 &&
-            TryValidateZipLocalHeader(src.Slice(localOffset, 30), src.Length - localOffset))
+            TryValidateZipLocalHeader(src.Slice(localOffset, 30), completeLength.HasValue ? completeLength.Value - localOffset : null,
+                src.Length - localOffset, out bool sampledHeader))
         {
-            result = BinaryResult("zip", "application/zip",
-                localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header");
+            string reason = localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header";
+            result = new ContentTypeDetectionResult {
+                Extension = "zip",
+                MimeType = "application/zip",
+                Confidence = sampledHeader ? "Medium" : "High",
+                Reason = sampledHeader ? reason + ";sampled-variable-header" : reason
+            };
             return true;
         }
 
         if (localOffset != 0) return false;
 
-        if (src.Length < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
+        if (!completeLength.HasValue || src.Length < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
         ushort disk = ReadUInt16LittleEndian(src, 4);
         ushort centralDisk = ReadUInt16LittleEndian(src, 6);
         ushort entriesOnDisk = ReadUInt16LittleEndian(src, 8);
@@ -86,7 +95,7 @@ internal static partial class Signatures
         ushort commentLength = ReadUInt16LittleEndian(src, 20);
         if (disk != 0 || centralDisk != 0 || entriesOnDisk != entriesTotal ||
             (entriesTotal == 0) != (centralSize == 0 && centralOffset == 0) ||
-            22L + commentLength != src.Length) return false;
+            22L + commentLength != completeLength.Value) return false;
         result = BinaryResult("zip", "application/zip", "zip:end-of-central-directory");
         return true;
     }
@@ -105,7 +114,7 @@ internal static partial class Signatures
             var src = new ReadOnlySpan<byte>(header, 0, read);
             int localOffset = read >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
             if (read >= localOffset + 30 &&
-                TryValidateZipLocalHeader(src.Slice(localOffset, 30), stream.Length - localOffset))
+                TryValidateZipLocalHeader(src.Slice(localOffset, 30), stream.Length - localOffset, read - localOffset, out _))
             {
                 result = BinaryResult("zip", "application/zip",
                     localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header");
@@ -162,15 +171,22 @@ internal static partial class Signatures
                      93 or 94 or 95 or 96 or 97 or 98 or 99;
 
     private static bool TryValidateZipLocalHeader(ReadOnlySpan<byte> header, long availableLength)
+        => TryValidateZipLocalHeader(header, availableLength, header.Length, out _);
+
+    private static bool TryValidateZipLocalHeader(ReadOnlySpan<byte> header, long? availableLength, long sampledLength, out bool sampledHeader)
     {
+        sampledHeader = false;
         if (header.Length < 30 || ReadUInt32LittleEndian(header, 0) != 0x04034B50) return false;
         ushort versionNeeded = ReadUInt16LittleEndian(header, 4);
         ushort flags = ReadUInt16LittleEndian(header, 6);
         ushort method = ReadUInt16LittleEndian(header, 8);
         ushort nameLength = ReadUInt16LittleEndian(header, 26);
         ushort extraLength = ReadUInt16LittleEndian(header, 28);
-        return versionNeeded is >= 10 and <= 100 && (flags & 0xC000) == 0 && IsKnownZipMethod(method) &&
-               nameLength > 0 && 30L + nameLength + extraLength <= availableLength;
+        if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) || nameLength == 0) return false;
+        long requiredLength = 30L + nameLength + extraLength;
+        if (availableLength.HasValue) return requiredLength <= availableLength.Value;
+        sampledHeader = requiredLength > sampledLength;
+        return true;
     }
 
     private static int ReadHeaderBytes(Stream stream, byte[] buffer)

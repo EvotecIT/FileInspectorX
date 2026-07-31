@@ -150,7 +150,7 @@ public sealed class FormatCompatibilityRegressionTests
         bytes[19] = 0xEC;
         new byte[] { 0x18, 0x53, 0x80, 0x67 }.CopyTo(bytes, 4096);
 
-        AssertParity(bytes, "mkv", "High");
+        AssertParity(bytes, "matroska", "High");
     }
 
     private static ContentTypeDetectionResult AssertParity(byte[] bytes, string extension, string confidence)

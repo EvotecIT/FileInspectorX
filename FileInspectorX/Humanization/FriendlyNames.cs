@@ -133,6 +133,8 @@ public static class FriendlyNames
             case "pcapng": return "Packet capture (PCAPNG)";
             case "wasm": return "WebAssembly module";
             case "heic": return "HEIC image";
+            case "heif": return "HEIF image";
+            case "matroska": return "Matroska container";
             case "flac": return "FLAC audio";
             case "wav": return "WAV audio";
             case "mp3": return "MP3 audio";

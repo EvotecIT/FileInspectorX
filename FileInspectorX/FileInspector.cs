@@ -99,6 +99,11 @@ public static partial class FileInspector {
             // HDF5 commonly uses either .h5 or .hdf5.
             if ((a.Equals("h5", StringComparison.OrdinalIgnoreCase) && b.Equals("hdf5", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("hdf5", StringComparison.OrdinalIgnoreCase) && b.Equals("h5", StringComparison.OrdinalIgnoreCase))) return true;
+            // Standard MIDI files commonly use either .mid or .midi.
+            if ((a.Equals("mid", StringComparison.OrdinalIgnoreCase) && b.Equals("midi", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("midi", StringComparison.OrdinalIgnoreCase) && b.Equals("mid", StringComparison.OrdinalIgnoreCase))) return true;
+            // Matroska's document type identifies the container, not its track composition.
+            if (IsMatroskaExtension(a) && IsMatroskaExtension(b)) return true;
             // .htm <-> .html
             if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
@@ -137,6 +142,13 @@ public static partial class FileInspector {
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
             return false;
         }
+
+        static bool IsMatroskaExtension(string ext)
+            => ext.Equals("matroska", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mkv", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mka", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mks", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mk3d", StringComparison.OrdinalIgnoreCase);
 
         if (!string.IsNullOrEmpty(detGuess) &&
             !Equivalent(decl, det) &&
@@ -463,7 +475,9 @@ public static partial class FileInspector {
         var read = ReadAvailable(stream, header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
-        long? completeLength = stream.CanSeek ? stream.Length : null;
+        // A short non-seekable read reached EOF and therefore has a known complete length.
+        // Filling the sample buffer proves only the prefix length, not the whole-file length.
+        long? completeLength = stream.CanSeek ? stream.Length : read < header.Length ? read : null;
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
             => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
@@ -471,9 +485,13 @@ public static partial class FileInspector {
         // Establish the container identity before interpreting bytes inside that user block.
         if (preDetectedHdf5 != null) return Finish(Enrich(preDetectedHdf5, src, stream, options));
         if (!hdfProbeComplete) {
-            if (Signatures.TryMatchHdf5(src, out var hdf5)) return Finish(Enrich(hdf5, src, stream, options));
-            if (stream.CanSeek && Signatures.TryMatchHdf5(stream, read, out var offsetHdf5))
-                return Finish(Enrich(offsetHdf5, src, stream, options));
+            if (stream.CanSeek) {
+                if (Signatures.TryMatchHdf5(stream, 0, out var seekableHdf5))
+                    return Finish(Enrich(seekableHdf5, src, stream, options));
+            }
+            else if (Signatures.TryMatchHdf5(src, out var sampledHdf5)) {
+                return Finish(Enrich(sampledHdf5, src, stream, options));
+            }
         }
 
         if (stream.CanSeek && Signatures.TryMatchSeekableContainers(stream, out var seekableContainer))
@@ -483,7 +501,7 @@ public static partial class FileInspector {
         if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchCrx(stream, out var seekableCrx)) return Finish(Enrich(seekableCrx, src, stream, options));
         if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
-        if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, out validatedZip))) {
+        if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, completeLength, out validatedZip))) {
             var refined = TryRefineZipOOxml(stream);
             if (refined != null) return Finish(Enrich(refined, src, stream, options));
             var guess = TryGuessZipSubtype(stream, out var guessMime);
