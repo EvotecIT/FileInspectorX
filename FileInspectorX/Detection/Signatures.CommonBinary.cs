@@ -372,6 +372,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPcapNg(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchPcapNg(src, src.Length, out result);
+
+    internal static bool TryMatchPcapNg(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 28 || ReadUInt32BigEndian(src, 0) != 0x0A0D0D0A) return false;
@@ -383,7 +386,19 @@ internal static partial class Signatures
         uint blockLength = ReadUInt32(src, 4, littleEndian);
         ushort major = ReadUInt16(src, 12, littleEndian);
         ushort minor = ReadUInt16(src, 14, littleEndian);
-        if (blockLength < 28 || (blockLength & 3) != 0 || blockLength > src.Length || major != 1 || minor != 0) return false;
+        if (blockLength < 28 || (blockLength & 3) != 0 || major != 1 || minor != 0 ||
+            (completeLength.HasValue && blockLength > completeLength.Value)) return false;
+        if (blockLength > src.Length)
+        {
+            if (completeLength.HasValue) return false;
+            result = new ContentTypeDetectionResult {
+                Extension = "pcapng",
+                MimeType = "application/x-pcapng",
+                Confidence = "Medium",
+                Reason = "pcapng:section-header;sampled-block"
+            };
+            return true;
+        }
         if (ReadUInt32(src, checked((int)blockLength - 4), littleEndian) != blockLength) return false;
         result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
         return true;
@@ -496,18 +511,62 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchIcon(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchIcon(src, src.Length, out result);
+
+    internal static bool TryMatchIcon(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 22 || ReadUInt16LittleEndian(src, 0) != 0) return false;
         ushort type = ReadUInt16LittleEndian(src, 2);
         ushort count = ReadUInt16LittleEndian(src, 4);
-        if (type is not (1 or 2) || count is < 1 or > 1024 || 6L + count * 16L > src.Length) return false;
-        uint firstSize = ReadUInt32LittleEndian(src, 14);
-        uint firstOffset = ReadUInt32LittleEndian(src, 18);
-        if (firstSize == 0 || firstOffset < 6 + count * 16u) return false;
+        long directoryEnd = 6L + count * 16L;
+        if (type is not (1 or 2) || count is < 1 or > 1024 ||
+            (completeLength.HasValue && (directoryEnd > completeLength.Value || directoryEnd > src.Length))) return false;
+        int availableEntries = Math.Min(count, Math.Max(0, src.Length - 6) / 16);
+        if (availableEntries == 0 || (completeLength.HasValue && availableEntries != count)) return false;
+        for (int index = 0; index < availableEntries; index++)
+        {
+            int entryOffset = 6 + index * 16;
+            uint imageSize = ReadUInt32LittleEndian(src, entryOffset + 8);
+            uint imageOffset = ReadUInt32LittleEndian(src, entryOffset + 12);
+            if (imageSize == 0 || imageOffset < directoryEnd ||
+                (completeLength.HasValue && ((ulong)imageOffset + imageSize > (ulong)completeLength.Value))) return false;
+        }
         string extension = type == 1 ? "ico" : "cur";
-        result = BinaryResult(extension, type == 1 ? "image/x-icon" : "image/x-win-bitmap", $"icon-directory:{extension}");
+        result = new ContentTypeDetectionResult {
+            Extension = extension,
+            MimeType = type == 1 ? "image/x-icon" : "image/x-win-bitmap",
+            Confidence = completeLength.HasValue ? "High" : "Medium",
+            Reason = completeLength.HasValue ? $"icon-directory:{extension}" : $"icon-directory:{extension};sampled-length-unknown"
+        };
         return true;
+    }
+
+    internal static bool TryMatchIcon(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 22 || !TryReadAt(stream, 0, 6, out var headerBytes)) return false;
+            var header = new ReadOnlySpan<byte>(headerBytes);
+            if (ReadUInt16LittleEndian(header, 0) != 0) return false;
+            ushort count = ReadUInt16LittleEndian(header, 4);
+            if (count is < 1 or > 1024) return false;
+            int directoryLength = checked(6 + count * 16);
+            return TryReadAt(stream, 0, directoryLength, out var directoryBytes) &&
+                   TryMatchIcon(new ReadOnlySpan<byte>(directoryBytes), stream.Length, out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     private static ContentTypeDetectionResult BinaryResult(string extension, string mimeType, string reason)

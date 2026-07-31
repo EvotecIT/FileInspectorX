@@ -129,6 +129,7 @@ public static class FriendlyNames
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
             case "parquet": return "Apache Parquet data file";
+            case "ndb": return "Outlook data store (PST/OST)";
             case "pcap": return "Packet capture (PCAP)";
             case "pcapng": return "Packet capture (PCAPNG)";
             case "wasm": return "WebAssembly module";

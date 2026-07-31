@@ -104,6 +104,8 @@ public static partial class FileInspector {
                 (a.Equals("midi", StringComparison.OrdinalIgnoreCase) && b.Equals("mid", StringComparison.OrdinalIgnoreCase))) return true;
             // Matroska's document type identifies the container, not its track composition.
             if (IsMatroskaExtension(a) && IsMatroskaExtension(b)) return true;
+            // The shared Outlook NDB header does not distinguish personal and offline stores.
+            if (IsOutlookDataExtension(a) && IsOutlookDataExtension(b)) return true;
             // .htm <-> .html
             if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
@@ -149,6 +151,11 @@ public static partial class FileInspector {
                ext.Equals("mka", StringComparison.OrdinalIgnoreCase) ||
                ext.Equals("mks", StringComparison.OrdinalIgnoreCase) ||
                ext.Equals("mk3d", StringComparison.OrdinalIgnoreCase);
+
+        static bool IsOutlookDataExtension(string ext)
+            => ext.Equals("ndb", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("pst", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("ost", StringComparison.OrdinalIgnoreCase);
 
         if (!string.IsNullOrEmpty(detGuess) &&
             !Equivalent(decl, det) &&
@@ -496,10 +503,15 @@ public static partial class FileInspector {
 
         if (stream.CanSeek && Signatures.TryMatchSeekableContainers(stream, out var seekableContainer))
             return Finish(Enrich(seekableContainer, src, stream, options));
+        if (!stream.CanSeek && completeLength.HasValue && Signatures.TryMatchCompleteContainers(src, out var completeContainer))
+            return Finish(Enrich(completeContainer, src, stream, options));
 
         if (stream.CanSeek && Signatures.TryMatchPe(stream, out var seekablePe)) return Finish(Enrich(seekablePe, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
+        if (!stream.CanSeek && Signatures.TryMatchPcapNg(src, completeLength, out var sampledPcapNg)) return Finish(Enrich(sampledPcapNg, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchCrx(stream, out var seekableCrx)) return Finish(Enrich(seekableCrx, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchIcon(stream, out var validatedIcon) : Signatures.TryMatchIcon(src, completeLength, out validatedIcon)))
+            return Finish(Enrich(validatedIcon, src, stream, options));
         if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, completeLength, out validatedZip))) {
             var refined = TryRefineZipOOxml(stream);

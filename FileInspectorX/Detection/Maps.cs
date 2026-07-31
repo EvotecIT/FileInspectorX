@@ -93,6 +93,8 @@ public static class MimeMaps {
         ["qoi"] = "image/qoi",
         ["dcm"] = "application/dicom",
         ["pst"] = "application/vnd.ms-outlook",
+        ["ost"] = "application/vnd.ms-outlook",
+        ["ndb"] = "application/vnd.ms-outlook",
         ["mkv"] = "video/x-matroska",
         ["mka"] = "audio/x-matroska",
         ["mks"] = "application/x-matroska",

@@ -32,7 +32,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("dds", Dds(), 4);
         yield return Sample("qoi", Qoi(), 12);
         yield return Sample("dcm", Dicom(), 136);
-        yield return Sample("pst", Pst(), 8);
+        yield return Sample("ndb", OutlookNdb(), 8);
         yield return Sample("matroska", Matroska(), 6);
         yield return Sample("parquet", Parquet(), 12);
         yield return Sample("arrow", Arrow(), 25);
@@ -227,7 +227,7 @@ public sealed class ValidatedFormatDetectionTests
             ["parquet"] = ContentKind.StructuredData,
             ["arrow"] = ContentKind.StructuredData,
             ["dcm"] = ContentKind.Medical,
-            ["pst"] = ContentKind.Database
+            ["ndb"] = ContentKind.Database
         };
 
         foreach (var sample in ValidSamples())
@@ -464,7 +464,7 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] Pst()
+    private static byte[] OutlookNdb()
     {
         var bytes = new byte[24];
         Encoding.ASCII.GetBytes("!BDN").CopyTo(bytes, 0);

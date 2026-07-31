@@ -29,7 +29,7 @@ internal static partial class Signatures {
         ushort sectionEntrySize = ReadUInt16(src, sectionEntrySizeOffset, littleEndian);
         ushort sectionCount = ReadUInt16(src, sectionCountOffset, littleEndian);
         bool knownType = etype <= 4 || etype is >= 0xFE00 and <= 0xFEFF || etype >= 0xFF00;
-        if (!knownType || emach == 0 || version != 1 || declaredHeaderSize != headerSize) return false;
+        if (!knownType || version != 1 || declaredHeaderSize != headerSize) return false;
         if (programCount > 0 && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
         if (sectionCount > 0 && sectionEntrySize != (clazz == 1 ? 40 : 64)) return false;
 
@@ -38,7 +38,7 @@ internal static partial class Signatures {
         string et = etype == 0 ? "none" : etype == 1 ? "rel" : etype == 2 ? "exec" : etype == 3 ? "dyn" :
             etype == 4 ? "core" : etype <= 0xFEFF ? "os-specific" : "processor-specific";
         string mach = emach switch {
-            3 => "x86", 62 => "x86_64", 40 => "arm", 183 => "aarch64", 8 => "mips", 50 => "ia64", 243 => "riscv", _ => emach.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            0 => "unspecified", 3 => "x86", 62 => "x86_64", 40 => "arm", 183 => "aarch64", 8 => "mips", 50 => "ia64", 243 => "riscv", _ => emach.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
         var r = $"elf:{c}-{e}" + (et == "" ? "" : $":{et}") + (mach == "" ? "" : $":{mach}");
         result = new ContentTypeDetectionResult { Extension = "elf", MimeType = "application/x-elf", Confidence = "High", Reason = r };

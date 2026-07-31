@@ -16,7 +16,7 @@ internal static partial class Signatures
         if (TryMatchDds(src, out result)) return true;
         if (TryMatchQoi(src, out result)) return true;
         if (TryMatchDicom(src, out result)) return true;
-        if (TryMatchPst(src, out result)) return true;
+        if (TryMatchOutlookNdb(src, out result)) return true;
         if (TryMatchMatroska(src, out result)) return true;
         result = null;
         return false;
@@ -197,7 +197,7 @@ internal static partial class Signatures
         return true;
     }
 
-    internal static bool TryMatchPst(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    internal static bool TryMatchOutlookNdb(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 24 || !src.Slice(0, 4).SequenceEqual("!BDN"u8) || !src.Slice(8, 2).SequenceEqual("SM"u8)) return false;
@@ -205,7 +205,7 @@ internal static partial class Signatures
         ushort clientVersion = ReadUInt16LittleEndian(src, 12);
         if (version is not (14 or 15) && version is not (>= 23 and <= 50)) return false;
         if (clientVersion == 0 || src[14] != 1 || src[15] != 1) return false;
-        result = BinaryResult("pst", "application/vnd.ms-outlook", version < 23 ? "pst:ansi" : "pst:unicode");
+        result = BinaryResult("ndb", "application/vnd.ms-outlook", version < 23 ? "outlook-ndb:ansi" : "outlook-ndb:unicode");
         return true;
     }
 

@@ -68,7 +68,7 @@ public static class KindClassifier {
         if (ext is "elf" or "exe" or "dll" or "macho" or "class" or "dex" or "lnk" or "wasm") return ContentKind.Executable;
         if (ext is "docx" or "xlsx" or "pptx" or "pdf" or "rtf" or "eml") return ContentKind.Document;
         if (ext is "gltf" or "glb") return ContentKind.Model;
-        if (ext is "sqlite" or "edb" or "accdb" or "mdb" or "pst" or "hive") return ContentKind.Database;
+        if (ext is "sqlite" or "edb" or "accdb" or "mdb" or "pst" or "ost" or "ndb" or "hive") return ContentKind.Database;
         return ContentKind.Unknown;
     }
 }
