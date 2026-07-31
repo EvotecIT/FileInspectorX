@@ -57,8 +57,8 @@ public static class KindClassifier {
         if (mime.StartsWith("image/") || InspectHelpers.IsImage(r)) return ContentKind.Image;
         if (mime.StartsWith("audio/")) return ContentKind.Audio;
         if (mime.StartsWith("video/")) return ContentKind.Video;
-        if (ext is "rpm" or "deb" or "crx" or "apk" or "jar" or "ipa" or "vsix" or "appx" or "msix" or "xap" ||
-            guessed is "apk" or "jar" or "ipa" or "vsix" or "appx" or "msix" or "xap") return ContentKind.Package;
+        if (ext is "rpm" or "deb" or "crx" or "apk" or "jar" or "ipa" or "vsix" or "appx" or "msix" or "xap" or "nupkg" ||
+            guessed is "apk" or "jar" or "ipa" or "vsix" or "appx" or "msix" or "xap" or "nupkg") return ContentKind.Package;
         if (ext is "qcow2" or "vhd" or "vhdx" or "dmg" or "iso" or "udf") return ContentKind.DiskImage;
         if (ext is "pcap" or "pcapng" or "etl" or "dmp" or "mdmp") return ContentKind.Capture;
         if (ext is "ttf" or "otf" or "woff" or "woff2" or "ttc" or "otc") return ContentKind.Font;

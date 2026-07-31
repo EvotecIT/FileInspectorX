@@ -212,11 +212,20 @@ internal static partial class Signatures
     internal static bool TryMatchMatroska(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length < 16 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0x1A, 0x45, 0xDF, 0xA3 })) return false;
+        if (!TryReadMatroskaDocumentType(src, out string? docType, out int headerEnd) ||
+            !TryFindMatroskaSegment(src, headerEnd)) return false;
+        result = MatroskaResult(docType!);
+        return true;
+    }
+
+    private static bool TryReadMatroskaDocumentType(ReadOnlySpan<byte> src, out string? docType, out int headerEnd)
+    {
+        docType = null;
+        headerEnd = 0;
+        if (src.Length < 12 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0x1A, 0x45, 0xDF, 0xA3 })) return false;
         int cursor = 4;
         if (!TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong headerLength) || headerLength > 4096 || headerLength > (ulong)(src.Length - cursor)) return false;
-        int headerEnd = cursor + (int)headerLength;
-        string? docType = null;
+        headerEnd = cursor + (int)headerLength;
         while (cursor < headerEnd)
         {
             if (!TryReadEbmlVInt(src.Slice(0, headerEnd), ref cursor, stripMarker: false, out ulong id)) return false;
@@ -228,13 +237,25 @@ internal static partial class Signatures
             }
             cursor += (int)length;
         }
-        if (docType is not ("matroska" or "webm")) return false;
-        if (src.Length < headerEnd + 4 || !src.Slice(headerEnd, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 })) return false;
-        result = docType == "webm"
+        return docType is "matroska" or "webm";
+    }
+
+    private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor)
+    {
+        while (cursor < src.Length)
+        {
+            if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 })) return true;
+            if (!TryReadEbmlVInt(src, ref cursor, stripMarker: false, out ulong id) || id != 0xEC ||
+                !TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong length) || length > (ulong)(src.Length - cursor)) return false;
+            cursor += (int)length;
+        }
+        return false;
+    }
+
+    private static ContentTypeDetectionResult MatroskaResult(string docType)
+        => docType == "webm"
             ? BinaryResult("webm", "application/webm", "ebml:doctype=webm")
             : BinaryResult("matroska", "application/x-matroska", "ebml:doctype=matroska");
-        return true;
-    }
 
     internal static bool TryMatchMatroska(Stream stream, out ContentTypeDetectionResult? result)
     {
@@ -244,11 +265,28 @@ internal static partial class Signatures
         try
         {
             if (stream.Length < 16) return false;
-            int readLength = (int)Math.Min(stream.Length, 4L + 8L + 4096L + 4L);
+            int readLength = (int)Math.Min(stream.Length, 4L + 8L + 4096L);
             stream.Seek(0, SeekOrigin.Begin);
             var bytes = new byte[readLength];
             int read = ReadHeaderBytes(stream, bytes);
-            return TryMatchMatroska(new ReadOnlySpan<byte>(bytes, 0, read), out result);
+            if (!TryReadMatroskaDocumentType(new ReadOnlySpan<byte>(bytes, 0, read), out string? docType, out int headerEnd)) return false;
+            long cursor = headerEnd;
+            while (cursor < stream.Length)
+            {
+                if (stream.Length - cursor >= 4 && TryReadAt(stream, cursor, 4, out var idBytes) &&
+                    new ReadOnlySpan<byte>(idBytes).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
+                {
+                    result = MatroskaResult(docType!);
+                    return true;
+                }
+                if (!TryReadAt(stream, cursor, 1, out var voidId) || voidId[0] != 0xEC) return false;
+                stream.Seek(cursor + 1, SeekOrigin.Begin);
+                if (!TryReadEbmlVInt(stream, out ulong voidLength)) return false;
+                long payloadOffset = stream.Position;
+                if (voidLength > (ulong)(stream.Length - payloadOffset)) return false;
+                cursor = payloadOffset + (long)voidLength;
+            }
+            return false;
         }
         catch
         {
@@ -279,5 +317,26 @@ internal static partial class Signatures
             if (value == unknown) return false;
         }
         return true;
+    }
+
+    private static bool TryReadEbmlVInt(Stream stream, out ulong value)
+    {
+        value = 0;
+        int firstValue = stream.ReadByte();
+        if (firstValue < 0) return false;
+        byte first = (byte)firstValue;
+        int length = 1;
+        byte marker = 0x80;
+        while (length <= 8 && (first & marker) == 0) { marker >>= 1; length++; }
+        if (length > 8) return false;
+        value = (ulong)(first & (marker - 1));
+        for (int index = 1; index < length; index++)
+        {
+            int current = stream.ReadByte();
+            if (current < 0) return false;
+            value = (value << 8) | (byte)current;
+        }
+        ulong unknown = length == 8 ? 0x00FFFFFFFFFFFFFFUL : (1UL << (7 * length)) - 1;
+        return value != unknown;
     }
 }

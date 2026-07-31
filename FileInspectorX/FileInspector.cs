@@ -477,14 +477,22 @@ public static partial class FileInspector {
             return AttachLearnedFailure(deterministic, unsupported);
         }
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
-        var header = new byte[headLen];
+        // Keep one byte for an EOF probe when a non-seekable stream exactly fills the sample.
+        var header = new byte[headLen + 1];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
-        var read = ReadAvailable(stream, header, 0, header.Length);
+        var read = ReadAvailable(stream, header, 0, headLen);
+        bool nonSeekableEof = !stream.CanSeek && read < headLen;
+        if (!stream.CanSeek && read == headLen)
+        {
+            int probe = stream.ReadByte();
+            if (probe < 0) nonSeekableEof = true;
+            else header[read++] = (byte)probe;
+        }
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
         // A short non-seekable read reached EOF and therefore has a known complete length.
         // Filling the sample buffer proves only the prefix length, not the whole-file length.
-        long? completeLength = stream.CanSeek ? stream.Length : read < header.Length ? read : null;
+        long? completeLength = stream.CanSeek ? stream.Length : nonSeekableEof ? read : null;
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
             => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
@@ -496,7 +504,7 @@ public static partial class FileInspector {
                 if (Signatures.TryMatchHdf5(stream, 0, out var seekableHdf5))
                     return Finish(Enrich(seekableHdf5, src, stream, options));
             }
-            else if (Signatures.TryMatchHdf5(src, out var sampledHdf5)) {
+            else if (Signatures.TryMatchHdf5(src, completeLength, out var sampledHdf5)) {
                 return Finish(Enrich(sampledHdf5, src, stream, options));
             }
         }

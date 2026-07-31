@@ -6,12 +6,15 @@ namespace FileInspectorX;
 internal static partial class Signatures {
     private static readonly byte[] Hdf5Signature = { 0x89, (byte)'H', (byte)'D', (byte)'F', 0x0D, 0x0A, 0x1A, 0x0A };
 
-    internal static bool TryMatchHdf5(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchHdf5(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchHdf5(src, src.Length, out result);
+
+    internal static bool TryMatchHdf5(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         for (long offset = 0; offset <= src.Length - Hdf5Signature.Length; offset = NextHdf5Offset(offset)) {
             if (MatchesHdf5Signature(src, (int)offset) &&
-                TryValidateHdf5Superblock(src.Slice((int)offset), offset, src.Length)) {
-                result = Hdf5Result(offset);
+                TryValidateHdf5Superblock(src.Slice((int)offset), offset, completeLength)) {
+                result = Hdf5Result(offset, completeLength.HasValue);
                 return true;
             }
             if (offset > int.MaxValue / 2) break;
@@ -344,7 +347,7 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool TryValidateHdf5Superblock(ReadOnlySpan<byte> src, long signatureOffset, long fileLength) {
+    private static bool TryValidateHdf5Superblock(ReadOnlySpan<byte> src, long signatureOffset, long? fileLength) {
         if (src.Length < 12) return false;
         byte version = src[8];
         if (version is 0 or 1) {
@@ -365,7 +368,8 @@ internal static partial class Signatures {
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong driverAddress, out bool driverUndefined)) return false;
             if (baseUndefined || eofUndefined || baseAddress != (ulong)signatureOffset ||
                 !TryAddHdfRelativeAddress(baseAddress, eofAddress, out ulong absoluteEof) ||
-                absoluteEof <= (ulong)(signatureOffset + cursor) || absoluteEof > (ulong)fileLength ||
+                absoluteEof <= (ulong)(signatureOffset + cursor) ||
+                (fileLength.HasValue && absoluteEof > (ulong)fileLength.Value) ||
                 (!freeUndefined && (!TryAddHdfRelativeAddress(baseAddress, freeAddress, out ulong absoluteFree) || absoluteFree >= absoluteEof)) ||
                 (!driverUndefined && (!TryAddHdfRelativeAddress(baseAddress, driverAddress, out ulong absoluteDriver) || absoluteDriver >= absoluteEof))) return false;
             if (!TryReadHdfAddress(src, ref cursor, offsetSize, out _, out bool linkNameUndefined) ||
@@ -394,7 +398,8 @@ internal static partial class Signatures {
         if (expectedChecksum != ComputeHdf5SuperblockChecksum(src.Slice(0, modernCursor)) ||
             modernBaseUndefined || modernEofUndefined || rootUndefined || modernBase != (ulong)signatureOffset ||
             !TryAddHdfRelativeAddress(modernBase, modernEof, out ulong absoluteModernEof) ||
-            absoluteModernEof <= (ulong)(signatureOffset + modernCursor + 4) || absoluteModernEof > (ulong)fileLength ||
+            absoluteModernEof <= (ulong)(signatureOffset + modernCursor + 4) ||
+            (fileLength.HasValue && absoluteModernEof > (ulong)fileLength.Value) ||
             !TryAddHdfRelativeAddress(modernBase, rootAddress, out ulong absoluteRoot) ||
             absoluteRoot < (ulong)(signatureOffset + modernCursor + 4) || absoluteRoot >= absoluteModernEof ||
             (!extensionUndefined && (!TryAddHdfRelativeAddress(modernBase, extensionAddress, out ulong absoluteExtension) ||
@@ -493,10 +498,10 @@ internal static partial class Signatures {
 
     private static bool IsValidHdfIntegerSize(byte size) => size is 2 or 4 or 8 or 16;
 
-    private static ContentTypeDetectionResult Hdf5Result(long offset) => new() {
+    private static ContentTypeDetectionResult Hdf5Result(long offset, bool completeLength = true) => new() {
         Extension = "h5",
         MimeType = "application/x-hdf5",
-        Confidence = "High",
-        Reason = "hdf5:signature@" + offset
+        Confidence = completeLength ? "High" : "Medium",
+        Reason = "hdf5:signature@" + offset + (completeLength ? string.Empty : ";sampled-length-unknown")
     };
 }

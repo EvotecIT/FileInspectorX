@@ -115,14 +115,15 @@ internal static partial class Signatures {
         uint version = ReadUInt32LittleEndian(src, 4);
         uint streams = ReadUInt32LittleEndian(src, 8);
         uint directoryRva = ReadUInt32LittleEndian(src, 12);
-        if ((version & 0xFFFF) != 0xA793 || streams is < 1 or > 65535 || directoryRva < 32 ||
-            (completeLength.HasValue && directoryRva + streams * 12L > completeLength.Value)) return false;
+        if ((version & 0xFFFF) != 0xA793 || streams > 65535 ||
+            (streams == 0 ? directoryRva != 0 : directoryRva < 32) ||
+            (streams != 0 && completeLength.HasValue && directoryRva + streams * 12L > completeLength.Value)) return false;
         result = new ContentTypeDetectionResult
         {
             Extension = "dmp",
             MimeType = "application/x-ms-minidump",
             Confidence = "High",
-            Reason = "dmp:minidump-header"
+            Reason = streams == 0 ? "dmp:minidump-header;empty-directory" : "dmp:minidump-header"
         };
         return true;
     }
