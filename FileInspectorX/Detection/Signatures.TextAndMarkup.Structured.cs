@@ -303,13 +303,6 @@ internal static partial class Signatures
             }
         }
 
-        // MSG basics (very weak text fallback)
-        if (head.IndexOf("__substg1.0_"u8) >= 0)
-        {
-            result = new ContentTypeDetectionResult { Extension = "msg", MimeType = "application/vnd.ms-outlook", Confidence = "Low", Reason = "msg:marker" };
-            return true;
-        }
-
         return false;
     }
 

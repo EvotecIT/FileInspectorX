@@ -12,6 +12,8 @@ internal static partial class Signatures {
             return TryMatchWoff(src, isWoff2: false, out result);
         if (src[0] == (byte)'w' && src[1] == (byte)'O' && src[2] == (byte)'F' && src[3] == (byte)'2')
             return TryMatchWoff(src, isWoff2: true, out result);
+        if (src.Slice(0, 4).SequenceEqual("ttcf"u8))
+            return TryMatchFontCollection(src, out result);
 
         if (src.Length < 28) return false;
         uint flavor = ReadUInt32BigEndian(src, 0);
@@ -46,6 +48,50 @@ internal static partial class Signatures {
             MimeType = mime,
             Confidence = "High",
             Reason = extension == "otf" ? "sfnt:opentype-cff" : "sfnt:truetype"
+        };
+        return true;
+    }
+
+    private static bool TryMatchFontCollection(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (src.Length < 16) return false;
+        uint version = ReadUInt32BigEndian(src, 4);
+        uint fontCount = ReadUInt32BigEndian(src, 8);
+        if (version is not (0x00010000u or 0x00020000u) || fontCount is < 1 or > 4095 || 12L + fontCount * 4L > src.Length)
+            return false;
+
+        bool anyCff = false;
+        for (uint i = 0; i < fontCount; i++) {
+            uint directoryOffset = ReadUInt32BigEndian(src, checked(12 + (int)i * 4));
+            if (directoryOffset > int.MaxValue || directoryOffset + 12L > src.Length) return false;
+            int offset = (int)directoryOffset;
+            uint flavor = ReadUInt32BigEndian(src, offset);
+            if (!TryGetSfntFlavor(flavor, out var extension, out _)) return false;
+            anyCff |= extension == "otf";
+            ushort tableCount = ReadUInt16BigEndian(src, offset + 4);
+            if (tableCount < 1 || tableCount > 4095 || directoryOffset + 12L + tableCount * 16L > src.Length) return false;
+            int maximumPowerOfTwo = 1;
+            ushort expectedSelector = 0;
+            while ((maximumPowerOfTwo << 1) <= tableCount) {
+                maximumPowerOfTwo <<= 1;
+                expectedSelector++;
+            }
+            if (ReadUInt16BigEndian(src, offset + 6) != maximumPowerOfTwo * 16 ||
+                ReadUInt16BigEndian(src, offset + 8) != expectedSelector ||
+                ReadUInt16BigEndian(src, offset + 10) != tableCount * 16 - maximumPowerOfTwo * 16) return false;
+            for (int tag = offset + 12; tag < offset + 16; tag++)
+                if (src[tag] < 0x20 || src[tag] > 0x7E) return false;
+            uint firstTableOffset = ReadUInt32BigEndian(src, offset + 20);
+            uint firstTableLength = ReadUInt32BigEndian(src, offset + 24);
+            if (firstTableOffset < directoryOffset + 12L + tableCount * 16L || firstTableLength == 0) return false;
+        }
+
+        string collectionExtension = anyCff ? "otc" : "ttc";
+        result = new ContentTypeDetectionResult {
+            Extension = collectionExtension,
+            MimeType = anyCff ? "font/collection" : "font/collection",
+            Confidence = "High",
+            Reason = $"font-collection:v{version >> 16};fonts={fontCount}"
         };
         return true;
     }

@@ -475,6 +475,27 @@ public static partial class FileInspector {
                 return Finish(Enrich(offsetHdf5, src, stream, options));
         }
 
+        if (stream.CanSeek && Signatures.TryMatchSeekableContainers(stream, out var seekableContainer))
+            return Finish(Enrich(seekableContainer, src, stream, options));
+
+        if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
+        if (Signatures.TryMatchZip(src, out var validatedZip)) {
+            var refined = TryRefineZipOOxml(stream);
+            if (refined != null) return Finish(Enrich(refined, src, stream, options));
+            var guess = TryGuessZipSubtype(stream, out var guessMime);
+            if (string.IsNullOrWhiteSpace(guessMime) && !string.IsNullOrWhiteSpace(guess) &&
+                MimeMaps.TryGetByExtension(guess, out var mappedMime) && !string.IsNullOrWhiteSpace(mappedMime))
+                guessMime = mappedMime;
+            validatedZip!.GuessedExtension = guess;
+            if (!string.IsNullOrWhiteSpace(guessMime)) validatedZip.MimeType = guessMime!;
+            return Finish(Enrich(validatedZip, src, stream, options));
+        }
+        if (Signatures.TryMatchOle2(src, out var validatedOle)) {
+            var refined = TryRefineOle2Subtype(stream);
+            return Finish(Enrich(refined ?? validatedOle, src, stream, options));
+        }
+        if (Signatures.TryMatchExtendedHeaderFormats(src, out var extendedBinary)) return Finish(Enrich(extendedBinary, src, stream, options));
+
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
         if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
@@ -510,34 +531,7 @@ public static partial class FileInspector {
 
         foreach (var sig in Signatures.All()) {
             if (Signatures.Match(src, sig)) {
-                if (sig.Extension == "zip") {
-                    var refined = TryRefineZipOOxml(stream);
-                    if (refined != null) return Finish(Enrich(refined, src, stream, options));
-                    var confZip = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
-                    var guess = TryGuessZipSubtype(stream, out var guessMime);
-                    if (string.IsNullOrWhiteSpace(guessMime) &&
-                        !string.IsNullOrWhiteSpace(guess) &&
-                        MimeMaps.TryGetByExtension(guess, out var guessedMime) &&
-                        !string.IsNullOrWhiteSpace(guessedMime))
-                    {
-                        guessMime = guessedMime;
-                    }
-                    var basicZip = new ContentTypeDetectionResult {
-                        Extension = sig.Extension,
-                        MimeType = !string.IsNullOrWhiteSpace(guessMime)
-                            ? guessMime!
-                            : NormalizeMime(sig.Extension, sig.MimeType),
-                        Confidence = confZip,
-                        Reason = $"magic:{sig.Extension}",
-                        GuessedExtension = guess
-                    };
-                    return Finish(Enrich(basicZip, src, stream, options));
-                }
-                if (sig.Extension == "ole2" && stream is not null) {
-                    var refinedOle = TryRefineOle2Subtype(stream);
-                    if (refinedOle != null) return Finish(Enrich(refinedOle, src, stream, options));
-                }
-                var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
+                var conf = sig.Confidence;
                 var basic = new ContentTypeDetectionResult {
                     Extension = sig.Extension,
                     MimeType = NormalizeMime(sig.Extension, sig.MimeType),
@@ -545,11 +539,6 @@ public static partial class FileInspector {
                     Reason = $"magic:{sig.Extension}"
                 };
                 var enriched = Enrich(basic, src, stream, options);
-                // Promote generic OLE2 to MSI when directory hints indicate MSI tables (extra safeguard for detection-only callers)
-                if (sig.Extension == "ole2" && stream is not null)
-                {
-                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Finish(Enrich(refine, src, stream, options)); } catch { }
-                }
                 return Finish(enriched);
             }
         }
@@ -1318,6 +1307,12 @@ public static partial class FileInspector {
                 ? ApplyLearnedClassification(biased, learnedData.Value, options)
                 : biased;
         }
+        if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
+        if (Signatures.TryMatchCompleteContainers(data, out var completeContainer)) return Finish(Enrich(completeContainer, data, null, options));
+        if (Signatures.TryMatchCommonBinary(data, out var commonBinary)) return Finish(Enrich(commonBinary, data, null, options));
+        if (Signatures.TryMatchZip(data, out var validatedZip)) return Finish(Enrich(validatedZip, data, null, options));
+        if (Signatures.TryMatchOle2(data, out var validatedOle)) return Finish(Enrich(validatedOle, data, null, options));
+        if (Signatures.TryMatchExtendedHeaderFormats(data, out var extendedBinary)) return Finish(Enrich(extendedBinary, data, null, options));
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
         if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
         if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));
@@ -1329,7 +1324,6 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Finish(Enrich(ftyp, data, null, options));
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
-        if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
         if (Signatures.TryMatchNetCdf(data, out var netCdf)) return Finish(Enrich(netCdf, data, null, options));
         if (Signatures.TryMatchFont(data, out var font)) return Finish(Enrich(font, data, null, options));
         if (Signatures.TryMatchOpenExr(data, out var openExr)) return Finish(Enrich(openExr, data, null, options));
@@ -1359,7 +1353,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchGlb(data, out var glb)) return Finish(Enrich(glb, data, null, options));
         if (Signatures.TryMatchTiff(data, out var tiff)) return Finish(Enrich(tiff, data, null, options));
         foreach (var sig in Signatures.All()) if (Signatures.Match(data, sig)) {
-                var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
+                var conf = sig.Confidence;
                 var basic = new ContentTypeDetectionResult {
                     Extension = sig.Extension,
                     MimeType = NormalizeMime(sig.Extension, sig.MimeType),
@@ -1519,7 +1513,9 @@ public static partial class FileInspector {
         if (result != null)
         {
             result.BytesInspected = inspected;
-            result.IsDangerous = result.IsDangerous || DangerousExtensions.IsDangerous(result.Extension);
+            result.IsDangerous = result.IsDangerous ||
+                                 DangerousExtensions.IsDangerous(result.Extension) ||
+                                 DangerousExtensions.IsDangerous(result.GuessedExtension);
         }
         return result;
     }

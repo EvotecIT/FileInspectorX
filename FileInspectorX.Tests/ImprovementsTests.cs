@@ -24,8 +24,8 @@ public class ImprovementsTests {
             using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: true)) {
                 var entry = za.CreateEntry("inner.zip");
                 using var s = entry.Open();
-                // write local file header signature for zip
-                s.Write(new byte[] { 0x50, 0x4B, 0x03, 0x04 }, 0, 4);
+                var nested = TestHelpers.CreateEmptyZip();
+                s.Write(nested, 0, nested.Length);
             }
             var a = FileInspector.Analyze(zip);
             Assert.True((a.Flags & ContentFlags.ContainerContainsArchives) != 0);
@@ -39,12 +39,13 @@ public class ImprovementsTests {
             using (var fs = File.Create(p)) {
                 var hdr = new byte[512];
                 WriteAscii(hdr, 0, 100, "inner.zip");
-                WriteOctal(hdr, 124, 12, 4); // size 4
+                var nested = TestHelpers.CreateEmptyZip();
+                WriteOctal(hdr, 124, 12, nested.Length);
                 WriteAscii(hdr, 257, 5, "ustar");
                 fs.Write(hdr, 0, 512);
-                fs.Write(new byte[] { 0x50, 0x4B, 0x03, 0x04 }, 0, 4); // zip LFH
+                fs.Write(nested, 0, nested.Length);
                 // pad to 512
-                fs.Write(new byte[512 - 4], 0, 512 - 4);
+                fs.Write(new byte[512 - nested.Length], 0, 512 - nested.Length);
                 // two empty blocks terminator
                 fs.Write(new byte[1024], 0, 1024);
             }

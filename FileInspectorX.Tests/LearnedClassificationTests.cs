@@ -82,11 +82,7 @@ public sealed class LearnedClassificationTests
     public void Detect_StrongDeterministicEvidenceWinsAndConflictIsVisible()
     {
         var classifier = new StubClassifier(CreatePrediction("javascript", "js"));
-        var png = new byte[]
-        {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0, 0, 0, 0, 0, 0, 0, 0
-        };
+        var png = TestHelpers.CreateMinimalPng();
 
         var result = FileInspector.Detect(
             png,
@@ -108,11 +104,7 @@ public sealed class LearnedClassificationTests
         var prediction = CreatePrediction("unknown", "exe");
         prediction.IsText = false;
         prediction.MimeType = "application/vnd.microsoft.portable-executable";
-        var png = new byte[]
-        {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0, 0, 0, 0, 0, 0, 0, 0
-        };
+        var png = TestHelpers.CreateMinimalPng();
 
         var result = FileInspector.Detect(
             png,
@@ -146,11 +138,7 @@ public sealed class LearnedClassificationTests
             PredictionMode = "HighConfidence",
             IsText = false
         };
-        var png = new byte[]
-        {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0, 0, 0, 0, 0, 0, 0, 0
-        };
+        var png = TestHelpers.CreateMinimalPng();
 
         var result = FileInspector.Detect(
             png,
@@ -388,11 +376,7 @@ public sealed class LearnedClassificationTests
     [Fact]
     public void Detect_OutputLabelDoesNotOverrideCanonicalExtensionAgreement()
     {
-        var png = new byte[]
-        {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0, 0, 0, 0, 0, 0, 0, 0
-        };
+        var png = TestHelpers.CreateMinimalPng();
         var prediction = CreatePrediction("png", "exe", "exe");
 
         var result = FileInspector.Detect(
@@ -412,11 +396,7 @@ public sealed class LearnedClassificationTests
     [Fact]
     public void Detect_ExtensionlessSpecificLearnedOutputIsSupplemental()
     {
-        var png = new byte[]
-        {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0, 0, 0, 0, 0, 0, 0, 0
-        };
+        var png = TestHelpers.CreateMinimalPng();
 
         var result = FileInspector.Detect(
             png,
@@ -435,7 +415,7 @@ public sealed class LearnedClassificationTests
     public void Detect_TiffAndTifExtensionsAgree()
     {
         var result = FileInspector.Detect(
-            new byte[] { 0x49, 0x49, 0x2A, 0x00 },
+            new byte[] { 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00 },
             new FileInspector.DetectionOptions
             {
                 LearnedClassifier = new StubClassifier(CreatePrediction("tiff", "tiff")),
@@ -499,6 +479,7 @@ public sealed class LearnedClassificationTests
     public void Detect_LearnedHeifAliasesAgreeWithDeterministicHeic()
     {
         var bytes = new byte[16];
+        bytes[3] = 16;
         Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
         Encoding.ASCII.GetBytes("heic").CopyTo(bytes, 8);
 
@@ -1295,7 +1276,7 @@ public sealed class LearnedClassificationTests
         bytes[0x80] = (byte)'P';
         bytes[0x81] = (byte)'E';
         BitConverter.GetBytes((ushort)0x014C).CopyTo(bytes, 0x84);
-        BitConverter.GetBytes((ushort)0).CopyTo(bytes, 0x86);
+        BitConverter.GetBytes((ushort)1).CopyTo(bytes, 0x86);
         BitConverter.GetBytes((ushort)0x00E0).CopyTo(bytes, 0x94);
         BitConverter.GetBytes((ushort)0x2000).CopyTo(bytes, 0x96);
         BitConverter.GetBytes((ushort)0x010B).CopyTo(bytes, 0x98);

@@ -24,7 +24,7 @@ public class MoreEncodedFormatsTests
     [Fact]
     public void Uuencode_Simple_Block_Inner_Exe_Detected()
     {
-        var uu = EncodeUu(new byte[] { 0x4D, 0x5A, 0x00 }, "test.bin");
+        var uu = EncodeUu(TestHelpers.CreateMinimalPe(), "test.bin");
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try
         {
@@ -42,7 +42,7 @@ public class MoreEncodedFormatsTests
     [Fact]
     public void Uuencode_MultiLine_Block_Inner_Exe_Detected()
     {
-        var payload = Enumerable.Repeat(new byte[] { 0x4D, 0x5A, 0x00 }, 40).SelectMany(x => x).ToArray();
+        var payload = TestHelpers.CreateMinimalPe();
         var uu = EncodeUu(payload, "test.bin");
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try

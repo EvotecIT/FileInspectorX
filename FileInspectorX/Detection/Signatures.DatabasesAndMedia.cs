@@ -10,13 +10,24 @@ internal static partial class Signatures {
     internal static bool TryMatchRegistryHive(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        // Windows registry hive files begin with ASCII 'regf'
-        if (src.Length >= 4 && src[0] == (byte)'r' && src[1] == (byte)'e' && src[2] == (byte)'g' && src[3] == (byte)'f')
-        {
-            result = new ContentTypeDetectionResult { Extension = "hive", MimeType = "application/x-windows-registry-hive", Confidence = "High", Reason = "regf" };
-            return true;
-        }
-        return false;
+        if (src.Length < 4096 || !src.Slice(0, 4).SequenceEqual("regf"u8)) return false;
+        uint primarySequence = ReadUInt32LittleEndian(src, 4);
+        uint secondarySequence = ReadUInt32LittleEndian(src, 8);
+        uint major = ReadUInt32LittleEndian(src, 20);
+        uint minor = ReadUInt32LittleEndian(src, 24);
+        uint fileType = ReadUInt32LittleEndian(src, 28);
+        uint fileFormat = ReadUInt32LittleEndian(src, 32);
+        uint rootCellOffset = ReadUInt32LittleEndian(src, 36);
+        uint hiveBinsSize = ReadUInt32LittleEndian(src, 40);
+        uint clustering = ReadUInt32LittleEndian(src, 44);
+        if (primarySequence != secondarySequence || primarySequence == 0 || major != 1 || minor is < 3 or > 6 ||
+            fileType != 0 || fileFormat != 1 || rootCellOffset < 0x20 || hiveBinsSize == 0 || (hiveBinsSize & 0xFFF) != 0 || clustering != 1)
+            return false;
+        uint checksum = 0;
+        for (int offset = 0; offset < 0x1FC; offset += 4) checksum ^= ReadUInt32LittleEndian(src, offset);
+        if (checksum != ReadUInt32LittleEndian(src, 0x1FC)) return false;
+        result = new ContentTypeDetectionResult { Extension = "hive", MimeType = "application/x-windows-registry-hive", Confidence = "High", Reason = "registry-hive:base-block" };
+        return true;
     }
 
     /// <summary>
@@ -58,7 +69,7 @@ internal static partial class Signatures {
         // Extensible Storage Engine (JET Blue) database files (edb/dit) typically start with 0xEF 0xCD 0xAB 0x89
         if (src.Length >= 4 && src[0] == 0xEF && src[1] == 0xCD && src[2] == 0xAB && src[3] == 0x89)
         {
-            result = new ContentTypeDetectionResult { Extension = "edb", MimeType = "application/x-ese-database", Confidence = "High", Reason = "ese:header" };
+            result = new ContentTypeDetectionResult { Extension = "edb", MimeType = "application/x-ese-database", Confidence = "Medium", Reason = "ese:magic-only" };
             return true;
         }
         return false;
@@ -71,12 +82,15 @@ internal static partial class Signatures {
     /// <returns></returns>
     internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
-        // Windows Event Log (EVTX) header starts with "ElfFile\0"
-        if (src.Length >= 8 && src[0] == (byte)'E' && src[1] == (byte)'l' && src[2] == (byte)'f' && src[3] == (byte)'F' && src[4] == (byte)'i' && src[5] == (byte)'l' && src[6] == (byte)'e') {
-            result = new ContentTypeDetectionResult { Extension = "evtx", MimeType = "application/vnd.ms-windows.evtx", Confidence = "High", Reason = "evtx:ElfFile" };
-            return true;
-        }
-        return false;
+        if (src.Length < 128 || !src.Slice(0, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'F', (byte)'i', (byte)'l', (byte)'e', 0 })) return false;
+        uint headerSize = ReadUInt32LittleEndian(src, 0x20);
+        ushort minor = ReadUInt16LittleEndian(src, 0x24);
+        ushort major = ReadUInt16LittleEndian(src, 0x26);
+        ushort blockSize = ReadUInt16LittleEndian(src, 0x28);
+        ushort chunkCount = ReadUInt16LittleEndian(src, 0x2A);
+        if (headerSize != 128 || major != 3 || minor != 1 || blockSize != 4096 || chunkCount == 0) return false;
+        result = new ContentTypeDetectionResult { Extension = "evtx", MimeType = "application/vnd.ms-windows.evtx", Confidence = "High", Reason = "evtx:file-header" };
+        return true;
     }
 
     /// <summary>
@@ -85,18 +99,19 @@ internal static partial class Signatures {
     internal static bool TryMatchMinidump(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length >= 4 && src[0] == (byte)'M' && src[1] == (byte)'D' && src[2] == (byte)'M' && src[3] == (byte)'P')
+        if (src.Length < 32 || !src.Slice(0, 4).SequenceEqual("MDMP"u8)) return false;
+        uint version = ReadUInt32LittleEndian(src, 4);
+        uint streams = ReadUInt32LittleEndian(src, 8);
+        uint directoryRva = ReadUInt32LittleEndian(src, 12);
+        if ((version & 0xFFFF) != 0xA793 || streams is < 1 or > 65535 || directoryRva < 32 || directoryRva + streams * 12L > src.Length) return false;
+        result = new ContentTypeDetectionResult
         {
-            result = new ContentTypeDetectionResult
-            {
-                Extension = "dmp",
-                MimeType = "application/x-ms-minidump",
-                Confidence = "High",
-                Reason = "dmp:MDMP"
-            };
-            return true;
-        }
-        return false;
+            Extension = "dmp",
+            MimeType = "application/x-ms-minidump",
+            Confidence = "High",
+            Reason = "dmp:minidump-header"
+        };
+        return true;
     }
 
     /// <summary>
@@ -180,33 +195,59 @@ internal static partial class Signatures {
     /// <returns></returns>
     internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 12) return false;
+        if (src.Length < 16) return false;
         if (!src.Slice(4, 4).SequenceEqual("ftyp"u8)) return false;
+        uint boxLength = ReadUInt32BigEndian(src, 0);
+        if (boxLength < 16 || (boxLength & 3) != 0 || boxLength > src.Length) return false;
         var brand = src.Slice(8, 4);
-        ReadOnlySpan<byte> comp = src.Length >= 20 ? src.Slice(16, Math.Min(8, src.Length - 16)) : ReadOnlySpan<byte>.Empty;
+        ReadOnlySpan<byte> comp = boxLength > 16 ? src.Slice(16, checked((int)boxLength - 16)) : ReadOnlySpan<byte>.Empty;
         static bool HasBrand(ReadOnlySpan<byte> major, ReadOnlySpan<byte> compat, ReadOnlySpan<byte> sought) {
             if (major.SequenceEqual(sought)) return true;
             for (int i = 0; i + 4 <= compat.Length; i += 4)
                 if (compat.Slice(i, 4).SequenceEqual(sought)) return true;
             return false;
         }
-        if (brand.SequenceEqual("heic"u8) || brand.SequenceEqual("heif"u8) || HasBrand(brand, comp, "mif1"u8) || brand.SequenceEqual("hevc"u8)) {
+
+        if (HasBrand(brand, comp, "avif"u8) || HasBrand(brand, comp, "avis"u8)) {
+            result = new ContentTypeDetectionResult { Extension = "avif", MimeType = "image/avif", Confidence = "High", Reason = "ftyp:avif" };
+            return true;
+        }
+        if (HasBrand(brand, comp, "heic"u8) || HasBrand(brand, comp, "heix"u8) ||
+            HasBrand(brand, comp, "hevc"u8) || HasBrand(brand, comp, "hevx"u8) ||
+            HasBrand(brand, comp, "heim"u8) || HasBrand(brand, comp, "heis"u8) ||
+            HasBrand(brand, comp, "hevm"u8) || HasBrand(brand, comp, "hevs"u8)) {
             result = new ContentTypeDetectionResult { Extension = "heic", MimeType = "image/heic", Confidence = "High", Reason = "ftyp:heif" };
             return true;
         }
-        if (HasBrand(brand, comp, "isom"u8) || HasBrand(brand, comp, "iso2"u8) || HasBrand(brand, comp, "mp41"u8) || HasBrand(brand, comp, "mp42"u8) || HasBrand(brand, comp, "MSNV"u8)) {
-            result = new ContentTypeDetectionResult { Extension = "mp4", MimeType = "video/mp4", Confidence = "High", Reason = "ftyp:mp4" };
+        if (HasBrand(brand, comp, "qt  "u8)) {
+            result = new ContentTypeDetectionResult { Extension = "mov", MimeType = "video/quicktime", Confidence = "High", Reason = "ftyp:quicktime" };
             return true;
         }
-        if (HasBrand(brand, comp, "M4A "u8) || HasBrand(brand, comp, "M4B "u8)) {
+        if (HasBrand(brand, comp, "M4A "u8) || HasBrand(brand, comp, "M4B "u8) || HasBrand(brand, comp, "F4A "u8)) {
             result = new ContentTypeDetectionResult { Extension = "m4a", MimeType = "audio/mp4", Confidence = "High", Reason = "ftyp:m4a" };
             return true;
         }
-        if (HasBrand(brand, comp, "3gp4"u8) || HasBrand(brand, comp, "3g2a"u8)) {
+        if ((brand[0] == (byte)'3' && brand[1] == (byte)'g' && (brand[2] == (byte)'p' || brand[2] == (byte)'2')) ||
+            HasBrand(brand, comp, "3gp4"u8) || HasBrand(brand, comp, "3g2a"u8)) {
             result = new ContentTypeDetectionResult { Extension = "3gp", MimeType = "video/3gpp", Confidence = "High", Reason = "ftyp:3gp" };
             return true;
         }
-        result = new ContentTypeDetectionResult { Extension = "mp4", MimeType = "video/mp4", Confidence = "High", Reason = "ftyp:mp4" };
+        if (HasBrand(brand, comp, "isom"u8) || HasBrand(brand, comp, "iso2"u8) ||
+            HasBrand(brand, comp, "iso3"u8) || HasBrand(brand, comp, "iso4"u8) ||
+            HasBrand(brand, comp, "iso5"u8) || HasBrand(brand, comp, "iso6"u8) ||
+            HasBrand(brand, comp, "mp41"u8) || HasBrand(brand, comp, "mp42"u8) ||
+            HasBrand(brand, comp, "MSNV"u8) || HasBrand(brand, comp, "dash"u8)) {
+            result = new ContentTypeDetectionResult { Extension = "mp4", MimeType = "video/mp4", Confidence = "High", Reason = "ftyp:mp4" };
+            return true;
+        }
+
+        result = new ContentTypeDetectionResult {
+            Extension = "isobmff",
+            MimeType = "application/octet-stream",
+            Confidence = "Medium",
+            Reason = "ftyp:unknown-brand",
+            ReasonDetails = "major-brand=" + System.Text.Encoding.ASCII.GetString(brand.ToArray())
+        };
         return true;
     }
 }

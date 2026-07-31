@@ -6,33 +6,38 @@ namespace FileInspectorX;
 internal static partial class Signatures {
     internal static bool TryMatchElf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 6) return false;
+        if (src.Length < 16) return false;
         if (!(src[0] == 0x7F && src[1] == (byte)'E' && src[2] == (byte)'L' && src[3] == (byte)'F')) return false;
         var clazz = src[4];
         var endian = src[5];
-        string c = clazz == 2 ? "64" : clazz == 1 ? "32" : "?";
-        string e = endian == 2 ? "be" : endian == 1 ? "le" : "?";
-        string et = ""; string mach = "";
-        if (src.Length >= 18) {
-            int eTypeOff = 16; ushort etype;
-            if (endian == 2 && eTypeOff + 1 < src.Length)
-                etype = (ushort)((src[eTypeOff] << 8) | src[eTypeOff + 1]);
-            else if (eTypeOff + 1 < src.Length)
-                etype = (ushort)(src[eTypeOff] | (src[eTypeOff + 1] << 8));
-            else etype = 0;
-            et = etype == 1 ? "rel" : etype == 2 ? "exec" : etype == 3 ? "dyn" : etype == 4 ? "core" : "?";
-        }
-        if (src.Length >= 20) {
-            int eMachOff = 18; ushort emach;
-            if (endian == 2 && eMachOff + 1 < src.Length)
-                emach = (ushort)((src[eMachOff] << 8) | src[eMachOff + 1]);
-            else if (eMachOff + 1 < src.Length)
-                emach = (ushort)(src[eMachOff] | (src[eMachOff + 1] << 8));
-            else emach = 0;
-            mach = emach switch {
-                3 => "x86", 62 => "x86_64", 40 => "arm", 183 => "aarch64", 8 => "mips", 50 => "ia64", 243 => "riscv", _ => "?"
-            };
-        }
+        if (clazz is not (1 or 2) || endian is not (1 or 2) || src[6] != 1) return false;
+        for (int i = 9; i < 16; i++) if (src[i] != 0) return false;
+        int headerSize = clazz == 1 ? 52 : 64;
+        if (src.Length < headerSize) return false;
+        bool littleEndian = endian == 1;
+        ushort etype = ReadUInt16(src, 16, littleEndian);
+        ushort emach = ReadUInt16(src, 18, littleEndian);
+        uint version = ReadUInt32(src, 20, littleEndian);
+        int headerSizeOffset = clazz == 1 ? 40 : 52;
+        int programEntrySizeOffset = clazz == 1 ? 42 : 54;
+        int programCountOffset = clazz == 1 ? 44 : 56;
+        int sectionEntrySizeOffset = clazz == 1 ? 46 : 58;
+        int sectionCountOffset = clazz == 1 ? 48 : 60;
+        ushort declaredHeaderSize = ReadUInt16(src, headerSizeOffset, littleEndian);
+        ushort programEntrySize = ReadUInt16(src, programEntrySizeOffset, littleEndian);
+        ushort programCount = ReadUInt16(src, programCountOffset, littleEndian);
+        ushort sectionEntrySize = ReadUInt16(src, sectionEntrySizeOffset, littleEndian);
+        ushort sectionCount = ReadUInt16(src, sectionCountOffset, littleEndian);
+        if (etype is < 1 or > 4 || emach == 0 || version != 1 || declaredHeaderSize != headerSize) return false;
+        if (programCount > 0 && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
+        if (sectionCount > 0 && sectionEntrySize != (clazz == 1 ? 40 : 64)) return false;
+
+        string c = clazz == 2 ? "64" : "32";
+        string e = littleEndian ? "le" : "be";
+        string et = etype == 1 ? "rel" : etype == 2 ? "exec" : etype == 3 ? "dyn" : "core";
+        string mach = emach switch {
+            3 => "x86", 62 => "x86_64", 40 => "arm", 183 => "aarch64", 8 => "mips", 50 => "ia64", 243 => "riscv", _ => emach.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
         var r = $"elf:{c}-{e}" + (et == "" ? "" : $":{et}") + (mach == "" ? "" : $":{mach}");
         result = new ContentTypeDetectionResult { Extension = "elf", MimeType = "application/x-elf", Confidence = "High", Reason = r };
         return true;

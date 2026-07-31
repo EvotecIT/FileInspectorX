@@ -30,12 +30,19 @@ internal static partial class Signatures {
     }
     internal static bool TryMatchCab(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 4) return false;
-        if (src[0] == (byte)'M' && src[1] == (byte)'S' && src[2] == (byte)'C' && src[3] == (byte)'F') {
-            result = new ContentTypeDetectionResult { Extension = "cab", MimeType = "application/vnd.ms-cab-compressed", Confidence = "High", Reason = "cab:MSCF" };
-            return true;
-        }
-        return false;
+        if (src.Length < 36 || !src.Slice(0, 4).SequenceEqual("MSCF"u8)) return false;
+        uint cabinetSize = ReadUInt32LittleEndian(src, 8);
+        uint filesOffset = ReadUInt32LittleEndian(src, 16);
+        byte minorVersion = src[24];
+        byte majorVersion = src[25];
+        ushort folderCount = ReadUInt16LittleEndian(src, 26);
+        ushort fileCount = ReadUInt16LittleEndian(src, 28);
+        ushort flags = ReadUInt16LittleEndian(src, 30);
+        if (cabinetSize < 36 || filesOffset < 36 || filesOffset > cabinetSize ||
+            majorVersion != 1 || minorVersion != 3 || folderCount == 0 || fileCount == 0 || (flags & 0xFFF8) != 0)
+            return false;
+        result = new ContentTypeDetectionResult { Extension = "cab", MimeType = "application/vnd.ms-cab-compressed", Confidence = "High", Reason = "cab:cfheader" };
+        return true;
     }
 
     internal static bool TryMatchTar(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {

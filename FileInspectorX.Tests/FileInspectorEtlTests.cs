@@ -223,7 +223,7 @@ public class FileInspectorEtlTests
         var evtx = temp + ".evtx";
         try
         {
-            File.WriteAllBytes(temp, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x69, 0x6C, 0x65, 0x00, 0x01, 0x00, 0x00, 0x00 });
+            File.WriteAllBytes(temp, TestHelpers.CreateMinimalEvtx());
             File.Move(temp, evtx);
 
             var det = FileInspector.Detect(evtx);
