@@ -431,14 +431,14 @@ public sealed class StructuredBinaryDetectionTests
 
     private static byte[] NetCdf(byte version = 1)
     {
-        var bytes = new byte[16];
+        var bytes = new byte[32];
         new byte[] { (byte)'C', (byte)'D', (byte)'F', version }.CopyTo(bytes, 0);
         return bytes;
     }
 
     private static byte[] NetCdf5()
     {
-        var bytes = new byte[24];
+        var bytes = new byte[48];
         new byte[] { (byte)'C', (byte)'D', (byte)'F', 5 }.CopyTo(bytes, 0);
         return bytes;
     }

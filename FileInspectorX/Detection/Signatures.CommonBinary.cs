@@ -65,18 +65,16 @@ internal static partial class Signatures
     internal static bool TryMatchZip(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length >= 30 && ReadUInt32LittleEndian(src, 0) == 0x04034B50)
+        int localOffset = src.Length >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
+        if (src.Length >= localOffset + 30 &&
+            TryValidateZipLocalHeader(src.Slice(localOffset, 30), src.Length - localOffset))
         {
-            ushort versionNeeded = ReadUInt16LittleEndian(src, 4);
-            ushort flags = ReadUInt16LittleEndian(src, 6);
-            ushort method = ReadUInt16LittleEndian(src, 8);
-            ushort nameLength = ReadUInt16LittleEndian(src, 26);
-            ushort extraLength = ReadUInt16LittleEndian(src, 28);
-            if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) ||
-                nameLength == 0 || 30L + nameLength + extraLength > src.Length) return false;
-            result = BinaryResult("zip", "application/zip", "zip:local-file-header");
+            result = BinaryResult("zip", "application/zip",
+                localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header");
             return true;
         }
+
+        if (localOffset != 0) return false;
 
         if (src.Length < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
         ushort disk = ReadUInt16LittleEndian(src, 4);
@@ -102,21 +100,18 @@ internal static partial class Signatures
         {
             if (stream.Length < 22) return false;
             stream.Seek(0, SeekOrigin.Begin);
-            var header = new byte[30];
+            var header = new byte[34];
             int read = ReadHeaderBytes(stream, header);
             var src = new ReadOnlySpan<byte>(header, 0, read);
-            if (read >= 30 && ReadUInt32LittleEndian(src, 0) == 0x04034B50)
+            int localOffset = read >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
+            if (read >= localOffset + 30 &&
+                TryValidateZipLocalHeader(src.Slice(localOffset, 30), stream.Length - localOffset))
             {
-                ushort versionNeeded = ReadUInt16LittleEndian(src, 4);
-                ushort flags = ReadUInt16LittleEndian(src, 6);
-                ushort method = ReadUInt16LittleEndian(src, 8);
-                ushort nameLength = ReadUInt16LittleEndian(src, 26);
-                ushort extraLength = ReadUInt16LittleEndian(src, 28);
-                if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) ||
-                    nameLength == 0 || 30L + nameLength + extraLength > stream.Length) return false;
-                result = BinaryResult("zip", "application/zip", "zip:local-file-header");
+                result = BinaryResult("zip", "application/zip",
+                    localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header");
                 return true;
             }
+            if (localOffset != 0) return false;
             if (read < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
             ushort disk = ReadUInt16LittleEndian(src, 4);
             ushort centralDisk = ReadUInt16LittleEndian(src, 6);
@@ -165,6 +160,18 @@ internal static partial class Signatures
     private static bool IsKnownZipMethod(ushort method)
         => method is 0 or 1 or 2 or 3 or 4 or 5 or 6 or 8 or 9 or 10 or 12 or 14 or 16 or 18 or 19 or 20 or
                      93 or 94 or 95 or 96 or 97 or 98 or 99;
+
+    private static bool TryValidateZipLocalHeader(ReadOnlySpan<byte> header, long availableLength)
+    {
+        if (header.Length < 30 || ReadUInt32LittleEndian(header, 0) != 0x04034B50) return false;
+        ushort versionNeeded = ReadUInt16LittleEndian(header, 4);
+        ushort flags = ReadUInt16LittleEndian(header, 6);
+        ushort method = ReadUInt16LittleEndian(header, 8);
+        ushort nameLength = ReadUInt16LittleEndian(header, 26);
+        ushort extraLength = ReadUInt16LittleEndian(header, 28);
+        return versionNeeded is >= 10 and <= 100 && (flags & 0xC000) == 0 && IsKnownZipMethod(method) &&
+               nameLength > 0 && 30L + nameLength + extraLength <= availableLength;
+    }
 
     private static int ReadHeaderBytes(Stream stream, byte[] buffer)
     {
@@ -273,7 +280,7 @@ internal static partial class Signatures
         uint pixelOffset = ReadUInt32LittleEndian(src, 10);
         uint dibSize = ReadUInt32LittleEndian(src, 14);
         if (fileSize < 26 || pixelOffset < 14 + dibSize || pixelOffset > fileSize) return false;
-        if (dibSize is not (12u or 40u or 52u or 56u or 64u or 108u or 124u)) return false;
+        if (dibSize is not (12u or 16u or 40u or 52u or 56u or 64u or 108u or 124u)) return false;
         result = BinaryResult("bmp", "image/bmp", "bmp:file+dib-header");
         return true;
     }
@@ -431,6 +438,43 @@ internal static partial class Signatures
             !TryMatchZip(src.Slice((int)headerEnd), out _)) return false;
         result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
         return true;
+    }
+
+    internal static bool TryMatchCrx(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 12 || !TryReadAt(stream, 0, (int)Math.Min(16, stream.Length), out var headerBytes)) return false;
+            var header = new ReadOnlySpan<byte>(headerBytes);
+            if (!header.Slice(0, 4).SequenceEqual("Cr24"u8)) return false;
+            uint version = ReadUInt32LittleEndian(header, 4);
+            long headerEnd;
+            if (version == 2)
+            {
+                if (header.Length < 16) return false;
+                headerEnd = 16L + ReadUInt32LittleEndian(header, 8) + ReadUInt32LittleEndian(header, 12);
+            }
+            else if (version == 3) headerEnd = 12L + ReadUInt32LittleEndian(header, 8);
+            else return false;
+
+            if (headerEnd < 12 || headerEnd + 30L > stream.Length ||
+                !TryReadAt(stream, headerEnd, 30, out var zipHeader) ||
+                !TryValidateZipLocalHeader(new ReadOnlySpan<byte>(zipHeader), stream.Length - headerEnd)) return false;
+            result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     internal static bool TryMatchIcon(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

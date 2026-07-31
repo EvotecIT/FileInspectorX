@@ -46,7 +46,7 @@ internal static partial class Signatures {
     internal static bool TryMatchMachO(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchMachO(src, src.Length, out result);
 
-    internal static bool TryMatchMachO(ReadOnlySpan<byte> src, long totalLength, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchMachO(ReadOnlySpan<byte> src, long? totalLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 4) return false;
         uint m = (uint)(src[0] << 24 | src[1] << 16 | src[2] << 8 | src[3]);
@@ -113,7 +113,7 @@ internal static partial class Signatures {
     internal static bool TryMatchDex(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchDex(src, src.Length, out result);
 
-    internal static bool TryMatchDex(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchDex(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 0x70 || src[0] != (byte)'d' || src[1] != (byte)'e' || src[2] != (byte)'x' ||
             src[3] != (byte)'\n' || src[7] != 0 ||
@@ -134,7 +134,8 @@ internal static partial class Signatures {
         uint fileSize = ReadUInt32(src, 32, fieldsAreLittleEndian);
         uint headerSize = ReadUInt32(src, 36, fieldsAreLittleEndian);
         uint expectedHeaderSize = version >= 41 ? 0x78u : 0x70u;
-        if (headerSize != expectedHeaderSize || fileSize < headerSize || fileSize != completeLength || src.Length < headerSize) return false;
+        if (headerSize != expectedHeaderSize || fileSize < headerSize ||
+            (completeLength.HasValue && fileSize != completeLength.Value) || src.Length < headerSize) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "dex",
@@ -145,7 +146,7 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, long totalLength, out ContentTypeDetectionResult? result) {
+    private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, long? totalLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 28) return false;
 
@@ -161,7 +162,7 @@ internal static partial class Signatures {
             uint size = ReadUInt32(src, entryOffset + 12, littleEndian);
             uint alignmentPower = ReadUInt32(src, entryOffset + 16, littleEndian);
             if (!IsKnownMachCpuType(cpuType) || offset < directoryEnd || size == 0 || alignmentPower > 31 ||
-                (ulong)offset + size > (ulong)totalLength) return false;
+                (totalLength.HasValue && (ulong)offset + size > (ulong)totalLength.Value)) return false;
             uint alignment = 1u << (int)alignmentPower;
             if ((offset & (alignment - 1)) != 0) return false;
         }

@@ -25,6 +25,8 @@ internal static partial class Signatures {
             return false;
         uint checksum = 0;
         for (int offset = 0; offset < 0x1FC; offset += 4) checksum ^= ReadUInt32LittleEndian(src, offset);
+        if (checksum == 0) checksum = 1;
+        else if (checksum == uint.MaxValue) checksum = 0xFFFFFFFE;
         if (checksum != ReadUInt32LittleEndian(src, 0x1FC)) return false;
         bool dirty = primarySequence != secondarySequence;
         result = new ContentTypeDetectionResult {
@@ -106,14 +108,15 @@ internal static partial class Signatures {
     internal static bool TryMatchMinidump(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchMinidump(src, src.Length, out result);
 
-    internal static bool TryMatchMinidump(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result)
+    internal static bool TryMatchMinidump(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 32 || !src.Slice(0, 4).SequenceEqual("MDMP"u8)) return false;
         uint version = ReadUInt32LittleEndian(src, 4);
         uint streams = ReadUInt32LittleEndian(src, 8);
         uint directoryRva = ReadUInt32LittleEndian(src, 12);
-        if ((version & 0xFFFF) != 0xA793 || streams is < 1 or > 65535 || directoryRva < 32 || directoryRva + streams * 12L > completeLength) return false;
+        if ((version & 0xFFFF) != 0xA793 || streams is < 1 or > 65535 || directoryRva < 32 ||
+            (completeLength.HasValue && directoryRva + streams * 12L > completeLength.Value)) return false;
         result = new ContentTypeDetectionResult
         {
             Extension = "dmp",
@@ -206,15 +209,39 @@ internal static partial class Signatures {
     internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchFtyp(src, src.Length, out result);
 
-    internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 16) return false;
         if (!src.Slice(4, 4).SequenceEqual("ftyp"u8)) return false;
-        uint boxLength = ReadUInt32BigEndian(src, 0);
-        if (boxLength < 16 || (boxLength & 3) != 0 || boxLength > completeLength) return false;
-        var brand = src.Slice(8, 4);
-        int compatibleBytes = (int)Math.Min(240u, Math.Min(boxLength - 16, (uint)Math.Max(0, src.Length - 16)));
-        ReadOnlySpan<byte> comp = compatibleBytes > 0 ? src.Slice(16, compatibleBytes) : ReadOnlySpan<byte>.Empty;
+        uint size32 = ReadUInt32BigEndian(src, 0);
+        int brandOffset;
+        int compatibleOffset;
+        ulong boxLength;
+        if (size32 == 1)
+        {
+            if (src.Length < 24) return false;
+            boxLength = ReadUInt64(src, 8, littleEndian: false);
+            brandOffset = 16;
+            compatibleOffset = 24;
+            if (boxLength < 24) return false;
+        }
+        else
+        {
+            brandOffset = 8;
+            compatibleOffset = 16;
+            if (size32 == 0)
+            {
+                if (!completeLength.HasValue || completeLength.Value < 16) return false;
+                boxLength = (ulong)completeLength.Value;
+            }
+            else boxLength = size32;
+            if (boxLength < 16) return false;
+        }
+        if ((boxLength & 3) != 0 || (completeLength.HasValue && boxLength > (ulong)completeLength.Value)) return false;
+        var brand = src.Slice(brandOffset, 4);
+        ulong compatibilityLength = boxLength - (ulong)compatibleOffset;
+        int compatibleBytes = (int)Math.Min(240UL, Math.Min(compatibilityLength, (ulong)Math.Max(0, src.Length - compatibleOffset)));
+        ReadOnlySpan<byte> comp = compatibleBytes > 0 ? src.Slice(compatibleOffset, compatibleBytes) : ReadOnlySpan<byte>.Empty;
         static bool HasBrand(ReadOnlySpan<byte> major, ReadOnlySpan<byte> compat, ReadOnlySpan<byte> sought) {
             if (major.SequenceEqual(sought)) return true;
             for (int i = 0; i + 4 <= compat.Length; i += 4)

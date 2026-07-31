@@ -18,12 +18,12 @@ internal static partial class Signatures {
     internal static bool TryMatchGlb(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchGlb(src, src.Length, out result);
 
-    internal static bool TryMatchGlb(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchGlb(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 20 || !src.Slice(0, 4).SequenceEqual("glTF"u8) || completeLength > uint.MaxValue) return false;
         uint version = ReadUInt32LittleEndian(src, 4);
         uint totalLength = ReadUInt32LittleEndian(src, 8);
-        if (totalLength != completeLength) return false;
+        if (completeLength.HasValue && totalLength != completeLength.Value) return false;
 
         uint contentLength = ReadUInt32LittleEndian(src, 12);
         uint contentType = ReadUInt32LittleEndian(src, 16);

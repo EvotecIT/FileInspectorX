@@ -8,7 +8,7 @@ internal static partial class Signatures
     internal static bool TryMatchExtendedHeaderFormats(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchExtendedHeaderFormats(src, src.Length, out result);
 
-    internal static bool TryMatchExtendedHeaderFormats(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result)
+    internal static bool TryMatchExtendedHeaderFormats(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         if (TryMatchRpm(src, completeLength, out result)) return true;
         if (TryMatchQcow2(src, out result)) return true;
@@ -25,7 +25,7 @@ internal static partial class Signatures
     internal static bool TryMatchRpm(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchRpm(src, src.Length, out result);
 
-    internal static bool TryMatchRpm(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result)
+    internal static bool TryMatchRpm(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 112 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0xED, 0xAB, 0xEE, 0xDB })) return false;
@@ -36,7 +36,7 @@ internal static partial class Signatures
         uint indexCount = ReadUInt32BigEndian(src, 104);
         uint dataLength = ReadUInt32BigEndian(src, 108);
         if (indexCount is < 1 or > 65535 || dataLength > 0x40000000 ||
-            112L + indexCount * 16L + dataLength > completeLength) return false;
+            (completeLength.HasValue && 112L + indexCount * 16L + dataLength > completeLength.Value)) return false;
         result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
         return true;
     }

@@ -65,22 +65,16 @@ internal static partial class Signatures {
 
     internal static bool TryMatchNetCdf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 16 || src[0] != (byte)'C' || src[1] != (byte)'D' || src[2] != (byte)'F' ||
+        if (src.Length < 4 || src[0] != (byte)'C' || src[1] != (byte)'D' || src[2] != (byte)'F' ||
             (src[3] != 1 && src[3] != 2 && src[3] != 5))
             return false;
 
         bool isCdf5 = src[3] == 5;
-        if (isCdf5 && src.Length < 24) return false;
-        int dimensionTagOffset = isCdf5 ? 12 : 8;
-        int dimensionCountOffset = dimensionTagOffset + 4;
-        uint dimensionTag = ReadUInt32BigEndian(src, dimensionTagOffset);
-        if (dimensionTag == 0) {
-            int countBytes = isCdf5 ? 8 : 4;
-            for (int i = 0; i < countBytes; i++)
-                if (src[dimensionCountOffset + i] != 0) return false;
-        } else if (dimensionTag != 10) {
-            return false;
-        }
+        int cursor = 4;
+        if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out _) ||
+            !TrySkipNetCdfDimensions(src, ref cursor, isCdf5, out ulong dimensionCount) ||
+            !TrySkipNetCdfAttributes(src, ref cursor, isCdf5) ||
+            !TrySkipNetCdfVariables(src, ref cursor, isCdf5, src[3] == 1, dimensionCount)) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "nc",
@@ -89,6 +83,135 @@ internal static partial class Signatures {
             Reason = src[3] == 1 ? "netcdf:classic" : src[3] == 2 ? "netcdf:64-bit-offset" : "netcdf:64-bit-data"
         };
         return true;
+    }
+
+    internal static bool TryMatchNetCdf(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            int length = (int)Math.Min(stream.Length, 1L << 20);
+            if (length < 32) return false;
+            stream.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[length];
+            int read = ReadHeaderBytes(stream, bytes);
+            return TryMatchNetCdf(new ReadOnlySpan<byte>(bytes, 0, read), out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TrySkipNetCdfDimensions(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out ulong count)
+    {
+        count = 0;
+        if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 10, out count)) return false;
+        for (ulong i = 0; i < count; i++)
+            if (!TrySkipNetCdfName(src, ref cursor, isCdf5) ||
+                !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong dimensionLength) ||
+                dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue)) return false;
+        return true;
+    }
+
+    private static bool TrySkipNetCdfAttributes(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5)
+    {
+        if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 12, out ulong count)) return false;
+        for (ulong i = 0; i < count; i++)
+        {
+            if (!TrySkipNetCdfName(src, ref cursor, isCdf5) || cursor + 4 > src.Length) return false;
+            uint type = ReadUInt32BigEndian(src, cursor);
+            cursor += 4;
+            if (!TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) ||
+                !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong valueCount) ||
+                valueCount > (ulong)int.MaxValue / (uint)typeSize) return false;
+            ulong byteCount = valueCount * (uint)typeSize;
+            ulong padded = (byteCount + 3) & ~3UL;
+            if (padded > (ulong)(src.Length - cursor)) return false;
+            for (ulong padding = byteCount; padding < padded; padding++)
+                if (src[cursor + (int)padding] != 0) return false;
+            cursor += (int)padded;
+        }
+        return true;
+    }
+
+    private static bool TrySkipNetCdfVariables(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, bool cdf1, ulong dimensionCount)
+    {
+        if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 11, out ulong count)) return false;
+        for (ulong i = 0; i < count; i++)
+        {
+            if (!TrySkipNetCdfName(src, ref cursor, isCdf5) ||
+                !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong dimensions) || dimensions > 4095) return false;
+            for (ulong dimension = 0; dimension < dimensions; dimension++)
+                if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong id) || id >= dimensionCount) return false;
+            if (!TrySkipNetCdfAttributes(src, ref cursor, isCdf5) || cursor + 4 > src.Length) return false;
+            uint type = ReadUInt32BigEndian(src, cursor);
+            cursor += 4;
+            if (!TryGetNetCdfTypeSize(type, isCdf5, out _) ||
+                !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out _)) return false;
+            if (!TryReadNetCdfOffset(src, ref cursor, cdf1, out _)) return false;
+        }
+        return true;
+    }
+
+    private static bool TryReadNetCdfListHeader(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, uint expectedTag, out ulong count)
+    {
+        count = 0;
+        if (cursor + 4 > src.Length) return false;
+        uint tag = ReadUInt32BigEndian(src, cursor);
+        cursor += 4;
+        if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out count)) return false;
+        if (tag == 0) return count == 0;
+        return tag == expectedTag && count is > 0 and <= 1000000;
+    }
+
+    private static bool TrySkipNetCdfName(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5)
+    {
+        if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong length) ||
+            length == 0 || length > (ulong)(src.Length - cursor)) return false;
+        ulong padded = (length + 3) & ~3UL;
+        if (padded > (ulong)(src.Length - cursor) || src[cursor] <= 0x20 || src[cursor] == (byte)'/' || src[cursor] == 0x7F) return false;
+        for (ulong character = 0; character < length; character++)
+            if (src[cursor + (int)character] < 0x20 || src[cursor + (int)character] == (byte)'/' ||
+                src[cursor + (int)character] == 0x7F) return false;
+        if (src[cursor + (int)length - 1] == (byte)' ') return false;
+        for (ulong padding = length; padding < padded; padding++)
+            if (src[cursor + (int)padding] != 0) return false;
+        cursor += (int)padded;
+        return true;
+    }
+
+    private static bool TryReadNetCdfNonNegative(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out ulong value)
+    {
+        value = 0;
+        int size = isCdf5 ? 8 : 4;
+        if (cursor + size > src.Length) return false;
+        value = isCdf5 ? ReadUInt64(src, cursor, littleEndian: false) : ReadUInt32BigEndian(src, cursor);
+        cursor += size;
+        return isCdf5 ? value <= long.MaxValue || value == ulong.MaxValue : value <= int.MaxValue || value == uint.MaxValue;
+    }
+
+    private static bool TryReadNetCdfOffset(ReadOnlySpan<byte> src, ref int cursor, bool cdf1, out ulong value)
+    {
+        value = 0;
+        int size = cdf1 ? 4 : 8;
+        if (cursor + size > src.Length) return false;
+        value = cdf1 ? ReadUInt32BigEndian(src, cursor) : ReadUInt64(src, cursor, littleEndian: false);
+        cursor += size;
+        return value <= (ulong)(cdf1 ? int.MaxValue : long.MaxValue);
+    }
+
+    private static bool TryGetNetCdfTypeSize(uint type, bool isCdf5, out int size)
+    {
+        size = type switch { 1 or 2 or 7 => 1, 3 or 8 => 2, 4 or 5 or 9 => 4, 6 or 10 or 11 => 8, _ => 0 };
+        return size != 0 && (isCdf5 || type <= 6);
     }
 
     private static long NextHdf5Offset(long offset) => offset == 0 ? 512 : offset * 2;

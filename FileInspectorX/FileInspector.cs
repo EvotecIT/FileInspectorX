@@ -463,7 +463,7 @@ public static partial class FileInspector {
         var read = ReadAvailable(stream, header, 0, header.Length);
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
-        long completeLength = stream.CanSeek ? stream.Length : src.Length;
+        long? completeLength = stream.CanSeek ? stream.Length : null;
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
             => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
@@ -481,6 +481,7 @@ public static partial class FileInspector {
 
         if (stream.CanSeek && Signatures.TryMatchPe(stream, out var seekablePe)) return Finish(Enrich(seekablePe, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchCrx(stream, out var seekableCrx)) return Finish(Enrich(seekableCrx, src, stream, options));
         if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, out validatedZip))) {
             var refined = TryRefineZipOOxml(stream);
@@ -512,8 +513,9 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
         if (Signatures.TryMatchFtyp(src, completeLength, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
-        if (Signatures.TryMatchNetCdf(src, out var netCdf)) return Finish(Enrich(netCdf, src, stream, options));
-        if ((stream.CanSeek ? Signatures.TryMatchFont(stream, out var font) : Signatures.TryMatchFont(src, out font)))
+        if ((stream.CanSeek ? Signatures.TryMatchNetCdf(stream, out var netCdf) : Signatures.TryMatchNetCdf(src, out netCdf)))
+            return Finish(Enrich(netCdf, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchFont(stream, out var font) : Signatures.TryMatchFont(src, completeLength, out font)))
             return Finish(Enrich(font, src, stream, options));
         if (Signatures.TryMatchOpenExr(src, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
         if (Signatures.TryMatchPhotoshop(src, out var photoshop)) return Finish(Enrich(photoshop, src, stream, options));
@@ -528,7 +530,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
         if (Signatures.TryMatchJavaClass(src, out var javaClass)) return Finish(Enrich(javaClass, src, stream, options));
         if (Signatures.TryMatchDex(src, completeLength, out var dex)) return Finish(Enrich(dex, src, stream, options));
-        if (Signatures.TryMatchMachO(src, stream.CanSeek ? stream.Length : src.Length, out var macho)) return Finish(Enrich(macho, src, stream, options));
+        if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
         if (Signatures.TryMatchGlb(src, completeLength, out var glb)) return Finish(Enrich(glb, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, out tiff)))
