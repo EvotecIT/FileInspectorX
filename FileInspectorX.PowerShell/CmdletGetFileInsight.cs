@@ -96,14 +96,6 @@ namespace FileInspectorX.PowerShell {
         /// <summary>Exclude Windows shell properties (Explorer Details).</summary>
         [Parameter()] public SwitchParameter ExcludeShellProperties { get; set; }
 
-        /// <summary>
-        /// Use the bundled Magika learned classifier. This compatibility switch is enabled by
-        /// default; use DisableMagika or -UseMagika:$false for deterministic-only analysis.
-        /// Deterministic magic and structural validation remain authoritative when evidence conflicts.
-        /// </summary>
-        [Parameter()]
-        public SwitchParameter UseMagika { get; set; } = true;
-
         /// <summary>Disable the default Magika assistance and use deterministic analysis only.</summary>
         [Parameter()]
         public SwitchParameter DisableMagika { get; set; }
@@ -315,9 +307,18 @@ namespace FileInspectorX.PowerShell {
 #endif
         }
 
-        private bool IsMagikaEnabled =>
-            UseMagika &&
-            !DisableMagika &&
-            LearnedClassificationMode != FileInspectorX.LearnedClassificationMode.Off;
+        private bool IsMagikaEnabled
+        {
+            get
+            {
+#if FILEINSPECTORX_MAGIKA
+                return MagikaNativeRuntimeLoader.IsSupported &&
+                       !DisableMagika &&
+                       LearnedClassificationMode != FileInspectorX.LearnedClassificationMode.Off;
+#else
+                return false;
+#endif
+            }
+        }
     }
 }

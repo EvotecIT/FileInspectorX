@@ -39,13 +39,6 @@
         <DefineConstants>$(DefineConstants);FILEINSPECTORX_MAGIKA</DefineConstants>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(IncludeMagika)' == 'true' And '$(TargetFramework)' == 'net472'">
-        <!-- Windows PowerShell 5.1 is a Windows-only x64 host in the supported module matrix.
-             Selecting its RID makes the SDK copy ONNX Runtime's native companion. -->
-        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    </PropertyGroup>
-
     <PropertyGroup>
         <!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -73,6 +66,11 @@
 
     <ItemGroup>
         <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.ML.OnnxRuntime"
+                          Version="1.27.1"
+                          GeneratePathProperty="true"
+                          PrivateAssets="all"
+                          Condition="'$(IncludeMagika)' == 'true'" />
     </ItemGroup>
 
     <ItemGroup>
@@ -80,4 +78,81 @@
         <ProjectReference Include="..\FileInspectorX.Magika\FileInspectorX.Magika.csproj"
             Condition="'$(IncludeMagika)' == 'true'" />
     </ItemGroup>
+
+    <ItemGroup Condition="'$(IncludeMagika)' == 'true'">
+        <None Include="..\FileInspectorX.Magika\THIRD-PARTY-NOTICES.md"
+              Link="THIRD-PARTY-NOTICES.md"
+              CopyToOutputDirectory="PreserveNewest"
+              CopyToPublishDirectory="PreserveNewest" />
+        <None Include="..\FileInspectorX.Magika\THIRD-PARTY-LICENSES\Magika-Apache-2.0.txt"
+              Link="THIRD-PARTY-LICENSES\Magika-Apache-2.0.txt"
+              CopyToOutputDirectory="PreserveNewest"
+              CopyToPublishDirectory="PreserveNewest" />
+        <None Include="..\FileInspectorX.Magika\THIRD-PARTY-LICENSES\ONNX-Runtime-MIT.txt"
+              Link="THIRD-PARTY-LICENSES\ONNX-Runtime-MIT.txt"
+              CopyToOutputDirectory="PreserveNewest"
+              CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <!-- Keep the net472 cmdlet assembly AnyCPU so 32-bit Windows PowerShell can import it.
+         The x64 host uses these native companions; unsupported hosts stay deterministic-only. -->
+    <Target Name="CopyNet472MagikaNativeRuntimeToBuildOutput"
+            AfterTargets="Build"
+            Condition="'$(IncludeMagika)' == 'true' And '$(TargetFramework)' == 'net472'">
+        <ItemGroup>
+            <Net472MagikaNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-x64\native\onnxruntime.dll" />
+            <Net472MagikaNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-x64\native\onnxruntime_providers_shared.dll" />
+        </ItemGroup>
+        <Copy SourceFiles="@(Net472MagikaNativeRuntime)"
+              DestinationFolder="$(OutDir)"
+              SkipUnchangedFiles="true" />
+    </Target>
+
+    <!-- PowerForge publishes without one RuntimeIdentifier so that a single PowerShell module
+         can serve every supported host. Populate the publish tree with only the native assets
+         that the loader supports; PowerForge then preserves these runtimeTarget paths. -->
+    <Target Name="CopyMagikaNativeRuntimesToPublishOutput"
+            AfterTargets="Publish"
+            Condition="'$(IncludeMagika)' == 'true'">
+        <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\linux-arm64\native\libonnxruntime.so">
+                <RelativePath>runtimes/linux-arm64/native/libonnxruntime.so</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\linux-arm64\native\libonnxruntime_providers_shared.so">
+                <RelativePath>runtimes/linux-arm64/native/libonnxruntime_providers_shared.so</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\linux-x64\native\libonnxruntime.so">
+                <RelativePath>runtimes/linux-x64/native/libonnxruntime.so</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\linux-x64\native\libonnxruntime_providers_shared.so">
+                <RelativePath>runtimes/linux-x64/native/libonnxruntime_providers_shared.so</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\osx-arm64\native\libonnxruntime.dylib">
+                <RelativePath>runtimes/osx-arm64/native/libonnxruntime.dylib</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-arm64\native\onnxruntime.dll">
+                <RelativePath>runtimes/win-arm64/native/onnxruntime.dll</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-arm64\native\onnxruntime_providers_shared.dll">
+                <RelativePath>runtimes/win-arm64/native/onnxruntime_providers_shared.dll</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-x64\native\onnxruntime.dll">
+                <RelativePath>runtimes/win-x64/native/onnxruntime.dll</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-x64\native\onnxruntime_providers_shared.dll">
+                <RelativePath>runtimes/win-x64/native/onnxruntime_providers_shared.dll</RelativePath>
+            </MagikaPublishNativeRuntime>
+        </ItemGroup>
+        <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-x64\native\onnxruntime.dll">
+                <RelativePath>onnxruntime.dll</RelativePath>
+            </MagikaPublishNativeRuntime>
+            <MagikaPublishNativeRuntime Include="$(PkgMicrosoft_ML_OnnxRuntime)\runtimes\win-x64\native\onnxruntime_providers_shared.dll">
+                <RelativePath>onnxruntime_providers_shared.dll</RelativePath>
+            </MagikaPublishNativeRuntime>
+        </ItemGroup>
+        <Copy SourceFiles="@(MagikaPublishNativeRuntime)"
+              DestinationFiles="@(MagikaPublishNativeRuntime->'$(PublishDir)%(RelativePath)')"
+              SkipUnchangedFiles="true" />
+    </Target>
 </Project>

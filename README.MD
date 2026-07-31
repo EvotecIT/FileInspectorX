@@ -210,8 +210,9 @@ Get-FileInsight -Path .\source.txt -LearnedClassificationMode Required
 The normal PowerShell module bundles Magika and its ONNX runtime. `Assist` mode is the default:
 learned evidence enhances the typed deterministic result, while deterministic validation remains
 authoritative on conflicts. A provider failure is recorded without losing the deterministic result.
-Use `-DisableMagika` (or `-UseMagika:$false`) for deterministic-only analysis, or
-`-LearnedClassificationMode Required` when provider failure must terminate the file operation.
+Use `-DisableMagika` for deterministic-only analysis, or `-LearnedClassificationMode Required`
+when provider failure must terminate the file operation. Provider-free builds and unsupported
+process architectures automatically remain deterministic-only.
 
 ### PowerShell quick help
 

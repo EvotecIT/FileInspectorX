@@ -34,5 +34,8 @@
     <None Include="THIRD-PARTY-LICENSES\Magika-Apache-2.0.txt"
           Pack="true"
           PackagePath="THIRD-PARTY-LICENSES/" />
+    <None Include="THIRD-PARTY-LICENSES\ONNX-Runtime-MIT.txt"
+          Pack="true"
+          PackagePath="THIRD-PARTY-LICENSES/" />
   </ItemGroup>
 </Project>
