@@ -499,6 +499,7 @@ public static partial class FileInspector {
             return Finish(Enrich(refined ?? validatedOle, src, stream, options));
         }
         if (stream.CanSeek && Signatures.TryMatchMatroska(stream, out var seekableMatroska)) return Finish(Enrich(seekableMatroska, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchQcow2(stream, out var seekableQcow2)) return Finish(Enrich(seekableQcow2, src, stream, options));
         if (Signatures.TryMatchExtendedHeaderFormats(src, completeLength, out var extendedBinary)) return Finish(Enrich(extendedBinary, src, stream, options));
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first

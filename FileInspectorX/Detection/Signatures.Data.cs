@@ -92,12 +92,24 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try
         {
-            int length = (int)Math.Min(stream.Length, 1L << 20);
-            if (length < 32) return false;
             stream.Seek(0, SeekOrigin.Begin);
-            var bytes = new byte[length];
-            int read = ReadHeaderBytes(stream, bytes);
-            return TryMatchNetCdf(new ReadOnlySpan<byte>(bytes, 0, read), out result);
+            var reader = new NetCdfStreamReader(stream, stream.Length);
+            if (!reader.TryReadByte(out byte c) || c != (byte)'C' ||
+                !reader.TryReadByte(out byte d) || d != (byte)'D' ||
+                !reader.TryReadByte(out byte f) || f != (byte)'F' ||
+                !reader.TryReadByte(out byte version) || version is not (1 or 2 or 5)) return false;
+            bool isCdf5 = version == 5;
+            if (!reader.TryReadNonNegative(isCdf5, out _) ||
+                !reader.TrySkipDimensions(isCdf5, out ulong dimensionCount) ||
+                !reader.TrySkipAttributes(isCdf5) ||
+                !reader.TrySkipVariables(isCdf5, version == 1, dimensionCount)) return false;
+            result = new ContentTypeDetectionResult {
+                Extension = "nc",
+                MimeType = "application/x-netcdf",
+                Confidence = "High",
+                Reason = version == 1 ? "netcdf:classic" : version == 2 ? "netcdf:64-bit-offset" : "netcdf:64-bit-data"
+            };
+            return true;
         }
         catch
         {
@@ -107,6 +119,115 @@ internal static partial class Signatures {
         finally
         {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private sealed class NetCdfStreamReader {
+        private readonly Stream _stream;
+        private readonly long _length;
+
+        internal NetCdfStreamReader(Stream stream, long length) {
+            _stream = stream;
+            _length = length;
+        }
+
+        internal bool TryReadByte(out byte value) {
+            value = 0;
+            if (_stream.Position >= _length) return false;
+            int current = _stream.ReadByte();
+            if (current < 0) return false;
+            value = (byte)current;
+            return true;
+        }
+
+        private bool TryReadUInt32(out uint value) {
+            value = 0;
+            for (int i = 0; i < 4; i++) {
+                if (!TryReadByte(out byte current)) return false;
+                value = (value << 8) | current;
+            }
+            return true;
+        }
+
+        private bool TryReadUInt64(out ulong value) {
+            value = 0;
+            for (int i = 0; i < 8; i++) {
+                if (!TryReadByte(out byte current)) return false;
+                value = (value << 8) | current;
+            }
+            return true;
+        }
+
+        internal bool TryReadNonNegative(bool isCdf5, out ulong value) {
+            value = 0;
+            if (isCdf5) {
+                if (!TryReadUInt64(out value)) return false;
+                return value <= long.MaxValue || value == ulong.MaxValue;
+            }
+            if (!TryReadUInt32(out uint narrow)) return false;
+            value = narrow;
+            return narrow <= int.MaxValue || narrow == uint.MaxValue;
+        }
+
+        private bool TryReadListHeader(bool isCdf5, uint expectedTag, out ulong count) {
+            count = 0;
+            if (!TryReadUInt32(out uint tag) || !TryReadNonNegative(isCdf5, out count)) return false;
+            if (tag == 0) return count == 0;
+            return tag == expectedTag && count is > 0 and <= 1000000;
+        }
+
+        private bool TrySkipName(bool isCdf5) {
+            if (!TryReadNonNegative(isCdf5, out ulong length) || length == 0 ||
+                length > (ulong)Math.Max(0, _length - _stream.Position)) return false;
+            byte last = 0;
+            for (ulong i = 0; i < length; i++) {
+                if (!TryReadByte(out byte current) || current < 0x20 || current == (byte)'/' || current == 0x7F) return false;
+                last = current;
+            }
+            if (last == (byte)' ') return false;
+            int padding = (int)((4 - (length & 3)) & 3);
+            for (int i = 0; i < padding; i++)
+                if (!TryReadByte(out byte current) || current != 0) return false;
+            return true;
+        }
+
+        internal bool TrySkipDimensions(bool isCdf5, out ulong count) {
+            count = 0;
+            if (!TryReadListHeader(isCdf5, 10, out count)) return false;
+            for (ulong i = 0; i < count; i++)
+                if (!TrySkipName(isCdf5) || !TryReadNonNegative(isCdf5, out ulong dimensionLength) ||
+                    dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue)) return false;
+            return true;
+        }
+
+        internal bool TrySkipAttributes(bool isCdf5) {
+            if (!TryReadListHeader(isCdf5, 12, out ulong count)) return false;
+            for (ulong i = 0; i < count; i++) {
+                if (!TrySkipName(isCdf5) || !TryReadUInt32(out uint type) ||
+                    !TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) ||
+                    !TryReadNonNegative(isCdf5, out ulong valueCount) || valueCount > ulong.MaxValue / (uint)typeSize)
+                    return false;
+                ulong byteCount = valueCount * (uint)typeSize;
+                ulong padded = (byteCount + 3) & ~3UL;
+                if (padded < byteCount || padded > (ulong)Math.Max(0, _length - _stream.Position)) return false;
+                if (byteCount > long.MaxValue || _stream.Seek((long)byteCount, SeekOrigin.Current) > _length) return false;
+                for (ulong padding = byteCount; padding < padded; padding++)
+                    if (!TryReadByte(out byte current) || current != 0) return false;
+            }
+            return true;
+        }
+
+        internal bool TrySkipVariables(bool isCdf5, bool cdf1, ulong dimensionCount) {
+            if (!TryReadListHeader(isCdf5, 11, out ulong count)) return false;
+            for (ulong i = 0; i < count; i++) {
+                if (!TrySkipName(isCdf5) || !TryReadNonNegative(isCdf5, out ulong dimensions) || dimensions > 4095) return false;
+                for (ulong dimension = 0; dimension < dimensions; dimension++)
+                    if (!TryReadNonNegative(isCdf5, out ulong id) || id >= dimensionCount) return false;
+                if (!TrySkipAttributes(isCdf5) || !TryReadUInt32(out uint type) ||
+                    !TryGetNetCdfTypeSize(type, isCdf5, out _) || !TryReadNonNegative(isCdf5, out _) ||
+                    !(cdf1 ? TryReadUInt32(out _) : TryReadUInt64(out _))) return false;
+            }
+            return true;
         }
     }
 
@@ -242,14 +363,15 @@ internal static partial class Signatures {
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong eofAddress, out bool eofUndefined) ||
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong driverAddress, out bool driverUndefined)) return false;
             if (baseUndefined || eofUndefined || baseAddress != (ulong)signatureOffset ||
-                eofAddress <= (ulong)(signatureOffset + cursor) || eofAddress > (ulong)fileLength ||
-                (!freeUndefined && (!TryAddHdfRelativeAddress(baseAddress, freeAddress, out ulong absoluteFree) || absoluteFree >= eofAddress)) ||
-                (!driverUndefined && (!TryAddHdfRelativeAddress(baseAddress, driverAddress, out ulong absoluteDriver) || absoluteDriver >= eofAddress))) return false;
+                !TryAddHdfRelativeAddress(baseAddress, eofAddress, out ulong absoluteEof) ||
+                absoluteEof <= (ulong)(signatureOffset + cursor) || absoluteEof > (ulong)fileLength ||
+                (!freeUndefined && (!TryAddHdfRelativeAddress(baseAddress, freeAddress, out ulong absoluteFree) || absoluteFree >= absoluteEof)) ||
+                (!driverUndefined && (!TryAddHdfRelativeAddress(baseAddress, driverAddress, out ulong absoluteDriver) || absoluteDriver >= absoluteEof))) return false;
             if (!TryReadHdfAddress(src, ref cursor, offsetSize, out _, out bool linkNameUndefined) ||
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong objectHeaderAddress, out bool objectHeaderUndefined) ||
                 cursor + 24 > src.Length || linkNameUndefined || objectHeaderUndefined ||
                 !TryAddHdfRelativeAddress(baseAddress, objectHeaderAddress, out ulong absoluteObjectHeader) ||
-                absoluteObjectHeader < (ulong)(signatureOffset + cursor + 24) || absoluteObjectHeader >= eofAddress) return false;
+                absoluteObjectHeader < (ulong)(signatureOffset + cursor + 24) || absoluteObjectHeader >= absoluteEof) return false;
             uint cacheType = ReadUInt32LittleEndian(src, cursor);
             if (cacheType > 1 || ReadUInt32LittleEndian(src, cursor + 4) != 0) return false;
             return true;
@@ -270,11 +392,12 @@ internal static partial class Signatures {
         uint expectedChecksum = ReadUInt32LittleEndian(src, modernCursor);
         if (expectedChecksum != ComputeHdf5SuperblockChecksum(src.Slice(0, modernCursor)) ||
             modernBaseUndefined || modernEofUndefined || rootUndefined || modernBase != (ulong)signatureOffset ||
-            modernEof <= (ulong)(signatureOffset + modernCursor + 4) || modernEof > (ulong)fileLength ||
+            !TryAddHdfRelativeAddress(modernBase, modernEof, out ulong absoluteModernEof) ||
+            absoluteModernEof <= (ulong)(signatureOffset + modernCursor + 4) || absoluteModernEof > (ulong)fileLength ||
             !TryAddHdfRelativeAddress(modernBase, rootAddress, out ulong absoluteRoot) ||
-            absoluteRoot < (ulong)(signatureOffset + modernCursor + 4) || absoluteRoot >= modernEof ||
+            absoluteRoot < (ulong)(signatureOffset + modernCursor + 4) || absoluteRoot >= absoluteModernEof ||
             (!extensionUndefined && (!TryAddHdfRelativeAddress(modernBase, extensionAddress, out ulong absoluteExtension) ||
-                                     absoluteExtension < (ulong)(signatureOffset + modernCursor + 4) || absoluteExtension >= modernEof))) return false;
+                                     absoluteExtension < (ulong)(signatureOffset + modernCursor + 4) || absoluteExtension >= absoluteModernEof))) return false;
         return true;
     }
 

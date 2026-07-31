@@ -14,6 +14,8 @@ internal static partial class Signatures {
         try {
             if (stream.Length < 4 || !TryReadAt(stream, 0, (int)Math.Min(64, stream.Length), out var prefix)) return false;
             var src = new ReadOnlySpan<byte>(prefix);
+            if (src.Length >= 4 && src.Slice(0, 4).SequenceEqual("wOF2"u8))
+                return TryMatchWoff2(stream, src, out result);
             if (!src.Slice(0, 4).SequenceEqual("ttcf"u8))
                 return TryMatchFont(src, stream.Length, out result);
 
@@ -42,6 +44,104 @@ internal static partial class Signatures {
         } finally {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
+
+    private static bool TryMatchWoff2(Stream stream, ReadOnlySpan<byte> header, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (header.Length < 48 || stream.Length > uint.MaxValue) return false;
+        uint declaredLength = ReadUInt32BigEndian(header, 8);
+        ushort tableCount = ReadUInt16BigEndian(header, 12);
+        if (declaredLength != stream.Length || tableCount is < 1 or > 4095) return false;
+
+        long cursor = 48;
+        stream.Seek(cursor, SeekOrigin.Begin);
+        Span<byte> tag = stackalloc byte[4];
+        for (int table = 0; table < tableCount; table++) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte flags)) return false;
+            int tagIndex = flags & 0x3F;
+            int transformVersion = flags >> 6;
+            bool isGlyfOrLoca = tagIndex is 10 or 11;
+            if (tagIndex == 0x3F) {
+                for (int i = 0; i < tag.Length; i++) {
+                    if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out tag[i]) || tag[i] < 0x20 || tag[i] > 0x7E)
+                        return false;
+                }
+                isGlyfOrLoca = tag.SequenceEqual("glyf"u8) || tag.SequenceEqual("loca"u8);
+            }
+            if (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint originalLength) || originalLength == 0)
+                return false;
+            bool transformed = isGlyfOrLoca ? transformVersion != 3 : transformVersion != 0;
+            if (transformed && !TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out _)) return false;
+        }
+
+        if (ReadUInt32BigEndian(header, 4) == 0x74746366 &&
+            !TryReadWoff2CollectionDirectory(stream, declaredLength, ref cursor, tableCount)) return false;
+        if (cursor > int.MaxValue || !TryReadAt(stream, 0, (int)cursor, out var directory)) return false;
+        return TryMatchFont(new ReadOnlySpan<byte>(directory), stream.Length, out result);
+    }
+
+    private static bool TryReadWoff2CollectionDirectory(Stream stream, uint declaredLength, ref long cursor, ushort tableCount) {
+        if (!TryReadWoff2UInt32(stream, declaredLength, ref cursor, out uint version) ||
+            version is not (0x00010000u or 0x00020000u) ||
+            !TryReadWoff2255UInt16(stream, declaredLength, ref cursor, out ushort fontCount) || fontCount == 0) return false;
+
+        for (int font = 0; font < fontCount; font++) {
+            if (!TryReadWoff2255UInt16(stream, declaredLength, ref cursor, out ushort fontTableCount) ||
+                fontTableCount == 0 || fontTableCount > tableCount ||
+                !TryReadWoff2UInt32(stream, declaredLength, ref cursor, out uint flavor) ||
+                !TryGetSfntFlavor(flavor, out _, out _)) return false;
+            for (int table = 0; table < fontTableCount; table++)
+                if (!TryReadWoff2255UInt16(stream, declaredLength, ref cursor, out ushort index) || index >= tableCount) return false;
+        }
+        return true;
+    }
+
+    private static bool TryReadWoff2Byte(Stream stream, uint declaredLength, ref long cursor, out byte value) {
+        value = 0;
+        if (cursor >= declaredLength) return false;
+        int current = stream.ReadByte();
+        if (current < 0) return false;
+        cursor++;
+        value = (byte)current;
+        return true;
+    }
+
+    private static bool TryReadWoff2UInt32(Stream stream, uint declaredLength, ref long cursor, out uint value) {
+        value = 0;
+        for (int i = 0; i < 4; i++) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte current)) return false;
+            value = (value << 8) | current;
+        }
+        return true;
+    }
+
+    private static bool TryReadWoff2UIntBase128(Stream stream, uint declaredLength, ref long cursor, out uint value) {
+        value = 0;
+        for (int i = 0; i < 5; i++) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte current) ||
+                (i == 0 && current == 0x80) || (value & 0xFE000000u) != 0) return false;
+            value = (value << 7) | (uint)(current & 0x7F);
+            if ((current & 0x80) == 0) return true;
+        }
+        return false;
+    }
+
+    private static bool TryReadWoff2255UInt16(Stream stream, uint declaredLength, ref long cursor, out ushort value) {
+        value = 0;
+        if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte code)) return false;
+        if (code == 253) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte high) ||
+                !TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte low)) return false;
+            value = (ushort)(high << 8 | low);
+            return true;
+        }
+        if (code is 254 or 255) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte tail)) return false;
+            value = (ushort)(tail + (code == 255 ? 253 : 506));
+            return true;
+        }
+        value = code;
+        return true;
     }
 
     internal static bool TryMatchFont(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {

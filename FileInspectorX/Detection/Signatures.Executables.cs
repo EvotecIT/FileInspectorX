@@ -28,13 +28,15 @@ internal static partial class Signatures {
         ushort programCount = ReadUInt16(src, programCountOffset, littleEndian);
         ushort sectionEntrySize = ReadUInt16(src, sectionEntrySizeOffset, littleEndian);
         ushort sectionCount = ReadUInt16(src, sectionCountOffset, littleEndian);
-        if (etype is < 1 or > 4 || emach == 0 || version != 1 || declaredHeaderSize != headerSize) return false;
+        bool knownType = etype <= 4 || etype is >= 0xFE00 and <= 0xFEFF || etype >= 0xFF00;
+        if (!knownType || emach == 0 || version != 1 || declaredHeaderSize != headerSize) return false;
         if (programCount > 0 && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
         if (sectionCount > 0 && sectionEntrySize != (clazz == 1 ? 40 : 64)) return false;
 
         string c = clazz == 2 ? "64" : "32";
         string e = littleEndian ? "le" : "be";
-        string et = etype == 1 ? "rel" : etype == 2 ? "exec" : etype == 3 ? "dyn" : "core";
+        string et = etype == 0 ? "none" : etype == 1 ? "rel" : etype == 2 ? "exec" : etype == 3 ? "dyn" :
+            etype == 4 ? "core" : etype <= 0xFEFF ? "os-specific" : "processor-specific";
         string mach = emach switch {
             3 => "x86", 62 => "x86_64", 40 => "arm", 183 => "aarch64", 8 => "mips", 50 => "ia64", 243 => "riscv", _ => emach.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };

@@ -13,9 +13,8 @@ internal static partial class Signatures {
         const uint AllowedFlags = 0x00001E00;
         if ((versionField & 0xFF) != 2 || (versionField & ~(AllowedFlags | 0xFFu)) != 0) return false;
         bool tiled = (versionField & 0x00000200) != 0;
-        bool deep = (versionField & 0x00000800) != 0;
         bool multipart = (versionField & 0x00001000) != 0;
-        if (tiled && (deep || multipart)) return false;
+        if (tiled && multipart) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "exr",

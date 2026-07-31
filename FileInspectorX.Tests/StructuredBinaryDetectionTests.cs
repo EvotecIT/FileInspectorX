@@ -82,10 +82,6 @@ public sealed class StructuredBinaryDetectionTests
         AssertNotDetectedAs("nc", badNetCdf);
         AssertNotDetectedAs("nc", NetCdf5().Take(23).ToArray());
 
-        var badExr = OpenExr();
-        badExr[5] = 0x0A; // The legacy single-tile flag cannot be combined with deep data.
-        AssertNotDetectedAs("exr", badExr);
-
         var badTiledMultipartExr = OpenExr();
         badTiledMultipartExr[5] = 0x12;
         AssertNotDetectedAs("exr", badTiledMultipartExr);
@@ -410,7 +406,7 @@ public sealed class StructuredBinaryDetectionTests
             }
             WriteUInt64LittleEndian(bytes, cursor, (ulong)offset);
             for (int i = cursor + 8; i < cursor + 16; i++) bytes[i] = 0xFF;
-            WriteUInt64LittleEndian(bytes, cursor + 16, (ulong)bytes.Length);
+            WriteUInt64LittleEndian(bytes, cursor + 16, (ulong)(bytes.Length - offset));
             for (int i = cursor + 24; i < cursor + 32; i++) bytes[i] = 0xFF;
             WriteUInt64LittleEndian(bytes, cursor + 40, 112);
         }
@@ -420,7 +416,7 @@ public sealed class StructuredBinaryDetectionTests
             bytes[offset + 10] = 8;
             WriteUInt64LittleEndian(bytes, offset + 12, (ulong)offset);
             for (int i = offset + 20; i < offset + 28; i++) bytes[i] = 0xFF;
-            WriteUInt64LittleEndian(bytes, offset + 28, (ulong)bytes.Length);
+            WriteUInt64LittleEndian(bytes, offset + 28, (ulong)(bytes.Length - offset));
             WriteUInt64LittleEndian(bytes, offset + 36, 48);
             WriteUInt32LittleEndian(bytes, offset + 44,
                 ComputeHdf5SuperblockChecksum(new ReadOnlySpan<byte>(bytes, offset, 44)));

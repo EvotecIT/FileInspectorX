@@ -11,7 +11,7 @@ internal static partial class Signatures
     internal static bool TryMatchExtendedHeaderFormats(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         if (TryMatchRpm(src, completeLength, out result)) return true;
-        if (TryMatchQcow2(src, out result)) return true;
+        if (TryMatchQcow2(src, completeLength, out result)) return true;
         if (TryMatchMidi(src, out result)) return true;
         if (TryMatchDds(src, out result)) return true;
         if (TryMatchQoi(src, out result)) return true;
@@ -42,6 +42,38 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchQcow2(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchQcow2(src, src.Length, out result);
+
+    internal static bool TryMatchQcow2(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 72 || !TryReadAt(stream, 0, (int)Math.Min(104, stream.Length), out var header)) return false;
+            var headerSpan = new ReadOnlySpan<byte>(header);
+            if (headerSpan.Length < 36 || ReadUInt32BigEndian(headerSpan, 32) != 2)
+                return TryMatchQcow2(headerSpan, stream.Length, out result);
+            if (headerSpan.Length < 104) return false;
+            uint clusterBits = ReadUInt32BigEndian(headerSpan, 20);
+            if (clusterBits is < 9 or > 21) return false;
+            int extensionAreaLength = (int)Math.Min(1L << (int)clusterBits, stream.Length);
+            if (!TryReadAt(stream, 0, extensionAreaLength, out var extensionArea)) return false;
+            return TryMatchQcow2(new ReadOnlySpan<byte>(extensionArea), stream.Length, out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    internal static bool TryMatchQcow2(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 72 || !src.Slice(0, 4).SequenceEqual(new byte[] { (byte)'Q', (byte)'F', (byte)'I', 0xFB })) return false;
@@ -55,17 +87,50 @@ internal static partial class Signatures
         ulong l1Offset = ReadUInt64(src, 40, littleEndian: false);
         ulong refcountOffset = ReadUInt64(src, 48, littleEndian: false);
         uint refcountClusters = ReadUInt32BigEndian(src, 56);
-        if (version is not (2u or 3u) || clusterBits is < 9 or > 21 || virtualSize == 0 || cryptMethod > 1 ||
+        if (version is not (2u or 3u) || clusterBits is < 9 or > 21 || virtualSize == 0 || cryptMethod > 2 ||
             l1Size == 0 || l1Offset == 0 || refcountOffset == 0 || refcountClusters == 0) return false;
         ulong clusterSize = 1UL << (int)clusterBits;
         if ((l1Offset & (clusterSize - 1)) != 0 || (refcountOffset & (clusterSize - 1)) != 0) return false;
         if ((backingOffset == 0) != (backingSize == 0)) return false;
         if (version == 3)
         {
-            if (src.Length < 104 || ReadUInt32BigEndian(src, 100) < 104) return false;
+            if (src.Length < 104) return false;
+            uint headerLength = ReadUInt32BigEndian(src, 100);
+            if (headerLength < 104 || (headerLength & 7) != 0 ||
+                (completeLength.HasValue && headerLength > completeLength.Value)) return false;
+            if (cryptMethod == 2 && !TryValidateQcow2LuksExtension(src, headerLength, clusterSize, completeLength)) return false;
         }
+        else if (cryptMethod == 2) return false;
         result = BinaryResult("qcow2", "application/x-qemu-disk", $"qcow2:version={version}");
         return true;
+    }
+
+    private static bool TryValidateQcow2LuksExtension(ReadOnlySpan<byte> src, uint headerLength, ulong clusterSize, long? completeLength)
+    {
+        int cursor = (int)headerLength;
+        bool found = false;
+        while (cursor + 8 <= src.Length && (ulong)cursor < clusterSize)
+        {
+            uint type = ReadUInt32BigEndian(src, cursor);
+            uint length = ReadUInt32BigEndian(src, cursor + 4);
+            cursor += 8;
+            if (type == 0) return length == 0 && found;
+            ulong paddedLength = ((ulong)length + 7) & ~7UL;
+            if (paddedLength > int.MaxValue || (ulong)cursor + paddedLength > (ulong)src.Length ||
+                (ulong)cursor + paddedLength > clusterSize) return false;
+            if (type == 0x0537BE77)
+            {
+                if (found || length != 16) return false;
+                ulong offset = ReadUInt64(src, cursor, littleEndian: false);
+                ulong encryptionLength = ReadUInt64(src, cursor + 8, littleEndian: false);
+                if (offset == 0 || encryptionLength < 592 || (offset & (clusterSize - 1)) != 0 ||
+                    (completeLength.HasValue && (offset > (ulong)completeLength.Value ||
+                                                 encryptionLength > (ulong)completeLength.Value - offset))) return false;
+                found = true;
+            }
+            cursor += (int)paddedLength;
+        }
+        return false;
     }
 
     internal static bool TryMatchMidi(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
