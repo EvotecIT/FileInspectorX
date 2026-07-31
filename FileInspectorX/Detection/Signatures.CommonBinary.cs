@@ -233,6 +233,8 @@ internal static partial class Signatures
 
         ushort optionalMagic = ReadUInt16LittleEndian(peHeader, 24);
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;
+        int minimumOptionalHeaderSize = optionalMagic == 0x10B ? 96 : 112;
+        if (optionalHeaderSize < minimumOptionalHeaderSize) return false;
         string extension = (characteristics & 0x2000) != 0 ? "dll" : "exe";
         result = new ContentTypeDetectionResult
         {

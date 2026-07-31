@@ -309,11 +309,12 @@ internal static partial class Signatures {
         }
 
         string extension = isWoff2 ? "woff2" : "woff";
+        bool nonCanonicalReserved = isWoff2 && reserved != 0;
         result = new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = "font/" + extension,
-            Confidence = "High",
-            Reason = "font:" + extension
+            Confidence = nonCanonicalReserved ? "Medium" : "High",
+            Reason = "font:" + extension + (nonCanonicalReserved ? ";reserved-nonzero" : "")
         };
         return true;
     }

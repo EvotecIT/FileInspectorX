@@ -81,6 +81,7 @@ internal static partial class Signatures {
         } else if (commandBytes / 8 < commandCount) {
             return false;
         }
+        if (totalLength.HasValue && (ulong)headerSize + commandBytes > (ulong)totalLength.Value) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "macho",

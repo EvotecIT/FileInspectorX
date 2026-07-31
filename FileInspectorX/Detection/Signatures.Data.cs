@@ -31,7 +31,8 @@ internal static partial class Signatures {
             return false;
         }
 
-        var superblock = new byte[128];
+        // Version 1 with 16-byte offsets needs 148 bytes through the root symbol-table entry.
+        var superblock = new byte[160];
         try {
             for (long offset = 0; offset <= length - Hdf5Signature.Length; offset = NextHdf5Offset(offset)) {
                 if (offset < minimumOffset) {
