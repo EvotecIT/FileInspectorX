@@ -133,6 +133,28 @@ public sealed class ValidatedFormatDetectionTests
     }
 
     [Fact]
+    public void EmptyZipCommentKeepsApiParity()
+    {
+        var bytes = new byte[27];
+        WriteUInt32LittleEndian(bytes, 0, 0x06054B50);
+        WriteUInt16LittleEndian(bytes, 20, 5);
+        Encoding.ASCII.GetBytes("notes").CopyTo(bytes, 22);
+        using var stream = new MemoryStream(bytes, writable: false);
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+            Assert.Equal("zip", FileInspector.Detect(bytes)?.Extension);
+            Assert.Equal("zip", FileInspector.Detect(stream)?.Extension);
+            Assert.Equal("zip", FileInspector.Detect(path)?.Extension);
+        }
+        finally
+        {
+            TestHelpers.SafeDelete(path);
+        }
+    }
+
+    [Fact]
     public void ArrowRootOffsetCannotWrapPastItsFooter()
     {
         var bytes = Arrow();

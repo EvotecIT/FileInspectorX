@@ -194,6 +194,15 @@ public sealed class StructuredBinaryDetectionTests
         => Assert.Equal("h5", FileInspector.Detect(Hdf5(0, version))?.Extension);
 
     [Fact]
+    public void Hdf5ModernSuperblockRequiresItsChecksum()
+    {
+        var bytes = Hdf5(0, 3);
+        bytes[44] ^= 0x01;
+
+        AssertNotDetectedAs("h5", bytes);
+    }
+
+    [Fact]
     public void FatMachOMemberMustFitInsideTheCompleteFile()
     {
         var truncated = FatMachO().Take(28).ToArray();
@@ -403,7 +412,7 @@ public sealed class StructuredBinaryDetectionTests
             for (int i = cursor + 8; i < cursor + 16; i++) bytes[i] = 0xFF;
             WriteUInt64LittleEndian(bytes, cursor + 16, (ulong)bytes.Length);
             for (int i = cursor + 24; i < cursor + 32; i++) bytes[i] = 0xFF;
-            WriteUInt64LittleEndian(bytes, cursor + 40, (ulong)(offset + 112));
+            WriteUInt64LittleEndian(bytes, cursor + 40, 112);
         }
         else
         {
@@ -412,7 +421,9 @@ public sealed class StructuredBinaryDetectionTests
             WriteUInt64LittleEndian(bytes, offset + 12, (ulong)offset);
             for (int i = offset + 20; i < offset + 28; i++) bytes[i] = 0xFF;
             WriteUInt64LittleEndian(bytes, offset + 28, (ulong)bytes.Length);
-            WriteUInt64LittleEndian(bytes, offset + 36, (ulong)(offset + 48));
+            WriteUInt64LittleEndian(bytes, offset + 36, 48);
+            WriteUInt32LittleEndian(bytes, offset + 44,
+                ComputeHdf5SuperblockChecksum(new ReadOnlySpan<byte>(bytes, offset, 44)));
             System.Text.Encoding.ASCII.GetBytes("OHDR").CopyTo(bytes, offset + 48);
         }
         return bytes;
@@ -493,4 +504,78 @@ public sealed class StructuredBinaryDetectionTests
     {
         for (int i = 0; i < 8; i++) bytes[offset + i] = (byte)(value >> (i * 8));
     }
+
+    private static uint ReadUInt32LittleEndian(ReadOnlySpan<byte> bytes, int offset)
+        => (uint)(bytes[offset] |
+                  (bytes[offset + 1] << 8) |
+                  (bytes[offset + 2] << 16) |
+                  (bytes[offset + 3] << 24));
+
+    private static uint ComputeHdf5SuperblockChecksum(ReadOnlySpan<byte> src)
+    {
+        unchecked
+        {
+            uint a = 0xDEADBEEF + (uint)src.Length;
+            uint b = a;
+            uint c = a;
+            int cursor = 0;
+            int remaining = src.Length;
+            while (remaining > 12)
+            {
+                a += ReadUInt32LittleEndian(src, cursor);
+                b += ReadUInt32LittleEndian(src, cursor + 4);
+                c += ReadUInt32LittleEndian(src, cursor + 8);
+                MixHdf5Checksum(ref a, ref b, ref c);
+                cursor += 12;
+                remaining -= 12;
+            }
+            switch (remaining)
+            {
+                case 12: c += (uint)src[cursor + 11] << 24; goto case 11;
+                case 11: c += (uint)src[cursor + 10] << 16; goto case 10;
+                case 10: c += (uint)src[cursor + 9] << 8; goto case 9;
+                case 9: c += src[cursor + 8]; goto case 8;
+                case 8: b += (uint)src[cursor + 7] << 24; goto case 7;
+                case 7: b += (uint)src[cursor + 6] << 16; goto case 6;
+                case 6: b += (uint)src[cursor + 5] << 8; goto case 5;
+                case 5: b += src[cursor + 4]; goto case 4;
+                case 4: a += (uint)src[cursor + 3] << 24; goto case 3;
+                case 3: a += (uint)src[cursor + 2] << 16; goto case 2;
+                case 2: a += (uint)src[cursor + 1] << 8; goto case 1;
+                case 1: a += src[cursor]; break;
+                case 0: return c;
+            }
+            FinalizeHdf5Checksum(ref a, ref b, ref c);
+            return c;
+        }
+    }
+
+    private static void MixHdf5Checksum(ref uint a, ref uint b, ref uint c)
+    {
+        unchecked
+        {
+            a -= c; a ^= RotateLeft(c, 4); c += b;
+            b -= a; b ^= RotateLeft(a, 6); a += c;
+            c -= b; c ^= RotateLeft(b, 8); b += a;
+            a -= c; a ^= RotateLeft(c, 16); c += b;
+            b -= a; b ^= RotateLeft(a, 19); a += c;
+            c -= b; c ^= RotateLeft(b, 4); b += a;
+        }
+    }
+
+    private static void FinalizeHdf5Checksum(ref uint a, ref uint b, ref uint c)
+    {
+        unchecked
+        {
+            c ^= b; c -= RotateLeft(b, 14);
+            a ^= c; a -= RotateLeft(c, 11);
+            b ^= a; b -= RotateLeft(a, 25);
+            c ^= b; c -= RotateLeft(b, 16);
+            a ^= c; a -= RotateLeft(c, 4);
+            b ^= a; b -= RotateLeft(a, 14);
+            c ^= b; c -= RotateLeft(b, 24);
+        }
+    }
+
+    private static uint RotateLeft(uint value, int count) => (value << count) | (value >> (32 - count));
 }

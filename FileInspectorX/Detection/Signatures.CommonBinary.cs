@@ -88,7 +88,7 @@ internal static partial class Signatures
         ushort commentLength = ReadUInt16LittleEndian(src, 20);
         if (disk != 0 || centralDisk != 0 || entriesOnDisk != entriesTotal ||
             (entriesTotal == 0) != (centralSize == 0 && centralOffset == 0) ||
-            22L + commentLength > src.Length) return false;
+            22L + commentLength != src.Length) return false;
         result = BinaryResult("zip", "application/zip", "zip:end-of-central-directory");
         return true;
     }
@@ -117,8 +117,19 @@ internal static partial class Signatures
                 result = BinaryResult("zip", "application/zip", "zip:local-file-header");
                 return true;
             }
-            if (stream.Length != 22 || read < 22) return false;
-            return TryMatchZip(src.Slice(0, 22), out result);
+            if (read < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
+            ushort disk = ReadUInt16LittleEndian(src, 4);
+            ushort centralDisk = ReadUInt16LittleEndian(src, 6);
+            ushort entriesOnDisk = ReadUInt16LittleEndian(src, 8);
+            ushort entriesTotal = ReadUInt16LittleEndian(src, 10);
+            uint centralSize = ReadUInt32LittleEndian(src, 12);
+            uint centralOffset = ReadUInt32LittleEndian(src, 16);
+            ushort commentLength = ReadUInt16LittleEndian(src, 20);
+            if (disk != 0 || centralDisk != 0 || entriesOnDisk != entriesTotal ||
+                (entriesTotal == 0) != (centralSize == 0 && centralOffset == 0) ||
+                22L + commentLength != stream.Length) return false;
+            result = BinaryResult("zip", "application/zip", "zip:end-of-central-directory");
+            return true;
         }
         catch
         {

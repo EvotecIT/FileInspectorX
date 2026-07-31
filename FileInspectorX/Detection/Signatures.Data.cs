@@ -118,12 +118,15 @@ internal static partial class Signatures {
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong freeAddress, out bool freeUndefined) ||
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong eofAddress, out bool eofUndefined) ||
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong driverAddress, out bool driverUndefined)) return false;
-            if (baseUndefined || eofUndefined || baseAddress > (ulong)fileLength ||
+            if (baseUndefined || eofUndefined || baseAddress != (ulong)signatureOffset ||
                 eofAddress <= (ulong)(signatureOffset + cursor) || eofAddress > (ulong)fileLength ||
-                (!freeUndefined && freeAddress >= eofAddress) || (!driverUndefined && driverAddress >= eofAddress)) return false;
+                (!freeUndefined && (!TryAddHdfRelativeAddress(baseAddress, freeAddress, out ulong absoluteFree) || absoluteFree >= eofAddress)) ||
+                (!driverUndefined && (!TryAddHdfRelativeAddress(baseAddress, driverAddress, out ulong absoluteDriver) || absoluteDriver >= eofAddress))) return false;
             if (!TryReadHdfAddress(src, ref cursor, offsetSize, out _, out bool linkNameUndefined) ||
                 !TryReadHdfAddress(src, ref cursor, offsetSize, out ulong objectHeaderAddress, out bool objectHeaderUndefined) ||
-                cursor + 24 > src.Length || linkNameUndefined || objectHeaderUndefined || objectHeaderAddress >= eofAddress) return false;
+                cursor + 24 > src.Length || linkNameUndefined || objectHeaderUndefined ||
+                !TryAddHdfRelativeAddress(baseAddress, objectHeaderAddress, out ulong absoluteObjectHeader) ||
+                absoluteObjectHeader < (ulong)(signatureOffset + cursor + 24) || absoluteObjectHeader >= eofAddress) return false;
             uint cacheType = ReadUInt32LittleEndian(src, cursor);
             if (cacheType > 1 || ReadUInt32LittleEndian(src, cursor + 4) != 0) return false;
             return true;
@@ -141,12 +144,88 @@ internal static partial class Signatures {
             !TryReadHdfAddress(src, ref modernCursor, modernOffsetSize, out ulong modernEof, out bool modernEofUndefined) ||
             !TryReadHdfAddress(src, ref modernCursor, modernOffsetSize, out ulong rootAddress, out bool rootUndefined) ||
             modernCursor + 4 > src.Length) return false;
-        if (modernBaseUndefined || modernEofUndefined || rootUndefined || modernBase > (ulong)fileLength ||
+        uint expectedChecksum = ReadUInt32LittleEndian(src, modernCursor);
+        if (expectedChecksum != ComputeHdf5SuperblockChecksum(src.Slice(0, modernCursor)) ||
+            modernBaseUndefined || modernEofUndefined || rootUndefined || modernBase != (ulong)signatureOffset ||
             modernEof <= (ulong)(signatureOffset + modernCursor + 4) || modernEof > (ulong)fileLength ||
-            rootAddress < (ulong)(signatureOffset + modernCursor + 4) || rootAddress >= modernEof ||
-            (!extensionUndefined && (extensionAddress < (ulong)(signatureOffset + modernCursor + 4) || extensionAddress >= modernEof))) return false;
+            !TryAddHdfRelativeAddress(modernBase, rootAddress, out ulong absoluteRoot) ||
+            absoluteRoot < (ulong)(signatureOffset + modernCursor + 4) || absoluteRoot >= modernEof ||
+            (!extensionUndefined && (!TryAddHdfRelativeAddress(modernBase, extensionAddress, out ulong absoluteExtension) ||
+                                     absoluteExtension < (ulong)(signatureOffset + modernCursor + 4) || absoluteExtension >= modernEof))) return false;
         return true;
     }
+
+    private static bool TryAddHdfRelativeAddress(ulong baseAddress, ulong relativeAddress, out ulong absoluteAddress) {
+        if (ulong.MaxValue - baseAddress < relativeAddress) {
+            absoluteAddress = 0;
+            return false;
+        }
+        absoluteAddress = baseAddress + relativeAddress;
+        return true;
+    }
+
+    // HDF5 superblock versions 2 and 3 use Bob Jenkins' lookup3/hashlittle checksum.
+    private static uint ComputeHdf5SuperblockChecksum(ReadOnlySpan<byte> src) {
+        unchecked {
+            uint a = 0xDEADBEEF + (uint)src.Length;
+            uint b = a;
+            uint c = a;
+            int cursor = 0;
+            int remaining = src.Length;
+            while (remaining > 12) {
+                a += ReadUInt32LittleEndian(src, cursor);
+                b += ReadUInt32LittleEndian(src, cursor + 4);
+                c += ReadUInt32LittleEndian(src, cursor + 8);
+                MixHdf5Checksum(ref a, ref b, ref c);
+                cursor += 12;
+                remaining -= 12;
+            }
+
+            switch (remaining) {
+                case 12: c += (uint)src[cursor + 11] << 24; goto case 11;
+                case 11: c += (uint)src[cursor + 10] << 16; goto case 10;
+                case 10: c += (uint)src[cursor + 9] << 8; goto case 9;
+                case 9: c += src[cursor + 8]; goto case 8;
+                case 8: b += (uint)src[cursor + 7] << 24; goto case 7;
+                case 7: b += (uint)src[cursor + 6] << 16; goto case 6;
+                case 6: b += (uint)src[cursor + 5] << 8; goto case 5;
+                case 5: b += src[cursor + 4]; goto case 4;
+                case 4: a += (uint)src[cursor + 3] << 24; goto case 3;
+                case 3: a += (uint)src[cursor + 2] << 16; goto case 2;
+                case 2: a += (uint)src[cursor + 1] << 8; goto case 1;
+                case 1: a += src[cursor]; break;
+                case 0: return c;
+            }
+
+            FinalizeHdf5Checksum(ref a, ref b, ref c);
+            return c;
+        }
+    }
+
+    private static void MixHdf5Checksum(ref uint a, ref uint b, ref uint c) {
+        unchecked {
+            a -= c; a ^= RotateLeft(c, 4); c += b;
+            b -= a; b ^= RotateLeft(a, 6); a += c;
+            c -= b; c ^= RotateLeft(b, 8); b += a;
+            a -= c; a ^= RotateLeft(c, 16); c += b;
+            b -= a; b ^= RotateLeft(a, 19); a += c;
+            c -= b; c ^= RotateLeft(b, 4); b += a;
+        }
+    }
+
+    private static void FinalizeHdf5Checksum(ref uint a, ref uint b, ref uint c) {
+        unchecked {
+            c ^= b; c -= RotateLeft(b, 14);
+            a ^= c; a -= RotateLeft(c, 11);
+            b ^= a; b -= RotateLeft(a, 25);
+            c ^= b; c -= RotateLeft(b, 16);
+            a ^= c; a -= RotateLeft(c, 4);
+            b ^= a; b -= RotateLeft(a, 14);
+            c ^= b; c -= RotateLeft(b, 24);
+        }
+    }
+
+    private static uint RotateLeft(uint value, int count) => (value << count) | (value >> (32 - count));
 
     private static bool TryReadHdfAddress(ReadOnlySpan<byte> src, ref int cursor, int size, out ulong value, out bool undefined) {
         value = 0;
