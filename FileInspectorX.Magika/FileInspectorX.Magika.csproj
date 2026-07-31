@@ -8,7 +8,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Description>Optional Magika-compatible learned content classification for FileInspectorX</Description>
     <AssemblyName>FileInspectorX.Magika</AssemblyName>
-    <VersionPrefix>1.1.0</VersionPrefix>
+    <VersionPrefix>1.1.1</VersionPrefix>
     <PackageReadmeFile>README.MD</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
     <RepositoryUrl>https://github.com/EvotecIT/FileInspectorX.git</RepositoryUrl>
