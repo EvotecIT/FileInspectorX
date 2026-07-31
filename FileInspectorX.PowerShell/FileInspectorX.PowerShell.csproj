@@ -30,10 +30,20 @@
 
     <PropertyGroup>
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <!-- PowerShell uses Magika in safe Assist mode by default and exposes an opt-out.
+             C# consumers still opt in by referencing the separate provider package. -->
+        <IncludeMagika Condition="'$(IncludeMagika)' == ''">true</IncludeMagika>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(IncludeMagika)' == 'true'">
         <DefineConstants>$(DefineConstants);FILEINSPECTORX_MAGIKA</DefineConstants>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(IncludeMagika)' == 'true' And '$(TargetFramework)' == 'net472'">
+        <!-- Windows PowerShell 5.1 is a Windows-only x64 host in the supported module matrix.
+             Selecting its RID makes the SDK copy ONNX Runtime's native companion. -->
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     </PropertyGroup>
 
     <PropertyGroup>

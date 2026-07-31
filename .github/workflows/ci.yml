@@ -58,6 +58,15 @@ jobs:
       - name: Build
         run: dotnet build FileInspectorX.sln -c Release --no-restore
 
+      - name: Smoke test PowerShell 7 Magika default
+        shell: pwsh
+        run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll
+
+      - name: Smoke test Windows PowerShell 5.1 Magika default
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net472/FileInspectorX.PowerShell.dll
+
       - name: Test (net8.0)
         if: runner.os != 'Linux'
         run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net8.0 --no-build --logger "trx;LogFileName=test-results-net8.trx" --results-directory ./TestResults/net8

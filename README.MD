@@ -195,18 +195,23 @@ Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences -Exclude
 # Back-compat: detection only
 Get-FileInsight -Path .\file.bin -DetectOnly | Format-List
 
-# Explicit learned classification in a Magika-enabled module build;
+# Magika-assisted classification is enabled by default;
 # deterministic validators still win conflicts
-Get-FileInsight -Path .\source.txt -UseMagika -View Detection |
+Get-FileInsight -Path .\source.txt -View Detection |
     Format-List Path,Extension,Confidence,Reason,LearnedClassification
 
-# Fail the file operation if the optional provider cannot run
-Get-FileInsight -Path .\source.txt -UseMagika -LearnedClassificationMode Required
+# Use deterministic analysis only
+Get-FileInsight -Path .\source.txt -DisableMagika
+
+# Fail the file operation if Magika cannot run
+Get-FileInsight -Path .\source.txt -LearnedClassificationMode Required
 ```
 
-`-UseMagika` requires a module artifact built with `IncludeMagika=true`. The normal module build
-contains no ONNX dependency; a missing provider is reported as failed evidence in `Assist` mode
-and as a terminating error in `Required` mode.
+The normal PowerShell module bundles Magika and its ONNX runtime. `Assist` mode is the default:
+learned evidence enhances the typed deterministic result, while deterministic validation remains
+authoritative on conflicts. A provider failure is recorded without losing the deterministic result.
+Use `-DisableMagika` (or `-UseMagika:$false`) for deterministic-only analysis, or
+`-LearnedClassificationMode Required` when provider failure must terminate the file operation.
 
 ### PowerShell quick help
 
