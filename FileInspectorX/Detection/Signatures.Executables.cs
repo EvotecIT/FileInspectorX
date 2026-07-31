@@ -110,7 +110,10 @@ internal static partial class Signatures {
         return true;
     }
 
-    internal static bool TryMatchDex(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchDex(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchDex(src, src.Length, out result);
+
+    internal static bool TryMatchDex(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 0x70 || src[0] != (byte)'d' || src[1] != (byte)'e' || src[2] != (byte)'x' ||
             src[3] != (byte)'\n' || src[7] != 0 ||
@@ -131,7 +134,7 @@ internal static partial class Signatures {
         uint fileSize = ReadUInt32(src, 32, fieldsAreLittleEndian);
         uint headerSize = ReadUInt32(src, 36, fieldsAreLittleEndian);
         uint expectedHeaderSize = version >= 41 ? 0x78u : 0x70u;
-        if (headerSize != expectedHeaderSize || fileSize < headerSize || src.Length < headerSize) return false;
+        if (headerSize != expectedHeaderSize || fileSize < headerSize || fileSize != completeLength || src.Length < headerSize) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "dex",

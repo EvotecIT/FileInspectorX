@@ -531,12 +531,13 @@ public class DetectorTests {
     public void Detect_Glb_Binary() {
         var p = Path.GetTempFileName();
         try {
-            var buf = new byte[20];
+            var buf = new byte[24];
             System.Text.Encoding.ASCII.GetBytes("glTF").CopyTo(buf, 0);
             BitConverter.GetBytes(2u).CopyTo(buf, 4);
-            BitConverter.GetBytes(20u).CopyTo(buf, 8);
-            BitConverter.GetBytes(0u).CopyTo(buf, 12);
+            BitConverter.GetBytes(24u).CopyTo(buf, 8);
+            BitConverter.GetBytes(4u).CopyTo(buf, 12);
             System.Text.Encoding.ASCII.GetBytes("JSON").CopyTo(buf, 16);
+            System.Text.Encoding.ASCII.GetBytes("{}  ").CopyTo(buf, 20);
             File.WriteAllBytes(p, buf);
             var res = FI.Detect(p);
             Assert.NotNull(res);
@@ -549,7 +550,7 @@ public class DetectorTests {
     public void Detect_Tiff_BigEndian() {
         var p = Path.GetTempFileName();
         try {
-            var buf = new byte[] { 0x4D, 0x4D, 0x00, 0x2A, 0, 0, 0, 8, 0, 0 };
+            var buf = new byte[] { 0x4D, 0x4D, 0x00, 0x2A, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0 };
             File.WriteAllBytes(p, buf);
             var res = FI.Detect(p);
             Assert.NotNull(res);

@@ -57,7 +57,7 @@ internal static partial class Signatures
             (!src.Slice(0, 6).SequenceEqual("GIF87a"u8) && !src.Slice(0, 6).SequenceEqual("GIF89a"u8))) return false;
         ushort width = ReadUInt16LittleEndian(src, 6);
         ushort height = ReadUInt16LittleEndian(src, 8);
-        if (width == 0 || height == 0 || (src[10] & 0x08) != 0) return false;
+        if (width == 0 || height == 0) return false;
         result = BinaryResult("gif", "image/gif", "gif:logical-screen");
         return true;
     }
@@ -184,16 +184,47 @@ internal static partial class Signatures
         if (src.Length < 0x40 || src[0] != (byte)'M' || src[1] != (byte)'Z') return false;
         uint peOffset = ReadUInt32LittleEndian(src, 0x3C);
         if (peOffset < 0x40 || peOffset > int.MaxValue || peOffset + 26L > src.Length) return false;
-        int offset = (int)peOffset;
-        if (src[offset] != (byte)'P' || src[offset + 1] != (byte)'E' || src[offset + 2] != 0 || src[offset + 3] != 0) return false;
+        return TryValidatePeHeader(src.Slice((int)peOffset), peOffset, src.Length, out result);
+    }
 
-        ushort machine = ReadUInt16LittleEndian(src, offset + 4);
-        ushort sections = ReadUInt16LittleEndian(src, offset + 6);
-        ushort optionalHeaderSize = ReadUInt16LittleEndian(src, offset + 20);
-        ushort characteristics = ReadUInt16LittleEndian(src, offset + 22);
-        if (machine == 0 || sections is < 1 or > 96 || optionalHeaderSize < 2 || offset + 24L + optionalHeaderSize > src.Length) return false;
+    internal static bool TryMatchPe(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 0x40 || !TryReadAt(stream, 0, 0x40, out var dosHeader)) return false;
+            var dos = new ReadOnlySpan<byte>(dosHeader);
+            if (dos[0] != (byte)'M' || dos[1] != (byte)'Z') return false;
+            uint peOffset = ReadUInt32LittleEndian(dos, 0x3C);
+            if (peOffset < 0x40 || peOffset + 26L > stream.Length ||
+                !TryReadAt(stream, peOffset, 26, out var peHeader)) return false;
+            return TryValidatePeHeader(new ReadOnlySpan<byte>(peHeader), peOffset, stream.Length, out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
 
-        ushort optionalMagic = ReadUInt16LittleEndian(src, offset + 24);
+    private static bool TryValidatePeHeader(ReadOnlySpan<byte> peHeader, long peOffset, long totalLength, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (peHeader.Length < 26 || peHeader[0] != (byte)'P' || peHeader[1] != (byte)'E' || peHeader[2] != 0 || peHeader[3] != 0) return false;
+
+        ushort machine = ReadUInt16LittleEndian(peHeader, 4);
+        ushort sections = ReadUInt16LittleEndian(peHeader, 6);
+        ushort optionalHeaderSize = ReadUInt16LittleEndian(peHeader, 20);
+        ushort characteristics = ReadUInt16LittleEndian(peHeader, 22);
+        if (machine == 0 || sections is < 1 or > 96 || optionalHeaderSize < 2 || peOffset + 24L + optionalHeaderSize > totalLength) return false;
+
+        ushort optionalMagic = ReadUInt16LittleEndian(peHeader, 24);
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;
         string extension = (characteristics & 0x2000) != 0 ? "dll" : "exe";
         result = new ContentTypeDetectionResult
@@ -219,11 +250,15 @@ internal static partial class Signatures
     {
         result = null;
         if (src.Length < 6 || src[0] != 0xFF || src[1] != 0xD8 || src[2] != 0xFF) return false;
-        byte marker = src[3];
-        if (marker == 0 || marker == 0xFF || marker == 0xD8 || marker == 0xD9) return false;
+        int markerOffset = 2;
+        while (markerOffset < src.Length && src[markerOffset] == 0xFF) markerOffset++;
+        if (markerOffset >= src.Length) return false;
+        byte marker = src[markerOffset];
+        if (marker == 0 || marker == 0xD8 || marker == 0xD9) return false;
         if (marker != 0x01 && marker is not (>= 0xD0 and <= 0xD7))
         {
-            ushort segmentLength = ReadUInt16BigEndian(src, 4);
+            if (markerOffset + 3 > src.Length) return false;
+            ushort segmentLength = ReadUInt16BigEndian(src, markerOffset + 1);
             if (segmentLength < 2) return false;
         }
         result = BinaryResult("jpg", "image/jpeg", "jpeg:soi+marker");
@@ -327,6 +362,42 @@ internal static partial class Signatures
         if (ReadUInt32(src, checked((int)blockLength - 4), littleEndian) != blockLength) return false;
         result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
         return true;
+    }
+
+    internal static bool TryMatchPcapNg(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 28 || !TryReadAt(stream, 0, 16, out var headerBytes)) return false;
+            var header = new ReadOnlySpan<byte>(headerBytes);
+            if (ReadUInt32BigEndian(header, 0) != 0x0A0D0D0A) return false;
+            uint byteOrder = ReadUInt32BigEndian(header, 8);
+            bool littleEndian;
+            if (byteOrder == 0x4D3C2B1A) littleEndian = true;
+            else if (byteOrder == 0x1A2B3C4D) littleEndian = false;
+            else return false;
+            uint blockLength = ReadUInt32(header, 4, littleEndian);
+            ushort major = ReadUInt16(header, 12, littleEndian);
+            ushort minor = ReadUInt16(header, 14, littleEndian);
+            if (blockLength < 28 || (blockLength & 3) != 0 || blockLength > stream.Length ||
+                major != 1 || minor != 0 ||
+                !TryReadAt(stream, blockLength - 4L, 4, out var trailerBytes) ||
+                ReadUInt32(new ReadOnlySpan<byte>(trailerBytes), 0, littleEndian) != blockLength) return false;
+            result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     internal static bool TryMatchFlac(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

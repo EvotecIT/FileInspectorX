@@ -20,13 +20,20 @@ internal static partial class Signatures {
         uint rootCellOffset = ReadUInt32LittleEndian(src, 36);
         uint hiveBinsSize = ReadUInt32LittleEndian(src, 40);
         uint clustering = ReadUInt32LittleEndian(src, 44);
-        if (primarySequence != secondarySequence || primarySequence == 0 || major != 1 || minor is < 3 or > 6 ||
+        if (primarySequence == 0 || secondarySequence == 0 || major != 1 || minor is < 3 or > 6 ||
             fileType != 0 || fileFormat != 1 || rootCellOffset < 0x20 || hiveBinsSize == 0 || (hiveBinsSize & 0xFFF) != 0 || clustering != 1)
             return false;
         uint checksum = 0;
         for (int offset = 0; offset < 0x1FC; offset += 4) checksum ^= ReadUInt32LittleEndian(src, offset);
         if (checksum != ReadUInt32LittleEndian(src, 0x1FC)) return false;
-        result = new ContentTypeDetectionResult { Extension = "hive", MimeType = "application/x-windows-registry-hive", Confidence = "High", Reason = "registry-hive:base-block" };
+        bool dirty = primarySequence != secondarySequence;
+        result = new ContentTypeDetectionResult {
+            Extension = "hive",
+            MimeType = "application/x-windows-registry-hive",
+            Confidence = dirty ? "Medium" : "High",
+            Reason = dirty ? "registry-hive:base-block:dirty" : "registry-hive:base-block",
+            ReasonDetails = dirty ? $"registry-hive:sequence-mismatch={primarySequence}/{secondarySequence};recovery-may-be-required" : null
+        };
         return true;
     }
 
@@ -97,13 +104,16 @@ internal static partial class Signatures {
     /// Recognizes Windows minidump files by the standard "MDMP" signature.
     /// </summary>
     internal static bool TryMatchMinidump(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchMinidump(src, src.Length, out result);
+
+    internal static bool TryMatchMinidump(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 32 || !src.Slice(0, 4).SequenceEqual("MDMP"u8)) return false;
         uint version = ReadUInt32LittleEndian(src, 4);
         uint streams = ReadUInt32LittleEndian(src, 8);
         uint directoryRva = ReadUInt32LittleEndian(src, 12);
-        if ((version & 0xFFFF) != 0xA793 || streams is < 1 or > 65535 || directoryRva < 32 || directoryRva + streams * 12L > src.Length) return false;
+        if ((version & 0xFFFF) != 0xA793 || streams is < 1 or > 65535 || directoryRva < 32 || directoryRva + streams * 12L > completeLength) return false;
         result = new ContentTypeDetectionResult
         {
             Extension = "dmp",
@@ -193,14 +203,18 @@ internal static partial class Signatures {
     /// <param name="src"></param>
     /// <param name="result"></param>
     /// <returns></returns>
-    internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchFtyp(src, src.Length, out result);
+
+    internal static bool TryMatchFtyp(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 16) return false;
         if (!src.Slice(4, 4).SequenceEqual("ftyp"u8)) return false;
         uint boxLength = ReadUInt32BigEndian(src, 0);
-        if (boxLength < 16 || (boxLength & 3) != 0 || boxLength > src.Length) return false;
+        if (boxLength < 16 || (boxLength & 3) != 0 || boxLength > completeLength) return false;
         var brand = src.Slice(8, 4);
-        ReadOnlySpan<byte> comp = boxLength > 16 ? src.Slice(16, checked((int)boxLength - 16)) : ReadOnlySpan<byte>.Empty;
+        int compatibleBytes = (int)Math.Min(240u, Math.Min(boxLength - 16, (uint)Math.Max(0, src.Length - 16)));
+        ReadOnlySpan<byte> comp = compatibleBytes > 0 ? src.Slice(16, compatibleBytes) : ReadOnlySpan<byte>.Empty;
         static bool HasBrand(ReadOnlySpan<byte> major, ReadOnlySpan<byte> compat, ReadOnlySpan<byte> sought) {
             if (major.SequenceEqual(sought)) return true;
             for (int i = 0; i + 4 <= compat.Length; i += 4)
@@ -236,7 +250,8 @@ internal static partial class Signatures {
             HasBrand(brand, comp, "iso3"u8) || HasBrand(brand, comp, "iso4"u8) ||
             HasBrand(brand, comp, "iso5"u8) || HasBrand(brand, comp, "iso6"u8) ||
             HasBrand(brand, comp, "mp41"u8) || HasBrand(brand, comp, "mp42"u8) ||
-            HasBrand(brand, comp, "MSNV"u8) || HasBrand(brand, comp, "dash"u8)) {
+            HasBrand(brand, comp, "avc1"u8) || HasBrand(brand, comp, "av01"u8) ||
+            HasBrand(brand, comp, "M4V "u8) || HasBrand(brand, comp, "MSNV"u8) || HasBrand(brand, comp, "dash"u8)) {
             result = new ContentTypeDetectionResult { Extension = "mp4", MimeType = "video/mp4", Confidence = "High", Reason = "ftyp:mp4" };
             return true;
         }

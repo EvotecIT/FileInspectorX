@@ -6,8 +6,11 @@ namespace FileInspectorX;
 internal static partial class Signatures
 {
     internal static bool TryMatchExtendedHeaderFormats(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchExtendedHeaderFormats(src, src.Length, out result);
+
+    internal static bool TryMatchExtendedHeaderFormats(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result)
     {
-        if (TryMatchRpm(src, out result)) return true;
+        if (TryMatchRpm(src, completeLength, out result)) return true;
         if (TryMatchQcow2(src, out result)) return true;
         if (TryMatchMidi(src, out result)) return true;
         if (TryMatchDds(src, out result)) return true;
@@ -20,6 +23,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchRpm(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchRpm(src, src.Length, out result);
+
+    internal static bool TryMatchRpm(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 112 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0xED, 0xAB, 0xEE, 0xDB })) return false;
@@ -30,7 +36,7 @@ internal static partial class Signatures
         uint indexCount = ReadUInt32BigEndian(src, 104);
         uint dataLength = ReadUInt32BigEndian(src, 108);
         if (indexCount is < 1 or > 65535 || dataLength > 0x40000000 ||
-            112L + indexCount * 16L + dataLength > src.Length) return false;
+            112L + indexCount * 16L + dataLength > completeLength) return false;
         result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
         return true;
     }
@@ -161,6 +167,31 @@ internal static partial class Signatures
         if (src.Length < headerEnd + 4 || !src.Slice(headerEnd, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 })) return false;
         result = BinaryResult(docType == "webm" ? "webm" : "mkv", docType == "webm" ? "video/webm" : "video/x-matroska", "ebml:doctype=" + docType);
         return true;
+    }
+
+    internal static bool TryMatchMatroska(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 16) return false;
+            int readLength = (int)Math.Min(stream.Length, 4L + 8L + 4096L + 4L);
+            stream.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[readLength];
+            int read = ReadHeaderBytes(stream, bytes);
+            return TryMatchMatroska(new ReadOnlySpan<byte>(bytes, 0, read), out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     private static bool TryReadEbmlVInt(ReadOnlySpan<byte> src, ref int cursor, bool stripMarker, out ulong value)

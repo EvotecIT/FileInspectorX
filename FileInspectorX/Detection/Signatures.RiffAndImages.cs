@@ -15,40 +15,116 @@ internal static partial class Signatures {
         return false;
     }
 
-    internal static bool TryMatchGlb(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchGlb(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchGlb(src, src.Length, out result);
+
+    internal static bool TryMatchGlb(ReadOnlySpan<byte> src, long completeLength, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 20 || !src.Slice(0, 4).SequenceEqual("glTF"u8)) return false;
+        if (src.Length < 20 || !src.Slice(0, 4).SequenceEqual("glTF"u8) || completeLength > uint.MaxValue) return false;
         uint version = ReadUInt32LittleEndian(src, 4);
         uint totalLength = ReadUInt32LittleEndian(src, 8);
-        uint firstChunkLength = ReadUInt32LittleEndian(src, 12);
-        uint firstChunkType = ReadUInt32LittleEndian(src, 16);
-        if (version != 2 || totalLength < 20 || (totalLength & 3) != 0 || firstChunkType != 0x4E4F534A ||
-            (firstChunkLength & 3) != 0 || firstChunkLength > totalLength - 20)
-            return false;
+        if (totalLength != completeLength) return false;
+
+        uint contentLength = ReadUInt32LittleEndian(src, 12);
+        uint contentType = ReadUInt32LittleEndian(src, 16);
+        if (version == 1) {
+            if (totalLength < 21 || contentLength == 0 || contentLength > totalLength - 20 || contentType != 0 ||
+                !HasGlbJsonObjectStart(src, 20, contentLength)) return false;
+            result = new ContentTypeDetectionResult { Extension = "glb", MimeType = "model/gltf-binary", Confidence = "High", Reason = "glb:v1+json-content" };
+            return true;
+        }
+
+        if (version != 2 || totalLength < 21 || (totalLength & 3) != 0 || contentType != 0x4E4F534A ||
+            contentLength == 0 || (contentLength & 3) != 0 || contentLength > totalLength - 20 ||
+            !HasGlbJsonObjectStart(src, 20, contentLength)) return false;
         result = new ContentTypeDetectionResult { Extension = "glb", MimeType = "model/gltf-binary", Confidence = "High", Reason = "glb:v2+json-chunk" };
         return true;
     }
 
+    private static bool HasGlbJsonObjectStart(ReadOnlySpan<byte> src, int offset, uint declaredLength) {
+        int available = (int)Math.Min(declaredLength, (uint)Math.Max(0, src.Length - offset));
+        for (int i = 0; i < available; i++) {
+            byte current = src[offset + i];
+            if (current is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') continue;
+            return current == (byte)'{';
+        }
+        return false;
+    }
+
     internal static bool TryMatchTiff(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
+        if (!TryReadTiffHeader(src, out bool littleEndian, out bool isBigTiff, out ulong firstIfd)) return false;
+        if (!TryValidateTiffIfd(src, firstIfd, littleEndian, isBigTiff, (ulong)src.Length)) return false;
+        result = TiffResult(littleEndian, isBigTiff);
+        return true;
+    }
+
+    internal static bool TryMatchTiff(Stream stream, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            if (stream.Length < 8 || !TryReadAt(stream, 0, (int)Math.Min(16, stream.Length), out var header) ||
+                !TryReadTiffHeader(new ReadOnlySpan<byte>(header), out bool littleEndian, out bool isBigTiff, out ulong firstIfd)) return false;
+            int countSize = isBigTiff ? 8 : 2;
+            if (firstIfd > long.MaxValue || !TryReadAt(stream, (long)firstIfd, countSize, out var countBytes)) return false;
+            var countSpan = new ReadOnlySpan<byte>(countBytes);
+            ulong entries = isBigTiff ? ReadUInt64(countSpan, 0, littleEndian) : ReadUInt16(countSpan, 0, littleEndian);
+            if (!IsTiffDirectoryRangeValid(firstIfd, entries, isBigTiff, (ulong)stream.Length)) return false;
+            result = TiffResult(littleEndian, isBigTiff);
+            return true;
+        } catch {
+            result = null;
+            return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryReadTiffHeader(ReadOnlySpan<byte> src, out bool littleEndian, out bool isBigTiff, out ulong firstIfd) {
+        littleEndian = false;
+        isBigTiff = false;
+        firstIfd = 0;
         if (src.Length < 8) return false;
-        bool littleEndian;
         if (src[0] == 0x49 && src[1] == 0x49) littleEndian = true;
         else if (src[0] == 0x4D && src[1] == 0x4D) littleEndian = false;
         else return false;
         ushort magic = ReadUInt16(src, 2, littleEndian);
-        if (magic == 42)
-        {
-            uint firstIfd = ReadUInt32(src, 4, littleEndian);
-            if (firstIfd < 8 || (firstIfd & 1) != 0 || firstIfd + 2L > src.Length) return false;
-            result = new ContentTypeDetectionResult { Extension = "tif", MimeType = "image/tiff", Confidence = "High", Reason = littleEndian ? "tiff:le+ifd" : "tiff:be+ifd" };
+        if (magic == 42) {
+            firstIfd = ReadUInt32(src, 4, littleEndian);
+            if (firstIfd < 8 || (firstIfd & 1) != 0) return false;
             return true;
         }
         if (magic != 43 || src.Length < 16) return false;
         if (ReadUInt16(src, 4, littleEndian) != 8 || ReadUInt16(src, 6, littleEndian) != 0) return false;
-        ulong firstBigIfd = ReadUInt64(src, 8, littleEndian);
-        if (firstBigIfd < 16 || (firstBigIfd & 1) != 0 || firstBigIfd + 8UL > (ulong)src.Length) return false;
-        result = new ContentTypeDetectionResult { Extension = "tif", MimeType = "image/tiff", Confidence = "High", Reason = littleEndian ? "bigtiff:le+ifd" : "bigtiff:be+ifd" };
+        isBigTiff = true;
+        firstIfd = ReadUInt64(src, 8, littleEndian);
+        if (firstIfd < 16 || (firstIfd & 1) != 0) return false;
         return true;
     }
+
+    private static bool TryValidateTiffIfd(ReadOnlySpan<byte> src, ulong firstIfd, bool littleEndian, bool isBigTiff, ulong completeLength) {
+        int countSize = isBigTiff ? 8 : 2;
+        if (firstIfd > int.MaxValue || firstIfd + (uint)countSize > (ulong)src.Length) return false;
+        int offset = (int)firstIfd;
+        ulong entries = isBigTiff ? ReadUInt64(src, offset, littleEndian) : ReadUInt16(src, offset, littleEndian);
+        return IsTiffDirectoryRangeValid(firstIfd, entries, isBigTiff, completeLength);
+    }
+
+    private static bool IsTiffDirectoryRangeValid(ulong firstIfd, ulong entries, bool isBigTiff, ulong completeLength) {
+        ulong countSize = isBigTiff ? 8UL : 2UL;
+        ulong entrySize = isBigTiff ? 20UL : 12UL;
+        ulong nextOffsetSize = isBigTiff ? 8UL : 4UL;
+        if (firstIfd > completeLength || entries > (ulong.MaxValue - firstIfd - countSize - nextOffsetSize) / entrySize) return false;
+        return firstIfd + countSize + entries * entrySize + nextOffsetSize <= completeLength;
+    }
+
+    private static ContentTypeDetectionResult TiffResult(bool littleEndian, bool isBigTiff) => new() {
+        Extension = "tif",
+        MimeType = "image/tiff",
+        Confidence = "High",
+        Reason = isBigTiff
+            ? (littleEndian ? "bigtiff:le+ifd" : "bigtiff:be+ifd")
+            : (littleEndian ? "tiff:le+ifd" : "tiff:be+ifd")
+    };
 }

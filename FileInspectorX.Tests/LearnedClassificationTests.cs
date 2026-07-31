@@ -415,7 +415,7 @@ public sealed class LearnedClassificationTests
     public void Detect_TiffAndTifExtensionsAgree()
     {
         var result = FileInspector.Detect(
-            new byte[] { 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00 },
+            new byte[] { 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
             new FileInspector.DetectionOptions
             {
                 LearnedClassifier = new StubClassifier(CreatePrediction("tiff", "tiff")),
