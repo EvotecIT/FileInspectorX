@@ -364,7 +364,15 @@ public sealed class LearnedClassificationTests
     public void Detect_ExtensionlessLearnedOutputIsSupplementalToMachO()
     {
         var result = FileInspector.Detect(
-            new byte[] { 0xFE, 0xED, 0xFA, 0xCE },
+            new byte[] {
+                0xFE, 0xED, 0xFA, 0xCE,
+                0x00, 0x00, 0x00, 0x07,
+                0x00, 0x00, 0x00, 0x03,
+                0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            },
             new FileInspector.DetectionOptions
             {
                 LearnedClassifier = new StubClassifier(CreatePrediction("macho", extension: null)),

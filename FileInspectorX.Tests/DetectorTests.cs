@@ -609,8 +609,17 @@ public class DetectorTests {
     public void Detect_MachO_64LE() {
         var p = Path.GetTempFileName();
         try {
-            // magic CFFA ED FE
-            File.WriteAllBytes(p, new byte[] { 0xCF, 0xFA, 0xED, 0xFE, 0, 0, 0, 0 });
+            // 64-bit little-endian Mach header with x86_64 CPU, object file type and no load commands.
+            File.WriteAllBytes(p, new byte[] {
+                0xCF, 0xFA, 0xED, 0xFE,
+                0x07, 0x00, 0x00, 0x01,
+                0x03, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            });
             var res = FI.Detect(p);
             Assert.NotNull(res);
             Assert.Equal("macho", res!.Extension);

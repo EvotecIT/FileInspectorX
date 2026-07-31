@@ -1,0 +1,402 @@
+using Xunit;
+
+namespace FileInspectorX.Tests;
+
+public sealed class StructuredBinaryDetectionTests
+{
+    public static IEnumerable<object[]> ValidSamples()
+    {
+        yield return Sample("lnk", ShellLink());
+        yield return Sample("class", JavaClass());
+        yield return Sample("dex", Dex());
+        yield return Sample("dex", ReverseEndianDex());
+        yield return Sample("macho", ThinMachO());
+        yield return Sample("ttf", TrueType());
+        yield return Sample("otf", OpenType());
+        yield return Sample("woff", Woff());
+        yield return Sample("woff2", Woff2());
+        yield return Sample("h5", Hdf5(0));
+        yield return Sample("nc", NetCdf());
+        yield return Sample("nc", NetCdf(version: 2));
+        yield return Sample("nc", NetCdf5());
+        yield return Sample("exr", OpenExr());
+        yield return Sample("exr", DeepOpenExr());
+        yield return Sample("psd", Photoshop(version: 1));
+        yield return Sample("psb", Photoshop(version: 2));
+        yield return Sample("jp2", Jpeg2000("jp2 "));
+        yield return Sample("jpx", Jpeg2000("jpx "));
+        yield return Sample("jpm", Jpeg2000("jpm "));
+        yield return Sample("mj2", Jpeg2000("mjp2"));
+    }
+
+    [Theory]
+    [MemberData(nameof(ValidSamples))]
+    public void DetectsStructurallyValidHeaders(string extension, byte[] bytes)
+    {
+        var result = FileInspector.Detect(bytes);
+
+        Assert.NotNull(result);
+        Assert.Equal(extension, result!.Extension);
+        Assert.Equal("High", result.Confidence);
+    }
+
+    [Fact]
+    public void JavaClassWinsSharedCafeBabeMagicWhileIncompletePrefixDoesNotMatch()
+    {
+        Assert.Equal("class", FileInspector.Detect(JavaClass())?.Extension);
+        Assert.NotEqual("macho", FileInspector.Detect(new byte[] { 0xCA, 0xFE, 0xBA, 0xBE })?.Extension);
+        Assert.NotEqual("class", FileInspector.Detect(new byte[] { 0xCA, 0xFE, 0xBA, 0xBE })?.Extension);
+        Assert.Equal("macho", FileInspector.Detect(FatMachO())?.Extension);
+    }
+
+    [Fact]
+    public void RejectsHeadersWhoseRequiredStructureIsInvalid()
+    {
+        var badLink = ShellLink();
+        badLink[19] ^= 0x01;
+        AssertNotDetectedAs("lnk", badLink);
+
+        var badJava = JavaClass();
+        badJava[10] = 2;
+        AssertNotDetectedAs("class", badJava);
+        AssertNotDetectedAs("macho", badJava);
+
+        var badDex = Dex();
+        WriteUInt32LittleEndian(badDex, 40, 0x11111111);
+        AssertNotDetectedAs("dex", badDex);
+
+        var badMach = ThinMachO();
+        WriteUInt32LittleEndian(badMach, 12, 99);
+        AssertNotDetectedAs("macho", badMach);
+
+        var badFont = TrueType();
+        WriteUInt16BigEndian(badFont, 6, 32);
+        AssertNotDetectedAs("ttf", badFont);
+
+        var badWoff = Woff();
+        WriteUInt16BigEndian(badWoff, 14, 1);
+        AssertNotDetectedAs("woff", badWoff);
+
+        var badNetCdf = NetCdf();
+        WriteUInt32BigEndian(badNetCdf, 8, 11);
+        AssertNotDetectedAs("nc", badNetCdf);
+        AssertNotDetectedAs("nc", NetCdf5().Take(23).ToArray());
+
+        var badExr = OpenExr();
+        badExr[5] = 0x0A; // The legacy single-tile flag cannot be combined with deep data.
+        AssertNotDetectedAs("exr", badExr);
+
+        var badTiledMultipartExr = OpenExr();
+        badTiledMultipartExr[5] = 0x12;
+        AssertNotDetectedAs("exr", badTiledMultipartExr);
+
+        var badPhotoshop = Photoshop(version: 1);
+        badPhotoshop[6] = 1;
+        AssertNotDetectedAs("psd", badPhotoshop);
+
+        var badPhotoshopColorMode = Photoshop(version: 1);
+        WriteUInt16BigEndian(badPhotoshopColorMode, 24, 6);
+        AssertNotDetectedAs("psd", badPhotoshopColorMode);
+
+        var badJpeg2000 = Jpeg2000("jp2 ");
+        badJpeg2000[28] = (byte)'x';
+        AssertNotDetectedAs("jp2", badJpeg2000);
+    }
+
+    [Fact]
+    public void RejectsTruncatedStructuredHeaders()
+    {
+        foreach (var row in ValidSamples())
+        {
+            string extension = (string)row[0];
+            byte[] sample = (byte[])row[1];
+            int length = Math.Min(sample.Length - 1, RequiredHeaderLength(extension) - 1);
+            AssertNotDetectedAs(extension, sample.Take(length).ToArray());
+        }
+    }
+
+    [Fact]
+    public void DetectsHdf5AfterPowerOfTwoUserBlockAndRestoresStreamPosition()
+    {
+        var bytes = Hdf5(4096);
+        using var stream = new MemoryStream(bytes, writable: false);
+        stream.Position = 37;
+
+        var result = FileInspector.Detect(stream);
+
+        Assert.Equal("h5", result?.Extension);
+        Assert.Equal("hdf5:signature@4096", result?.Reason);
+        Assert.Equal(37, stream.Position);
+    }
+
+    [Fact]
+    public void Hdf5UserBlockContentDoesNotOverrideContainerAcrossOverloads()
+    {
+        var bytes = Hdf5(8192);
+        System.Text.Encoding.ASCII.GetBytes("%PDF-1.7\n").CopyTo(bytes, 0);
+
+        using var stream = new MemoryStream(bytes, writable: false);
+        stream.Position = 19;
+        var fromStream = FileInspector.Detect(stream);
+        var fromBytes = FileInspector.Detect(bytes);
+
+        Assert.Equal("h5", fromStream?.Extension);
+        Assert.Equal("h5", fromBytes?.Extension);
+        Assert.Equal(fromBytes?.Reason, fromStream?.Reason);
+        Assert.Equal(19, stream.Position);
+    }
+
+    [Fact]
+    public void Hdf5UserBlockContentDoesNotOverrideContainerForPathDetection()
+    {
+        var bytes = Hdf5(8192);
+        System.Text.Encoding.ASCII.GetBytes("%PDF-1.7\n").CopyTo(bytes, 0);
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".pdf");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+
+            var result = FileInspector.Detect(path);
+
+            Assert.Equal("h5", result?.Extension);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ReverseEndianDexIsReportedExplicitly()
+    {
+        var result = FileInspector.Detect(ReverseEndianDex());
+
+        Assert.Equal("dex", result?.Extension);
+        Assert.Equal("dex:035:reverse-endian", result?.Reason);
+    }
+
+    [Fact]
+    public void ShellLinkDetectionIgnoresBenignDeclaredExtensionAndReportsMismatch()
+    {
+        var result = FileInspector.Detect(ShellLink(), declaredExtension: "txt");
+        var comparison = FileInspector.CompareDeclared("txt", result);
+
+        Assert.Equal("lnk", result?.Extension);
+        Assert.True(result?.IsDangerous);
+        Assert.True(comparison.Mismatch);
+    }
+
+    [Fact]
+    public void Hdf5ExtensionAliasesDoNotCreateFalseMismatch()
+    {
+        var result = FileInspector.Detect(Hdf5(0));
+
+        Assert.False(FileInspector.CompareDeclared("hdf5", result).Mismatch);
+        Assert.False(FileInspector.CompareDeclared("h5", result).Mismatch);
+    }
+
+    private static object[] Sample(string extension, byte[] bytes) => new object[] { extension, bytes };
+
+    private static void AssertNotDetectedAs(string extension, byte[] bytes)
+        => Assert.NotEqual(extension, FileInspector.Detect(bytes)?.Extension);
+
+    private static int RequiredHeaderLength(string extension) => extension switch
+    {
+        "lnk" => 76,
+        "class" => 11,
+        "dex" => 112,
+        "macho" => 32,
+        "ttf" or "otf" => 28,
+        "woff" => 44,
+        "woff2" => 48,
+        "h5" => 8,
+        "nc" => 16,
+        "exr" => 8,
+        "psd" or "psb" => 26,
+        "jp2" or "jpx" or "jpm" or "mj2" => 32,
+        _ => throw new ArgumentOutOfRangeException(nameof(extension))
+    };
+
+    private static byte[] ShellLink()
+    {
+        var bytes = new byte[76];
+        bytes[0] = 0x4C;
+        new byte[] {
+            0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
+        }.CopyTo(bytes, 4);
+        return bytes;
+    }
+
+    private static byte[] JavaClass() => new byte[]
+    {
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x05,
+        0x01, 0x00, 0x04, (byte)'T', (byte)'e', (byte)'s', (byte)'t',
+        0x07, 0x00, 0x01,
+        0x01, 0x00, 0x10, (byte)'j', (byte)'a', (byte)'v', (byte)'a', (byte)'/',
+        (byte)'l', (byte)'a', (byte)'n', (byte)'g', (byte)'/', (byte)'O', (byte)'b',
+        (byte)'j', (byte)'e', (byte)'c', (byte)'t',
+        0x07, 0x00, 0x03,
+        0x00, 0x21, 0x00, 0x02, 0x00, 0x04,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+
+    private static byte[] Dex()
+    {
+        var bytes = new byte[0x70];
+        new byte[] { (byte)'d', (byte)'e', (byte)'x', (byte)'\n', (byte)'0', (byte)'3', (byte)'5', 0 }.CopyTo(bytes, 0);
+        WriteUInt32LittleEndian(bytes, 32, (uint)bytes.Length);
+        WriteUInt32LittleEndian(bytes, 36, 0x70);
+        WriteUInt32LittleEndian(bytes, 40, 0x12345678);
+        return bytes;
+    }
+
+    private static byte[] ReverseEndianDex()
+    {
+        var bytes = Dex();
+        WriteUInt32BigEndian(bytes, 32, (uint)bytes.Length);
+        WriteUInt32BigEndian(bytes, 36, 0x70);
+        WriteUInt32BigEndian(bytes, 40, 0x12345678);
+        return bytes;
+    }
+
+    private static byte[] ThinMachO()
+    {
+        var bytes = new byte[32];
+        new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, 0);
+        WriteUInt32LittleEndian(bytes, 4, 0x01000007);
+        WriteUInt32LittleEndian(bytes, 8, 3);
+        WriteUInt32LittleEndian(bytes, 12, 1);
+        return bytes;
+    }
+
+    private static byte[] FatMachO()
+    {
+        var bytes = new byte[28];
+        new byte[] { 0xCA, 0xFE, 0xBA, 0xBE }.CopyTo(bytes, 0);
+        WriteUInt32BigEndian(bytes, 4, 1);
+        WriteUInt32BigEndian(bytes, 8, 0x01000007);
+        WriteUInt32BigEndian(bytes, 12, 3);
+        WriteUInt32BigEndian(bytes, 16, 4096);
+        WriteUInt32BigEndian(bytes, 20, 32);
+        WriteUInt32BigEndian(bytes, 24, 12);
+        return bytes;
+    }
+
+    private static byte[] TrueType() => Sfnt(0x00010000);
+
+    private static byte[] OpenType() => Sfnt(0x4F54544F);
+
+    private static byte[] Sfnt(uint flavor)
+    {
+        var bytes = new byte[29];
+        WriteUInt32BigEndian(bytes, 0, flavor);
+        WriteUInt16BigEndian(bytes, 4, 1);
+        WriteUInt16BigEndian(bytes, 6, 16);
+        new byte[] { (byte)'h', (byte)'e', (byte)'a', (byte)'d' }.CopyTo(bytes, 12);
+        WriteUInt32BigEndian(bytes, 20, 28);
+        WriteUInt32BigEndian(bytes, 24, 1);
+        return bytes;
+    }
+
+    private static byte[] Woff()
+    {
+        var bytes = new byte[68];
+        new byte[] { (byte)'w', (byte)'O', (byte)'F', (byte)'F' }.CopyTo(bytes, 0);
+        WriteUInt32BigEndian(bytes, 4, 0x00010000);
+        WriteUInt32BigEndian(bytes, 8, (uint)bytes.Length);
+        WriteUInt16BigEndian(bytes, 12, 1);
+        WriteUInt32BigEndian(bytes, 16, 32);
+        new byte[] { (byte)'h', (byte)'e', (byte)'a', (byte)'d' }.CopyTo(bytes, 44);
+        WriteUInt32BigEndian(bytes, 48, 64);
+        WriteUInt32BigEndian(bytes, 52, 1);
+        WriteUInt32BigEndian(bytes, 56, 1);
+        return bytes;
+    }
+
+    private static byte[] Woff2()
+    {
+        var bytes = new byte[52];
+        new byte[] { (byte)'w', (byte)'O', (byte)'F', (byte)'2' }.CopyTo(bytes, 0);
+        WriteUInt32BigEndian(bytes, 4, 0x4F54544F);
+        WriteUInt32BigEndian(bytes, 8, (uint)bytes.Length);
+        WriteUInt16BigEndian(bytes, 12, 1);
+        WriteUInt32BigEndian(bytes, 16, 32);
+        WriteUInt32BigEndian(bytes, 20, 2);
+        bytes[48] = 0;
+        bytes[49] = 1;
+        return bytes;
+    }
+
+    private static byte[] Hdf5(int offset)
+    {
+        var bytes = new byte[offset + 8];
+        new byte[] { 0x89, (byte)'H', (byte)'D', (byte)'F', 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, offset);
+        return bytes;
+    }
+
+    private static byte[] NetCdf(byte version = 1)
+    {
+        var bytes = new byte[16];
+        new byte[] { (byte)'C', (byte)'D', (byte)'F', version }.CopyTo(bytes, 0);
+        return bytes;
+    }
+
+    private static byte[] NetCdf5()
+    {
+        var bytes = new byte[24];
+        new byte[] { (byte)'C', (byte)'D', (byte)'F', 5 }.CopyTo(bytes, 0);
+        return bytes;
+    }
+
+    private static byte[] OpenExr() => new byte[] { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00 };
+
+    private static byte[] DeepOpenExr() => new byte[] { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x08, 0x00, 0x00 };
+
+    private static byte[] Photoshop(ushort version)
+    {
+        var bytes = new byte[26];
+        new byte[] { (byte)'8', (byte)'B', (byte)'P', (byte)'S' }.CopyTo(bytes, 0);
+        WriteUInt16BigEndian(bytes, 4, version);
+        WriteUInt16BigEndian(bytes, 12, 3);
+        WriteUInt32BigEndian(bytes, 14, 100);
+        WriteUInt32BigEndian(bytes, 18, 200);
+        WriteUInt16BigEndian(bytes, 22, 8);
+        WriteUInt16BigEndian(bytes, 24, 3);
+        return bytes;
+    }
+
+    private static byte[] Jpeg2000(string brand)
+    {
+        var bytes = new byte[32];
+        new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
+        WriteUInt32BigEndian(bytes, 12, 20);
+        new byte[] { (byte)'f', (byte)'t', (byte)'y', (byte)'p' }.CopyTo(bytes, 16);
+        var brandBytes = System.Text.Encoding.ASCII.GetBytes(brand);
+        brandBytes.CopyTo(bytes, 20);
+        brandBytes.CopyTo(bytes, 28);
+        return bytes;
+    }
+
+    private static void WriteUInt16BigEndian(byte[] bytes, int offset, ushort value)
+    {
+        bytes[offset] = (byte)(value >> 8);
+        bytes[offset + 1] = (byte)value;
+    }
+
+    private static void WriteUInt32BigEndian(byte[] bytes, int offset, uint value)
+    {
+        bytes[offset] = (byte)(value >> 24);
+        bytes[offset + 1] = (byte)(value >> 16);
+        bytes[offset + 2] = (byte)(value >> 8);
+        bytes[offset + 3] = (byte)value;
+    }
+
+    private static void WriteUInt32LittleEndian(byte[] bytes, int offset, uint value)
+    {
+        bytes[offset] = (byte)value;
+        bytes[offset + 1] = (byte)(value >> 8);
+        bytes[offset + 2] = (byte)(value >> 16);
+        bytes[offset + 3] = (byte)(value >> 24);
+    }
+}
