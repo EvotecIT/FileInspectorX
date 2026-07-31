@@ -65,7 +65,7 @@ internal static partial class Signatures
         if (footerLength < 8 || footerLength > src.Length - 18) return false;
         int footerStart = checked(src.Length - 10 - (int)footerLength);
         uint rootOffset = ReadUInt32LittleEndian(src, footerStart);
-        if (footerStart < 8 || rootOffset < 4 || rootOffset + 4 > footerLength) return false;
+        if (footerStart < 8 || rootOffset < 4 || (ulong)rootOffset + 4 > footerLength) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;
     }
@@ -148,7 +148,7 @@ internal static partial class Signatures
         long footerStart = stream.Length - 10 - footerLength;
         if (footerStart < 8 || !TryReadAt(stream, footerStart, 4, out var rootBytes)) return false;
         uint rootOffset = ReadUInt32LittleEndian(new ReadOnlySpan<byte>(rootBytes), 0);
-        if (rootOffset < 4 || rootOffset + 4 > footerLength) return false;
+        if (rootOffset < 4 || (ulong)rootOffset + 4 > footerLength) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;
     }

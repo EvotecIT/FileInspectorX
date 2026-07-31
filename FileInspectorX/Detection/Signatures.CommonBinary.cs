@@ -93,6 +93,44 @@ internal static partial class Signatures
         return true;
     }
 
+    internal static bool TryMatchZip(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 22) return false;
+            stream.Seek(0, SeekOrigin.Begin);
+            var header = new byte[30];
+            int read = ReadHeaderBytes(stream, header);
+            var src = new ReadOnlySpan<byte>(header, 0, read);
+            if (read >= 30 && ReadUInt32LittleEndian(src, 0) == 0x04034B50)
+            {
+                ushort versionNeeded = ReadUInt16LittleEndian(src, 4);
+                ushort flags = ReadUInt16LittleEndian(src, 6);
+                ushort method = ReadUInt16LittleEndian(src, 8);
+                ushort nameLength = ReadUInt16LittleEndian(src, 26);
+                ushort extraLength = ReadUInt16LittleEndian(src, 28);
+                if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) ||
+                    nameLength == 0 || 30L + nameLength + extraLength > stream.Length) return false;
+                result = BinaryResult("zip", "application/zip", "zip:local-file-header");
+                return true;
+            }
+            if (stream.Length != 22 || read < 22) return false;
+            return TryMatchZip(src.Slice(0, 22), out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
     internal static bool TryMatchOle2(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
@@ -114,7 +152,20 @@ internal static partial class Signatures
     }
 
     private static bool IsKnownZipMethod(ushort method)
-        => method is 0 or 1 or 6 or 8 or 9 or 12 or 14 or 93 or 95 or 96 or 97 or 98 or 99;
+        => method is 0 or 1 or 2 or 3 or 4 or 5 or 6 or 8 or 9 or 10 or 12 or 14 or 16 or 18 or 19 or 20 or
+                     93 or 94 or 95 or 96 or 97 or 98 or 99;
+
+    private static int ReadHeaderBytes(Stream stream, byte[] buffer)
+    {
+        int total = 0;
+        while (total < buffer.Length)
+        {
+            int read = stream.Read(buffer, total, buffer.Length - total);
+            if (read <= 0) break;
+            total += read;
+        }
+        return total;
+    }
 
     internal static bool TryMatchPe(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {

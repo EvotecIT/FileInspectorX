@@ -167,6 +167,60 @@ public sealed class StructuredBinaryDetectionTests
     }
 
     [Fact]
+    public void Hdf5SignatureWithoutAValidSuperblockDoesNotOverridePdf()
+    {
+        var bytes = new byte[1024];
+        System.Text.Encoding.ASCII.GetBytes("%PDF-1.7\n").CopyTo(bytes, 0);
+        new byte[] { 0x89, (byte)'H', (byte)'D', (byte)'F', 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, 512);
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".pdf");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+            Assert.Equal("pdf", FileInspector.Detect(bytes)?.Extension);
+            Assert.Equal("pdf", FileInspector.Detect(path)?.Extension);
+        }
+        finally
+        {
+            TestHelpers.SafeDelete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData((byte)0)]
+    [InlineData((byte)1)]
+    [InlineData((byte)2)]
+    [InlineData((byte)3)]
+    public void Hdf5SupportedSuperblockVersionsAreValidated(byte version)
+        => Assert.Equal("h5", FileInspector.Detect(Hdf5(0, version))?.Extension);
+
+    [Fact]
+    public void FatMachOMemberMustFitInsideTheCompleteFile()
+    {
+        var truncated = FatMachO().Take(28).ToArray();
+
+        AssertNotDetectedAs("macho", truncated);
+    }
+
+    [Fact]
+    public void FatMachOUsesCompleteLengthAcrossDetectionApis()
+    {
+        var bytes = FatMachO();
+        using var stream = new MemoryStream(bytes, writable: false);
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+            Assert.Equal("macho", FileInspector.Detect(bytes)?.Extension);
+            Assert.Equal("macho", FileInspector.Detect(stream)?.Extension);
+            Assert.Equal("macho", FileInspector.Detect(path)?.Extension);
+        }
+        finally
+        {
+            TestHelpers.SafeDelete(path);
+        }
+    }
+
+    [Fact]
     public void ReverseEndianDexIsReportedExplicitly()
     {
         var result = FileInspector.Detect(ReverseEndianDex());
@@ -209,7 +263,7 @@ public sealed class StructuredBinaryDetectionTests
         "ttf" or "otf" => 28,
         "woff" => 44,
         "woff2" => 48,
-        "h5" => 8,
+        "h5" => 48,
         "nc" => 16,
         "exr" => 8,
         "psd" or "psb" => 26,
@@ -272,7 +326,7 @@ public sealed class StructuredBinaryDetectionTests
 
     private static byte[] FatMachO()
     {
-        var bytes = new byte[28];
+        var bytes = new byte[4096 + 32];
         new byte[] { 0xCA, 0xFE, 0xBA, 0xBE }.CopyTo(bytes, 0);
         WriteUInt32BigEndian(bytes, 4, 1);
         WriteUInt32BigEndian(bytes, 8, 0x01000007);
@@ -328,10 +382,39 @@ public sealed class StructuredBinaryDetectionTests
         return bytes;
     }
 
-    private static byte[] Hdf5(int offset)
+    private static byte[] Hdf5(int offset, byte version = 2)
     {
-        var bytes = new byte[offset + 8];
+        var bytes = new byte[offset + 128];
         new byte[] { 0x89, (byte)'H', (byte)'D', (byte)'F', 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, offset);
+        bytes[offset + 8] = version;
+        if (version is 0 or 1)
+        {
+            bytes[offset + 13] = 8;
+            bytes[offset + 14] = 8;
+            WriteUInt16LittleEndian(bytes, offset + 16, 4);
+            WriteUInt16LittleEndian(bytes, offset + 18, 16);
+            int cursor = offset + 24;
+            if (version == 1)
+            {
+                WriteUInt16LittleEndian(bytes, offset + 24, 32);
+                cursor = offset + 28;
+            }
+            WriteUInt64LittleEndian(bytes, cursor, (ulong)offset);
+            for (int i = cursor + 8; i < cursor + 16; i++) bytes[i] = 0xFF;
+            WriteUInt64LittleEndian(bytes, cursor + 16, (ulong)bytes.Length);
+            for (int i = cursor + 24; i < cursor + 32; i++) bytes[i] = 0xFF;
+            WriteUInt64LittleEndian(bytes, cursor + 40, (ulong)(offset + 112));
+        }
+        else
+        {
+            bytes[offset + 9] = 8;
+            bytes[offset + 10] = 8;
+            WriteUInt64LittleEndian(bytes, offset + 12, (ulong)offset);
+            for (int i = offset + 20; i < offset + 28; i++) bytes[i] = 0xFF;
+            WriteUInt64LittleEndian(bytes, offset + 28, (ulong)bytes.Length);
+            WriteUInt64LittleEndian(bytes, offset + 36, (ulong)(offset + 48));
+            System.Text.Encoding.ASCII.GetBytes("OHDR").CopyTo(bytes, offset + 48);
+        }
         return bytes;
     }
 
@@ -398,5 +481,16 @@ public sealed class StructuredBinaryDetectionTests
         bytes[offset + 1] = (byte)(value >> 8);
         bytes[offset + 2] = (byte)(value >> 16);
         bytes[offset + 3] = (byte)(value >> 24);
+    }
+
+    private static void WriteUInt16LittleEndian(byte[] bytes, int offset, ushort value)
+    {
+        bytes[offset] = (byte)value;
+        bytes[offset + 1] = (byte)(value >> 8);
+    }
+
+    private static void WriteUInt64LittleEndian(byte[] bytes, int offset, ulong value)
+    {
+        for (int i = 0; i < 8; i++) bytes[offset + i] = (byte)(value >> (i * 8));
     }
 }

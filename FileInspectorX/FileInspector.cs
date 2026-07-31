@@ -479,7 +479,7 @@ public static partial class FileInspector {
             return Finish(Enrich(seekableContainer, src, stream, options));
 
         if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
-        if (Signatures.TryMatchZip(src, out var validatedZip)) {
+        if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, out validatedZip))) {
             var refined = TryRefineZipOOxml(stream);
             if (refined != null) return Finish(Enrich(refined, src, stream, options));
             var guess = TryGuessZipSubtype(stream, out var guessMime);
@@ -523,7 +523,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
         if (Signatures.TryMatchJavaClass(src, out var javaClass)) return Finish(Enrich(javaClass, src, stream, options));
         if (Signatures.TryMatchDex(src, out var dex)) return Finish(Enrich(dex, src, stream, options));
-        if (Signatures.TryMatchMachO(src, out var macho)) return Finish(Enrich(macho, src, stream, options));
+        if (Signatures.TryMatchMachO(src, stream.CanSeek ? stream.Length : src.Length, out var macho)) return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
         if (Signatures.TryMatchGlb(src, out var glb)) return Finish(Enrich(glb, src, stream, options));
         if (Signatures.TryMatchTiff(src, out var tiff)) return Finish(Enrich(tiff, src, stream, options));

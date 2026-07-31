@@ -105,6 +105,44 @@ public sealed class ValidatedFormatDetectionTests
         }
     }
 
+    [Theory]
+    [InlineData(5000, 0, 8)]
+    [InlineData(1, 5000, 8)]
+    [InlineData(1, 0, 2)]
+    [InlineData(1, 0, 10)]
+    [InlineData(1, 0, 16)]
+    [InlineData(1, 0, 18)]
+    [InlineData(1, 0, 19)]
+    public void ZipVariableHeadersAndSpecificationMethodsKeepApiParity(int nameLength, int extraLength, ushort method)
+    {
+        var bytes = ZipLocalHeader(nameLength, extraLength, method);
+        using var stream = new MemoryStream(bytes, writable: false);
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+
+            Assert.Equal("zip", FileInspector.Detect(bytes)?.Extension);
+            Assert.Equal("zip", FileInspector.Detect(stream)?.Extension);
+            Assert.Equal("zip", FileInspector.Detect(path)?.Extension);
+        }
+        finally
+        {
+            TestHelpers.SafeDelete(path);
+        }
+    }
+
+    [Fact]
+    public void ArrowRootOffsetCannotWrapPastItsFooter()
+    {
+        var bytes = Arrow();
+        WriteUInt32LittleEndian(bytes, 8, uint.MaxValue);
+
+        Assert.NotEqual("arrow", FileInspector.Detect(bytes)?.Extension);
+        using var stream = new MemoryStream(bytes, writable: false);
+        Assert.NotEqual("arrow", FileInspector.Detect(stream)?.Extension);
+    }
+
     [Fact]
     public void UnknownIsoBmffBrandIsNotMisreportedAsMp4()
     {
@@ -224,6 +262,18 @@ public sealed class ValidatedFormatDetectionTests
         WriteUInt16LittleEndian(bytes, 32, 6);
         WriteUInt32LittleEndian(bytes, 44, 1);
         WriteUInt32LittleEndian(bytes, 48, 2);
+        return bytes;
+    }
+
+    private static byte[] ZipLocalHeader(int nameLength, int extraLength, ushort method)
+    {
+        var bytes = new byte[30 + nameLength + extraLength];
+        WriteUInt32LittleEndian(bytes, 0, 0x04034B50);
+        WriteUInt16LittleEndian(bytes, 4, 20);
+        WriteUInt16LittleEndian(bytes, 8, method);
+        WriteUInt16LittleEndian(bytes, 26, checked((ushort)nameLength));
+        WriteUInt16LittleEndian(bytes, 28, checked((ushort)extraLength));
+        for (int i = 30; i < 30 + nameLength; i++) bytes[i] = (byte)'a';
         return bytes;
     }
 

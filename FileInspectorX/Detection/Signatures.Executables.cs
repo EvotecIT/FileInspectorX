@@ -43,12 +43,15 @@ internal static partial class Signatures {
         return true;
     }
 
-    internal static bool TryMatchMachO(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchMachO(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchMachO(src, src.Length, out result);
+
+    internal static bool TryMatchMachO(ReadOnlySpan<byte> src, long totalLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 4) return false;
         uint m = (uint)(src[0] << 24 | src[1] << 16 | src[2] << 8 | src[3]);
         if (m == 0xCAFEBABE || m == 0xBEBAFECA)
-            return TryMatchFatMachO(src, littleEndian: m == 0xBEBAFECA, out result);
+            return TryMatchFatMachO(src, littleEndian: m == 0xBEBAFECA, totalLength, out result);
 
         bool littleEndian;
         bool is64Bit;
@@ -139,7 +142,7 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, out ContentTypeDetectionResult? result) {
+    private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, long totalLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 28) return false;
 
@@ -154,7 +157,8 @@ internal static partial class Signatures {
             uint offset = ReadUInt32(src, entryOffset + 8, littleEndian);
             uint size = ReadUInt32(src, entryOffset + 12, littleEndian);
             uint alignmentPower = ReadUInt32(src, entryOffset + 16, littleEndian);
-            if (!IsKnownMachCpuType(cpuType) || offset < directoryEnd || size == 0 || alignmentPower > 31) return false;
+            if (!IsKnownMachCpuType(cpuType) || offset < directoryEnd || size == 0 || alignmentPower > 31 ||
+                (ulong)offset + size > (ulong)totalLength) return false;
             uint alignment = 1u << (int)alignmentPower;
             if ((offset & (alignment - 1)) != 0) return false;
         }
