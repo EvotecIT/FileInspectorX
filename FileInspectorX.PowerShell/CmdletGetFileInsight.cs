@@ -35,8 +35,12 @@ namespace FileInspectorX.PowerShell {
     ///  <code>Get-FileInsight -Path .\\app.exe -ComputeSha256 -MagicHeaderBytes 16</code>
     /// </example>
     /// <example>
-    ///  <para>Opt in to Magika learned classification while preserving deterministic validators</para>
-    ///  <code>Get-FileInsight -Path .\\source.txt -UseMagika -View Detection</code>
+    ///  <para>Use the default Magika-assisted detection while preserving deterministic validators</para>
+    ///  <code>Get-FileInsight -Path .\\source.txt -View Detection</code>
+    /// </example>
+    /// <example>
+    ///  <para>Run deterministic-only detection without Magika</para>
+    ///  <code>Get-FileInsight -Path .\\source.txt -DisableMagika -View Detection</code>
     /// </example>
     /// <seealso cref="FileInspectorX.PowerShell.AsyncPSCmdlet" />
     /// </summary>
@@ -92,12 +96,9 @@ namespace FileInspectorX.PowerShell {
         /// <summary>Exclude Windows shell properties (Explorer Details).</summary>
         [Parameter()] public SwitchParameter ExcludeShellProperties { get; set; }
 
-        /// <summary>
-        /// Opt in to the bundled Magika learned classifier. Deterministic magic and structural
-        /// validation remain authoritative when evidence conflicts.
-        /// </summary>
+        /// <summary>Disable the default Magika assistance and use deterministic analysis only.</summary>
         [Parameter()]
-        public SwitchParameter UseMagika { get; set; }
+        public SwitchParameter DisableMagika { get; set; }
 
         /// <summary>Magika probability policy. Defaults to HighConfidence.</summary>
         [Parameter()]
@@ -121,7 +122,7 @@ namespace FileInspectorX.PowerShell {
             // Bridge internal logger to PowerShell streams (optional; zero logic beyond wiring).
             _logger = new InternalLogger(false);
             _ = new InternalLoggerPowerShell(_logger, this.WriteVerbose, this.WriteWarning, this.WriteDebug, this.WriteError, this.WriteProgress, this.WriteInformation);
-            if (UseMagika && LearnedClassificationMode != FileInspectorX.LearnedClassificationMode.Off)
+            if (IsMagikaEnabled)
             {
                 try
                 {
@@ -133,7 +134,8 @@ namespace FileInspectorX.PowerShell {
                 {
                     WriteWarning(
                         "The optional Magika provider could not be initialized. " +
-                        "Assist mode will keep deterministic results and record a learned-classification failure for each file.");
+                        "Assist mode will keep deterministic results and record a learned-classification failure for each file. " +
+                        "Reason: " + ex.Message);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -175,7 +177,7 @@ namespace FileInspectorX.PowerShell {
                 IncludeAssessment = !ExcludeAssessment,
                 IncludeShellProperties = !ExcludeShellProperties,
                 LearnedClassifier = _magikaClassifier,
-                LearnedClassificationMode = UseMagika
+                LearnedClassificationMode = IsMagikaEnabled
                     ? LearnedClassificationMode
                     : FileInspectorX.LearnedClassificationMode.Off
             };
@@ -303,6 +305,20 @@ namespace FileInspectorX.PowerShell {
                 "Magika is optional and is not included in this PowerShell module build. " +
                 "Install or publish a module built with IncludeMagika=true.");
 #endif
+        }
+
+        private bool IsMagikaEnabled
+        {
+            get
+            {
+#if FILEINSPECTORX_MAGIKA
+                return MagikaNativeRuntimeLoader.IsSupported &&
+                       !DisableMagika &&
+                       LearnedClassificationMode != FileInspectorX.LearnedClassificationMode.Off;
+#else
+                return false;
+#endif
+            }
         }
     }
 }

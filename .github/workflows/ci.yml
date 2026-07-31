@@ -58,6 +58,31 @@ jobs:
       - name: Build
         run: dotnet build FileInspectorX.sln -c Release --no-restore
 
+      - name: Smoke test PowerShell 7 Magika default
+        shell: pwsh
+        run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll
+
+      - name: Smoke test Windows PowerShell 5.1 Magika default
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net472/FileInspectorX.PowerShell.dll
+
+      - name: Smoke test 32-bit Windows PowerShell deterministic fallback
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $scriptPath = (Resolve-Path ./Build/Test-PowerShellMagika.ps1).Path
+          $modulePath = (Resolve-Path ./FileInspectorX.PowerShell/bin/Release/net472/FileInspectorX.PowerShell.dll).Path
+          & "$env:WINDIR\SysWOW64\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -File $scriptPath -ModulePath $modulePath -ExpectedDefault DeterministicOnly -ExpectBundledProvider
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build PowerShell without Magika provider
+        run: dotnet build FileInspectorX.PowerShell/FileInspectorX.PowerShell.csproj -c Release -f net8.0 -p:IncludeMagika=false -o ./TestResults/powershell-no-magika
+
+      - name: Smoke test provider-free deterministic default
+        shell: pwsh
+        run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./TestResults/powershell-no-magika/FileInspectorX.PowerShell.dll -ExpectedDefault DeterministicOnly
+
       - name: Test (net8.0)
         if: runner.os != 'Linux'
         run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net8.0 --no-build --logger "trx;LogFileName=test-results-net8.trx" --results-directory ./TestResults/net8

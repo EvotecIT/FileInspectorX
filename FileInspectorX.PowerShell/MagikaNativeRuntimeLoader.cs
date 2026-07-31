@@ -16,6 +16,25 @@ namespace FileInspectorX.PowerShell
         private static IntPtr _nativeHandle;
         private static bool _loaded;
 
+        internal static bool IsSupported
+        {
+            get
+            {
+#if NETFRAMEWORK
+                return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
+                       RuntimeInformation.ProcessArchitecture == Architecture.X64;
+#else
+                var architecture = RuntimeInformation.ProcessArchitecture;
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                    return architecture == Architecture.Arm64;
+
+                return (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
+                        RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) &&
+                       (architecture == Architecture.X64 || architecture == Architecture.Arm64);
+#endif
+            }
+        }
+
         internal static void EnsureLoaded()
         {
             lock (LoadSync)
