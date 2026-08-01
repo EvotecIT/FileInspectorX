@@ -235,10 +235,13 @@ internal static partial class Signatures
         if (encodingKinds != 1) return false;
         if (hasFourCc)
         {
-            for (int shift = 0; shift < 32; shift += 8)
+            if (!IsKnownNumericDdsFourCc(fourCc))
             {
-                byte character = (byte)(fourCc >> shift);
-                if (character < 0x20 || character > 0x7E) return false;
+                for (int shift = 0; shift < 32; shift += 8)
+                {
+                    byte character = (byte)(fourCc >> shift);
+                    if (character < 0x20 || character > 0x7E) return false;
+                }
             }
         }
         else if (!TryValidateDdsMasks(pixelFormatFlags, rgbBitCount, redMask, greenMask, blueMask, alphaMask, hasRgb, hasYuv, hasLuminance, alphaOnly))
@@ -261,6 +264,9 @@ internal static partial class Signatures
 
     private static bool IsKnownDdsDxgiFormat(uint format)
         => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190;
+
+    private static bool IsKnownNumericDdsFourCc(uint format)
+        => format == 36 || format is >= 110 and <= 116;
 
     private static bool TryValidateDdsMasks(uint flags, uint bitCount, uint red, uint green, uint blue, uint alpha,
         bool rgb, bool yuv, bool luminance, bool alphaOnly)
@@ -348,7 +354,7 @@ internal static partial class Signatures
         uint metaLength = ReadUInt32LittleEndian(src, 140);
         long metaEnd = 144L + metaLength;
         if (metaLength < 48 || completeLength < 0 || (completeLength.HasValue && metaEnd > completeLength.Value)) return false;
-        bool sopClass = false, sopInstance = false, transferSyntax = false, implementationClass = false;
+        bool fileMetaVersion = false, sopClass = false, sopInstance = false, transferSyntax = false, implementationClass = false;
         bool sampled = metaEnd > src.Length;
         long cursor = 144;
         while (cursor < metaEnd)
@@ -376,6 +382,12 @@ internal static partial class Signatures
             long valueEnd = valueOffset + valueLength;
             if (valueEnd < valueOffset || valueEnd > metaEnd || valueLength == uint.MaxValue) return false;
             bool requiredUid = tag is 0x0002 or 0x0003 or 0x0010 or 0x0012;
+            if (tag == 0x0001)
+            {
+                if (fileMetaVersion || vr1 != (byte)'O' || vr2 != (byte)'B' || valueLength != 2 || valueEnd > src.Length ||
+                    src[(int)valueOffset] != 0 || src[(int)valueOffset + 1] != 1) return false;
+                fileMetaVersion = true;
+            }
             if (requiredUid)
             {
                 if (vr1 != (byte)'U' || vr2 != (byte)'I' || valueEnd > src.Length ||
@@ -388,7 +400,7 @@ internal static partial class Signatures
             sampled |= valueEnd > src.Length;
             cursor = valueEnd;
         }
-        if (cursor != metaEnd || !sopClass || !sopInstance || !transferSyntax || !implementationClass) return false;
+        if (cursor != metaEnd || !fileMetaVersion || !sopClass || !sopInstance || !transferSyntax || !implementationClass) return false;
         result = BinaryResult("dcm", "application/dicom", "dicom:preamble+meta-header");
         if (!completeLength.HasValue && sampled)
         {

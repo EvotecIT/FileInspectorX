@@ -438,7 +438,13 @@ internal static partial class Signatures {
                 uint commandCount = ReadUInt32(new ReadOnlySpan<byte>(prefix), 16, thinLittleEndian);
                 uint commandBytes = ReadUInt32(new ReadOnlySpan<byte>(prefix), 20, thinLittleEndian);
                 uint alignment = thin64Bit ? 8u : 4u;
-                if (!TryValidateMachLoadCommands(stream, headerSize, commandCount, commandBytes, alignment, thinLittleEndian)) return false;
+                if (!TryValidateMachLoadCommands(stream, headerSize, commandCount, commandBytes, alignment, thinLittleEndian,
+                        out bool budgetExceeded)) return false;
+                if (budgetExceeded)
+                {
+                    result.Reason = result.Reason.Replace(";sampled-load-commands", ";validation-budget-exceeded");
+                    return true;
+                }
                 result.Confidence = "High";
                 result.Reason = result.Reason.Replace(";sampled-load-commands", string.Empty);
                 return true;
@@ -483,12 +489,19 @@ internal static partial class Signatures {
     }
 
     private static bool TryValidateMachLoadCommands(Stream stream, int headerSize, uint commandCount,
-        uint commandBytes, uint alignment, bool littleEndian)
+        uint commandBytes, uint alignment, bool littleEndian, out bool budgetExceeded)
     {
+        budgetExceeded = false;
         long cursor = headerSize;
         long commandEnd = headerSize + (long)commandBytes;
+        int commandBudget = Math.Max(32, Math.Min(4096, Math.Max(256, Settings.DetectionReadBudgetBytes) / 8));
         for (uint index = 0; index < commandCount; index++)
         {
+            if (index >= commandBudget)
+            {
+                budgetExceeded = true;
+                return true;
+            }
             if (cursor > commandEnd - 8 || !TryReadAt(stream, cursor, 8, out var commandHeader)) return false;
             var header = new ReadOnlySpan<byte>(commandHeader);
             uint command = ReadUInt32(header, 0, littleEndian);

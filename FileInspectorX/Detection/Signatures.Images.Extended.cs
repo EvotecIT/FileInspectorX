@@ -41,7 +41,7 @@ internal static partial class Signatures {
             while (true)
             {
                 if (cursor >= src.Length)
-                    return TryReturnSampledOpenExr(completeLength, sawAttribute || sawAnyPart, out result);
+                    return TryReturnSampledOpenExr(completeLength, src.Length, sawAttribute || sawAnyPart, out result);
                 if (src[cursor] == 0)
                 {
                     cursor++;
@@ -56,14 +56,15 @@ internal static partial class Signatures {
 
                 if (!TryReadOpenExrString(src, ref cursor, out string name) ||
                     !TryReadOpenExrString(src, ref cursor, out string type) || cursor + 4 > src.Length)
-                    return TryReturnSampledOpenExr(completeLength, sawAttribute || sawAnyPart, out result);
+                    return TryReturnSampledOpenExr(completeLength, src.Length, sawAttribute || sawAnyPart, out result);
                 uint valueLength = ReadUInt32(src, cursor, littleEndian: true);
                 cursor += 4;
                 if (valueLength == 0 || valueLength > int.MaxValue) return false;
                 sawAttribute = true;
 
+                if (completeLength.HasValue && (ulong)cursor + valueLength > (ulong)completeLength.Value) return false;
                 if ((ulong)cursor + valueLength > (ulong)src.Length)
-                    return TryReturnSampledOpenExr(completeLength, true, out result);
+                    return TryReturnSampledOpenExr(completeLength, src.Length, true, out result);
                 var value = src.Slice(cursor, (int)valueLength);
                 if (!TryValidateOpenExrAttribute(name, type, value, out bool mandatory)) return false;
                 channels |= mandatory && name == "channels";
@@ -92,7 +93,7 @@ internal static partial class Signatures {
             }
 
             if (!multipart) break;
-            if (cursor >= src.Length) return TryReturnSampledOpenExr(completeLength, true, out result);
+            if (cursor >= src.Length) return TryReturnSampledOpenExr(completeLength, src.Length, true, out result);
             if (src[cursor] == 0)
             {
                 cursor++;
@@ -196,11 +197,11 @@ internal static partial class Signatures {
         => channels && compression && dataWindow && displayWindow && lineOrder && pixelAspectRatio &&
            screenWindowCenter && screenWindowWidth && tiles;
 
-    private static bool TryReturnSampledOpenExr(long? completeLength, bool sawAttribute,
+    private static bool TryReturnSampledOpenExr(long? completeLength, int sampledLength, bool sawAttribute,
         out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (completeLength.HasValue || !sawAttribute) return false;
+        if (!sawAttribute || completeLength.HasValue && completeLength.Value <= sampledLength) return false;
         result = new ContentTypeDetectionResult {
             Extension = "exr",
             MimeType = "image/x-exr",

@@ -13,30 +13,35 @@ internal static partial class Signatures
         result = null;
         if (!TryReadMidiHeader(src, out ushort format, out ushort tracks)) return false;
         int cursor = 14;
-        for (int track = 0; track < tracks; track++)
+        int foundTracks = 0;
+        while (cursor < src.Length)
         {
             if (cursor + 8 > src.Length) {
-                if (!completeLength.HasValue && MatchesMidiTrackHeaderPrefix(src.Slice(cursor))) {
+                if (!completeLength.HasValue && (foundTracks == tracks || MatchesMidiTrackHeaderPrefix(src.Slice(cursor)))) {
                     result = MidiResult(format, tracks, complete: false);
                     return true;
                 }
                 return false;
             }
-            if (!src.Slice(cursor, 4).SequenceEqual("MTrk"u8)) return false;
-            uint trackLength = ReadUInt32BigEndian(src, cursor + 4);
+            bool isTrack = src.Slice(cursor, 4).SequenceEqual("MTrk"u8);
+            uint chunkLength = ReadUInt32BigEndian(src, cursor + 4);
             cursor += 8;
-            if (trackLength > int.MaxValue) return false;
-            if (trackLength > src.Length - cursor) {
-                if (!completeLength.HasValue && IsValidMidiTrackPrefix(src.Slice(cursor))) {
+            if (chunkLength > int.MaxValue) return false;
+            if (chunkLength > src.Length - cursor) {
+                if (!completeLength.HasValue && (foundTracks == tracks || isTrack && foundTracks < tracks && IsValidMidiTrackPrefix(src.Slice(cursor)))) {
                     result = MidiResult(format, tracks, complete: false);
                     return true;
                 }
                 return false;
             }
-            if (!TryValidateMidiTrack(src.Slice(cursor, (int)trackLength))) return false;
-            cursor += (int)trackLength;
+            if (isTrack)
+            {
+                if (foundTracks >= tracks || !TryValidateMidiTrack(src.Slice(cursor, (int)chunkLength))) return false;
+                foundTracks++;
+            }
+            cursor += (int)chunkLength;
         }
-        if (completeLength.HasValue && cursor != completeLength.Value) return false;
+        if (foundTracks != tracks || completeLength.HasValue && cursor != completeLength.Value) return false;
         result = MidiResult(format, tracks, completeLength.HasValue);
         return true;
     }
@@ -55,24 +60,40 @@ internal static partial class Signatures
                 !TryReadMidiHeader(new ReadOnlySpan<byte>(header), out ushort format, out ushort tracks)) return false;
             stream.Seek(14, SeekOrigin.Begin);
             long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+            int remainingChunkHeaders = Math.Max(32, Math.Min(4096, (int)Math.Min(int.MaxValue, remainingValidationBudget / 8)));
             bool budgetExceeded = false;
-            for (int track = 0; track < tracks; track++)
+            int foundTracks = 0;
+            while (stream.Position < stream.Length)
             {
-                if (!TryReadMidiMarker(stream, "MTrk"u8) || !TryReadMidiU4(stream, out uint trackLength) ||
-                    trackLength > (ulong)(stream.Length - stream.Position)) return false;
-                long trackEnd = stream.Position + trackLength;
-                if (!budgetExceeded && trackLength <= (ulong)remainingValidationBudget)
+                if (remainingChunkHeaders-- == 0)
                 {
-                    if (!TryValidateMidiTrack(stream, trackEnd)) return false;
-                    remainingValidationBudget -= trackLength;
+                    if (foundTracks != tracks) return false;
+                    budgetExceeded = true;
+                    stream.Seek(0, SeekOrigin.End);
+                    break;
+                }
+                if (!TryReadMidiChunkMarker(stream, out bool isTrack) || !TryReadMidiU4(stream, out uint chunkLength) ||
+                    chunkLength > (ulong)(stream.Length - stream.Position)) return false;
+                long chunkEnd = stream.Position + chunkLength;
+                if (!isTrack)
+                {
+                    stream.Seek(chunkEnd, SeekOrigin.Begin);
+                    continue;
+                }
+                if (foundTracks >= tracks) return false;
+                foundTracks++;
+                if (!budgetExceeded && chunkLength <= (ulong)remainingValidationBudget)
+                {
+                    if (!TryValidateMidiTrack(stream, chunkEnd)) return false;
+                    remainingValidationBudget -= chunkLength;
                 }
                 else
                 {
                     budgetExceeded = true;
-                    stream.Seek(trackEnd, SeekOrigin.Begin);
+                    stream.Seek(chunkEnd, SeekOrigin.Begin);
                 }
             }
-            if (stream.Position != stream.Length) return false;
+            if (stream.Position != stream.Length || foundTracks != tracks) return false;
             result = MidiResult(format, tracks, complete: true, budgetExceeded);
             return true;
         }
@@ -281,10 +302,16 @@ internal static partial class Signatures
         return false;
     }
 
-    private static bool TryReadMidiMarker(Stream stream, ReadOnlySpan<byte> expected)
+    private static bool TryReadMidiChunkMarker(Stream stream, out bool isTrack)
     {
+        isTrack = true;
+        ReadOnlySpan<byte> expected = "MTrk"u8;
         for (int index = 0; index < expected.Length; index++)
-            if (stream.ReadByte() != expected[index]) return false;
+        {
+            int current = stream.ReadByte();
+            if (current < 0) return false;
+            isTrack &= current == expected[index];
+        }
         return true;
     }
 

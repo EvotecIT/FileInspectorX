@@ -222,6 +222,7 @@ internal static class TestHelpers
     internal static byte[] CreateMinimalDicom(int metaLength = 0, int totalLength = 0)
     {
         var meta = new List<byte>();
+        AddVersion();
         AddUid(0x0002, "1.2.840.10008.5.1.4.1.1.7");
         AddUid(0x0003, "1.2.3.4.5.6.7.8.9");
         AddUid(0x0010, "1.2.840.10008.1.2.1");
@@ -249,6 +250,13 @@ internal static class TestHelpers
         WriteUInt32LittleEndian(bytes, 140, checked((uint)metaLength));
         meta.CopyTo(bytes, 144);
         return bytes;
+
+        void AddVersion()
+        {
+            AddUInt16(meta, 2); AddUInt16(meta, 1);
+            meta.Add((byte)'O'); meta.Add((byte)'B'); meta.Add(0); meta.Add(0);
+            AddUInt32(meta, 2); meta.Add(0); meta.Add(1);
+        }
 
         void AddUid(ushort tag, string uid)
         {

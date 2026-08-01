@@ -484,27 +484,35 @@ internal static partial class Signatures
         uint root = ReadUInt32LittleEndian(footer, 0);
         if (root > int.MaxValue || root + 8 > footer.Length) return false;
         int table = (int)root;
-        int vtableDistance = (int)ReadUInt32LittleEndian(footer, table);
-        if (vtableDistance <= 0 || vtableDistance > table) return false;
-        int vtable = table - vtableDistance;
-        if (vtable + 8 > footer.Length) return false;
-        ushort vtableLength = ReadUInt16LittleEndian(footer, vtable);
-        ushort objectLength = ReadUInt16LittleEndian(footer, vtable + 2);
+        if (!TryGetArrowVtable(footer, table, 8, out int vtable, out ushort objectLength)) return false;
         ushort versionOffset = ReadUInt16LittleEndian(footer, vtable + 4);
         ushort schemaOffset = ReadUInt16LittleEndian(footer, vtable + 6);
-        if (vtableLength < 8 || objectLength < 8 || versionOffset == 0 || schemaOffset == 0 ||
-            table + versionOffset + 2 > footer.Length || table + schemaOffset + 4 > footer.Length) return false;
+        if (objectLength < 8 || versionOffset == 0 || schemaOffset == 0 ||
+            versionOffset + 2 > objectLength || schemaOffset + 4 > objectLength) return false;
         ushort version = ReadUInt16LittleEndian(footer, table + versionOffset);
         if (version > 4) return false;
         uint schemaRelative = ReadUInt32LittleEndian(footer, table + schemaOffset);
         ulong schemaTableValue = (ulong)table + schemaOffset + schemaRelative;
         if (schemaRelative < 4 || schemaTableValue + 4 > (ulong)footer.Length) return false;
         int schemaTable = (int)schemaTableValue;
-        int schemaVtableDistance = (int)ReadUInt32LittleEndian(footer, schemaTable);
-        if (schemaVtableDistance <= 0 || schemaVtableDistance > schemaTable) return false;
-        int schemaVtable = schemaTable - schemaVtableDistance;
-        return schemaVtable + 4 <= footer.Length && ReadUInt16LittleEndian(footer, schemaVtable) >= 4 &&
-               ReadUInt16LittleEndian(footer, schemaVtable + 2) >= 4;
+        return TryGetArrowVtable(footer, schemaTable, 4, out _, out _);
+    }
+
+    private static bool TryGetArrowVtable(ReadOnlySpan<byte> footer, int table, int minimumVtableLength,
+        out int vtable, out ushort objectLength)
+    {
+        vtable = 0;
+        objectLength = 0;
+        if (table < 0 || table + 4 > footer.Length) return false;
+        int displacement = unchecked((int)ReadUInt32LittleEndian(footer, table));
+        if (displacement == 0) return false;
+        long vtableLocation = (long)table - displacement;
+        if (vtableLocation < 0 || vtableLocation > int.MaxValue || vtableLocation + 4 > footer.Length) return false;
+        vtable = (int)vtableLocation;
+        ushort vtableLength = ReadUInt16LittleEndian(footer, vtable);
+        objectLength = ReadUInt16LittleEndian(footer, vtable + 2);
+        return vtableLength >= minimumVtableLength && vtable + vtableLength <= footer.Length &&
+               objectLength >= 4 && table + objectLength <= footer.Length;
     }
 
     private static bool TryValidateVhdxHeader(ReadOnlySpan<byte> header)
