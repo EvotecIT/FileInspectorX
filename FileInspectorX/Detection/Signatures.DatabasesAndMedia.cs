@@ -90,7 +90,10 @@ internal static partial class Signatures {
     /// <param name="src"></param>
     /// <param name="result"></param>
     /// <returns></returns>
-    internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchEvtx(src, src.Length, out result);
+
+    internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 128 || !src.Slice(0, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'F', (byte)'i', (byte)'l', (byte)'e', 0 })) return false;
         uint headerSize = ReadUInt32LittleEndian(src, 0x20);
@@ -98,10 +101,40 @@ internal static partial class Signatures {
         ushort major = ReadUInt16LittleEndian(src, 0x26);
         ushort blockSize = ReadUInt16LittleEndian(src, 0x28);
         ushort chunkCount = ReadUInt16LittleEndian(src, 0x2A);
-        if (headerSize != 128 || major != 3 || minor != 1 || blockSize != 4096 || chunkCount == 0) return false;
-        result = new ContentTypeDetectionResult { Extension = "evtx", MimeType = "application/vnd.ms-windows.evtx", Confidence = "High", Reason = "evtx:file-header" };
+        long requiredLength = 4096L + chunkCount * 65536L;
+        if (headerSize != 128 || major != 3 || minor != 1 || blockSize != 4096 || chunkCount == 0 ||
+            completeLength < 0 || (completeLength.HasValue && requiredLength > completeLength.Value)) return false;
+        bool hasChunkSignature = src.Length >= 4104 && src.Slice(4096, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 });
+        if (src.Length >= 4104 && !hasChunkSignature) return false;
+        result = EvtxResult(hasChunkSignature && completeLength.HasValue);
         return true;
     }
+
+    internal static bool TryMatchEvtx(Stream stream, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            if (stream.Length < 4104 || !TryReadAt(stream, 0, 128, out var header) ||
+                !TryMatchEvtx(new ReadOnlySpan<byte>(header), stream.Length, out _) ||
+                !TryReadAt(stream, 4096, 8, out var chunk) ||
+                !new ReadOnlySpan<byte>(chunk).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 })) return false;
+            result = EvtxResult(complete: true);
+            return true;
+        } catch {
+            result = null;
+            return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static ContentTypeDetectionResult EvtxResult(bool complete) => new() {
+        Extension = "evtx",
+        MimeType = "application/vnd.ms-windows.evtx",
+        Confidence = complete ? "High" : "Medium",
+        Reason = "evtx:file-header" + (complete ? "+chunk" : ";sampled-chunks")
+    };
 
     /// <summary>
     /// Recognizes Windows minidump files by the standard "MDMP" signature.

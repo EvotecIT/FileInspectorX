@@ -28,7 +28,10 @@ internal static partial class Signatures {
         }
         return false;
     }
-    internal static bool TryMatchCab(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchCab(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchCab(src, src.Length, out result);
+
+    internal static bool TryMatchCab(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 36 || !src.Slice(0, 4).SequenceEqual("MSCF"u8)) return false;
         uint cabinetSize = ReadUInt32LittleEndian(src, 8);
@@ -38,12 +41,90 @@ internal static partial class Signatures {
         ushort folderCount = ReadUInt16LittleEndian(src, 26);
         ushort fileCount = ReadUInt16LittleEndian(src, 28);
         ushort flags = ReadUInt16LittleEndian(src, 30);
-        if (cabinetSize < 36 || filesOffset < 36 || filesOffset > cabinetSize ||
+        if (cabinetSize < 36 || filesOffset < 36 || filesOffset > cabinetSize || completeLength < 0 ||
+            (completeLength.HasValue && cabinetSize > completeLength.Value) ||
             majorVersion != 1 || minorVersion != 3 || folderCount == 0 || fileCount == 0 || (flags & 0xFFF8) != 0)
             return false;
-        result = new ContentTypeDetectionResult { Extension = "cab", MimeType = "application/vnd.ms-cab-compressed", Confidence = "High", Reason = "cab:cfheader" };
+
+        int cursor = 36;
+        byte folderReserve = 0;
+        if ((flags & 0x0004) != 0) {
+            if (cursor + 4 > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+            ushort headerReserve = ReadUInt16LittleEndian(src, cursor);
+            folderReserve = src[cursor + 2];
+            cursor += 4;
+            if (headerReserve > cabinetSize - cursor) return false;
+            if (headerReserve > src.Length - cursor) return TryCreateSampledCab(completeLength, src.Length, out result);
+            cursor += headerReserve;
+        }
+        if ((flags & 0x0001) != 0) {
+            if (!TrySkipCabString(src, ref cursor, cabinetSize, completeLength, out bool sampled) ||
+                !TrySkipCabString(src, ref cursor, cabinetSize, completeLength, out bool sampledDisk)) return false;
+            if (sampled || sampledDisk) return TryCreateSampledCab(completeLength, src.Length, out result);
+        }
+        if ((flags & 0x0002) != 0) {
+            if (!TrySkipCabString(src, ref cursor, cabinetSize, completeLength, out bool sampled) ||
+                !TrySkipCabString(src, ref cursor, cabinetSize, completeLength, out bool sampledDisk)) return false;
+            if (sampled || sampledDisk) return TryCreateSampledCab(completeLength, src.Length, out result);
+        }
+
+        long folderRecordSize = 8L + folderReserve;
+        long folderTableEnd = cursor + folderCount * folderRecordSize;
+        if (folderTableEnd > filesOffset || folderTableEnd > cabinetSize) return false;
+        if (folderTableEnd > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+        for (int folder = 0; folder < folderCount; folder++) {
+            int record = checked(cursor + (int)(folder * folderRecordSize));
+            uint dataOffset = ReadUInt32LittleEndian(src, record);
+            if (dataOffset > cabinetSize) return false;
+        }
+
+        if (filesOffset > int.MaxValue) return TryCreateSampledCab(completeLength, src.Length, out result);
+        cursor = (int)filesOffset;
+        for (int file = 0; file < fileCount; file++) {
+            if (cursor + 16L > cabinetSize) return false;
+            if (cursor + 16 > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+            ushort folderIndex = ReadUInt16LittleEndian(src, cursor + 8);
+            if (folderIndex >= folderCount && folderIndex is not (0xFFFD or 0xFFFE or 0xFFFF)) return false;
+            cursor += 16;
+            int nameStart = cursor;
+            while (cursor < src.Length && cursor < cabinetSize && src[cursor] != 0) cursor++;
+            if (cursor >= cabinetSize) return false;
+            if (cursor >= src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+            if (cursor == nameStart) return false;
+            cursor++;
+        }
+
+        result = CabResult(complete: true);
         return true;
     }
+
+    private static bool TrySkipCabString(ReadOnlySpan<byte> src, ref int cursor, uint cabinetSize, long? completeLength, out bool sampled) {
+        sampled = false;
+        int start = cursor;
+        while (cursor < src.Length && cursor < cabinetSize && src[cursor] != 0) cursor++;
+        if (cursor >= cabinetSize) return false;
+        if (cursor >= src.Length) {
+            sampled = !completeLength.HasValue || src.Length < completeLength.Value;
+            return sampled;
+        }
+        if (cursor == start) return false;
+        cursor++;
+        return true;
+    }
+
+    private static bool TryCreateSampledCab(long? completeLength, int sampledLength, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (completeLength.HasValue && completeLength.Value <= sampledLength) return false;
+        result = CabResult(complete: false);
+        return true;
+    }
+
+    private static ContentTypeDetectionResult CabResult(bool complete) => new() {
+        Extension = "cab",
+        MimeType = "application/vnd.ms-cab-compressed",
+        Confidence = complete ? "High" : "Medium",
+        Reason = "cab:cfheader" + (complete ? ";folders+files" : ";sampled-structures")
+    };
 
     internal static bool TryMatchTar(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;

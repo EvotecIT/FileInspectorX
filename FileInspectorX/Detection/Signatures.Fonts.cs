@@ -16,8 +16,15 @@ internal static partial class Signatures {
             var src = new ReadOnlySpan<byte>(prefix);
             if (src.Length >= 4 && src.Slice(0, 4).SequenceEqual("wOF2"u8))
                 return TryMatchWoff2(stream, src, out result);
-            if (!src.Slice(0, 4).SequenceEqual("ttcf"u8))
-                return TryMatchFont(src, stream.Length, out result);
+            if (!src.Slice(0, 4).SequenceEqual("ttcf"u8)) {
+                if (src.Slice(0, 4).SequenceEqual("wOFF"u8)) return TryMatchFont(src, stream.Length, out result);
+                if (src.Length < 12) return false;
+                ushort standaloneTableCount = ReadUInt16BigEndian(src, 4);
+                long standaloneDirectoryLength = 12L + standaloneTableCount * 16L;
+                if (standaloneTableCount is < 1 or > 4095 || standaloneDirectoryLength > stream.Length ||
+                    !TryReadAt(stream, 0, (int)standaloneDirectoryLength, out var standaloneDirectory)) return false;
+                return TryMatchFont(new ReadOnlySpan<byte>(standaloneDirectory), stream.Length, out result);
+            }
 
             if (src.Length < 12) return false;
             uint version = ReadUInt32BigEndian(src, 4);
@@ -30,7 +37,11 @@ internal static partial class Signatures {
             bool anyCff = false;
             for (uint i = 0; i < fontCount; i++) {
                 uint directoryOffset = ReadUInt32BigEndian(header, checked(12 + (int)i * 4));
-                if (directoryOffset + 28L > stream.Length || !TryReadAt(stream, directoryOffset, 28, out var directoryBytes)) return false;
+                if (directoryOffset + 12L > stream.Length || !TryReadAt(stream, directoryOffset, 12, out var directoryHeader)) return false;
+                ushort tableCount = ReadUInt16BigEndian(new ReadOnlySpan<byte>(directoryHeader), 4);
+                long directoryLength = 12L + tableCount * 16L;
+                if (tableCount is < 1 or > 4095 || directoryOffset + directoryLength > stream.Length ||
+                    !TryReadAt(stream, directoryOffset, (int)directoryLength, out var directoryBytes)) return false;
                 var directory = new ReadOnlySpan<byte>(directoryBytes);
                 if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, out bool isCff)) return false;
                 anyCff |= isCff;
@@ -176,20 +187,26 @@ internal static partial class Signatures {
         if (searchRange != expectedSearchRange || entrySelector != expectedSelector || rangeShift != expectedRangeShift)
             return false;
 
-        for (int i = 12; i < 16; i++)
-            if (src[i] < 0x20 || src[i] > 0x7E) return false;
-        uint firstTableOffset = ReadUInt32BigEndian(src, 20);
-        uint firstTableLength = ReadUInt32BigEndian(src, 24);
         long directoryEnd = 12L + tableCount * 16L;
-        if (firstTableOffset < directoryEnd || firstTableLength == 0 || (firstTableOffset & 3) != 0 ||
-            (completeLength.HasValue && (ulong)firstTableOffset + firstTableLength > (ulong)completeLength.Value)) return false;
+        if (completeLength.HasValue && directoryEnd > completeLength.Value) return false;
+        if (directoryEnd > src.Length) {
+            if (completeLength.HasValue) return false;
+            result = FontResult(extension, mime, "sampled-directory");
+            return true;
+        }
+        bool sampledTables = false;
+        for (int table = 0; table < tableCount; table++) {
+            int record = 12 + table * 16;
+            for (int tag = 0; tag < 4; tag++)
+                if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
+            uint tableOffset = ReadUInt32BigEndian(src, record + 8);
+            uint tableLength = ReadUInt32BigEndian(src, record + 12);
+            if (tableOffset < directoryEnd || tableLength == 0 || (tableOffset & 3) != 0 ||
+                (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
+            sampledTables |= !completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)src.Length;
+        }
 
-        result = new ContentTypeDetectionResult {
-            Extension = extension,
-            MimeType = mime,
-            Confidence = "High",
-            Reason = extension == "otf" ? "sfnt:opentype-cff" : "sfnt:truetype"
-        };
+        result = FontResult(extension, mime, sampledTables ? "sampled-table-data" : null);
         return true;
     }
 
@@ -204,9 +221,12 @@ internal static partial class Signatures {
         bool anyCff = false;
         for (uint i = 0; i < fontCount; i++) {
             uint directoryOffset = ReadUInt32BigEndian(src, checked(12 + (int)i * 4));
-            if (directoryOffset > int.MaxValue || directoryOffset + 28L > src.Length) return false;
+            if (directoryOffset > int.MaxValue || directoryOffset + 12L > src.Length) return false;
             int offset = (int)directoryOffset;
-            if (!TryValidateCollectionFontDirectory(src.Slice(offset, 28), directoryOffset, completeLength, out bool isCff)) return false;
+            ushort tableCount = ReadUInt16BigEndian(src, offset + 4);
+            long directoryLength = 12L + tableCount * 16L;
+            if (tableCount is < 1 or > 4095 || (ulong)directoryOffset + (ulong)directoryLength > (ulong)src.Length ||
+                !TryValidateCollectionFontDirectory(src.Slice(offset, (int)directoryLength), directoryOffset, completeLength, out bool isCff)) return false;
             anyCff |= isCff;
         }
 
@@ -232,13 +252,26 @@ internal static partial class Signatures {
         if (ReadUInt16BigEndian(directory, 6) != maximumPowerOfTwo * 16 ||
             ReadUInt16BigEndian(directory, 8) != expectedSelector ||
             ReadUInt16BigEndian(directory, 10) != tableCount * 16 - maximumPowerOfTwo * 16) return false;
-        for (int tag = 12; tag < 16; tag++)
-            if (directory[tag] < 0x20 || directory[tag] > 0x7E) return false;
-        uint firstTableOffset = ReadUInt32BigEndian(directory, 20);
-        uint firstTableLength = ReadUInt32BigEndian(directory, 24);
-        return firstTableLength > 0 && (firstTableOffset & 3) == 0 &&
-               (!completeLength.HasValue || (ulong)firstTableOffset + firstTableLength <= (ulong)completeLength.Value);
+        if (directory.Length < 12L + tableCount * 16L) return false;
+        for (int table = 0; table < tableCount; table++) {
+            int record = 12 + table * 16;
+            for (int tag = 0; tag < 4; tag++)
+                if (directory[record + tag] < 0x20 || directory[record + tag] > 0x7E) return false;
+            uint tableOffset = ReadUInt32BigEndian(directory, record + 8);
+            uint tableLength = ReadUInt32BigEndian(directory, record + 12);
+            if (tableLength == 0 || (tableOffset & 3) != 0 ||
+                (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
+        }
+        return true;
     }
+
+    private static ContentTypeDetectionResult FontResult(string extension, string mime, string? sampledReason) => new() {
+        Extension = extension,
+        MimeType = mime,
+        Confidence = sampledReason == null ? "High" : "Medium",
+        Reason = (extension == "otf" ? "sfnt:opentype-cff" : "sfnt:truetype") +
+                 (sampledReason == null ? string.Empty : ";" + sampledReason)
+    };
 
     private static ContentTypeDetectionResult FontCollectionResult(uint version, uint fontCount, bool anyCff) => new() {
         Extension = anyCff ? "otc" : "ttc",

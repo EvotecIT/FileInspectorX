@@ -94,65 +94,19 @@ internal static partial class Signatures {
 
     internal static bool TryMatchJavaClass(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 10 || src[0] != 0xCA || src[1] != 0xFE || src[2] != 0xBA || src[3] != 0xBE)
-            return false;
-
-        ushort minor = ReadUInt16BigEndian(src, 4);
-        ushort major = ReadUInt16BigEndian(src, 6);
-        ushort constantPoolCount = ReadUInt16BigEndian(src, 8);
-        if (major < 45 || major > 100 || constantPoolCount < 2) return false;
-
-        var constantPoolTags = new byte[constantPoolCount];
-        int cursor = 10;
-        for (int index = 1; index < constantPoolCount; index++)
-        {
-            if (cursor >= src.Length) return false;
-            byte tag = src[cursor++];
-            if (!IsJavaConstantPoolTag(tag)) return false;
-            constantPoolTags[index] = tag;
-            int payloadLength;
-            if (tag == 1)
-            {
-                if (cursor + 2 > src.Length) return false;
-                payloadLength = 2 + ReadUInt16BigEndian(src, cursor);
-            }
-            else
-            {
-                payloadLength = tag switch {
-                    3 or 4 or 9 or 10 or 11 or 12 or 17 or 18 => 4,
-                    5 or 6 => 8,
-                    7 or 8 or 16 or 19 or 20 => 2,
-                    15 => 3,
-                    _ => 0
-                };
-            }
-            if (payloadLength == 0 || payloadLength > src.Length - cursor) return false;
-            cursor += payloadLength;
-            if (tag is 5 or 6)
-            {
-                if (++index >= constantPoolCount) return false;
-            }
-        }
-
-        if (cursor + 8 > src.Length) return false;
-        ushort thisClass = ReadUInt16BigEndian(src, cursor + 2);
-        ushort superClass = ReadUInt16BigEndian(src, cursor + 4);
-        ushort interfaceCount = ReadUInt16BigEndian(src, cursor + 6);
-        cursor += 8;
-        if (!IsJavaConstantPoolReference(constantPoolTags, thisClass, 7) ||
-            (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7)) ||
-            interfaceCount > (src.Length - cursor) / 2) return false;
-        for (int index = 0; index < interfaceCount; index++)
-        {
-            ushort interfaceClass = ReadUInt16BigEndian(src, cursor);
-            cursor += 2;
-            if (!IsJavaConstantPoolReference(constantPoolTags, interfaceClass, 7)) return false;
-        }
-        if (!TrySkipJavaMembers(src, ref cursor, constantPoolTags) ||
-            !TrySkipJavaMembers(src, ref cursor, constantPoolTags) ||
-            !TrySkipJavaAttributes(src, ref cursor, constantPoolTags) || cursor != src.Length) return false;
-
+        if (InspectJavaClass(src, out ushort major, out ushort minor) != JavaSampleStatus.Complete) return false;
         result = JavaClassResult(major, minor);
+        return true;
+    }
+
+    internal static bool TryMatchJavaClass(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
+        if (completeLength.HasValue) return TryMatchJavaClass(src, out result);
+        result = null;
+        JavaSampleStatus status = InspectJavaClass(src, out ushort major, out ushort minor);
+        if (status == JavaSampleStatus.Invalid) return false;
+        result = JavaClassResult(major, minor);
+        result.Confidence = "Medium";
+        result.Reason += ";sampled-length-unknown";
         return true;
     }
 
@@ -234,7 +188,7 @@ internal static partial class Signatures {
             return false;
 
         int version = (src[4] - (byte)'0') * 100 + (src[5] - (byte)'0') * 10 + src[6] - (byte)'0';
-        if (version < 35 || version > 41) return false;
+        if (version is not (35 or 37 or 38 or 39 or 40 or 41)) return false;
 
         uint endianTagAsLittleEndian = ReadUInt32(src, 40, littleEndian: true);
         bool fieldsAreLittleEndian;
@@ -307,53 +261,111 @@ internal static partial class Signatures {
     private static bool IsJavaConstantPoolReference(byte[] tags, ushort index, byte expectedTag)
         => index > 0 && index < tags.Length && tags[index] == expectedTag;
 
+    private enum JavaSampleStatus { Invalid, NeedMore, Complete }
+
+    private static JavaSampleStatus InspectJavaClass(ReadOnlySpan<byte> src, out ushort major, out ushort minor) {
+        major = 0;
+        minor = 0;
+        if (src.Length < 10 || src[0] != 0xCA || src[1] != 0xFE || src[2] != 0xBA || src[3] != 0xBE)
+            return JavaSampleStatus.Invalid;
+        minor = ReadUInt16BigEndian(src, 4);
+        major = ReadUInt16BigEndian(src, 6);
+        ushort constantPoolCount = ReadUInt16BigEndian(src, 8);
+        if (major < 45 || major > 100 || constantPoolCount < 2) return JavaSampleStatus.Invalid;
+
+        var constantPoolTags = new byte[constantPoolCount];
+        int cursor = 10;
+        for (int index = 1; index < constantPoolCount; index++) {
+            if (cursor >= src.Length) return JavaSampleStatus.NeedMore;
+            byte tag = src[cursor++];
+            if (!IsJavaConstantPoolTag(tag)) return JavaSampleStatus.Invalid;
+            constantPoolTags[index] = tag;
+            int payloadLength;
+            if (tag == 1) {
+                if (cursor + 2 > src.Length) return JavaSampleStatus.NeedMore;
+                payloadLength = 2 + ReadUInt16BigEndian(src, cursor);
+            } else {
+                payloadLength = tag switch {
+                    3 or 4 or 9 or 10 or 11 or 12 or 17 or 18 => 4,
+                    5 or 6 => 8,
+                    7 or 8 or 16 or 19 or 20 => 2,
+                    15 => 3,
+                    _ => 0
+                };
+            }
+            if (payloadLength == 0) return JavaSampleStatus.Invalid;
+            if (payloadLength > src.Length - cursor) return JavaSampleStatus.NeedMore;
+            cursor += payloadLength;
+            if (tag is 5 or 6 && ++index >= constantPoolCount) return JavaSampleStatus.Invalid;
+        }
+
+        if (cursor + 8 > src.Length) return JavaSampleStatus.NeedMore;
+        ushort thisClass = ReadUInt16BigEndian(src, cursor + 2);
+        ushort superClass = ReadUInt16BigEndian(src, cursor + 4);
+        ushort interfaceCount = ReadUInt16BigEndian(src, cursor + 6);
+        cursor += 8;
+        if (!IsJavaConstantPoolReference(constantPoolTags, thisClass, 7) ||
+            (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7))) return JavaSampleStatus.Invalid;
+        for (int index = 0; index < interfaceCount; index++) {
+            if (cursor + 2 > src.Length) return JavaSampleStatus.NeedMore;
+            ushort interfaceClass = ReadUInt16BigEndian(src, cursor);
+            cursor += 2;
+            if (!IsJavaConstantPoolReference(constantPoolTags, interfaceClass, 7)) return JavaSampleStatus.Invalid;
+        }
+
+        JavaSampleStatus status = InspectJavaMembers(src, ref cursor, constantPoolTags);
+        if (status != JavaSampleStatus.Complete) return status;
+        status = InspectJavaMembers(src, ref cursor, constantPoolTags);
+        if (status != JavaSampleStatus.Complete) return status;
+        status = InspectJavaAttributes(src, ref cursor, constantPoolTags);
+        if (status != JavaSampleStatus.Complete) return status;
+        return cursor == src.Length ? JavaSampleStatus.Complete : JavaSampleStatus.Invalid;
+    }
+
+    private static JavaSampleStatus InspectJavaMembers(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags) {
+        if (cursor + 2 > src.Length) return JavaSampleStatus.NeedMore;
+        ushort count = ReadUInt16BigEndian(src, cursor);
+        cursor += 2;
+        for (int index = 0; index < count; index++) {
+            if (cursor + 8 > src.Length) return JavaSampleStatus.NeedMore;
+            ushort nameIndex = ReadUInt16BigEndian(src, cursor + 2);
+            ushort descriptorIndex = ReadUInt16BigEndian(src, cursor + 4);
+            ushort attributes = ReadUInt16BigEndian(src, cursor + 6);
+            cursor += 8;
+            if (!IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1) ||
+                !IsJavaConstantPoolReference(constantPoolTags, descriptorIndex, 1)) return JavaSampleStatus.Invalid;
+            JavaSampleStatus status = InspectJavaAttributes(src, ref cursor, constantPoolTags, attributes);
+            if (status != JavaSampleStatus.Complete) return status;
+        }
+        return JavaSampleStatus.Complete;
+    }
+
+    private static JavaSampleStatus InspectJavaAttributes(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags) {
+        if (cursor + 2 > src.Length) return JavaSampleStatus.NeedMore;
+        ushort count = ReadUInt16BigEndian(src, cursor);
+        cursor += 2;
+        return InspectJavaAttributes(src, ref cursor, constantPoolTags, count);
+    }
+
+    private static JavaSampleStatus InspectJavaAttributes(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags, ushort count) {
+        for (int index = 0; index < count; index++) {
+            if (cursor + 6 > src.Length) return JavaSampleStatus.NeedMore;
+            ushort nameIndex = ReadUInt16BigEndian(src, cursor);
+            uint length = ReadUInt32(src, cursor + 2, littleEndian: false);
+            cursor += 6;
+            if (!IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1)) return JavaSampleStatus.Invalid;
+            if (length > src.Length - cursor) return JavaSampleStatus.NeedMore;
+            cursor += (int)length;
+        }
+        return JavaSampleStatus.Complete;
+    }
+
     private static ContentTypeDetectionResult JavaClassResult(ushort major, ushort minor) => new() {
         Extension = "class",
         MimeType = "application/java-vm",
         Confidence = "High",
         Reason = $"java-class:{major}.{minor}"
     };
-
-    private static bool TrySkipJavaMembers(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags)
-    {
-        if (cursor + 2 > src.Length) return false;
-        ushort count = ReadUInt16BigEndian(src, cursor);
-        cursor += 2;
-        for (int index = 0; index < count; index++)
-        {
-            if (cursor + 8 > src.Length) return false;
-            ushort nameIndex = ReadUInt16BigEndian(src, cursor + 2);
-            ushort descriptorIndex = ReadUInt16BigEndian(src, cursor + 4);
-            ushort attributes = ReadUInt16BigEndian(src, cursor + 6);
-            cursor += 8;
-            if (!IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1) ||
-                !IsJavaConstantPoolReference(constantPoolTags, descriptorIndex, 1) ||
-                !TrySkipJavaAttributes(src, ref cursor, constantPoolTags, attributes)) return false;
-        }
-        return true;
-    }
-
-    private static bool TrySkipJavaAttributes(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags)
-    {
-        if (cursor + 2 > src.Length) return false;
-        ushort count = ReadUInt16BigEndian(src, cursor);
-        cursor += 2;
-        return TrySkipJavaAttributes(src, ref cursor, constantPoolTags, count);
-    }
-
-    private static bool TrySkipJavaAttributes(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags, ushort count)
-    {
-        for (int index = 0; index < count; index++)
-        {
-            if (cursor + 6 > src.Length) return false;
-            ushort nameIndex = ReadUInt16BigEndian(src, cursor);
-            uint length = ReadUInt32(src, cursor + 2, littleEndian: false);
-            cursor += 6;
-            if (!IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1) || length > src.Length - cursor) return false;
-            cursor += (int)length;
-        }
-        return true;
-    }
 
     private static bool TrySkipJavaMembers(Stream stream, byte[] constantPoolTags) {
         if (!TryReadJavaU2(stream, out ushort count)) return false;

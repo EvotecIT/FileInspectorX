@@ -545,7 +545,8 @@ public static partial class FileInspector {
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
         if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
-        if (Signatures.TryMatchEvtx(src, out var evtx)) return Finish(Enrich(evtx, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchEvtx(stream, out var evtx) : Signatures.TryMatchEvtx(src, completeLength, out evtx)))
+            return Finish(Enrich(evtx, src, stream, options));
         if (Signatures.TryMatchMinidump(src, completeLength, out var minidump)) return Finish(Enrich(minidump, src, stream, options));
         if (Signatures.TryMatchProtectedDump(src, out var protectedDump)) return Finish(Enrich(protectedDump, src, stream, options));
         if (Signatures.TryMatchShellLink(src, out var shellLink)) return Finish(Enrich(shellLink, src, stream, options));
@@ -561,7 +562,7 @@ public static partial class FileInspector {
             return Finish(Enrich(font, src, stream, options));
         if (Signatures.TryMatchOpenExr(src, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
         if (Signatures.TryMatchPhotoshop(src, out var photoshop)) return Finish(Enrich(photoshop, src, stream, options));
-        if (Signatures.TryMatchJpeg2000(src, out var jpeg2000)) return Finish(Enrich(jpeg2000, src, stream, options));
+        if (Signatures.TryMatchJpeg2000(src, completeLength, out var jpeg2000)) return Finish(Enrich(jpeg2000, src, stream, options));
         if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
         if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
         if (Signatures.TryMatchDerCertificate(srcMemory, out var der)) return Finish(Enrich(der, src, stream, options));
@@ -570,11 +571,11 @@ public static partial class FileInspector {
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
         if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
         if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
-        if ((stream.CanSeek ? Signatures.TryMatchJavaClass(stream, out var javaClass) : Signatures.TryMatchJavaClass(src, out javaClass)))
+        if ((stream.CanSeek ? Signatures.TryMatchJavaClass(stream, out var javaClass) : Signatures.TryMatchJavaClass(src, completeLength, out javaClass)))
             return Finish(Enrich(javaClass, src, stream, options));
         if (Signatures.TryMatchDex(src, completeLength, out var dex)) return Finish(Enrich(dex, src, stream, options));
         if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
-        if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
+        if (Signatures.TryMatchCab(src, completeLength, out var cab)) return Finish(Enrich(cab, src, stream, options));
         if (Signatures.TryMatchGlb(src, completeLength, out var glb)) return Finish(Enrich(glb, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, completeLength, out tiff)))
             return Finish(Enrich(tiff, src, stream, options));

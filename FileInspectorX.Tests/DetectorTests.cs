@@ -452,13 +452,7 @@ public class DetectorTests {
         var evtx = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".evtx");
         try
         {
-            var buf = new byte[128];
-            System.Text.Encoding.ASCII.GetBytes("ElfFile\0").CopyTo(buf, 0);
-            BitConverter.GetBytes(128u).CopyTo(buf, 0x20);
-            BitConverter.GetBytes((ushort)1).CopyTo(buf, 0x24);
-            BitConverter.GetBytes((ushort)3).CopyTo(buf, 0x26);
-            BitConverter.GetBytes((ushort)4096).CopyTo(buf, 0x28);
-            BitConverter.GetBytes((ushort)1).CopyTo(buf, 0x2A);
+            var buf = TestHelpers.CreateMinimalEvtx();
             File.WriteAllBytes(evtx, buf);
 
             using var held = new FileStream(evtx, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
@@ -565,20 +559,23 @@ public class DetectorTests {
     public void Detect_Cab() {
         var p = Path.GetTempFileName();
         try {
-            var buf = new byte[36];
+            var buf = new byte[62];
             System.Text.Encoding.ASCII.GetBytes("MSCF").CopyTo(buf, 0);
-            BitConverter.GetBytes(36u).CopyTo(buf, 8);
-            BitConverter.GetBytes(36u).CopyTo(buf, 16);
+            BitConverter.GetBytes((uint)buf.Length).CopyTo(buf, 8);
+            BitConverter.GetBytes(44u).CopyTo(buf, 16);
             buf[24] = 3;
             buf[25] = 1;
             BitConverter.GetBytes((ushort)1).CopyTo(buf, 26);
             BitConverter.GetBytes((ushort)1).CopyTo(buf, 28);
+            BitConverter.GetBytes((uint)buf.Length).CopyTo(buf, 36);
+            BitConverter.GetBytes((ushort)0).CopyTo(buf, 52);
+            buf[60] = (byte)'a';
             File.WriteAllBytes(p, buf);
             var res = FI.Detect(p);
             Assert.NotNull(res);
             Assert.Equal("cab", res!.Extension);
             Assert.Equal("application/vnd.ms-cab-compressed", res.MimeType);
-            Assert.Equal("cab:cfheader", res.Reason);
+            Assert.Equal("cab:cfheader;folders+files", res.Reason);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 

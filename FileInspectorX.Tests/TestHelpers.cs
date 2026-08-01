@@ -81,13 +81,14 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalEvtx()
     {
-        var bytes = new byte[128];
+        var bytes = new byte[4096 + 65536];
         new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'F', (byte)'i', (byte)'l', (byte)'e', 0 }.CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 0x20, 128);
         WriteUInt16LittleEndian(bytes, 0x24, 1);
         WriteUInt16LittleEndian(bytes, 0x26, 3);
         WriteUInt16LittleEndian(bytes, 0x28, 4096);
         WriteUInt16LittleEndian(bytes, 0x2A, 1);
+        new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 }.CopyTo(bytes, 4096);
         return bytes;
     }
 

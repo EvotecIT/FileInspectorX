@@ -15,11 +15,25 @@ internal static partial class Signatures
         int cursor = 14;
         for (int track = 0; track < tracks; track++)
         {
-            if (cursor + 8 > src.Length || !src.Slice(cursor, 4).SequenceEqual("MTrk"u8)) return false;
+            if (cursor + 8 > src.Length) {
+                if (!completeLength.HasValue && MatchesMidiTrackHeaderPrefix(src.Slice(cursor))) {
+                    result = MidiResult(format, tracks, complete: false);
+                    return true;
+                }
+                return false;
+            }
+            if (!src.Slice(cursor, 4).SequenceEqual("MTrk"u8)) return false;
             uint trackLength = ReadUInt32BigEndian(src, cursor + 4);
             cursor += 8;
-            if (trackLength > int.MaxValue || trackLength > src.Length - cursor ||
-                !TryValidateMidiTrack(src.Slice(cursor, (int)trackLength))) return false;
+            if (trackLength > int.MaxValue) return false;
+            if (trackLength > src.Length - cursor) {
+                if (!completeLength.HasValue && IsValidMidiTrackPrefix(src.Slice(cursor))) {
+                    result = MidiResult(format, tracks, complete: false);
+                    return true;
+                }
+                return false;
+            }
+            if (!TryValidateMidiTrack(src.Slice(cursor, (int)trackLength))) return false;
             cursor += (int)trackLength;
         }
         if (completeLength.HasValue && cursor != completeLength.Value) return false;
@@ -125,6 +139,62 @@ internal static partial class Signatures
             cursor += (int)sysexLength;
         }
         return false;
+    }
+
+    private static bool MatchesMidiTrackHeaderPrefix(ReadOnlySpan<byte> remaining) {
+        ReadOnlySpan<byte> expected = "MTrk"u8;
+        if (remaining.Length > expected.Length) return false;
+        return expected.Slice(0, remaining.Length).SequenceEqual(remaining);
+    }
+
+    private static bool IsValidMidiTrackPrefix(ReadOnlySpan<byte> track) {
+        int cursor = 0;
+        byte runningStatus = 0;
+        while (cursor < track.Length) {
+            int deltaStart = cursor;
+            if (!TryReadMidiVariableLength(track, ref cursor, out _))
+                return cursor == track.Length && cursor - deltaStart <= 4;
+            if (cursor >= track.Length) return true;
+            byte current = track[cursor];
+            byte status;
+            bool consumedFirstData = false;
+            if (current < 0x80) {
+                if (runningStatus == 0) return false;
+                status = runningStatus;
+                consumedFirstData = true;
+                cursor++;
+            } else {
+                status = current;
+                cursor++;
+                if (status < 0xF0) runningStatus = status;
+            }
+            if (status < 0xF0) {
+                int remaining = ((status & 0xF0) is 0xC0 or 0xD0 ? 1 : 2) - (consumedFirstData ? 1 : 0);
+                int available = Math.Min(remaining, track.Length - cursor);
+                for (int index = 0; index < available; index++) if (track[cursor + index] >= 0x80) return false;
+                if (available < remaining) return true;
+                cursor += remaining;
+                continue;
+            }
+            if (status == 0xFF) {
+                if (cursor >= track.Length) return true;
+                byte type = track[cursor++];
+                int lengthStart = cursor;
+                if (!TryReadMidiVariableLength(track, ref cursor, out uint length))
+                    return cursor == track.Length && cursor - lengthStart <= 4;
+                if (length > track.Length - cursor) return true;
+                cursor += (int)length;
+                if (type == 0x2F) return false;
+                continue;
+            }
+            if (status is not (0xF0 or 0xF7)) return false;
+            int sysexStart = cursor;
+            if (!TryReadMidiVariableLength(track, ref cursor, out uint sysexLength))
+                return cursor == track.Length && cursor - sysexStart <= 4;
+            if (sysexLength > track.Length - cursor) return true;
+            cursor += (int)sysexLength;
+        }
+        return true;
     }
 
     private static bool TryValidateMidiTrack(Stream stream, long trackEnd)

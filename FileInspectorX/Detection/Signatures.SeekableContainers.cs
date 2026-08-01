@@ -5,6 +5,7 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures
 {
+    private const long QoiPixelStreamScanBudget = 1L << 20;
     internal static bool TryMatchCompleteContainers(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         if (TryMatchParquet(src, out result)) return true;
@@ -212,6 +213,7 @@ internal static partial class Signatures
         var headerSpan = new ReadOnlySpan<byte>(header);
         ulong expectedPixels = (ulong)ReadUInt32BigEndian(headerSpan, 4) * ReadUInt32BigEndian(headerSpan, 8);
         long dataEnd = stream.Length - 8;
+        if (dataEnd - 14 > QoiPixelStreamScanBudget) return false;
         long cursor = 14;
         ulong pixels = 0;
         stream.Seek(cursor, SeekOrigin.Begin);

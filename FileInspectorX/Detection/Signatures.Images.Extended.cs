@@ -58,7 +58,10 @@ internal static partial class Signatures {
         return true;
     }
 
-    internal static bool TryMatchJpeg2000(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchJpeg2000(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchJpeg2000(src, src.Length, out result);
+
+    internal static bool TryMatchJpeg2000(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 32 ||
             ReadUInt32BigEndian(src, 0) != 12 ||
@@ -69,6 +72,8 @@ internal static partial class Signatures {
 
         uint fileTypeLength = ReadUInt32BigEndian(src, 12);
         if (fileTypeLength < 20 || (fileTypeLength & 3) != 0) return false;
+        long boxEnd = 12L + fileTypeLength;
+        if (completeLength < 0 || (completeLength.HasValue && boxEnd > completeLength.Value)) return false;
 
         uint brand = ReadUInt32BigEndian(src, 20);
         string extension = string.Empty;
@@ -79,8 +84,8 @@ internal static partial class Signatures {
         else if (brand == 0x6D6A7032) { extension = "mj2"; mime = "video/mj2"; }
         if (extension.Length == 0) return false;
 
-        long boxEnd = 12L + fileTypeLength;
         int availableEnd = (int)Math.Min(boxEnd, src.Length);
+        bool completeBox = boxEnd <= src.Length;
         bool compatible = false;
         for (int offset = 28; offset + 4 <= availableEnd; offset += 4) {
             if (ReadUInt32BigEndian(src, offset) == brand) {
@@ -88,13 +93,13 @@ internal static partial class Signatures {
                 break;
             }
         }
-        if (!compatible) return false;
+        if (completeBox && !compatible) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = mime,
-            Confidence = "High",
-            Reason = "jpeg2000:" + extension
+            Confidence = completeBox ? "High" : "Medium",
+            Reason = "jpeg2000:" + extension + (completeBox ? string.Empty : ";sampled-file-type-box")
         };
         return true;
     }
