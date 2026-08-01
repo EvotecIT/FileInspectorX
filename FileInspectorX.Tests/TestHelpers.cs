@@ -185,6 +185,77 @@ internal static class TestHelpers
         return bytes;
     }
 
+    internal static byte[] CreateMinimalVhd()
+    {
+        var bytes = new byte[1024];
+        int footer = bytes.Length - 512;
+        Encoding.ASCII.GetBytes("conectix").CopyTo(bytes, footer);
+        WriteUInt32BigEndian(bytes, footer + 8, 2);
+        WriteUInt32BigEndian(bytes, footer + 12, 0x00010000);
+        for (int index = 16; index < 24; index++) bytes[footer + index] = 0xFF;
+        WriteUInt64BigEndian(bytes, footer + 40, 512);
+        WriteUInt64BigEndian(bytes, footer + 48, 512);
+        WriteUInt32BigEndian(bytes, footer + 56, 0x00010101);
+        WriteUInt32BigEndian(bytes, footer + 60, 2);
+        bytes[footer + 68] = 1;
+        uint sum = 0;
+        for (int index = 0; index < 512; index++) if (index < 64 || index >= 68) sum += bytes[footer + index];
+        WriteUInt32BigEndian(bytes, footer + 64, ~sum);
+        return bytes;
+    }
+
+    internal static byte[] CreateMinimalDeb()
+    {
+        using var stream = new MemoryStream();
+        byte[] archive = CreateMinimalTar();
+        stream.Write(Encoding.ASCII.GetBytes("!<arch>\n"), 0, 8);
+        WriteArMember(stream, "debian-binary", Encoding.ASCII.GetBytes("2.0\n"));
+        WriteArMember(stream, "control.tar", archive);
+        WriteArMember(stream, "data.tar", archive);
+        return stream.ToArray();
+    }
+
+    internal static byte[] CreateMinimalMatroska(string documentType = "matroska")
+    {
+        byte[] documentTypeBytes = Encoding.ASCII.GetBytes(documentType);
+        var bytes = new byte[4 + 1 + 3 + documentTypeBytes.Length + 5];
+        new byte[] { 0x1A, 0x45, 0xDF, 0xA3, (byte)(0x80 | (3 + documentTypeBytes.Length)), 0x42, 0x82,
+            (byte)(0x80 | documentTypeBytes.Length) }.CopyTo(bytes, 0);
+        documentTypeBytes.CopyTo(bytes, 8);
+        int segment = 8 + documentTypeBytes.Length;
+        new byte[] { 0x18, 0x53, 0x80, 0x67, 0x80 }.CopyTo(bytes, segment);
+        return bytes;
+    }
+
+    private static byte[] CreateMinimalTar()
+    {
+        var bytes = new byte[1536];
+        Encoding.ASCII.GetBytes("payload").CopyTo(bytes, 0);
+        Encoding.ASCII.GetBytes("0000644\0").CopyTo(bytes, 100);
+        Encoding.ASCII.GetBytes("0000000\0").CopyTo(bytes, 108);
+        Encoding.ASCII.GetBytes("0000000\0").CopyTo(bytes, 116);
+        Encoding.ASCII.GetBytes("00000000000\0").CopyTo(bytes, 124);
+        Encoding.ASCII.GetBytes("00000000000\0").CopyTo(bytes, 136);
+        for (int index = 148; index < 156; index++) bytes[index] = (byte)' ';
+        bytes[156] = (byte)'0';
+        Encoding.ASCII.GetBytes("ustar\0").CopyTo(bytes, 257);
+        Encoding.ASCII.GetBytes("00").CopyTo(bytes, 263);
+        int checksum = 0;
+        for (int index = 0; index < 512; index++) checksum += bytes[index];
+        Encoding.ASCII.GetBytes(Convert.ToString(checksum, 8)!.PadLeft(6, '0') + "\0 ").CopyTo(bytes, 148);
+        return bytes;
+    }
+
+    private static void WriteArMember(Stream stream, string name, byte[] data)
+    {
+        string header = (name + "/").PadRight(16) + "0".PadRight(12) + "0".PadRight(6) + "0".PadRight(6) +
+                        "100644".PadRight(8) + data.Length.ToString(System.Globalization.CultureInfo.InvariantCulture).PadRight(10) + "`\n";
+        byte[] headerBytes = Encoding.ASCII.GetBytes(header);
+        stream.Write(headerBytes, 0, headerBytes.Length);
+        stream.Write(data, 0, data.Length);
+        if ((data.Length & 1) != 0) stream.WriteByte((byte)'\n');
+    }
+
     internal static byte[] CreateMinimalPng()
     {
         var bytes = new byte[33];
@@ -312,6 +383,11 @@ internal static class TestHelpers
     private static void WriteUInt64LittleEndian(byte[] bytes, int offset, ulong value)
     {
         for (int index = 0; index < 8; index++) bytes[offset + index] = (byte)(value >> (8 * index));
+    }
+
+    private static void WriteUInt64BigEndian(byte[] bytes, int offset, ulong value)
+    {
+        for (int index = 0; index < 8; index++) bytes[offset + index] = (byte)(value >> (8 * (7 - index)));
     }
 
     private static void WriteUInt32(byte[] bytes, int offset, uint value, bool littleEndian)

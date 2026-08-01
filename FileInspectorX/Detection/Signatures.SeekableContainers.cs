@@ -82,6 +82,8 @@ internal static partial class Signatures
         bool version = false;
         bool control = false;
         bool data = false;
+        bool controlTarValidated = false;
+        bool dataTarValidated = false;
         int member = 0;
         while (cursor + 60 <= src.Length && member < 4096)
         {
@@ -96,14 +98,21 @@ internal static partial class Signatures
                 if (name != "debian-binary" || size != 4 || !src.Slice((int)dataOffset, 4).SequenceEqual("2.0\n"u8)) return false;
                 version = true;
             }
-            else if (name.StartsWith("control.tar", StringComparison.Ordinal) && size > 0) control = true;
-            else if (name.StartsWith("data.tar", StringComparison.Ordinal) && size > 0) data = true;
+            else if (name.StartsWith("control.tar", StringComparison.Ordinal) && size > 0 &&
+                     TryValidateDebTarMember(name, src.Slice((int)dataOffset, (int)size), out controlTarValidated)) control = true;
+            else if (name.StartsWith("data.tar", StringComparison.Ordinal) && size > 0 &&
+                     TryValidateDebTarMember(name, src.Slice((int)dataOffset, (int)size), out dataTarValidated)) data = true;
             cursor = (int)next;
             member++;
             if (version && control && data) break;
         }
         if (!version || !control || !data) return false;
         result = BinaryResult("deb", "application/vnd.debian.binary-package", "deb:ar-members");
+        if (!controlTarValidated || !dataTarValidated)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";compressed-member-signatures";
+        }
         return true;
     }
 
@@ -123,7 +132,7 @@ internal static partial class Signatures
     {
         result = null;
         if (src.Length < 512) return false;
-        return TryMatchVhdFooter(src.Slice(src.Length - 512, 512), out result);
+        return TryMatchVhdContainer(src, src.Slice(src.Length - 512, 512), out result);
     }
 
     private static bool TryMatchParquet(Stream stream, out ContentTypeDetectionResult? result)
@@ -173,6 +182,8 @@ internal static partial class Signatures
         bool version = false;
         bool control = false;
         bool data = false;
+        bool controlTarValidated = false;
+        bool dataTarValidated = false;
         for (int member = 0; member < 4096 && cursor + 60 <= stream.Length; member++)
         {
             if (!TryReadAt(stream, cursor, 60, out var headerBytes)) return false;
@@ -187,14 +198,48 @@ internal static partial class Signatures
                 if (name != "debian-binary" || size != 4 || !TryReadAt(stream, dataOffset, 4, out var value) || !new ReadOnlySpan<byte>(value).SequenceEqual("2.0\n"u8)) return false;
                 version = true;
             }
-            else if (name.StartsWith("control.tar", StringComparison.Ordinal) && size > 0) control = true;
-            else if (name.StartsWith("data.tar", StringComparison.Ordinal) && size > 0) data = true;
+            else if (name.StartsWith("control.tar", StringComparison.Ordinal) && size > 0 &&
+                     TryValidateDebTarMember(stream, name, dataOffset, size, out controlTarValidated)) control = true;
+            else if (name.StartsWith("data.tar", StringComparison.Ordinal) && size > 0 &&
+                     TryValidateDebTarMember(stream, name, dataOffset, size, out dataTarValidated)) data = true;
             cursor = next;
             if (version && control && data) break;
         }
         if (!version || !control || !data) return false;
         result = BinaryResult("deb", "application/vnd.debian.binary-package", "deb:ar-members");
+        if (!controlTarValidated || !dataTarValidated)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";compressed-member-signatures";
+        }
         return true;
+    }
+
+    private static bool TryValidateDebTarMember(Stream stream, string name, long offset, long length, out bool tarValidated)
+    {
+        tarValidated = false;
+        int prefixLength = (int)Math.Min(length, 512);
+        return prefixLength > 0 && TryReadAt(stream, offset, prefixLength, out var prefix) &&
+               TryValidateDebTarMember(name, new ReadOnlySpan<byte>(prefix), out tarValidated, length);
+    }
+
+    private static bool TryValidateDebTarMember(string name, ReadOnlySpan<byte> payload, out bool tarValidated, long? completeLength = null)
+    {
+        tarValidated = false;
+        long length = completeLength ?? payload.Length;
+        if (name is "control.tar" or "data.tar")
+        {
+            if (length < 265 || payload.Length < 265 || !TryMatchTar(payload, out _)) return false;
+            tarValidated = true;
+            return true;
+        }
+        if (name.EndsWith(".tar.gz", StringComparison.Ordinal)) return length >= 10 && payload.Length >= 10 && TryMatchGzip(payload, out _);
+        if (name.EndsWith(".tar.bz2", StringComparison.Ordinal)) return length >= 10 && payload.Length >= 10 && TryMatchBzip2(payload, out _);
+        if (name.EndsWith(".tar.xz", StringComparison.Ordinal))
+            return length >= 6 && payload.Length >= 6 && payload.Slice(0, 6).SequenceEqual(new byte[] { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 });
+        if (name.EndsWith(".tar.zst", StringComparison.Ordinal))
+            return length >= 4 && payload.Length >= 4 && ReadUInt32LittleEndian(payload, 0) == 0xFD2FB528;
+        return false;
     }
 
     private static bool TryMatchVhdx(Stream stream, out ContentTypeDetectionResult? result)
@@ -214,7 +259,7 @@ internal static partial class Signatures
     {
         result = null;
         if (stream.Length < 512 || !TryReadAt(stream, stream.Length - 512, 512, out var footer)) return false;
-        return TryMatchVhdFooter(new ReadOnlySpan<byte>(footer), out result);
+        return TryMatchVhdContainer(stream, new ReadOnlySpan<byte>(footer), out result);
     }
 
     private static bool TryMatchQoi(Stream stream, out ContentTypeDetectionResult? result)
@@ -251,18 +296,87 @@ internal static partial class Signatures
         return true;
     }
 
-    private static bool TryMatchVhdFooter(ReadOnlySpan<byte> footer, out ContentTypeDetectionResult? result)
+    private static bool TryMatchVhdContainer(ReadOnlySpan<byte> file, ReadOnlySpan<byte> footer, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (footer.Length != 512 || !footer.Slice(0, 8).SequenceEqual("conectix"u8) || ReadUInt32BigEndian(footer, 12) != 0x00010000) return false;
-        uint diskType = ReadUInt32BigEndian(footer, 60);
-        if (diskType is < 2 or > 4) return false;
-        uint storedChecksum = ReadUInt32BigEndian(footer, 64);
-        uint sum = 0;
-        for (int i = 0; i < footer.Length; i++) if (i < 64 || i >= 68) sum += footer[i];
-        if (~sum != storedChecksum) return false;
+        if (!TryValidateVhdFooter(footer, out uint diskType, out ulong dataOffset, out ulong currentSize)) return false;
+        if (diskType == 2)
+        {
+            if (dataOffset != ulong.MaxValue || currentSize > int.MaxValue || currentSize + 512UL != (ulong)file.Length) return false;
+        }
+        else
+        {
+            if (dataOffset > int.MaxValue || dataOffset + 1024UL > (ulong)file.Length ||
+                !TryValidateVhdDynamicHeader(file.Slice((int)dataOffset, 1024), file.Length, diskType)) return false;
+        }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
         return true;
+    }
+
+    private static bool TryMatchVhdContainer(Stream stream, ReadOnlySpan<byte> footer, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!TryValidateVhdFooter(footer, out uint diskType, out ulong dataOffset, out ulong currentSize)) return false;
+        if (diskType == 2)
+        {
+            if (dataOffset != ulong.MaxValue || currentSize > long.MaxValue || currentSize + 512UL != (ulong)stream.Length) return false;
+        }
+        else
+        {
+            if (dataOffset > long.MaxValue || dataOffset + 1024UL > (ulong)stream.Length ||
+                !TryReadAt(stream, (long)dataOffset, 1024, out var dynamicHeader) ||
+                !TryValidateVhdDynamicHeader(new ReadOnlySpan<byte>(dynamicHeader), stream.Length, diskType)) return false;
+        }
+        result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
+        return true;
+    }
+
+    private static bool TryValidateVhdFooter(ReadOnlySpan<byte> footer, out uint diskType, out ulong dataOffset, out ulong currentSize)
+    {
+        diskType = 0;
+        dataOffset = 0;
+        currentSize = 0;
+        if (footer.Length != 512 || !footer.Slice(0, 8).SequenceEqual("conectix"u8) ||
+            (ReadUInt32BigEndian(footer, 8) & 0xFFFFFFFCu) != 0 || (ReadUInt32BigEndian(footer, 8) & 2) == 0 ||
+            ReadUInt32BigEndian(footer, 12) != 0x00010000 || footer[84] > 1) return false;
+        dataOffset = ReadUInt64(footer, 16, littleEndian: false);
+        ulong originalSize = ReadUInt64(footer, 40, littleEndian: false);
+        currentSize = ReadUInt64(footer, 48, littleEndian: false);
+        uint geometry = ReadUInt32BigEndian(footer, 56);
+        diskType = ReadUInt32BigEndian(footer, 60);
+        bool uniqueId = false;
+        for (int index = 68; index < 84; index++) uniqueId |= footer[index] != 0;
+        if (diskType is < 2 or > 4 || originalSize == 0 || originalSize != currentSize || (currentSize & 511) != 0 ||
+            geometry == 0 || (geometry >> 16) == 0 || ((geometry >> 8) & 0xFF) is 0 or > 16 || (geometry & 0xFF) == 0 || !uniqueId) return false;
+        return ComputeVhdChecksum(footer, 64) == ReadUInt32BigEndian(footer, 64);
+    }
+
+    private static bool TryValidateVhdDynamicHeader(ReadOnlySpan<byte> header, long fileLength, uint diskType)
+    {
+        if (header.Length != 1024 || !header.Slice(0, 8).SequenceEqual("cxsparse"u8) ||
+            ReadUInt64(header, 8, littleEndian: false) != ulong.MaxValue || ReadUInt32BigEndian(header, 24) != 0x00010000 ||
+            ComputeVhdChecksum(header, 36) != ReadUInt32BigEndian(header, 36)) return false;
+        ulong tableOffset = ReadUInt64(header, 16, littleEndian: false);
+        uint entries = ReadUInt32BigEndian(header, 28);
+        uint blockSize = ReadUInt32BigEndian(header, 32);
+        ulong tableLength = ((ulong)entries * 4 + 511) & ~511UL;
+        if (entries == 0 || blockSize < 512 * 1024 || (blockSize & (blockSize - 1)) != 0 ||
+            tableOffset < 1536 || (tableOffset & 511) != 0 || tableOffset > (ulong)fileLength || tableLength > (ulong)fileLength - tableOffset) return false;
+        if (diskType == 4)
+        {
+            bool parentId = false;
+            for (int index = 40; index < 56; index++) parentId |= header[index] != 0;
+            if (!parentId) return false;
+        }
+        return true;
+    }
+
+    private static uint ComputeVhdChecksum(ReadOnlySpan<byte> data, int checksumOffset)
+    {
+        uint sum = 0;
+        for (int index = 0; index < data.Length; index++)
+            if (index < checksumOffset || index >= checksumOffset + 4) sum += data[index];
+        return ~sum;
     }
 
     private static bool TryValidateParquetMetadata(ReadOnlySpan<byte> metadata)

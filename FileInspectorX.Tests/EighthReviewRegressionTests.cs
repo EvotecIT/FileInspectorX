@@ -137,13 +137,14 @@ public sealed class EighthReviewRegressionTests
     private static byte[] MatroskaWithLargeRootVoid()
     {
         const int voidLength = 5000;
-        var bytes = new byte[16 + 3 + voidLength + 4];
+        var bytes = new byte[16 + 3 + voidLength + 5];
         new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x8B, 0x42, 0x82, 0x88 }.CopyTo(bytes, 0);
         Encoding.ASCII.GetBytes("matroska").CopyTo(bytes, 8);
         bytes[16] = 0xEC;
         bytes[17] = 0x53;
         bytes[18] = 0x88;
         new byte[] { 0x18, 0x53, 0x80, 0x67 }.CopyTo(bytes, 19 + voidLength);
+        bytes[23 + voidLength] = 0x80;
         return bytes;
     }
 

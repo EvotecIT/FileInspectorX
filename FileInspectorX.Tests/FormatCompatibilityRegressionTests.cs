@@ -141,7 +141,7 @@ public sealed class FormatCompatibilityRegressionTests
     [Fact]
     public void MatroskaHeaderAtDetectionBoundaryKeepsApiParity()
     {
-        var bytes = new byte[4100];
+        var bytes = new byte[4101];
         new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x4F, 0xFA, 0x42, 0x82, 0x88 }
             .CopyTo(bytes, 0);
         Encoding.ASCII.GetBytes("matroska").CopyTo(bytes, 9);
@@ -149,6 +149,7 @@ public sealed class FormatCompatibilityRegressionTests
         bytes[18] = 0x4F;
         bytes[19] = 0xEC;
         new byte[] { 0x18, 0x53, 0x80, 0x67 }.CopyTo(bytes, 4096);
+        bytes[4100] = 0x80;
 
         AssertParity(bytes, "matroska", "High");
     }

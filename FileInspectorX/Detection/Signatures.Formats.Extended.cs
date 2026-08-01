@@ -387,7 +387,16 @@ internal static partial class Signatures
         sampledRootVoid = false;
         while (cursor < src.Length)
         {
-            if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 })) return true;
+            if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
+            {
+                cursor += 4;
+                if (!TryReadEbmlSize(src, ref cursor, out ulong segmentLength, out bool unknownLength)) return false;
+                if (unknownLength) return true;
+                if (completeLength.HasValue)
+                    return cursor <= completeLength.Value && segmentLength <= (ulong)(completeLength.Value - cursor);
+                if (segmentLength > (ulong)(src.Length - cursor)) sampledRootVoid = true;
+                return true;
+            }
             if (!TryReadEbmlVInt(src, ref cursor, stripMarker: false, out ulong id) || id != 0xEC ||
                 !TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong length)) return false;
             if (length > (ulong)(src.Length - cursor))
@@ -438,6 +447,9 @@ internal static partial class Signatures
                 if (stream.Length - cursor >= 4 && TryReadAt(stream, cursor, 4, out var idBytes) &&
                     new ReadOnlySpan<byte>(idBytes).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
                 {
+                    stream.Seek(cursor + 4, SeekOrigin.Begin);
+                    if (!TryReadEbmlSize(stream, out ulong segmentLength, out bool unknownLength) ||
+                        (!unknownLength && segmentLength > (ulong)(stream.Length - stream.Position))) return false;
                     result = MatroskaResult(docType!);
                     return true;
                 }
@@ -478,6 +490,47 @@ internal static partial class Signatures
             ulong unknown = length == 8 ? 0x00FFFFFFFFFFFFFFUL : (1UL << (7 * length)) - 1;
             if (value == unknown) return false;
         }
+        return true;
+    }
+
+    private static bool TryReadEbmlSize(ReadOnlySpan<byte> src, ref int cursor, out ulong value, out bool unknown)
+    {
+        value = 0;
+        unknown = false;
+        if (cursor >= src.Length) return false;
+        byte first = src[cursor];
+        int length = 1;
+        byte marker = 0x80;
+        while (length <= 8 && (first & marker) == 0) { marker >>= 1; length++; }
+        if (length > 8 || cursor + length > src.Length) return false;
+        value = (ulong)(first & (marker - 1));
+        for (int index = 1; index < length; index++) value = (value << 8) | src[cursor + index];
+        cursor += length;
+        ulong unknownValue = length == 8 ? 0x00FFFFFFFFFFFFFFUL : (1UL << (7 * length)) - 1;
+        unknown = value == unknownValue;
+        return true;
+    }
+
+    private static bool TryReadEbmlSize(Stream stream, out ulong value, out bool unknown)
+    {
+        value = 0;
+        unknown = false;
+        int firstValue = stream.ReadByte();
+        if (firstValue < 0) return false;
+        byte first = (byte)firstValue;
+        int length = 1;
+        byte marker = 0x80;
+        while (length <= 8 && (first & marker) == 0) { marker >>= 1; length++; }
+        if (length > 8) return false;
+        value = (ulong)(first & (marker - 1));
+        for (int index = 1; index < length; index++)
+        {
+            int current = stream.ReadByte();
+            if (current < 0) return false;
+            value = (value << 8) | (byte)current;
+        }
+        ulong unknownValue = length == 8 ? 0x00FFFFFFFFFFFFFFUL : (1UL << (7 * length)) - 1;
+        unknown = value == unknownValue;
         return true;
     }
 

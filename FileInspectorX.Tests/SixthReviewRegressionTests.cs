@@ -160,28 +160,9 @@ public sealed class SixthReviewRegressionTests
 
     private static byte[] Arrow() => TestHelpers.CreateMinimalArrow();
 
-    private static byte[] Deb()
-    {
-        using var stream = new MemoryStream();
-        byte[] signature = Encoding.ASCII.GetBytes("!<arch>\n");
-        stream.Write(signature, 0, signature.Length);
-        WriteArMember(stream, "debian-binary", Encoding.ASCII.GetBytes("2.0\n"));
-        WriteArMember(stream, "control.tar.xz", new byte[] { 0 });
-        WriteArMember(stream, "data.tar.xz", new byte[] { 0 });
-        return stream.ToArray();
-    }
+    private static byte[] Deb() => TestHelpers.CreateMinimalDeb();
 
-    private static byte[] Vhd()
-    {
-        var bytes = new byte[512];
-        Encoding.ASCII.GetBytes("conectix").CopyTo(bytes, 0);
-        WriteUInt32BigEndian(bytes, 12, 0x00010000);
-        WriteUInt32BigEndian(bytes, 60, 2);
-        uint sum = 0;
-        for (int i = 0; i < bytes.Length; i++) if (i < 64 || i >= 68) sum += bytes[i];
-        WriteUInt32BigEndian(bytes, 64, ~sum);
-        return bytes;
-    }
+    private static byte[] Vhd() => TestHelpers.CreateMinimalVhd();
 
     private static byte[] Qoi()
     {

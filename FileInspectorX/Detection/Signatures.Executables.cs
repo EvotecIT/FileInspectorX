@@ -68,8 +68,9 @@ internal static partial class Signatures {
         result = null;
         if (src.Length < 4) return false;
         uint m = (uint)(src[0] << 24 | src[1] << 16 | src[2] << 8 | src[3]);
-        if (m == 0xCAFEBABE || m == 0xBEBAFECA)
-            return TryMatchFatMachO(src, littleEndian: m == 0xBEBAFECA, totalLength, out result);
+        if (m is 0xCAFEBABE or 0xBEBAFECA or 0xCAFEBABF or 0xBFBAFECA)
+            return TryMatchFatMachO(src, littleEndian: m is 0xBEBAFECA or 0xBFBAFECA,
+                is64Bit: m is 0xCAFEBABF or 0xBFBAFECA, totalLength, out result);
 
         bool littleEndian;
         bool is64Bit;
@@ -97,15 +98,33 @@ internal static partial class Signatures {
         } else if (commandBytes / 8 < commandCount) {
             return false;
         }
-        if (totalLength.HasValue && (ulong)headerSize + commandBytes > (ulong)totalLength.Value) return false;
+        ulong commandEnd = (ulong)headerSize + commandBytes;
+        if (totalLength.HasValue && commandEnd > (ulong)totalLength.Value) return false;
+        bool commandsSampled = commandEnd <= (ulong)src.Length;
+        if (commandsSampled && !TryValidateMachLoadCommands(src.Slice(headerSize, (int)commandBytes), commandCount, commandAlignment, littleEndian)) return false;
+        if (!commandsSampled && (!totalLength.HasValue || commandEnd <= (ulong)src.Length)) return false;
 
         result = new ContentTypeDetectionResult {
             Extension = "macho",
             MimeType = "application/x-mach-binary",
-            Confidence = "High",
-            Reason = reason
+            Confidence = commandsSampled ? "High" : "Medium",
+            Reason = reason + (commandsSampled ? string.Empty : ";sampled-load-commands")
         };
         return true;
+    }
+
+    private static bool TryValidateMachLoadCommands(ReadOnlySpan<byte> commands, uint commandCount, uint alignment, bool littleEndian)
+    {
+        int cursor = 0;
+        for (uint index = 0; index < commandCount; index++)
+        {
+            if (cursor + 8 > commands.Length) return false;
+            uint command = ReadUInt32(commands, cursor, littleEndian);
+            uint size = ReadUInt32(commands, cursor + 4, littleEndian);
+            if (command == 0 || size < 8 || (size % alignment) != 0 || size > (uint)(commands.Length - cursor)) return false;
+            cursor += (int)size;
+        }
+        return cursor == commands.Length;
     }
 
     internal static bool TryMatchJavaClass(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
@@ -310,24 +329,26 @@ internal static partial class Signatures {
         return (b << 16) | a;
     }
 
-    private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, long? totalLength, out ContentTypeDetectionResult? result) {
+    private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, bool is64Bit, long? totalLength, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 28) return false;
+        int entrySize = is64Bit ? 32 : 20;
+        if (src.Length < 8 + entrySize) return false;
 
         uint architectureCount = ReadUInt32(src, 4, littleEndian);
         if (architectureCount < 1 || architectureCount > 64) return false;
-        long directoryEnd = 8L + architectureCount * 20L;
+        long directoryEnd = 8L + architectureCount * entrySize;
         if (directoryEnd > src.Length) return false;
 
         for (uint i = 0; i < architectureCount; i++) {
-            int entryOffset = checked(8 + (int)i * 20);
+            int entryOffset = checked(8 + (int)i * entrySize);
             uint cpuType = ReadUInt32(src, entryOffset, littleEndian);
-            uint offset = ReadUInt32(src, entryOffset + 8, littleEndian);
-            uint size = ReadUInt32(src, entryOffset + 12, littleEndian);
-            uint alignmentPower = ReadUInt32(src, entryOffset + 16, littleEndian);
-            if (!IsKnownMachCpuType(cpuType) || offset < directoryEnd || size == 0 || alignmentPower > 31 ||
-                (totalLength.HasValue && (ulong)offset + size > (ulong)totalLength.Value)) return false;
-            uint alignment = 1u << (int)alignmentPower;
+            ulong offset = is64Bit ? ReadUInt64(src, entryOffset + 8, littleEndian) : ReadUInt32(src, entryOffset + 8, littleEndian);
+            ulong size = is64Bit ? ReadUInt64(src, entryOffset + 16, littleEndian) : ReadUInt32(src, entryOffset + 12, littleEndian);
+            uint alignmentPower = ReadUInt32(src, entryOffset + (is64Bit ? 24 : 16), littleEndian);
+            if (!IsKnownMachCpuType(cpuType) || offset < (ulong)directoryEnd || size == 0 || alignmentPower > 31 ||
+                (is64Bit && ReadUInt32(src, entryOffset + 28, littleEndian) != 0) ||
+                (totalLength.HasValue && (offset > (ulong)totalLength.Value || size > (ulong)totalLength.Value - offset))) return false;
+            ulong alignment = 1UL << (int)alignmentPower;
             if ((offset & (alignment - 1)) != 0) return false;
         }
 
@@ -335,7 +356,7 @@ internal static partial class Signatures {
             Extension = "macho",
             MimeType = "application/x-mach-binary",
             Confidence = "High",
-            Reason = littleEndian ? "macho:fat-le" : "macho:fat"
+            Reason = "macho:fat" + (is64Bit ? "64" : string.Empty) + (littleEndian ? "-le" : string.Empty)
         };
         return true;
     }

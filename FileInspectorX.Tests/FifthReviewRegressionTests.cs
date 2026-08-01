@@ -208,16 +208,7 @@ public sealed class FifthReviewRegressionTests
         return bytes;
     }
 
-    private static byte[] Matroska(string documentType)
-    {
-        byte headerLength = checked((byte)(3 + documentType.Length));
-        var bytes = new byte[4 + 1 + headerLength + 4];
-        new byte[] { 0x1A, 0x45, 0xDF, 0xA3, (byte)(0x80 | headerLength), 0x42, 0x82, (byte)(0x80 | documentType.Length) }
-            .CopyTo(bytes, 0);
-        Encoding.ASCII.GetBytes(documentType).CopyTo(bytes, 8);
-        new byte[] { 0x18, 0x53, 0x80, 0x67 }.CopyTo(bytes, 8 + documentType.Length);
-        return bytes;
-    }
+    private static byte[] Matroska(string documentType) => TestHelpers.CreateMinimalMatroska(documentType);
 
     private static void FillUndefinedAddress(byte[] bytes, int offset)
     {

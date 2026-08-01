@@ -522,7 +522,7 @@ public static partial class FileInspector {
             return Finish(Enrich(seekableCrx, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchIcon(stream, out var validatedIcon) : Signatures.TryMatchIcon(src, completeLength, out validatedIcon)))
             return Finish(Enrich(validatedIcon, src, stream, options));
-        if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
+        if (Signatures.TryMatchCommonBinary(src, completeLength, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, completeLength, out validatedZip))) {
             var refined = TryRefineZipOOxml(stream);
             if (refined != null) return Finish(Enrich(refined, src, stream, options));
@@ -1364,7 +1364,7 @@ public static partial class FileInspector {
         }
         if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
         if (Signatures.TryMatchCompleteContainers(data, out var completeContainer)) return Finish(Enrich(completeContainer, data, null, options));
-        if (Signatures.TryMatchCommonBinary(data, out var commonBinary)) return Finish(Enrich(commonBinary, data, null, options));
+        if (Signatures.TryMatchCommonBinary(data, data.Length, out var commonBinary)) return Finish(Enrich(commonBinary, data, null, options));
         if (Signatures.TryMatchZip(data, out var validatedZip)) return Finish(Enrich(validatedZip, data, null, options));
         if (Signatures.TryMatchOle2(data, out var validatedOle)) return Finish(Enrich(validatedOle, data, null, options));
         if (Signatures.TryMatchExtendedHeaderFormats(data, out var extendedBinary)) return Finish(Enrich(extendedBinary, data, null, options));

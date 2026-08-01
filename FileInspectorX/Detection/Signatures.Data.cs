@@ -6,6 +6,22 @@ namespace FileInspectorX;
 internal static partial class Signatures {
     private static readonly byte[] Hdf5Signature = { 0x89, (byte)'H', (byte)'D', (byte)'F', 0x0D, 0x0A, 0x1A, 0x0A };
 
+    private readonly struct NetCdfVariableRange
+    {
+        internal NetCdfVariableRange(ulong begin, ulong size, ulong dataSize, bool record)
+        {
+            Begin = begin;
+            Size = size;
+            DataSize = dataSize;
+            Record = record;
+        }
+
+        internal ulong Begin { get; }
+        internal ulong Size { get; }
+        internal ulong DataSize { get; }
+        internal bool Record { get; }
+    }
+
     internal static bool TryMatchHdf5(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchHdf5(src, src.Length, out result);
 
@@ -78,17 +94,21 @@ internal static partial class Signatures {
 
         bool isCdf5 = src[3] == 5;
         int cursor = 4;
-        bool completeHeader = TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out _) &&
-            TrySkipNetCdfDimensions(src, ref cursor, isCdf5, out ulong dimensionCount) &&
+        bool rangesFullyValidated = false;
+        bool completeHeader = TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong recordCount) &&
+            TrySkipNetCdfDimensions(src, ref cursor, isCdf5, out ulong[] dimensionLengths) &&
             TrySkipNetCdfAttributes(src, ref cursor, isCdf5) &&
-            TrySkipNetCdfVariables(src, ref cursor, isCdf5, src[3] == 1, dimensionCount);
+            TrySkipNetCdfVariables(src, ref cursor, isCdf5, src[3] == 1, dimensionLengths, recordCount,
+                completeLength, out rangesFullyValidated);
         if (!completeHeader)
         {
             if (completeLength.HasValue || !TryMatchSampledNetCdf(src, out result)) return false;
             return true;
         }
 
-        result = NetCdfResult(src[3], completeLength.HasValue, sampledReason: completeLength.HasValue ? null : "sampled-length-unknown");
+        bool complete = completeLength.HasValue && rangesFullyValidated;
+        result = NetCdfResult(src[3], complete,
+            sampledReason: !completeLength.HasValue ? "sampled-length-unknown" : complete ? null : "streaming-record-count");
         return true;
     }
 
@@ -102,10 +122,10 @@ internal static partial class Signatures {
             !reader.TryReadByte(out byte f) || f != (byte)'F' ||
             !reader.TryReadByte(out byte version) || version is not (1 or 2 or 5)) return false;
         bool isCdf5 = version == 5;
-        bool parsed = reader.TryReadNonNegative(isCdf5, out _) &&
-                      reader.TrySkipDimensions(isCdf5, out ulong dimensionCount) &&
+        bool parsed = reader.TryReadNonNegative(isCdf5, out ulong recordCount) &&
+                      reader.TrySkipDimensions(isCdf5, out ulong[] dimensionLengths) &&
                       reader.TrySkipAttributes(isCdf5) &&
-                      reader.TrySkipVariables(isCdf5, version == 1, dimensionCount);
+                      reader.TrySkipVariables(isCdf5, version == 1, dimensionLengths, recordCount, out _);
         if (!parsed && (!reader.Incomplete || reader.StructuralEvidence < 2)) return false;
         result = NetCdfResult(version, complete: false, sampledReason: "sampled-header");
         return true;
@@ -126,16 +146,18 @@ internal static partial class Signatures {
                 !reader.TryReadByte(out byte f) || f != (byte)'F' ||
                 !reader.TryReadByte(out byte version) || version is not (1 or 2 or 5)) return false;
             bool isCdf5 = version == 5;
-            if (!reader.TryReadNonNegative(isCdf5, out _) ||
-                !reader.TrySkipDimensions(isCdf5, out ulong dimensionCount) ||
+            bool rangesFullyValidated = false;
+            if (!reader.TryReadNonNegative(isCdf5, out ulong recordCount) ||
+                !reader.TrySkipDimensions(isCdf5, out ulong[] dimensionLengths) ||
                 !reader.TrySkipAttributes(isCdf5) ||
-                !reader.TrySkipVariables(isCdf5, version == 1, dimensionCount))
+                !reader.TrySkipVariables(isCdf5, version == 1, dimensionLengths, recordCount, out rangesFullyValidated))
             {
                 if (!reader.BudgetExceeded || reader.StructuralEvidence < 1) return false;
                 result = NetCdfResult(version, complete: false, sampledReason: "validation-budget-exceeded");
                 return true;
             }
-            result = NetCdfResult(version, complete: true, sampledReason: null);
+            result = NetCdfResult(version, complete: rangesFullyValidated,
+                sampledReason: rangesFullyValidated ? null : "streaming-record-count");
             return true;
         }
         catch
@@ -257,12 +279,18 @@ internal static partial class Signatures {
             return true;
         }
 
-        internal bool TrySkipDimensions(bool isCdf5, out ulong count) {
-            count = 0;
-            if (!TryReadListHeader(isCdf5, 10, out count)) return false;
-            for (ulong i = 0; i < count; i++)
+        internal bool TrySkipDimensions(bool isCdf5, out ulong[] lengths) {
+            lengths = Array.Empty<ulong>();
+            if (!TryReadListHeader(isCdf5, 10, out ulong count) || count > int.MaxValue) return false;
+            lengths = new ulong[(int)count];
+            bool unlimited = false;
+            for (int i = 0; i < lengths.Length; i++)
+            {
                 if (!TrySkipName(isCdf5) || !TryReadNonNegative(isCdf5, out ulong dimensionLength) ||
-                    dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue)) return false;
+                    dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue) || (dimensionLength == 0 && unlimited)) return false;
+                unlimited |= dimensionLength == 0;
+                lengths[i] = dimensionLength;
+            }
             return true;
         }
 
@@ -292,17 +320,30 @@ internal static partial class Signatures {
             return true;
         }
 
-        internal bool TrySkipVariables(bool isCdf5, bool cdf1, ulong dimensionCount) {
+        internal bool TrySkipVariables(bool isCdf5, bool cdf1, ulong[] dimensionLengths, ulong recordCount,
+            out bool rangesFullyValidated) {
+            rangesFullyValidated = false;
             if (!TryReadListHeader(isCdf5, 11, out ulong count)) return false;
+            var ranges = new System.Collections.Generic.List<NetCdfVariableRange>();
             for (ulong i = 0; i < count; i++) {
                 if (!TrySkipName(isCdf5) || !TryReadNonNegative(isCdf5, out ulong dimensions) || dimensions > 4095) return false;
-                for (ulong dimension = 0; dimension < dimensions; dimension++)
-                    if (!TryReadNonNegative(isCdf5, out ulong id) || id >= dimensionCount) return false;
+                var dimensionIds = new ulong[(int)dimensions];
+                for (int dimension = 0; dimension < dimensionIds.Length; dimension++)
+                    if (!TryReadNonNegative(isCdf5, out dimensionIds[dimension]) || dimensionIds[dimension] >= (ulong)dimensionLengths.Length) return false;
                 if (!TrySkipAttributes(isCdf5) || !TryReadUInt32(out uint type) ||
-                    !TryGetNetCdfTypeSize(type, isCdf5, out _) || !TryReadNonNegative(isCdf5, out _) ||
-                    !(cdf1 ? TryReadUInt32(out _) : TryReadUInt64(out _))) return false;
+                    !TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) || !TryReadNonNegative(isCdf5, out ulong declaredSize)) return false;
+                ulong begin;
+                if (cdf1)
+                {
+                    if (!TryReadUInt32(out uint narrowBegin)) return false;
+                    begin = narrowBegin;
+                }
+                else if (!TryReadUInt64(out begin)) return false;
+                if (!TryCreateNetCdfVariableRange(dimensionLengths, dimensionIds, typeSize, declaredSize, begin, out var range)) return false;
+                ranges.Add(range);
             }
-            return true;
+            return TryValidateNetCdfVariableRanges(ranges, (ulong)_stream.Position, _sampleMayContinue ? null : _length,
+                recordCount, isCdf5, out rangesFullyValidated);
         }
     }
 
@@ -315,14 +356,20 @@ internal static partial class Signatures {
                      (sampledReason == null ? string.Empty : ";" + sampledReason)
         };
 
-    private static bool TrySkipNetCdfDimensions(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out ulong count)
+    private static bool TrySkipNetCdfDimensions(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out ulong[] lengths)
     {
-        count = 0;
-        if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 10, out count)) return false;
-        for (ulong i = 0; i < count; i++)
+        lengths = Array.Empty<ulong>();
+        if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 10, out ulong count) || count > int.MaxValue) return false;
+        lengths = new ulong[(int)count];
+        bool unlimited = false;
+        for (int i = 0; i < lengths.Length; i++)
+        {
             if (!TrySkipNetCdfName(src, ref cursor, isCdf5) ||
                 !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong dimensionLength) ||
-                dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue)) return false;
+                dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue) || (dimensionLength == 0 && unlimited)) return false;
+            unlimited |= dimensionLength == 0;
+            lengths[i] = dimensionLength;
+        }
         return true;
     }
 
@@ -347,22 +394,123 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool TrySkipNetCdfVariables(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, bool cdf1, ulong dimensionCount)
+    private static bool TrySkipNetCdfVariables(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, bool cdf1,
+        ulong[] dimensionLengths, ulong recordCount, long? completeLength, out bool rangesFullyValidated)
     {
+        rangesFullyValidated = false;
         if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 11, out ulong count)) return false;
+        var ranges = new System.Collections.Generic.List<NetCdfVariableRange>();
         for (ulong i = 0; i < count; i++)
         {
             if (!TrySkipNetCdfName(src, ref cursor, isCdf5) ||
                 !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong dimensions) || dimensions > 4095) return false;
-            for (ulong dimension = 0; dimension < dimensions; dimension++)
-                if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong id) || id >= dimensionCount) return false;
+            var dimensionIds = new ulong[(int)dimensions];
+            for (int dimension = 0; dimension < dimensionIds.Length; dimension++)
+                if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out dimensionIds[dimension]) ||
+                    dimensionIds[dimension] >= (ulong)dimensionLengths.Length) return false;
             if (!TrySkipNetCdfAttributes(src, ref cursor, isCdf5) || cursor + 4 > src.Length) return false;
             uint type = ReadUInt32BigEndian(src, cursor);
             cursor += 4;
-            if (!TryGetNetCdfTypeSize(type, isCdf5, out _) ||
-                !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out _)) return false;
-            if (!TryReadNetCdfOffset(src, ref cursor, cdf1, out _)) return false;
+            if (!TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) ||
+                !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong declaredSize) ||
+                !TryReadNetCdfOffset(src, ref cursor, cdf1, out ulong begin) ||
+                !TryCreateNetCdfVariableRange(dimensionLengths, dimensionIds, typeSize, declaredSize, begin, out var range)) return false;
+            ranges.Add(range);
         }
+        return TryValidateNetCdfVariableRanges(ranges, (ulong)cursor, completeLength, recordCount, isCdf5,
+            out rangesFullyValidated);
+    }
+
+    private static bool TryCreateNetCdfVariableRange(ulong[] dimensionLengths, ulong[] dimensionIds, int typeSize,
+        ulong declaredSize, ulong begin, out NetCdfVariableRange range)
+    {
+        range = default;
+        bool record = dimensionIds.Length > 0 && dimensionLengths[(int)dimensionIds[0]] == 0;
+        ulong elements = 1;
+        for (int index = 0; index < dimensionIds.Length; index++)
+        {
+            ulong dimensionLength = dimensionLengths[(int)dimensionIds[index]];
+            if (dimensionLength == 0)
+            {
+                if (!record || index != 0) return false;
+                continue;
+            }
+            if (elements > ulong.MaxValue / dimensionLength) return false;
+            elements *= dimensionLength;
+        }
+        if (elements > ulong.MaxValue / (uint)typeSize) return false;
+        ulong rawSize = elements * (uint)typeSize;
+        if (rawSize > ulong.MaxValue - 3) return false;
+        ulong expectedSize = (rawSize + 3) & ~3UL;
+        if (declaredSize != expectedSize || begin > long.MaxValue) return false;
+        range = new NetCdfVariableRange(begin, declaredSize, rawSize, record);
+        return true;
+    }
+
+    private static bool TryValidateNetCdfVariableRanges(System.Collections.Generic.List<NetCdfVariableRange> ranges,
+        ulong headerEnd, long? completeLength, ulong recordCount, bool isCdf5, out bool fullyValidated)
+    {
+        fullyValidated = false;
+        if (!completeLength.HasValue) return true;
+        if (completeLength.Value < 0) return false;
+        ulong fileLength = (ulong)completeLength.Value;
+        var records = new System.Collections.Generic.List<NetCdfVariableRange>();
+        foreach (var range in ranges)
+        {
+            if (range.Begin < headerEnd || range.Begin > fileLength) return false;
+            if (range.Record) records.Add(range);
+            else if (range.Size > fileLength - range.Begin) return false;
+        }
+        if (records.Count == 0)
+        {
+            fullyValidated = true;
+            return true;
+        }
+
+        records.Sort((left, right) => left.Begin.CompareTo(right.Begin));
+        ulong recordStride = 0;
+        if (records.Count == 1)
+        {
+            // Classic netCDF omits inter-record padding when there is exactly one record variable.
+            recordStride = records[0].DataSize;
+        }
+        else
+        {
+            foreach (var range in records)
+            {
+                if (recordStride > ulong.MaxValue - range.Size) return false;
+                recordStride += range.Size;
+            }
+        }
+        ulong recordBase = records[0].Begin;
+        ulong expectedBegin = recordBase;
+        foreach (var range in records)
+        {
+            if (range.Begin != expectedBegin || expectedBegin > ulong.MaxValue - range.Size) return false;
+            expectedBegin += range.Size;
+        }
+        ulong streamingSentinel = isCdf5 ? ulong.MaxValue : uint.MaxValue;
+        if (recordCount == streamingSentinel)
+        {
+            foreach (var range in records)
+                if (range.Begin < fileLength && range.Size > fileLength - range.Begin) return false;
+            return true;
+        }
+        if (recordCount == 0)
+        {
+            fullyValidated = true;
+            return true;
+        }
+        ulong recordAdvance = recordCount - 1;
+        if (recordStride != 0 && recordAdvance > ulong.MaxValue / recordStride) return false;
+        ulong lastRecordOffset = recordAdvance * recordStride;
+        foreach (var range in records)
+        {
+            if (range.Begin > ulong.MaxValue - lastRecordOffset) return false;
+            ulong lastBegin = range.Begin + lastRecordOffset;
+            if (lastBegin > fileLength || range.DataSize > fileLength - lastBegin) return false;
+        }
+        fullyValidated = true;
         return true;
     }
 

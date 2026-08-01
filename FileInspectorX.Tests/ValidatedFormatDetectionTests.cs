@@ -37,7 +37,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("parquet", Parquet(), 4);
         yield return Sample("arrow", Arrow(), 6);
         yield return Sample("deb", Deb(), 80);
-        yield return Sample("vhd", Vhd(), 511);
+        yield return Sample("vhd", Vhd(), 512);
         yield return Sample("vhdx", Vhdx(), 64 * 1024);
     }
 
@@ -470,40 +470,15 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] OutlookNdb() => TestHelpers.CreateMinimalOutlookNdb();
 
-    private static byte[] Matroska()
-    {
-        var bytes = new byte[20];
-        new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x8B, 0x42, 0x82, 0x88 }.CopyTo(bytes, 0);
-        Encoding.ASCII.GetBytes("matroska").CopyTo(bytes, 8);
-        new byte[] { 0x18, 0x53, 0x80, 0x67 }.CopyTo(bytes, 16);
-        return bytes;
-    }
+    private static byte[] Matroska() => TestHelpers.CreateMinimalMatroska();
 
     private static byte[] Parquet() => TestHelpers.CreateMinimalParquet();
 
     private static byte[] Arrow() => TestHelpers.CreateMinimalArrow();
 
-    private static byte[] Deb()
-    {
-        using var stream = new MemoryStream();
-        stream.Write(Encoding.ASCII.GetBytes("!<arch>\n"), 0, 8);
-        WriteArMember(stream, "debian-binary", Encoding.ASCII.GetBytes("2.0\n"));
-        WriteArMember(stream, "control.tar.xz", new byte[] { 0 });
-        WriteArMember(stream, "data.tar.xz", new byte[] { 0 });
-        return stream.ToArray();
-    }
+    private static byte[] Deb() => TestHelpers.CreateMinimalDeb();
 
-    private static byte[] Vhd()
-    {
-        var bytes = new byte[512];
-        Encoding.ASCII.GetBytes("conectix").CopyTo(bytes, 0);
-        WriteUInt32BigEndian(bytes, 12, 0x00010000);
-        WriteUInt32BigEndian(bytes, 60, 2);
-        uint sum = 0;
-        for (int i = 0; i < bytes.Length; i++) if (i < 64 || i >= 68) sum += bytes[i];
-        WriteUInt32BigEndian(bytes, 64, ~sum);
-        return bytes;
-    }
+    private static byte[] Vhd() => TestHelpers.CreateMinimalVhd();
 
     private static byte[] Vhdx() => TestHelpers.CreateMinimalVhdx();
 

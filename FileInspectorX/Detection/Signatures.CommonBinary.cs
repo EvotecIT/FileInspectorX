@@ -7,13 +7,16 @@ namespace FileInspectorX;
 internal static partial class Signatures
 {
     internal static bool TryMatchCommonBinary(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchCommonBinary(src, src.Length, out result);
+
+    internal static bool TryMatchCommonBinary(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         if (TryMatchPe(src, out result)) return true;
         if (TryMatchPng(src, out result)) return true;
         if (TryMatchGif(src, out result)) return true;
         if (TryMatchPdf(src, out result)) return true;
         if (TryMatchJpeg(src, out result)) return true;
-        if (TryMatchBmp(src, out result)) return true;
+        if (TryMatchBmp(src, completeLength, out result)) return true;
         if (TryMatchGzip(src, out result)) return true;
         if (TryMatchBzip2(src, out result)) return true;
         if (TryMatchOgg(src, out result)) return true;
@@ -70,7 +73,7 @@ internal static partial class Signatures
         result = null;
         int localOffset = src.Length >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
         if (src.Length >= localOffset + 30 &&
-            TryValidateZipLocalHeader(src.Slice(localOffset, 30), completeLength.HasValue ? completeLength.Value - localOffset : null,
+            TryValidateZipLocalHeader(src.Slice(localOffset), completeLength.HasValue ? completeLength.Value - localOffset : null,
                 src.Length - localOffset, out bool sampledHeader))
         {
             string reason = localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header";
@@ -108,13 +111,24 @@ internal static partial class Signatures
         try
         {
             if (stream.Length < 22) return false;
-            stream.Seek(0, SeekOrigin.Begin);
             var header = new byte[34];
+            stream.Seek(0, SeekOrigin.Begin);
             int read = ReadHeaderBytes(stream, header);
             var src = new ReadOnlySpan<byte>(header, 0, read);
             int localOffset = read >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
+            if (read >= localOffset + 30)
+            {
+                int variableEnd = localOffset + 30 + ReadUInt16LittleEndian(src, localOffset + 26) + ReadUInt16LittleEndian(src, localOffset + 28);
+                int budget = Math.Max(34, Settings.DetectionReadBudgetBytes);
+                if (variableEnd > read && variableEnd <= budget && variableEnd <= stream.Length && TryReadAt(stream, 0, variableEnd, out var completeHeader))
+                {
+                    header = completeHeader;
+                    read = header.Length;
+                    src = new ReadOnlySpan<byte>(header);
+                }
+            }
             if (read >= localOffset + 30 &&
-                TryValidateZipLocalHeader(src.Slice(localOffset, 30), stream.Length - localOffset, read - localOffset, out _))
+                TryValidateZipLocalHeader(src.Slice(localOffset), stream.Length - localOffset, read - localOffset, out _))
             {
                 result = BinaryResult("zip", "application/zip",
                     localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header");
@@ -180,13 +194,49 @@ internal static partial class Signatures
         ushort versionNeeded = ReadUInt16LittleEndian(header, 4);
         ushort flags = ReadUInt16LittleEndian(header, 6);
         ushort method = ReadUInt16LittleEndian(header, 8);
+        uint compressedSize32 = ReadUInt32LittleEndian(header, 18);
+        uint uncompressedSize32 = ReadUInt32LittleEndian(header, 22);
         ushort nameLength = ReadUInt16LittleEndian(header, 26);
         ushort extraLength = ReadUInt16LittleEndian(header, 28);
         if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) || nameLength == 0) return false;
         long requiredLength = 30L + nameLength + extraLength;
+        if ((flags & 0x0008) == 0)
+        {
+            ulong compressedSize = compressedSize32;
+            if (compressedSize32 == uint.MaxValue)
+            {
+                if (versionNeeded < 45 || requiredLength > header.Length ||
+                    !TryReadZip64CompressedSize(header.Slice(30 + nameLength, extraLength),
+                        uncompressedSize32 == uint.MaxValue, out compressedSize)) return false;
+            }
+            if (compressedSize > long.MaxValue || requiredLength > long.MaxValue - (long)compressedSize) return false;
+            requiredLength += (long)compressedSize;
+        }
         if (availableLength.HasValue) return requiredLength <= availableLength.Value;
         sampledHeader = requiredLength > sampledLength;
         return true;
+    }
+
+    private static bool TryReadZip64CompressedSize(ReadOnlySpan<byte> extra, bool hasZip64UncompressedSize, out ulong compressedSize)
+    {
+        compressedSize = 0;
+        int cursor = 0;
+        while (cursor + 4 <= extra.Length)
+        {
+            ushort id = ReadUInt16LittleEndian(extra, cursor);
+            ushort length = ReadUInt16LittleEndian(extra, cursor + 2);
+            cursor += 4;
+            if (length > extra.Length - cursor) return false;
+            if (id == 0x0001)
+            {
+                int valueOffset = hasZip64UncompressedSize ? 8 : 0;
+                if (length < valueOffset + 8) return false;
+                compressedSize = ReadUInt64(extra, cursor + valueOffset, littleEndian: true);
+                return true;
+            }
+            cursor += length;
+        }
+        return false;
     }
 
     private static int ReadHeaderBytes(Stream stream, byte[] buffer)
@@ -313,15 +363,24 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchBmp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchBmp(src, src.Length, out result);
+
+    internal static bool TryMatchBmp(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 26 || src[0] != (byte)'B' || src[1] != (byte)'M') return false;
         uint fileSize = ReadUInt32LittleEndian(src, 2);
         uint pixelOffset = ReadUInt32LittleEndian(src, 10);
         uint dibSize = ReadUInt32LittleEndian(src, 14);
-        if (fileSize < 26 || pixelOffset < 14 + dibSize || pixelOffset > fileSize) return false;
+        if (fileSize < 26 || pixelOffset < 14 + dibSize || pixelOffset > fileSize ||
+            (completeLength.HasValue && (fileSize > completeLength.Value || pixelOffset > completeLength.Value))) return false;
         if (dibSize is not (12u or 16u or 40u or 52u or 56u or 64u or 108u or 124u)) return false;
         result = BinaryResult("bmp", "image/bmp", "bmp:file+dib-header");
+        if (!completeLength.HasValue && fileSize > src.Length)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-file-size";
+        }
         return true;
     }
 
