@@ -17,7 +17,14 @@ internal static partial class Signatures {
             if (src.Length >= 4 && src.Slice(0, 4).SequenceEqual("wOF2"u8))
                 return TryMatchWoff2(stream, src, out result);
             if (!src.Slice(0, 4).SequenceEqual("ttcf"u8)) {
-                if (src.Slice(0, 4).SequenceEqual("wOFF"u8)) return TryMatchFont(src, stream.Length, out result);
+                if (src.Slice(0, 4).SequenceEqual("wOFF"u8)) {
+                    if (src.Length < 44) return false;
+                    ushort woffTableCount = ReadUInt16BigEndian(src, 12);
+                    long woffDirectoryLength = 44L + woffTableCount * 20L;
+                    if (woffTableCount is < 1 or > 4095 || woffDirectoryLength > stream.Length ||
+                        !TryReadAt(stream, 0, (int)woffDirectoryLength, out var woffDirectory)) return false;
+                    return TryMatchFont(new ReadOnlySpan<byte>(woffDirectory), stream.Length, out result);
+                }
                 if (src.Length < 12) return false;
                 ushort standaloneTableCount = ReadUInt16BigEndian(src, 4);
                 long standaloneDirectoryLength = 12L + standaloneTableCount * 16L;
@@ -293,7 +300,8 @@ internal static partial class Signatures {
         ushort reserved = ReadUInt16BigEndian(src, 14);
         uint totalSfntSize = ReadUInt32BigEndian(src, 16);
         if (tableCount < 1 || tableCount > 4095 || (!isWoff2 && reserved != 0) || declaredLength < headerSize ||
-            (completeLength.HasValue && declaredLength != completeLength.Value))
+            (completeLength.HasValue && declaredLength != completeLength.Value) ||
+            (!completeLength.HasValue && declaredLength < src.Length))
             return false;
         if (totalSfntSize < 12L + tableCount * 16L) return false;
 
@@ -325,31 +333,42 @@ internal static partial class Signatures {
             if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32))) return false;
             if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 40), ReadUInt32BigEndian(src, 44))) return false;
         } else {
-            if (src.Length < 64) return false;
             long minimumLength = 44L + tableCount * 20L;
             if (declaredLength < minimumLength || (declaredLength & 3) != 0 || (totalSfntSize & 3) != 0) return false;
-            for (int i = 44; i < 48; i++)
-                if (src[i] < 0x20 || src[i] > 0x7E) return false;
-            uint firstTableOffset = ReadUInt32BigEndian(src, 48);
-            uint firstCompressedLength = ReadUInt32BigEndian(src, 52);
-            uint firstOriginalLength = ReadUInt32BigEndian(src, 56);
-            if ((firstTableOffset & 3) != 0 || firstTableOffset < minimumLength ||
-                firstCompressedLength == 0 || firstOriginalLength < firstCompressedLength ||
-                (ulong)firstTableOffset + firstCompressedLength > declaredLength)
-                return false;
             if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 24), ReadUInt32BigEndian(src, 28))) return false;
             if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 36), ReadUInt32BigEndian(src, 40))) return false;
+            if (minimumLength > src.Length) {
+                if (completeLength.HasValue) return false;
+                result = WoffResult(isWoff2: false, nonCanonicalReserved: false, sampledReason: "sampled-directory");
+                return true;
+            }
+            for (int table = 0; table < tableCount; table++) {
+                int record = 44 + table * 20;
+                for (int tag = 0; tag < 4; tag++)
+                    if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
+                uint tableOffset = ReadUInt32BigEndian(src, record + 4);
+                uint compressedLength = ReadUInt32BigEndian(src, record + 8);
+                uint originalLength = ReadUInt32BigEndian(src, record + 12);
+                if ((tableOffset & 3) != 0 || tableOffset < minimumLength || compressedLength == 0 ||
+                    originalLength < compressedLength || (ulong)tableOffset + compressedLength > declaredLength) return false;
+            }
         }
 
-        string extension = isWoff2 ? "woff2" : "woff";
         bool nonCanonicalReserved = isWoff2 && reserved != 0;
-        result = new ContentTypeDetectionResult {
+        result = WoffResult(isWoff2, nonCanonicalReserved, sampledReason: null);
+        return true;
+    }
+
+    private static ContentTypeDetectionResult WoffResult(bool isWoff2, bool nonCanonicalReserved, string? sampledReason) {
+        string extension = isWoff2 ? "woff2" : "woff";
+        bool medium = nonCanonicalReserved || sampledReason != null;
+        return new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = "font/" + extension,
-            Confidence = nonCanonicalReserved ? "Medium" : "High",
-            Reason = "font:" + extension + (nonCanonicalReserved ? ";reserved-nonzero" : "")
+            Confidence = medium ? "Medium" : "High",
+            Reason = "font:" + extension + (nonCanonicalReserved ? ";reserved-nonzero" : string.Empty) +
+                     (sampledReason == null ? string.Empty : ";" + sampledReason)
         };
-        return true;
     }
 
     private static bool TryValidateWoff2CollectionDirectory(ReadOnlySpan<byte> src, ref int cursor, ushort tableCount)

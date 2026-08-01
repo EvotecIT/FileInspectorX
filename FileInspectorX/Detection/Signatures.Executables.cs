@@ -128,27 +128,56 @@ internal static partial class Signatures {
                 major < 45 || major > 100 || constantPoolCount < 2) return false;
 
             var constantPoolTags = new byte[constantPoolCount];
+            var constantPoolReference1 = new ushort[constantPoolCount];
+            var constantPoolReference2 = new ushort[constantPoolCount];
+            var constantPoolReferenceKinds = new byte[constantPoolCount];
             for (int index = 1; index < constantPoolCount; index++) {
                 int tagValue = stream.ReadByte();
                 if (tagValue < 0 || !IsJavaConstantPoolTag((byte)tagValue)) return false;
                 byte tag = (byte)tagValue;
                 constantPoolTags[index] = tag;
-                ulong payloadLength;
-                if (tag == 1) {
-                    if (!TryReadJavaU2(stream, out ushort utf8Length)) return false;
-                    payloadLength = utf8Length;
-                } else {
-                    payloadLength = tag switch {
-                        3 or 4 or 9 or 10 or 11 or 12 or 17 or 18 => 4,
-                        5 or 6 => 8,
-                        7 or 8 or 16 or 19 or 20 => 2,
-                        15 => 3,
-                        _ => 0
-                    };
+                switch (tag) {
+                    case 1:
+                        if (!TryReadJavaU2(stream, out ushort utf8Length) || !TrySkipJavaBytes(stream, utf8Length)) return false;
+                        break;
+                    case 3:
+                    case 4:
+                        if (!TrySkipJavaBytes(stream, 4)) return false;
+                        break;
+                    case 5:
+                    case 6:
+                        if (!TrySkipJavaBytes(stream, 8)) return false;
+                        break;
+                    case 7:
+                    case 8:
+                    case 16:
+                    case 19:
+                    case 20:
+                        if (!TryReadJavaU2(stream, out constantPoolReference1[index])) return false;
+                        break;
+                    case 9:
+                    case 10:
+                    case 11:
+                    case 12:
+                        if (!TryReadJavaU2(stream, out constantPoolReference1[index]) ||
+                            !TryReadJavaU2(stream, out constantPoolReference2[index])) return false;
+                        break;
+                    case 15:
+                        int referenceKind = stream.ReadByte();
+                        if (referenceKind < 0 || !TryReadJavaU2(stream, out constantPoolReference1[index])) return false;
+                        constantPoolReferenceKinds[index] = (byte)referenceKind;
+                        break;
+                    case 17:
+                    case 18:
+                        if (!TryReadJavaU2(stream, out _) || !TryReadJavaU2(stream, out constantPoolReference1[index])) return false;
+                        break;
+                    default:
+                        return false;
                 }
-                if ((tag != 1 && payloadLength == 0) || !TrySkipJavaBytes(stream, payloadLength)) return false;
                 if (tag is 5 or 6 && ++index >= constantPoolCount) return false;
             }
+            if (!AreJavaConstantPoolReferencesValid(constantPoolTags, constantPoolReference1,
+                    constantPoolReference2, constantPoolReferenceKinds, major)) return false;
 
             if (!TryReadJavaU2(stream, out _) ||
                 !TryReadJavaU2(stream, out ushort thisClass) ||
@@ -274,6 +303,9 @@ internal static partial class Signatures {
         if (major < 45 || major > 100 || constantPoolCount < 2) return JavaSampleStatus.Invalid;
 
         var constantPoolTags = new byte[constantPoolCount];
+        var constantPoolReference1 = new ushort[constantPoolCount];
+        var constantPoolReference2 = new ushort[constantPoolCount];
+        var constantPoolReferenceKinds = new byte[constantPoolCount];
         int cursor = 10;
         for (int index = 1; index < constantPoolCount; index++) {
             if (cursor >= src.Length) return JavaSampleStatus.NeedMore;
@@ -295,9 +327,35 @@ internal static partial class Signatures {
             }
             if (payloadLength == 0) return JavaSampleStatus.Invalid;
             if (payloadLength > src.Length - cursor) return JavaSampleStatus.NeedMore;
+            switch (tag) {
+                case 7:
+                case 8:
+                case 16:
+                case 19:
+                case 20:
+                    constantPoolReference1[index] = ReadUInt16BigEndian(src, cursor);
+                    break;
+                case 9:
+                case 10:
+                case 11:
+                case 12:
+                    constantPoolReference1[index] = ReadUInt16BigEndian(src, cursor);
+                    constantPoolReference2[index] = ReadUInt16BigEndian(src, cursor + 2);
+                    break;
+                case 15:
+                    constantPoolReferenceKinds[index] = src[cursor];
+                    constantPoolReference1[index] = ReadUInt16BigEndian(src, cursor + 1);
+                    break;
+                case 17:
+                case 18:
+                    constantPoolReference1[index] = ReadUInt16BigEndian(src, cursor + 2);
+                    break;
+            }
             cursor += payloadLength;
             if (tag is 5 or 6 && ++index >= constantPoolCount) return JavaSampleStatus.Invalid;
         }
+        if (!AreJavaConstantPoolReferencesValid(constantPoolTags, constantPoolReference1,
+                constantPoolReference2, constantPoolReferenceKinds, major)) return JavaSampleStatus.Invalid;
 
         if (cursor + 8 > src.Length) return JavaSampleStatus.NeedMore;
         ushort thisClass = ReadUInt16BigEndian(src, cursor + 2);
@@ -366,6 +424,54 @@ internal static partial class Signatures {
         Confidence = "High",
         Reason = $"java-class:{major}.{minor}"
     };
+
+    private static bool AreJavaConstantPoolReferencesValid(byte[] tags, ushort[] reference1,
+        ushort[] reference2, byte[] referenceKinds, ushort major) {
+        for (int index = 1; index < tags.Length; index++) {
+            byte tag = tags[index];
+            if ((tag is 15 or 16 or 18) && major < 51 || tag == 17 && major < 55 ||
+                (tag is 19 or 20) && major < 53) return false;
+            switch (tag) {
+                case 7:
+                case 8:
+                case 16:
+                case 19:
+                case 20:
+                    if (!IsJavaConstantPoolReference(tags, reference1[index], 1)) return false;
+                    break;
+                case 9:
+                case 10:
+                case 11:
+                    if (!IsJavaConstantPoolReference(tags, reference1[index], 7) ||
+                        !IsJavaConstantPoolReference(tags, reference2[index], 12)) return false;
+                    break;
+                case 12:
+                    if (!IsJavaConstantPoolReference(tags, reference1[index], 1) ||
+                        !IsJavaConstantPoolReference(tags, reference2[index], 1)) return false;
+                    break;
+                case 15:
+                    if (!IsJavaMethodHandleReferenceValid(tags, reference1[index], referenceKinds[index], major)) return false;
+                    break;
+                case 17:
+                case 18:
+                    if (!IsJavaConstantPoolReference(tags, reference1[index], 12)) return false;
+                    break;
+            }
+        }
+        return true;
+    }
+
+    private static bool IsJavaMethodHandleReferenceValid(byte[] tags, ushort referenceIndex, byte referenceKind, ushort major) {
+        if (referenceIndex == 0 || referenceIndex >= tags.Length) return false;
+        byte referenceTag = tags[referenceIndex];
+        return referenceKind switch {
+            >= 1 and <= 4 => referenceTag == 9,
+            5 or 8 => referenceTag == 10,
+            6 or 7 => referenceTag == 10 || major >= 52 && referenceTag == 11,
+            9 => referenceTag == 11,
+            _ => false
+        };
+    }
 
     private static bool TrySkipJavaMembers(Stream stream, byte[] constantPoolTags) {
         if (!TryReadJavaU2(stream, out ushort count)) return false;

@@ -15,7 +15,7 @@ internal static partial class Signatures
         if (TryMatchMidi(src, completeLength, out result)) return true;
         if (TryMatchDds(src, out result)) return true;
         if (TryMatchQoi(src, out result)) return true;
-        if (TryMatchDicom(src, out result)) return true;
+        if (TryMatchDicom(src, completeLength, out result)) return true;
         if (TryMatchOutlookNdb(src, out result)) return true;
         if (TryMatchMatroska(src, completeLength, out result)) return true;
         result = null;
@@ -88,10 +88,18 @@ internal static partial class Signatures
         ulong refcountOffset = ReadUInt64(src, 48, littleEndian: false);
         uint refcountClusters = ReadUInt32BigEndian(src, 56);
         if (version is not (2u or 3u) || clusterBits is < 9 or > 21 || virtualSize == 0 || cryptMethod > 2 ||
+            completeLength < 0 ||
             l1Size == 0 || l1Offset == 0 || refcountOffset == 0 || refcountClusters == 0) return false;
         ulong clusterSize = 1UL << (int)clusterBits;
         if ((l1Offset & (clusterSize - 1)) != 0 || (refcountOffset & (clusterSize - 1)) != 0) return false;
         if ((backingOffset == 0) != (backingSize == 0)) return false;
+        if (completeLength.HasValue)
+        {
+            ulong fileLength = (ulong)completeLength.Value;
+            if (!IsQcow2RangeWithin(backingOffset, backingSize, fileLength) ||
+                !IsQcow2RangeWithin(l1Offset, (ulong)l1Size * 8UL, fileLength) ||
+                !IsQcow2RangeWithin(refcountOffset, (ulong)refcountClusters * clusterSize, fileLength)) return false;
+        }
         if (version == 3)
         {
             if (src.Length < 104) return false;
@@ -102,8 +110,16 @@ internal static partial class Signatures
         }
         else if (cryptMethod == 2) return false;
         result = BinaryResult("qcow2", "application/x-qemu-disk", $"qcow2:version={version}");
+        if (!completeLength.HasValue)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-length-unknown";
+        }
         return true;
     }
+
+    private static bool IsQcow2RangeWithin(ulong offset, ulong length, ulong fileLength)
+        => offset <= fileLength && length <= fileLength - offset;
 
     private static bool TryValidateQcow2LuksExtension(ReadOnlySpan<byte> src, uint headerLength, ulong clusterSize, long? completeLength)
     {
@@ -206,6 +222,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchDicom(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchDicom(src, src.Length, out result);
+
+    internal static bool TryMatchDicom(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 156 || !src.Slice(128, 4).SequenceEqual("DICM"u8)) return false;
@@ -213,10 +232,18 @@ internal static partial class Signatures
             src[136] != (byte)'U' || src[137] != (byte)'L' || ReadUInt16LittleEndian(src, 138) != 4)
             return false;
         uint metaLength = ReadUInt32LittleEndian(src, 140);
-        if (metaLength < 12 || ReadUInt16LittleEndian(src, 144) != 0x0002 ||
+        long metaEnd = 144L + metaLength;
+        if (metaLength < 12 || completeLength < 0 ||
+            (completeLength.HasValue && metaEnd > completeLength.Value) ||
+            ReadUInt16LittleEndian(src, 144) != 0x0002 ||
             ReadUInt16LittleEndian(src, 146) == 0 || src[148] is < (byte)'A' or > (byte)'Z' ||
             src[149] is < (byte)'A' or > (byte)'Z') return false;
         result = BinaryResult("dcm", "application/dicom", "dicom:preamble+meta-header");
+        if (!completeLength.HasValue && metaEnd > src.Length)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-meta-header";
+        }
         return true;
     }
 

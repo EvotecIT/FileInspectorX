@@ -263,11 +263,10 @@ internal static partial class Signatures
         result = null;
         if (peHeader.Length < 26 || peHeader[0] != (byte)'P' || peHeader[1] != (byte)'E' || peHeader[2] != 0 || peHeader[3] != 0) return false;
 
-        ushort machine = ReadUInt16LittleEndian(peHeader, 4);
         ushort sections = ReadUInt16LittleEndian(peHeader, 6);
         ushort optionalHeaderSize = ReadUInt16LittleEndian(peHeader, 20);
         ushort characteristics = ReadUInt16LittleEndian(peHeader, 22);
-        if (machine == 0 || sections is < 1 or > 96 || optionalHeaderSize < 2 || peOffset + 24L + optionalHeaderSize > totalLength) return false;
+        if (sections is < 1 or > 96 || optionalHeaderSize < 2 || peOffset + 24L + optionalHeaderSize > totalLength) return false;
 
         ushort optionalMagic = ReadUInt16LittleEndian(peHeader, 24);
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;
@@ -474,6 +473,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchCrx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchCrx(src, src.Length, out result);
+
+    internal static bool TryMatchCrx(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 12 || !src.Slice(0, 4).SequenceEqual("Cr24"u8)) return false;
@@ -489,10 +491,30 @@ internal static partial class Signatures
             headerEnd = 12L + ReadUInt32LittleEndian(src, 8);
         }
         else return false;
-        if (headerEnd > int.MaxValue || headerEnd > src.Length ||
-            !TryMatchZip(src.Slice((int)headerEnd), out _)) return false;
-        result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
+        if (headerEnd > int.MaxValue || completeLength < 0 ||
+            (completeLength.HasValue && headerEnd > completeLength.Value)) return false;
+        if (headerEnd > src.Length)
+        {
+            if (completeLength.HasValue && completeLength.Value <= src.Length) return false;
+            result = CrxResult(version, complete: false);
+            return true;
+        }
+
+        long? zipLength = completeLength.HasValue ? completeLength.Value - headerEnd : null;
+        if (!TryMatchZip(src.Slice((int)headerEnd), zipLength, out var zip)) return false;
+        result = CrxResult(version, completeLength.HasValue && zip?.Confidence == "High");
         return true;
+    }
+
+    private static ContentTypeDetectionResult CrxResult(uint version, bool complete)
+    {
+        var result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
+        if (!complete)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-signed-header";
+        }
+        return result;
     }
 
     internal static bool TryMatchCrx(Stream stream, out ContentTypeDetectionResult? result)

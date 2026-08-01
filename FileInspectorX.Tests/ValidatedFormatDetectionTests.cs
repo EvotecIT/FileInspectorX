@@ -399,7 +399,7 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Qcow2()
     {
-        var bytes = new byte[104];
+        var bytes = new byte[0x30000];
         new byte[] { (byte)'Q', (byte)'F', (byte)'I', 0xFB }.CopyTo(bytes, 0);
         WriteUInt32BigEndian(bytes, 4, 3);
         WriteUInt32BigEndian(bytes, 20, 16);

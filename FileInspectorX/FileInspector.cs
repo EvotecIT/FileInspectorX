@@ -518,7 +518,8 @@ public static partial class FileInspector {
             return Finish(Enrich(validatedPe, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
         if (!stream.CanSeek && Signatures.TryMatchPcapNg(src, completeLength, out var sampledPcapNg)) return Finish(Enrich(sampledPcapNg, src, stream, options));
-        if (stream.CanSeek && Signatures.TryMatchCrx(stream, out var seekableCrx)) return Finish(Enrich(seekableCrx, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchCrx(stream, out var seekableCrx) : Signatures.TryMatchCrx(src, completeLength, out seekableCrx)))
+            return Finish(Enrich(seekableCrx, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchIcon(stream, out var validatedIcon) : Signatures.TryMatchIcon(src, completeLength, out validatedIcon)))
             return Finish(Enrich(validatedIcon, src, stream, options));
         if (Signatures.TryMatchCommonBinary(src, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
@@ -549,7 +550,7 @@ public static partial class FileInspector {
             return Finish(Enrich(evtx, src, stream, options));
         if (Signatures.TryMatchMinidump(src, completeLength, out var minidump)) return Finish(Enrich(minidump, src, stream, options));
         if (Signatures.TryMatchProtectedDump(src, out var protectedDump)) return Finish(Enrich(protectedDump, src, stream, options));
-        if (Signatures.TryMatchShellLink(src, out var shellLink)) return Finish(Enrich(shellLink, src, stream, options));
+        if (Signatures.TryMatchShellLink(src, completeLength, out var shellLink)) return Finish(Enrich(shellLink, src, stream, options));
         if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
         if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));

@@ -24,22 +24,31 @@ internal static partial class Signatures {
         uint version = ReadUInt32LittleEndian(src, 4);
         uint totalLength = ReadUInt32LittleEndian(src, 8);
         if (completeLength.HasValue && totalLength != completeLength.Value) return false;
+        if (!completeLength.HasValue && totalLength < src.Length) return false;
 
         uint contentLength = ReadUInt32LittleEndian(src, 12);
         uint contentType = ReadUInt32LittleEndian(src, 16);
         if (version == 1) {
             if (totalLength < 21 || contentLength == 0 || contentLength > totalLength - 20 || contentType != 0 ||
                 !HasGlbJsonObjectStart(src, 20, contentLength)) return false;
-            result = new ContentTypeDetectionResult { Extension = "glb", MimeType = "model/gltf-binary", Confidence = "High", Reason = "glb:v1+json-content" };
+            result = GlbResult(version, completeLength.HasValue);
             return true;
         }
 
         if (version != 2 || totalLength < 21 || (totalLength & 3) != 0 || contentType != 0x4E4F534A ||
             contentLength == 0 || (contentLength & 3) != 0 || contentLength > totalLength - 20 ||
             !HasGlbJsonObjectStart(src, 20, contentLength)) return false;
-        result = new ContentTypeDetectionResult { Extension = "glb", MimeType = "model/gltf-binary", Confidence = "High", Reason = "glb:v2+json-chunk" };
+        result = GlbResult(version, completeLength.HasValue);
         return true;
     }
+
+    private static ContentTypeDetectionResult GlbResult(uint version, bool complete) => new() {
+        Extension = "glb",
+        MimeType = "model/gltf-binary",
+        Confidence = complete ? "High" : "Medium",
+        Reason = $"glb:v{version}+json-" + (version == 1 ? "content" : "chunk") +
+                 (complete ? string.Empty : ";sampled-length-unknown")
+    };
 
     private static bool HasGlbJsonObjectStart(ReadOnlySpan<byte> src, int offset, uint declaredLength) {
         int available = (int)Math.Min(declaredLength, (uint)Math.Max(0, src.Length - offset));
