@@ -457,11 +457,23 @@ internal static partial class Signatures {
         if (completeLength.Value < 0) return false;
         ulong fileLength = (ulong)completeLength.Value;
         var records = new System.Collections.Generic.List<NetCdfVariableRange>();
+        var fixedRanges = new System.Collections.Generic.List<NetCdfVariableRange>();
         foreach (var range in ranges)
         {
             if (range.Begin < headerEnd || range.Begin > fileLength) return false;
             if (range.Record) records.Add(range);
-            else if (range.Size > fileLength - range.Begin) return false;
+            else
+            {
+                if (range.Size > fileLength - range.Begin) return false;
+                fixedRanges.Add(range);
+            }
+        }
+        fixedRanges.Sort((left, right) => left.Begin.CompareTo(right.Begin));
+        ulong previousFixedEnd = headerEnd;
+        foreach (var range in fixedRanges)
+        {
+            if (range.Begin < previousFixedEnd || range.Size > ulong.MaxValue - range.Begin) return false;
+            previousFixedEnd = range.Begin + range.Size;
         }
         if (records.Count == 0)
         {
@@ -470,6 +482,7 @@ internal static partial class Signatures {
         }
 
         records.Sort((left, right) => left.Begin.CompareTo(right.Begin));
+        if (fixedRanges.Count != 0 && previousFixedEnd > records[0].Begin) return false;
         if (records.Count != 1 && records.Exists(range => range.UnpaddedRecord && range.Size != ((range.DataSize + 3) & ~3UL))) return false;
         ulong recordStride = 0;
         if (records.Count == 1)

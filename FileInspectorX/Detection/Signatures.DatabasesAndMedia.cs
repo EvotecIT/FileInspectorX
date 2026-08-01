@@ -482,7 +482,8 @@ internal static partial class Signatures {
         QuickTime = 16,
         M4A = 32,
         ThreeGpp = 64,
-        Mp4 = 128
+        Mp4 = 128,
+        M4B = 256
     }
 
     private static FtypBrandKind GetFtypBrandKind(ReadOnlySpan<byte> brand) {
@@ -494,7 +495,8 @@ internal static partial class Signatures {
         if (brand.SequenceEqual("mif1"u8) || brand.SequenceEqual("mif2"u8) || brand.SequenceEqual("msf1"u8)) return FtypBrandKind.GenericHeif;
         if (brand.SequenceEqual("heif"u8)) return FtypBrandKind.LegacyHeif;
         if (brand.SequenceEqual("qt  "u8)) return FtypBrandKind.QuickTime;
-        if (brand.SequenceEqual("M4A "u8) || brand.SequenceEqual("M4B "u8) || brand.SequenceEqual("F4A "u8)) return FtypBrandKind.M4A;
+        if (brand.SequenceEqual("M4B "u8)) return FtypBrandKind.M4B;
+        if (brand.SequenceEqual("M4A "u8) || brand.SequenceEqual("F4A "u8)) return FtypBrandKind.M4A;
         if (brand[0] == (byte)'3' && brand[1] == (byte)'g' && (brand[2] == (byte)'p' || brand[2] == (byte)'2')) return FtypBrandKind.ThreeGpp;
         if (brand.SequenceEqual("isom"u8) || brand.SequenceEqual("iso2"u8) ||
             brand.SequenceEqual("iso3"u8) || brand.SequenceEqual("iso4"u8) ||
@@ -534,6 +536,9 @@ internal static partial class Signatures {
             result = new ContentTypeDetectionResult { Extension = "heif", MimeType = "image/heif", Confidence = "Medium", Reason = "ftyp:heif-legacy-brand" };
         else if ((kinds & FtypBrandKind.QuickTime) != 0)
             result = new ContentTypeDetectionResult { Extension = "mov", MimeType = "video/quicktime", Confidence = "High", Reason = "ftyp:quicktime" };
+        else if (majorBrand.SequenceEqual("M4B "u8) ||
+                 !majorBrand.SequenceEqual("M4A "u8) && !majorBrand.SequenceEqual("F4A "u8) && (kinds & FtypBrandKind.M4B) != 0)
+            result = new ContentTypeDetectionResult { Extension = "m4b", MimeType = "audio/mp4", Confidence = "High", Reason = "ftyp:m4b" };
         else if ((kinds & FtypBrandKind.M4A) != 0)
             result = new ContentTypeDetectionResult { Extension = "m4a", MimeType = "audio/mp4", Confidence = "High", Reason = "ftyp:m4a" };
         else if ((kinds & FtypBrandKind.ThreeGpp) != 0)

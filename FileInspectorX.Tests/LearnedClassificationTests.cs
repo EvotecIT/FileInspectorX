@@ -1280,6 +1280,10 @@ public sealed class LearnedClassificationTests
         BitConverter.GetBytes((ushort)0x00E0).CopyTo(bytes, 0x94);
         BitConverter.GetBytes((ushort)0x2000).CopyTo(bytes, 0x96);
         BitConverter.GetBytes((ushort)0x010B).CopyTo(bytes, 0x98);
+        BitConverter.GetBytes(0x1000u).CopyTo(bytes, 0xB8);
+        BitConverter.GetBytes(0x0200u).CopyTo(bytes, 0xBC);
+        BitConverter.GetBytes(0x1000u).CopyTo(bytes, 0xD0);
+        BitConverter.GetBytes(0x0200u).CopyTo(bytes, 0xD4);
         return bytes;
     }
 

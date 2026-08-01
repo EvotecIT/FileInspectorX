@@ -542,6 +542,7 @@ public static partial class FileInspector {
         if (stream.CanSeek && Signatures.TryMatchQcow2(stream, out var seekableQcow2)) return Finish(Enrich(seekableQcow2, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchMidi(stream, out var seekableMidi)) return Finish(Enrich(seekableMidi, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchRpm(stream, out var seekableRpm)) return Finish(Enrich(seekableRpm, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchDicom(stream, out var seekableDicom)) return Finish(Enrich(seekableDicom, src, stream, options));
         if (Signatures.TryMatchExtendedHeaderFormats(src, completeLength, out var extendedBinary)) return Finish(Enrich(extendedBinary, src, stream, options));
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first

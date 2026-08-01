@@ -127,6 +127,7 @@ public static class MimeMaps {
 
         ["mp4"] = "video/mp4",
         ["m4a"] = "audio/mp4",
+        ["m4b"] = "audio/mp4",
         ["3gp"] = "video/3gpp",
         ["avi"] = "video/x-msvideo",
         ["wav"] = "audio/wav",

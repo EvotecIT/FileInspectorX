@@ -130,7 +130,9 @@ public sealed class EighteenthReviewRegressionTests
         stream.Write(length, 0, length.Length);
         stream.Write(new byte[valueLength], 0, valueLength);
         stream.Write(minimal, 8, minimal.Length - 8);
-        return stream.ToArray();
+        byte[] bytes = stream.ToArray();
+        TestHelpers.WriteUInt64LittleEndian(bytes, bytes.Length - 20, checked((ulong)(bytes.Length - 12)));
+        return bytes;
     }
 
     private static byte[] MachOWithManyLoadCommands(int count)

@@ -363,7 +363,11 @@ internal static partial class Signatures
             if (dos[0] != (byte)'M' || dos[1] != (byte)'Z') return false;
             uint peOffset = ReadUInt32LittleEndian(dos, 0x3C);
             if (peOffset < 0x40 || peOffset + 26L > stream.Length ||
-                !TryReadAt(stream, peOffset, 26, out var peHeader)) return false;
+                !TryReadAt(stream, peOffset, 26, out var pePrefix)) return false;
+            ushort optionalHeaderSize = ReadUInt16LittleEndian(new ReadOnlySpan<byte>(pePrefix), 20);
+            int peHeaderLength = checked(24 + optionalHeaderSize);
+            if (peHeaderLength < 26 || peOffset + peHeaderLength > stream.Length ||
+                !TryReadAt(stream, peOffset, peHeaderLength, out var peHeader)) return false;
             return TryValidatePeHeader(new ReadOnlySpan<byte>(peHeader), peOffset, stream.Length, out result);
         }
         catch
@@ -393,7 +397,17 @@ internal static partial class Signatures
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;
         if (!IsCompatiblePeMachine(machine, optionalMagic)) return false;
         int minimumOptionalHeaderSize = optionalMagic == 0x10B ? 96 : 112;
-        if (optionalHeaderSize < minimumOptionalHeaderSize) return false;
+        if (optionalHeaderSize < minimumOptionalHeaderSize || peHeader.Length < 24 + minimumOptionalHeaderSize) return false;
+        uint sectionAlignment = ReadUInt32LittleEndian(peHeader, 56);
+        uint fileAlignment = ReadUInt32LittleEndian(peHeader, 60);
+        uint sizeOfImage = ReadUInt32LittleEndian(peHeader, 80);
+        uint sizeOfHeaders = ReadUInt32LittleEndian(peHeader, 84);
+        if (sectionAlignment == 0 || fileAlignment == 0 || (fileAlignment & (fileAlignment - 1)) != 0 ||
+            sectionAlignment < fileAlignment ||
+            (sectionAlignment < 0x1000 ? fileAlignment != sectionAlignment : fileAlignment < 512) ||
+            sizeOfImage == 0 || sizeOfImage % sectionAlignment != 0 ||
+            sizeOfHeaders == 0 || sizeOfHeaders % fileAlignment != 0 ||
+            sizeOfImage < sizeOfHeaders || sizeOfHeaders > totalLength) return false;
         string extension = (characteristics & 0x2000) != 0 ? "dll" : "exe";
         result = new ContentTypeDetectionResult
         {

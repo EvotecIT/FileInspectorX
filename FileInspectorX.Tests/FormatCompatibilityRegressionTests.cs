@@ -19,6 +19,10 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt16LittleEndian(bytes, peOffset + 20, 0xE0);
         WriteUInt16LittleEndian(bytes, peOffset + 22, 0x0102);
         WriteUInt16LittleEndian(bytes, peOffset + 24, 0x010B);
+        WriteUInt32LittleEndian(bytes, peOffset + 56, 0x1000);
+        WriteUInt32LittleEndian(bytes, peOffset + 60, 0x0200);
+        WriteUInt32LittleEndian(bytes, peOffset + 80, 0x2000);
+        WriteUInt32LittleEndian(bytes, peOffset + 84, 0x0200);
 
         AssertParity(bytes, "exe", "High");
     }

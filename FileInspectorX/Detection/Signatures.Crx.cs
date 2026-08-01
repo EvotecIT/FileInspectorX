@@ -127,7 +127,7 @@ internal static partial class Signatures
                 length > (ulong)(header.Length - cursor)) return false;
             var value = header.Slice(cursor, (int)length);
             cursor += (int)length;
-            if (field is 1 or 2) proof |= TryValidateCrx3Proof(value);
+            if (field is 2 or 3) proof |= TryValidateCrx3Proof(value);
             else if (field == 10000) signedData |= TryValidateCrx3SignedData(value);
         }
         return proof && signedData;

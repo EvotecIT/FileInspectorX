@@ -45,12 +45,16 @@ internal static class TestHelpers
         WriteUInt16LittleEndian(bytes, 0x94, 0x00E0);
         WriteUInt16LittleEndian(bytes, 0x96, dll ? (ushort)0x2102 : (ushort)0x0102);
         WriteUInt16LittleEndian(bytes, 0x98, 0x010B);
+        WriteUInt32LittleEndian(bytes, 0xB8, 0x1000);
+        WriteUInt32LittleEndian(bytes, 0xBC, 0x0200);
+        WriteUInt32LittleEndian(bytes, 0xD0, 0x1000);
+        WriteUInt32LittleEndian(bytes, 0xD4, 0x0200);
         return bytes;
     }
 
     internal static byte[] CreateMinimalCrx3(int signedHeaderLength = 0)
     {
-        var header = new List<byte> { 0x0A, 0x06, 0x0A, 0x01, 0x01, 0x12, 0x01, 0x01 };
+        var header = new List<byte> { 0x12, 0x06, 0x0A, 0x01, 0x01, 0x12, 0x01, 0x01 };
         AddProtobufVarint(header, (10000u << 3) | 2u);
         header.Add(18);
         header.Add(0x0A);
@@ -464,6 +468,9 @@ internal static class TestHelpers
             WriteOpenExrAttribute(stream, "tiles", "tiledesc", tileDescription);
         }
         stream.WriteByte(0);
+        long chunkOffset = stream.Position + 8;
+        WriteUInt64LittleEndian(stream, checked((ulong)chunkOffset));
+        WriteOpenExrChunk(stream, tiled: (flags & 0x00000200) != 0, deep: (flags & 0x00000800) != 0, multipartPart: null);
         return stream.ToArray();
     }
 
@@ -493,7 +500,36 @@ internal static class TestHelpers
             stream.WriteByte(0);
         }
         stream.WriteByte(0);
+        long chunkOffset = stream.Position + partCount * 8L;
+        for (int part = 0; part < partCount; part++)
+        {
+            WriteUInt64LittleEndian(stream, checked((ulong)chunkOffset));
+            chunkOffset += 16;
+        }
+        for (int part = 0; part < partCount; part++)
+            WriteOpenExrChunk(stream, tiled: false, deep: false, multipartPart: part);
         return stream.ToArray();
+    }
+
+    private static void WriteOpenExrChunk(Stream stream, bool tiled, bool deep, int? multipartPart)
+    {
+        if (multipartPart.HasValue) WriteUInt32LittleEndian(stream, checked((uint)multipartPart.Value));
+        if (tiled)
+            for (int index = 0; index < 4; index++) WriteUInt32LittleEndian(stream, 0);
+        else
+            WriteUInt32LittleEndian(stream, 0);
+
+        if (deep)
+        {
+            WriteUInt64LittleEndian(stream, 4);
+            WriteUInt64LittleEndian(stream, 0);
+            WriteUInt64LittleEndian(stream, 0);
+        }
+        else
+        {
+            WriteUInt32LittleEndian(stream, 4);
+        }
+        stream.Write(new byte[4], 0, 4);
     }
 
     private static void WriteOpenExrAttribute(Stream stream, string name, string type, byte[] value)
@@ -514,6 +550,11 @@ internal static class TestHelpers
         stream.WriteByte((byte)(value >> 8));
         stream.WriteByte((byte)(value >> 16));
         stream.WriteByte((byte)(value >> 24));
+    }
+
+    private static void WriteUInt64LittleEndian(Stream stream, ulong value)
+    {
+        for (int index = 0; index < 8; index++) stream.WriteByte((byte)(value >> (index * 8)));
     }
 
     internal static void WriteUInt16LittleEndian(byte[] bytes, int offset, ushort value)
@@ -544,7 +585,7 @@ internal static class TestHelpers
         bytes[offset + 3] = (byte)value;
     }
 
-    private static void WriteUInt64LittleEndian(byte[] bytes, int offset, ulong value)
+    internal static void WriteUInt64LittleEndian(byte[] bytes, int offset, ulong value)
     {
         for (int index = 0; index < 8; index++) bytes[offset + index] = (byte)(value >> (8 * index));
     }

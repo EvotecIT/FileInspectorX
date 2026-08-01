@@ -140,6 +140,7 @@ public static class FriendlyNames
             case "wav": return "WAV audio";
             case "mp3": return "MP3 audio";
             case "m4a": return "AAC audio (M4A)";
+            case "m4b": return "Audiobook (M4B)";
             case "mp4": return "MPEG-4 video";
             case "avi": return "AVI video";
             case "3gp": return "3GPP media";

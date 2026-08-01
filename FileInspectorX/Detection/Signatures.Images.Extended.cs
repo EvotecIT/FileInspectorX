@@ -17,10 +17,13 @@ internal static partial class Signatures {
         if ((versionField & 0xFF) != 2 || (versionField & ~(AllowedFlags | 0xFFu)) != 0) return false;
         bool tiled = (versionField & 0x00000200) != 0;
         bool multipart = (versionField & 0x00001000) != 0;
+        bool deep = (versionField & 0x00000800) != 0;
         if (tiled && multipart) return false;
 
         int cursor = 8;
         bool sawAnyPart = false;
+        ulong totalChunkCount = 0;
+        bool firstPartTiled = tiled;
         while (true)
         {
             bool channels = false;
@@ -37,6 +40,11 @@ internal static partial class Signatures {
             bool chunkCount = false;
             bool partRequiresTiles = tiled;
             bool sawAttribute = false;
+            byte compressionValue = 0;
+            int dataMinX = 0, dataMinY = 0, dataMaxX = -1, dataMaxY = -1;
+            uint tileWidth = 0, tileHeight = 0;
+            byte tileMode = 0;
+            uint declaredChunkCount = 0;
 
             while (true)
             {
@@ -76,6 +84,20 @@ internal static partial class Signatures {
                 screenWindowCenter |= mandatory && name == "screenWindowCenter";
                 screenWindowWidth |= mandatory && name == "screenWindowWidth";
                 tiles |= mandatory && name == "tiles";
+                if (mandatory && name == "compression") compressionValue = value[0];
+                if (mandatory && name == "dataWindow")
+                {
+                    dataMinX = (int)ReadUInt32(value, 0, true);
+                    dataMinY = (int)ReadUInt32(value, 4, true);
+                    dataMaxX = (int)ReadUInt32(value, 8, true);
+                    dataMaxY = (int)ReadUInt32(value, 12, true);
+                }
+                if (mandatory && name == "tiles")
+                {
+                    tileWidth = ReadUInt32(value, 0, true);
+                    tileHeight = ReadUInt32(value, 4, true);
+                    tileMode = (byte)(value[8] & 3);
+                }
                 if (multipart && name == "name") nameAttribute = TryValidateOpenExrTextAttribute(type, value);
                 if (multipart && name == "type")
                 {
@@ -88,9 +110,36 @@ internal static partial class Signatures {
                     }
                 }
                 if (multipart && name == "chunkCount")
-                    chunkCount = type == "int" && value.Length == 4 && ReadUInt32(value, 0, true) > 0;
+                {
+                    declaredChunkCount = type == "int" && value.Length == 4 ? ReadUInt32(value, 0, true) : 0;
+                    chunkCount = declaredChunkCount > 0;
+                }
                 cursor += (int)valueLength;
             }
+
+            ulong partChunks;
+            if (multipart)
+            {
+                partChunks = declaredChunkCount;
+            }
+            else if (partRequiresTiles)
+            {
+                if (tileMode != 0) return TryReturnUnsupportedOpenExrLevelLayout(out result);
+                ulong width = (ulong)((long)dataMaxX - dataMinX + 1);
+                ulong height = (ulong)((long)dataMaxY - dataMinY + 1);
+                ulong horizontalChunks = DivideRoundUp(width, tileWidth);
+                ulong verticalChunks = DivideRoundUp(height, tileHeight);
+                if (horizontalChunks == 0 || verticalChunks == 0 || horizontalChunks > ulong.MaxValue / verticalChunks) return false;
+                partChunks = horizontalChunks * verticalChunks;
+            }
+            else
+            {
+                ulong height = (ulong)((long)dataMaxY - dataMinY + 1);
+                partChunks = DivideRoundUp(height, GetOpenExrScanLinesPerChunk(compressionValue));
+            }
+            if (partChunks == 0 || totalChunkCount > ulong.MaxValue - partChunks) return false;
+            if (totalChunkCount == 0) firstPartTiled = partRequiresTiles;
+            totalChunkCount += partChunks;
 
             if (!multipart) break;
             if (cursor >= src.Length) return TryReturnSampledOpenExr(completeLength, src.Length, true, out result);
@@ -101,11 +150,80 @@ internal static partial class Signatures {
             }
         }
 
+        if (!TryValidateOpenExrChunkFraming(src, cursor, completeLength, totalChunkCount,
+                multipart, firstPartTiled, deep, out bool chunkFramingValidated))
+            return false;
+
         result = new ContentTypeDetectionResult {
             Extension = "exr",
             MimeType = "image/x-exr",
-            Confidence = "High",
-            Reason = "openexr:v2"
+            Confidence = chunkFramingValidated ? "High" : "Medium",
+            Reason = "openexr:v2" + (chunkFramingValidated ? ";chunk-framing" : ";sampled-chunk-framing")
+        };
+        return true;
+    }
+
+    private static ulong DivideRoundUp(ulong value, ulong divisor)
+        => divisor == 0 || value > ulong.MaxValue - (divisor - 1) ? 0 : (value + divisor - 1) / divisor;
+
+    private static uint GetOpenExrScanLinesPerChunk(byte compression)
+        => compression switch { 3 or 5 => 16, 4 or 6 or 7 or 8 or 11 => 32, 9 or 10 => 256, _ => 1 };
+
+    private static bool TryValidateOpenExrChunkFraming(ReadOnlySpan<byte> src, int tableOffset, long? completeLength,
+        ulong chunkCount, bool multipart, bool tiled, bool deep, out bool fullyValidated)
+    {
+        fullyValidated = false;
+        if (chunkCount == 0 || chunkCount > (ulong)int.MaxValue / 8) return false;
+        ulong tableEnd = (ulong)tableOffset + chunkCount * 8;
+        if (completeLength.HasValue && tableEnd > (ulong)completeLength.Value) return false;
+        if (tableEnd > (ulong)src.Length)
+            return !completeLength.HasValue || completeLength.Value > src.Length;
+
+        ulong firstChunkOffset = ReadUInt64(src, tableOffset, true);
+        int partPrefix = multipart ? 4 : 0;
+        int sizeOffset = partPrefix + (tiled ? 16 : 4);
+        int chunkHeaderLength = partPrefix + (tiled ? (deep ? 40 : 20) : (deep ? 28 : 8));
+        if (firstChunkOffset < tableEnd || firstChunkOffset > int.MaxValue ||
+            completeLength.HasValue && firstChunkOffset + (ulong)chunkHeaderLength > (ulong)completeLength.Value) return false;
+        if (firstChunkOffset + (ulong)chunkHeaderLength > (ulong)src.Length)
+            return !completeLength.HasValue || completeLength.Value > src.Length;
+
+        int chunk = (int)firstChunkOffset;
+        ulong payloadLength;
+        if (deep)
+        {
+            ulong offsetTableLength = ReadUInt64(src, chunk + sizeOffset, true);
+            ulong sampleDataLength = ReadUInt64(src, chunk + sizeOffset + 8, true);
+            if (offsetTableLength > ulong.MaxValue - sampleDataLength) return false;
+            payloadLength = offsetTableLength + sampleDataLength;
+        }
+        else
+        {
+            payloadLength = ReadUInt32(src, chunk + sizeOffset, true);
+        }
+        ulong payloadEnd = firstChunkOffset + (ulong)chunkHeaderLength + payloadLength;
+        if (payloadLength == 0 || payloadEnd < firstChunkOffset ||
+            completeLength.HasValue && payloadEnd > (ulong)completeLength.Value) return false;
+        if (payloadEnd > (ulong)src.Length)
+            return !completeLength.HasValue || completeLength.Value > src.Length;
+
+        for (ulong index = 1; index < chunkCount; index++)
+        {
+            ulong offset = ReadUInt64(src, tableOffset + checked((int)(index * 8)), true);
+            if (offset < tableEnd || completeLength.HasValue && offset + (ulong)chunkHeaderLength > (ulong)completeLength.Value)
+                return false;
+        }
+        fullyValidated = true;
+        return true;
+    }
+
+    private static bool TryReturnUnsupportedOpenExrLevelLayout(out ContentTypeDetectionResult? result)
+    {
+        result = new ContentTypeDetectionResult {
+            Extension = "exr",
+            MimeType = "image/x-exr",
+            Confidence = "Medium",
+            Reason = "openexr:v2;unsupported-level-layout"
         };
         return true;
     }
@@ -282,7 +400,9 @@ internal static partial class Signatures {
             if (completeLength.HasValue && (ulong)dataOffset + 2 > (ulong)completeLength.Value) return false;
             if (dataOffset + 2 > src.Length) return true;
             if (!IsPhotoshopZlibHeader(src.Slice(dataOffset, 2))) return false;
-            fullyValidated = completeLength.HasValue;
+            // A valid zlib header establishes the compression kind, but it does not prove
+            // that the deflate stream is complete or expands to the declared image shape.
+            // Keep this structurally plausible identity at reduced confidence.
             return true;
         }
 
@@ -383,8 +503,7 @@ internal static partial class Signatures {
         {
             if (dataOffset > stream.Length - 2 || !TryReadAt(stream, dataOffset, 2, out var zlibHeader) ||
                 !IsPhotoshopZlibHeader(new ReadOnlySpan<byte>(zlibHeader))) return false;
-            fullyValidated = true;
-            return fullyValidated;
+            return true;
         }
 
         ulong rowCount = (ulong)channels * height;
@@ -530,8 +649,19 @@ internal static partial class Signatures {
             bool header = false;
             bool data = false;
             long cursor = 12L + fileTypeLength;
+            int remainingBoxHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
             while (cursor < stream.Length)
             {
+                if (remainingBoxHeaders-- == 0)
+                {
+                    result = new ContentTypeDetectionResult {
+                        Extension = extension,
+                        MimeType = mime,
+                        Confidence = "Medium",
+                        Reason = "jpeg2000:" + extension + ";box-budget"
+                    };
+                    return true;
+                }
                 if (cursor > stream.Length - 8 || !TryReadAt(stream, cursor, 8, out var boxHeader)) return false;
                 var box = new ReadOnlySpan<byte>(boxHeader);
                 uint length32 = ReadUInt32BigEndian(box, 0);

@@ -136,6 +136,10 @@ public sealed class NinthReviewRegressionTests
         WriteUInt16LittleEndian(bytes, peOffset + 20, 96);
         WriteUInt16LittleEndian(bytes, peOffset + 22, 2);
         WriteUInt16LittleEndian(bytes, peOffset + 24, 0x10B);
+        WriteUInt32LittleEndian(bytes, peOffset + 56, 0x1000);
+        WriteUInt32LittleEndian(bytes, peOffset + 60, 0x0200);
+        WriteUInt32LittleEndian(bytes, peOffset + 80, 0x1000);
+        WriteUInt32LittleEndian(bytes, peOffset + 84, 0x0200);
         return bytes;
     }
 

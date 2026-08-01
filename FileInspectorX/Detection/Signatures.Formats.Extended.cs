@@ -223,15 +223,20 @@ internal static partial class Signatures
         const uint rgbFlag = 0x40;
         const uint yuvFlag = 0x200;
         const uint luminanceFlag = 0x20000;
-        const uint supportedFlags = 0x1 | 0x2 | fourCcFlag | rgbFlag | yuvFlag | luminanceFlag;
+        const uint bumpLuminanceFlag = 0x40000;
+        const uint bumpDuDvFlag = 0x80000;
+        const uint supportedFlags = 0x1 | 0x2 | fourCcFlag | rgbFlag | yuvFlag | luminanceFlag | bumpLuminanceFlag | bumpDuDvFlag;
         if ((pixelFormatFlags & ~supportedFlags) != 0) return false;
         bool hasFourCc = (pixelFormatFlags & fourCcFlag) != 0;
         bool hasRgb = (pixelFormatFlags & rgbFlag) != 0;
         bool hasYuv = (pixelFormatFlags & yuvFlag) != 0;
         bool hasLuminance = (pixelFormatFlags & luminanceFlag) != 0;
-        bool alphaOnly = (pixelFormatFlags & 0x2) != 0 && !hasFourCc && !hasRgb && !hasYuv && !hasLuminance;
+        bool hasBumpLuminance = (pixelFormatFlags & bumpLuminanceFlag) != 0;
+        bool hasBumpDuDv = (pixelFormatFlags & bumpDuDvFlag) != 0;
+        bool alphaOnly = (pixelFormatFlags & 0x2) != 0 && !hasFourCc && !hasRgb && !hasYuv && !hasLuminance && !hasBumpLuminance && !hasBumpDuDv;
         if ((pixelFormatFlags & 0x2) != 0 && !alphaOnly || (pixelFormatFlags & 0x1) != 0 && hasFourCc) return false;
-        int encodingKinds = (hasFourCc ? 1 : 0) + (hasRgb ? 1 : 0) + (hasYuv ? 1 : 0) + (hasLuminance ? 1 : 0) + (alphaOnly ? 1 : 0);
+        int encodingKinds = (hasFourCc ? 1 : 0) + (hasRgb ? 1 : 0) + (hasYuv ? 1 : 0) + (hasLuminance ? 1 : 0) +
+                            (hasBumpLuminance ? 1 : 0) + (hasBumpDuDv ? 1 : 0) + (alphaOnly ? 1 : 0);
         if (encodingKinds != 1) return false;
         if (hasFourCc)
         {
@@ -244,7 +249,8 @@ internal static partial class Signatures
                 }
             }
         }
-        else if (!TryValidateDdsMasks(pixelFormatFlags, rgbBitCount, redMask, greenMask, blueMask, alphaMask, hasRgb, hasYuv, hasLuminance, alphaOnly))
+        else if (!TryValidateDdsMasks(pixelFormatFlags, rgbBitCount, redMask, greenMask, blueMask, alphaMask,
+                     hasRgb, hasYuv, hasLuminance, hasBumpLuminance, hasBumpDuDv, alphaOnly))
         {
             return false;
         }
@@ -269,7 +275,7 @@ internal static partial class Signatures
         => format == 36 || format is >= 110 and <= 116;
 
     private static bool TryValidateDdsMasks(uint flags, uint bitCount, uint red, uint green, uint blue, uint alpha,
-        bool rgb, bool yuv, bool luminance, bool alphaOnly)
+        bool rgb, bool yuv, bool luminance, bool bumpLuminance, bool bumpDuDv, bool alphaOnly)
     {
         if (bitCount is < 1 or > 32) return false;
         uint allowedBits = bitCount == 32 ? uint.MaxValue : (1u << (int)bitCount) - 1;
@@ -283,6 +289,11 @@ internal static partial class Signatures
             return true;
         }
         if (luminance) return red != 0 && green == 0 && blue == 0 && (alpha & red) == 0;
+        if (bumpDuDv)
+            return red != 0 && green != 0 && blue == 0 && (red & green) == 0 && (alpha & (red | green)) == 0;
+        if (bumpLuminance)
+            return red != 0 && green != 0 && blue != 0 && (red & green) == 0 && (red & blue) == 0 &&
+                   (green & blue) == 0 && (alpha & (red | green | blue)) == 0;
         return alphaOnly && red == 0 && green == 0 && blue == 0;
     }
 
