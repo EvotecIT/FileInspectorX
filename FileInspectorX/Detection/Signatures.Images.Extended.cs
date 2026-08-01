@@ -241,19 +241,69 @@ internal static partial class Signatures {
         if (!TrySkipPhotoshopSection(src, ref cursor, completeLength, 4) ||
             !TrySkipPhotoshopSection(src, ref cursor, completeLength, 4) ||
             !TrySkipPhotoshopSection(src, ref cursor, completeLength, version == 1 ? 4 : 8)) return false;
+        bool imageDataValidated = false;
         if (cursor + 2 > src.Length)
         {
             if (completeLength.HasValue) return false;
         }
-        else if (ReadUInt16BigEndian(src, cursor) > 3) return false;
+        else
+        {
+            ushort compression = ReadUInt16BigEndian(src, cursor);
+            if (compression > 3 || !TryValidatePhotoshopImageData(src, cursor + 2, completeLength,
+                    version, channels, height, width, depth, compression, out imageDataValidated)) return false;
+        }
 
         string extension = version == 1 ? "psd" : "psb";
         result = new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = "image/vnd.adobe.photoshop",
-            Confidence = cursor + 2 <= src.Length ? "High" : "Medium",
-            Reason = "photoshop:" + extension + (cursor + 2 <= src.Length ? string.Empty : ";sampled-sections")
+            Confidence = imageDataValidated ? "High" : "Medium",
+            Reason = "photoshop:" + extension + (imageDataValidated ? string.Empty : ";sampled-image-data")
         };
+        return true;
+    }
+
+    private static bool TryValidatePhotoshopImageData(ReadOnlySpan<byte> src, int dataOffset, long? completeLength,
+        ushort version, ushort channels, uint height, uint width, ushort depth, ushort compression,
+        out bool fullyValidated)
+    {
+        fullyValidated = false;
+        if (compression == 0)
+        {
+            ulong rowBytes = ((ulong)width * depth + 7) / 8;
+            ulong requiredLength = (ulong)dataOffset + rowBytes * height * channels;
+            if (completeLength.HasValue && requiredLength > (ulong)completeLength.Value) return false;
+            fullyValidated = completeLength.HasValue;
+            return true;
+        }
+
+        if (compression is 2 or 3)
+        {
+            if (completeLength.HasValue && (ulong)dataOffset + 2 > (ulong)completeLength.Value) return false;
+            if (dataOffset + 2 > src.Length) return true;
+            if (!IsPhotoshopZlibHeader(src.Slice(dataOffset, 2))) return false;
+            fullyValidated = completeLength.HasValue;
+            return true;
+        }
+
+        ulong rowCount = (ulong)channels * height;
+        int rowLengthSize = version == 1 ? 2 : 4;
+        ulong tableLength = rowCount * (uint)rowLengthSize;
+        ulong tableEnd = (ulong)dataOffset + tableLength;
+        if (completeLength.HasValue && tableEnd > (ulong)completeLength.Value) return false;
+        if (tableEnd > (ulong)src.Length) return true;
+
+        ulong compressedLength = 0;
+        for (ulong row = 0; row < rowCount; row++)
+        {
+            int offset = dataOffset + checked((int)(row * (uint)rowLengthSize));
+            uint rowLength = rowLengthSize == 2 ? ReadUInt16BigEndian(src, offset) : ReadUInt32BigEndian(src, offset);
+            if (rowLength == 0 || compressedLength > ulong.MaxValue - rowLength) return false;
+            compressedLength += rowLength;
+        }
+        ulong requiredEnd = tableEnd + compressedLength;
+        if (requiredEnd < tableEnd || completeLength.HasValue && requiredEnd > (ulong)completeLength.Value) return false;
+        fullyValidated = completeLength.HasValue;
         return true;
     }
 
@@ -282,10 +332,16 @@ internal static partial class Signatures {
             if (!TrySkipPhotoshopSection(stream, ref cursor, 4) ||
                 !TrySkipPhotoshopSection(stream, ref cursor, 4) ||
                 !TrySkipPhotoshopSection(stream, ref cursor, version == 1 ? 4 : 8) ||
-                cursor > stream.Length - 2 || !TryReadAt(stream, cursor, 2, out var compression) ||
-                ReadUInt16BigEndian(new ReadOnlySpan<byte>(compression), 0) > 3) return false;
-            sampled!.Confidence = "High";
-            sampled.Reason = "photoshop:" + (version == 1 ? "psd" : "psb");
+                cursor > stream.Length - 2 || !TryReadAt(stream, cursor, 2, out var compression)) return false;
+            var headerSpan = new ReadOnlySpan<byte>(header);
+            ushort compressionValue = ReadUInt16BigEndian(new ReadOnlySpan<byte>(compression), 0);
+            if (compressionValue > 3 || !TryValidatePhotoshopImageData(stream, cursor + 2, version,
+                    ReadUInt16BigEndian(headerSpan, 12), ReadUInt32BigEndian(headerSpan, 14),
+                    ReadUInt32BigEndian(headerSpan, 18), ReadUInt16BigEndian(headerSpan, 22),
+                    compressionValue, out bool imageDataValidated)) return false;
+            sampled!.Confidence = imageDataValidated ? "High" : "Medium";
+            sampled.Reason = "photoshop:" + (version == 1 ? "psd" : "psb") +
+                             (imageDataValidated ? string.Empty : ";image-data-budget");
             result = sampled;
             return true;
         }
@@ -310,6 +366,54 @@ internal static partial class Signatures {
         if (length > (ulong)(stream.Length - cursor)) return false;
         cursor += (long)length;
         return true;
+    }
+
+    private static bool TryValidatePhotoshopImageData(Stream stream, long dataOffset, ushort version,
+        ushort channels, uint height, uint width, ushort depth, ushort compression, out bool fullyValidated)
+    {
+        fullyValidated = false;
+        if (compression == 0)
+        {
+            ulong rowBytes = ((ulong)width * depth + 7) / 8;
+            ulong requiredLength = (ulong)dataOffset + rowBytes * height * channels;
+            fullyValidated = requiredLength <= (ulong)stream.Length;
+            return fullyValidated;
+        }
+        if (compression is 2 or 3)
+        {
+            if (dataOffset > stream.Length - 2 || !TryReadAt(stream, dataOffset, 2, out var zlibHeader) ||
+                !IsPhotoshopZlibHeader(new ReadOnlySpan<byte>(zlibHeader))) return false;
+            fullyValidated = true;
+            return fullyValidated;
+        }
+
+        ulong rowCount = (ulong)channels * height;
+        int rowLengthSize = version == 1 ? 2 : 4;
+        ulong tableLength = rowCount * (uint)rowLengthSize;
+        ulong tableEnd = (ulong)dataOffset + tableLength;
+        if (tableEnd >= (ulong)stream.Length) return false;
+        if (tableLength > (ulong)Math.Max(256, Settings.DetectionReadBudgetBytes)) return true;
+        if (!TryReadAt(stream, dataOffset, checked((int)tableLength), out var table)) return false;
+
+        ulong compressedLength = 0;
+        var tableSpan = new ReadOnlySpan<byte>(table);
+        for (int row = 0; row < (int)rowCount; row++)
+        {
+            int offset = row * rowLengthSize;
+            uint rowLength = rowLengthSize == 2 ? ReadUInt16BigEndian(tableSpan, offset) : ReadUInt32BigEndian(tableSpan, offset);
+            if (rowLength == 0 || compressedLength > ulong.MaxValue - rowLength) return false;
+            compressedLength += rowLength;
+        }
+        ulong requiredEnd = tableEnd + compressedLength;
+        fullyValidated = requiredEnd >= tableEnd && requiredEnd <= (ulong)stream.Length;
+        return fullyValidated;
+    }
+
+    private static bool IsPhotoshopZlibHeader(ReadOnlySpan<byte> header)
+    {
+        if (header.Length < 2) return false;
+        int value = header[0] << 8 | header[1];
+        return (header[0] & 0x0F) == 8 && (header[0] >> 4) <= 7 && (header[1] & 0x20) == 0 && value % 31 == 0;
     }
 
     internal static bool TryMatchJpeg2000(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

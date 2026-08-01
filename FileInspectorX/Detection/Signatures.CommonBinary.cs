@@ -269,8 +269,20 @@ internal static partial class Signatures
             if (compressedSize > long.MaxValue || requiredLength > long.MaxValue - (long)compressedSize) return false;
             requiredLength += (long)compressedSize;
         }
+        else
+        {
+            const int minimumDataDescriptorLength = 12;
+            if (availableLength.HasValue)
+            {
+                if (requiredLength > availableLength.Value - minimumDataDescriptorLength) return false;
+            }
+            else
+            {
+                sampledHeader = true;
+            }
+        }
         if (availableLength.HasValue) return requiredLength <= availableLength.Value;
-        sampledHeader = requiredLength > sampledLength;
+        sampledHeader |= requiredLength > sampledLength;
         return true;
     }
 

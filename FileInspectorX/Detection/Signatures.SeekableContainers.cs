@@ -318,7 +318,7 @@ internal static partial class Signatures
         else
         {
             if (dataOffset > int.MaxValue || dataOffset + 1024UL > (ulong)file.Length ||
-                !TryValidateVhdDynamicHeader(file.Slice((int)dataOffset, 1024), file.Length, diskType)) return false;
+                !TryValidateVhdDynamicHeader(file.Slice((int)dataOffset, 1024), file.Length, diskType, currentSize)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
         return true;
@@ -336,7 +336,7 @@ internal static partial class Signatures
         {
             if (dataOffset > long.MaxValue || dataOffset + 1024UL > (ulong)stream.Length ||
                 !TryReadAt(stream, (long)dataOffset, 1024, out var dynamicHeader) ||
-                !TryValidateVhdDynamicHeader(new ReadOnlySpan<byte>(dynamicHeader), stream.Length, diskType)) return false;
+                !TryValidateVhdDynamicHeader(new ReadOnlySpan<byte>(dynamicHeader), stream.Length, diskType, currentSize)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
         return true;
@@ -363,7 +363,7 @@ internal static partial class Signatures
         return ComputeVhdChecksum(footer, 64) == ReadUInt32BigEndian(footer, 64);
     }
 
-    private static bool TryValidateVhdDynamicHeader(ReadOnlySpan<byte> header, long fileLength, uint diskType)
+    private static bool TryValidateVhdDynamicHeader(ReadOnlySpan<byte> header, long fileLength, uint diskType, ulong currentSize)
     {
         if (header.Length != 1024 || !header.Slice(0, 8).SequenceEqual("cxsparse"u8) ||
             ReadUInt64(header, 8, littleEndian: false) != ulong.MaxValue || ReadUInt32BigEndian(header, 24) != 0x00010000 ||
@@ -372,7 +372,10 @@ internal static partial class Signatures
         uint entries = ReadUInt32BigEndian(header, 28);
         uint blockSize = ReadUInt32BigEndian(header, 32);
         ulong tableLength = ((ulong)entries * 4 + 511) & ~511UL;
+        ulong requiredEntries = blockSize == 0 ? ulong.MaxValue :
+            currentSize / blockSize + (currentSize % blockSize == 0 ? 0UL : 1UL);
         if (entries == 0 || blockSize < 512 * 1024 || (blockSize & (blockSize - 1)) != 0 ||
+            requiredEntries > entries ||
             tableOffset < 1536 || (tableOffset & 511) != 0 || tableOffset > (ulong)fileLength || tableLength > (ulong)fileLength - tableOffset) return false;
         if (diskType == 4)
         {
@@ -431,10 +434,17 @@ internal static partial class Signatures
         int elementType = header & 0x0F;
         if (count == 15)
         {
-            if (!TryReadCompactVarint(src, ref cursor, out ulong longCount) || longCount > 4096) return false;
+            if (!TryReadCompactVarint(src, ref cursor, out ulong longCount) || longCount > int.MaxValue) return false;
             count = (int)longCount;
         }
         if (requireNonEmpty && count == 0) return false;
+        if (count > src.Length - cursor) return false;
+        if (elementType is 1 or 2)
+        {
+            for (int i = 0; i < count; i++)
+                if (src[cursor++] is not (1 or 2)) return false;
+            return true;
+        }
         for (int i = 0; i < count; i++) if (!SkipCompactValue(src, ref cursor, elementType, depth + 1)) return false;
         return true;
     }

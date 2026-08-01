@@ -17,7 +17,10 @@ internal static partial class Signatures
         if (version == 2)
         {
             if (src.Length < 16) return false;
-            headerEnd = 16L + ReadUInt32LittleEndian(src, 8) + ReadUInt32LittleEndian(src, 12);
+            uint publicKeyLength = ReadUInt32LittleEndian(src, 8);
+            uint signatureLength = ReadUInt32LittleEndian(src, 12);
+            if (publicKeyLength == 0 || signatureLength == 0) return false;
+            headerEnd = 16L + publicKeyLength + signatureLength;
         }
         else if (version == 3)
         {
@@ -68,7 +71,10 @@ internal static partial class Signatures
             if (version == 2)
             {
                 if (header.Length < 16) return false;
-                headerEnd = 16L + ReadUInt32LittleEndian(header, 8) + ReadUInt32LittleEndian(header, 12);
+                uint publicKeyLength = ReadUInt32LittleEndian(header, 8);
+                uint signatureLength = ReadUInt32LittleEndian(header, 12);
+                if (publicKeyLength == 0 || signatureLength == 0) return false;
+                headerEnd = 16L + publicKeyLength + signatureLength;
             }
             else if (version == 3)
             {

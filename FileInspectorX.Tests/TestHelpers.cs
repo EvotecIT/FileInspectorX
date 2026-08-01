@@ -135,12 +135,12 @@ internal static class TestHelpers
     internal static byte[] CreateMinimalPhotoshop(ushort version = 1)
     {
         int layerLengthBytes = version == 2 ? 8 : 4;
-        var bytes = new byte[26 + 4 + 4 + layerLengthBytes + 2];
+        var bytes = new byte[26 + 4 + 4 + layerLengthBytes + 2 + 3];
         Encoding.ASCII.GetBytes("8BPS").CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 4, version);
         WriteUInt16BigEndian(bytes, 12, 3);
-        WriteUInt32BigEndian(bytes, 14, 100);
-        WriteUInt32BigEndian(bytes, 18, 200);
+        WriteUInt32BigEndian(bytes, 14, 1);
+        WriteUInt32BigEndian(bytes, 18, 1);
         WriteUInt16BigEndian(bytes, 22, 8);
         WriteUInt16BigEndian(bytes, 24, 3);
         return bytes;

@@ -390,12 +390,14 @@ internal static partial class Signatures {
 
             if (isCollection && !TryValidateWoff2CollectionDirectory(src, ref cursor, tableCount)) return false;
             if (compressedSize == 0 || (ulong)cursor + compressedSize > declaredLength) return false;
-            if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32))) return false;
+            if (!IsMetadataBlockValid(declaredLength, ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32),
+                    ReadUInt32BigEndian(src, 36))) return false;
             if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 40), ReadUInt32BigEndian(src, 44))) return false;
         } else {
             long minimumLength = 44L + tableCount * 20L;
             if (declaredLength < minimumLength || (declaredLength & 3) != 0 || (totalSfntSize & 3) != 0) return false;
-            if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 24), ReadUInt32BigEndian(src, 28))) return false;
+            if (!IsMetadataBlockValid(declaredLength, ReadUInt32BigEndian(src, 24), ReadUInt32BigEndian(src, 28),
+                    ReadUInt32BigEndian(src, 32))) return false;
             if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 36), ReadUInt32BigEndian(src, 40))) return false;
             if (minimumLength > src.Length) {
                 if (completeLength.HasValue) return false;
@@ -496,6 +498,11 @@ internal static partial class Signatures {
     private static bool IsOptionalBlockValid(uint fileLength, uint offset, uint length) {
         if (offset == 0) return length == 0;
         return length > 0 && (ulong)offset + length <= fileLength;
+    }
+
+    private static bool IsMetadataBlockValid(uint fileLength, uint offset, uint length, uint originalLength) {
+        if (offset == 0) return length == 0 && originalLength == 0;
+        return length > 0 && originalLength > 0 && (ulong)offset + length <= fileLength;
     }
 
     private static bool TryReadUIntBase128(ReadOnlySpan<byte> src, ref int cursor, out uint value) {
