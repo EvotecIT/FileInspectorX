@@ -250,7 +250,20 @@ internal static partial class Signatures
             return length >= 6 && payload.Length >= 6 && payload.Slice(0, 6).SequenceEqual(new byte[] { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 });
         if (name.EndsWith(".tar.zst", StringComparison.Ordinal))
             return length >= 4 && payload.Length >= 4 && ReadUInt32LittleEndian(payload, 0) == 0xFD2FB528;
+        if (name.EndsWith(".tar.lzma", StringComparison.Ordinal))
+            return length >= 14 && payload.Length >= 14 && TryValidateLzmaAloneHeader(payload);
         return false;
+    }
+
+    private static bool TryValidateLzmaAloneHeader(ReadOnlySpan<byte> payload)
+    {
+        // LZMA-Alone: properties, little-endian dictionary size, uncompressed size, then range-coded data.
+        if (payload.Length < 14 || payload[0] > 224 || payload[13] != 0) return false;
+        uint dictionarySize = ReadUInt32LittleEndian(payload, 1);
+        if (dictionarySize < 4096) return false;
+        uint highestBit = 1;
+        while (highestBit <= dictionarySize / 2) highestBit <<= 1;
+        return dictionarySize == highestBit || dictionarySize - highestBit == highestBit / 2;
     }
 
     private static bool TryMatchVhdx(Stream stream, out ContentTypeDetectionResult? result)

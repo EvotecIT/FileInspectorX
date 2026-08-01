@@ -17,7 +17,7 @@ public sealed class TwelfthReviewRegressionTests
             (0x43, 4, 4),   // hmtx transform version 1
             (0x04, 4, null), // maxp
             (0x0A, 4, 4),   // transformed glyf
-            (0x0B, 4, 4));  // transformed loca
+            (0x0B, 4, 0));  // transformed loca has no separate stream
         Assert.Equal("woff2", FileInspector.Detect(valid)?.Extension);
         using var stream = new MemoryStream(valid, writable: false);
         Assert.Equal("woff2", FileInspector.Detect(stream)?.Extension);

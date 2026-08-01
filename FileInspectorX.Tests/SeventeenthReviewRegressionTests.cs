@@ -25,6 +25,7 @@ public sealed class SeventeenthReviewRegressionTests
     {
         AssertNotDetectedAs("woff2", Woff2((0x0A, 4, 4)));
         AssertNotDetectedAs("woff2", Woff2((0x0B, 4, 0)));
+        AssertNotDetectedAs("woff2", Woff2((0x0A, 4, 4), (0x0B, 4, 1)));
         AssertParity(Woff2((0x0A, 4, 4), (0x0B, 4, 0)), "woff2");
     }
 

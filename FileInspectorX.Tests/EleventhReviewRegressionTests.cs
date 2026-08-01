@@ -153,7 +153,7 @@ public sealed class EleventhReviewRegressionTests
     }
 
     [Fact]
-    public void MidiClearsRunningStatusAfterMetaAndSysExEvents()
+    public void MidiPreservesRunningStatusAcrossMetaAndClearsItAfterSysExEvents()
     {
         byte[] channel = { 0, 0x90, 60, 64 };
         byte[] bareChannel = { 0, 60, 64 };
@@ -162,9 +162,9 @@ public sealed class EleventhReviewRegressionTests
         byte[] explicitChannel = { 0, 0x90, 60, 64 };
         byte[] end = { 0, 0xFF, 0x2F, 0 };
 
-        AssertMidiRejected(Midi(channel, meta, bareChannel, end));
+        AssertMidiAccepted(Midi(channel, meta, bareChannel, end));
         AssertMidiRejected(Midi(channel, sysEx, bareChannel, end));
-        Assert.Equal("mid", FileInspector.Detect(Midi(channel, meta, explicitChannel, end))?.Extension);
+        AssertMidiAccepted(Midi(channel, meta, explicitChannel, end));
 
         var largeInvalid = MidiWithLargeInvalidTrack();
         using var nonSeekable = new NonSeekableReadStream(largeInvalid);
@@ -176,6 +176,13 @@ public sealed class EleventhReviewRegressionTests
         Assert.NotEqual("mid", FileInspector.Detect(bytes)?.Extension);
         using var stream = new MemoryStream(bytes, writable: false);
         Assert.NotEqual("mid", FileInspector.Detect(stream)?.Extension);
+    }
+
+    private static void AssertMidiAccepted(byte[] bytes)
+    {
+        Assert.Equal("mid", FileInspector.Detect(bytes)?.Extension);
+        using var stream = new MemoryStream(bytes, writable: false);
+        Assert.Equal("mid", FileInspector.Detect(stream)?.Extension);
     }
 
     private static byte[] Crx3(int signedHeaderLength) => TestHelpers.CreateMinimalCrx3(signedHeaderLength);
@@ -349,7 +356,7 @@ public sealed class EleventhReviewRegressionTests
     {
         const int trackLength = 5000;
         var track = new byte[trackLength];
-        new byte[] { 0, 0x90, 60, 64, 0, 0xFF, 0x01, 0, 0, 60, 64 }.CopyTo(track, 0);
+        new byte[] { 0, 0x90, 60, 64, 0, 0xF0, 0, 0, 60, 64 }.CopyTo(track, 0);
         return Midi(track);
     }
 

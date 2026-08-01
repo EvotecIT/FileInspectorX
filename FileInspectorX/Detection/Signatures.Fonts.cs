@@ -103,7 +103,8 @@ internal static partial class Signatures {
             if (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint originalLength) || originalLength == 0)
                 return false;
             if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
-            if (transformed && (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint transformedLength) || transformedLength == 0 && !isLoca))
+            if (transformed && (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint transformedLength) ||
+                (isLoca ? transformedLength != 0 : transformedLength == 0)))
                 return false;
             sawGlyfTransform |= isGlyf && transformed;
             sawLocaTransform |= isLoca && transformed;
@@ -377,7 +378,8 @@ internal static partial class Signatures {
                 }
                 if (!TryReadUIntBase128(src, ref cursor, out uint originalLength) || originalLength == 0) return false;
                 if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
-                if (transformed && (!TryReadUIntBase128(src, ref cursor, out uint transformedLength) || transformedLength == 0 && !isLoca)) return false;
+                if (transformed && (!TryReadUIntBase128(src, ref cursor, out uint transformedLength) ||
+                    (isLoca ? transformedLength != 0 : transformedLength == 0))) return false;
                 sawGlyfTransform |= isGlyf && transformed;
                 sawLocaTransform |= isLoca && transformed;
                 sawHmtxTransform |= isHmtx && transformed;

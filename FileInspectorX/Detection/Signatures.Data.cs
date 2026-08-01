@@ -8,12 +8,13 @@ internal static partial class Signatures {
 
     private readonly struct NetCdfVariableRange
     {
-        internal NetCdfVariableRange(ulong begin, ulong size, ulong dataSize, bool record)
+        internal NetCdfVariableRange(ulong begin, ulong size, ulong dataSize, bool record, bool largeSizeSentinel)
         {
             Begin = begin;
             Size = size;
             DataSize = dataSize;
             Record = record;
+            LargeSizeSentinel = largeSizeSentinel;
             UnpaddedRecord = record && size == dataSize;
         }
 
@@ -21,6 +22,7 @@ internal static partial class Signatures {
         internal ulong Size { get; }
         internal ulong DataSize { get; }
         internal bool Record { get; }
+        internal bool LargeSizeSentinel { get; }
         internal bool UnpaddedRecord { get; }
     }
 
@@ -341,7 +343,8 @@ internal static partial class Signatures {
                     begin = narrowBegin;
                 }
                 else if (!TryReadUInt64(out begin)) return false;
-                if (!TryCreateNetCdfVariableRange(dimensionLengths, dimensionIds, typeSize, declaredSize, begin, out var range)) return false;
+                if (!TryCreateNetCdfVariableRange(dimensionLengths, dimensionIds, typeSize, declaredSize, begin,
+                        hasNarrowVSize: !isCdf5, out var range)) return false;
                 ranges.Add(range);
             }
             return TryValidateNetCdfVariableRanges(ranges, (ulong)_stream.Position, _sampleMayContinue ? null : _length,
@@ -416,7 +419,8 @@ internal static partial class Signatures {
             if (!TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) ||
                 !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong declaredSize) ||
                 !TryReadNetCdfOffset(src, ref cursor, cdf1, out ulong begin) ||
-                !TryCreateNetCdfVariableRange(dimensionLengths, dimensionIds, typeSize, declaredSize, begin, out var range)) return false;
+                !TryCreateNetCdfVariableRange(dimensionLengths, dimensionIds, typeSize, declaredSize, begin,
+                    hasNarrowVSize: !isCdf5, out var range)) return false;
             ranges.Add(range);
         }
         return TryValidateNetCdfVariableRanges(ranges, (ulong)cursor, completeLength, recordCount, isCdf5,
@@ -424,7 +428,7 @@ internal static partial class Signatures {
     }
 
     private static bool TryCreateNetCdfVariableRange(ulong[] dimensionLengths, ulong[] dimensionIds, int typeSize,
-        ulong declaredSize, ulong begin, out NetCdfVariableRange range)
+        ulong declaredSize, ulong begin, bool hasNarrowVSize, out NetCdfVariableRange range)
     {
         range = default;
         bool record = dimensionIds.Length > 0 && dimensionLengths[(int)dimensionIds[0]] == 0;
@@ -444,8 +448,11 @@ internal static partial class Signatures {
         ulong rawSize = elements * (uint)typeSize;
         if (rawSize > ulong.MaxValue - 3) return false;
         ulong expectedSize = (rawSize + 3) & ~3UL;
-        if (((!record || declaredSize != rawSize) && declaredSize != expectedSize) || begin > long.MaxValue) return false;
-        range = new NetCdfVariableRange(begin, declaredSize, rawSize, record);
+        bool largeSizeSentinel = hasNarrowVSize && declaredSize == uint.MaxValue && expectedSize > uint.MaxValue - 3UL;
+        if ((!largeSizeSentinel && (!record || declaredSize != rawSize) && declaredSize != expectedSize) ||
+            begin > long.MaxValue) return false;
+        range = new NetCdfVariableRange(begin, largeSizeSentinel ? expectedSize : declaredSize, rawSize, record,
+            largeSizeSentinel);
         return true;
     }
 
@@ -453,20 +460,25 @@ internal static partial class Signatures {
         ulong headerEnd, long? completeLength, ulong recordCount, bool isCdf5, out bool fullyValidated)
     {
         fullyValidated = false;
-        if (!completeLength.HasValue) return true;
-        if (completeLength.Value < 0) return false;
-        ulong fileLength = (ulong)completeLength.Value;
         var records = new System.Collections.Generic.List<NetCdfVariableRange>();
         var fixedRanges = new System.Collections.Generic.List<NetCdfVariableRange>();
         foreach (var range in ranges)
         {
-            if (range.Begin < headerEnd || range.Begin > fileLength) return false;
             if (range.Record) records.Add(range);
-            else
-            {
-                if (range.Size > fileLength - range.Begin) return false;
-                fixedRanges.Add(range);
-            }
+            else fixedRanges.Add(range);
+        }
+        int largeFixedCount = fixedRanges.FindAll(range => range.LargeSizeSentinel).Count;
+        int largeRecordCount = records.FindAll(range => range.LargeSizeSentinel).Count;
+        if (largeFixedCount > 1 || largeRecordCount > 1 ||
+            (largeFixedCount == 1 && (!fixedRanges[fixedRanges.Count - 1].LargeSizeSentinel || records.Count != 0)) ||
+            (largeRecordCount == 1 && !records[records.Count - 1].LargeSizeSentinel)) return false;
+        if (!completeLength.HasValue) return true;
+        if (completeLength.Value < 0) return false;
+        ulong fileLength = (ulong)completeLength.Value;
+        foreach (var range in ranges)
+        {
+            if (range.Begin < headerEnd || range.Begin > fileLength) return false;
+            if (!range.Record && range.Size > fileLength - range.Begin) return false;
         }
         fixedRanges.Sort((left, right) => left.Begin.CompareTo(right.Begin));
         ulong previousFixedEnd = headerEnd;
