@@ -394,6 +394,7 @@ internal static partial class Signatures
     {
         int cursor = 0;
         short previousField = 0;
+        var fields = new System.Collections.Generic.HashSet<short>();
         bool version = false, schema = false, rows = false, rowGroups = false;
         while (cursor < metadata.Length)
         {
@@ -401,8 +402,10 @@ internal static partial class Signatures
             if (header == 0) break;
             int type = header & 0x0F;
             int delta = header >> 4;
-            short field = delta == 0 ? ReadCompactFieldId(metadata, ref cursor) : checked((short)(previousField + delta));
-            if (field <= previousField) return false;
+            int decodedField = delta == 0 ? ReadCompactFieldId(metadata, ref cursor) : previousField + delta;
+            if (decodedField is <= 0 or > short.MaxValue) return false;
+            short field = (short)decodedField;
+            if (!fields.Add(field)) return false;
             previousField = field;
             if (field == 1) { if (type != 5 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; version = true; }
             else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0)) return false; schema = true; }
@@ -447,13 +450,16 @@ internal static partial class Signatures
         if (type == 12)
         {
             short previous = 0;
+            var fields = new System.Collections.Generic.HashSet<short>();
             while (cursor < src.Length)
             {
                 byte header = src[cursor++];
                 if (header == 0) return true;
                 int delta = header >> 4;
-                short field = delta == 0 ? ReadCompactFieldId(src, ref cursor) : checked((short)(previous + delta));
-                if (field <= previous || !SkipCompactValue(src, ref cursor, header & 0x0F, depth + 1)) return false;
+                int decodedField = delta == 0 ? ReadCompactFieldId(src, ref cursor) : previous + delta;
+                if (decodedField is <= 0 or > short.MaxValue) return false;
+                short field = (short)decodedField;
+                if (!fields.Add(field) || !SkipCompactValue(src, ref cursor, header & 0x0F, depth + 1)) return false;
                 previous = field;
             }
         }

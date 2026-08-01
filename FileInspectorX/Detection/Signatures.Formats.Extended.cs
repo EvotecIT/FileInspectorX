@@ -212,9 +212,40 @@ internal static partial class Signatures
         uint pixelFormatSize = ReadUInt32LittleEndian(src, 76);
         uint pixelFormatFlags = ReadUInt32LittleEndian(src, 80);
         uint fourCc = ReadUInt32LittleEndian(src, 84);
+        uint rgbBitCount = ReadUInt32LittleEndian(src, 88);
+        uint redMask = ReadUInt32LittleEndian(src, 92);
+        uint greenMask = ReadUInt32LittleEndian(src, 96);
+        uint blueMask = ReadUInt32LittleEndian(src, 100);
+        uint alphaMask = ReadUInt32LittleEndian(src, 104);
         uint caps = ReadUInt32LittleEndian(src, 108);
         if ((flags & 0x1007) != 0x1007 || height == 0 || width == 0 || pixelFormatSize != 32 || (caps & 0x1000) == 0) return false;
-        if ((pixelFormatFlags & 0x4) != 0 && fourCc == 0x30315844)
+        const uint fourCcFlag = 0x4;
+        const uint rgbFlag = 0x40;
+        const uint yuvFlag = 0x200;
+        const uint luminanceFlag = 0x20000;
+        const uint supportedFlags = 0x1 | 0x2 | fourCcFlag | rgbFlag | yuvFlag | luminanceFlag;
+        if ((pixelFormatFlags & ~supportedFlags) != 0) return false;
+        bool hasFourCc = (pixelFormatFlags & fourCcFlag) != 0;
+        bool hasRgb = (pixelFormatFlags & rgbFlag) != 0;
+        bool hasYuv = (pixelFormatFlags & yuvFlag) != 0;
+        bool hasLuminance = (pixelFormatFlags & luminanceFlag) != 0;
+        bool alphaOnly = (pixelFormatFlags & 0x2) != 0 && !hasFourCc && !hasRgb && !hasYuv && !hasLuminance;
+        if ((pixelFormatFlags & 0x2) != 0 && !alphaOnly || (pixelFormatFlags & 0x1) != 0 && hasFourCc) return false;
+        int encodingKinds = (hasFourCc ? 1 : 0) + (hasRgb ? 1 : 0) + (hasYuv ? 1 : 0) + (hasLuminance ? 1 : 0) + (alphaOnly ? 1 : 0);
+        if (encodingKinds != 1) return false;
+        if (hasFourCc)
+        {
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                byte character = (byte)(fourCc >> shift);
+                if (character < 0x20 || character > 0x7E) return false;
+            }
+        }
+        else if (!TryValidateDdsMasks(pixelFormatFlags, rgbBitCount, redMask, greenMask, blueMask, alphaMask, hasRgb, hasYuv, hasLuminance, alphaOnly))
+        {
+            return false;
+        }
+        if (hasFourCc && fourCc == 0x30315844)
         {
             if (src.Length < 148) return false;
             uint dxgiFormat = ReadUInt32LittleEndian(src, 128);
@@ -230,6 +261,24 @@ internal static partial class Signatures
 
     private static bool IsKnownDdsDxgiFormat(uint format)
         => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190;
+
+    private static bool TryValidateDdsMasks(uint flags, uint bitCount, uint red, uint green, uint blue, uint alpha,
+        bool rgb, bool yuv, bool luminance, bool alphaOnly)
+    {
+        if (bitCount is < 1 or > 32) return false;
+        uint allowedBits = bitCount == 32 ? uint.MaxValue : (1u << (int)bitCount) - 1;
+        if (((red | green | blue | alpha) & ~allowedBits) != 0) return false;
+        bool alphaRequired = (flags & 0x1) != 0 || alphaOnly;
+        if (alphaRequired && alpha == 0 || !alphaRequired && alpha != 0) return false;
+        if (rgb || yuv)
+        {
+            if (red == 0 || green == 0 || blue == 0) return false;
+            if ((red & green) != 0 || (red & blue) != 0 || (green & blue) != 0 || (alpha & (red | green | blue)) != 0) return false;
+            return true;
+        }
+        if (luminance) return red != 0 && green == 0 && blue == 0 && (alpha & red) == 0;
+        return alphaOnly && red == 0 && green == 0 && blue == 0;
+    }
 
     internal static bool TryMatchQoi(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
@@ -292,22 +341,87 @@ internal static partial class Signatures
     internal static bool TryMatchDicom(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length < 156 || !src.Slice(128, 4).SequenceEqual("DICM"u8)) return false;
+        if (src.Length < 144 || !src.Slice(128, 4).SequenceEqual("DICM"u8)) return false;
         if (ReadUInt16LittleEndian(src, 132) != 0x0002 || ReadUInt16LittleEndian(src, 134) != 0x0000 ||
             src[136] != (byte)'U' || src[137] != (byte)'L' || ReadUInt16LittleEndian(src, 138) != 4)
             return false;
         uint metaLength = ReadUInt32LittleEndian(src, 140);
         long metaEnd = 144L + metaLength;
-        if (metaLength < 12 || completeLength < 0 ||
-            (completeLength.HasValue && metaEnd > completeLength.Value) ||
-            ReadUInt16LittleEndian(src, 144) != 0x0002 ||
-            ReadUInt16LittleEndian(src, 146) == 0 || src[148] is < (byte)'A' or > (byte)'Z' ||
-            src[149] is < (byte)'A' or > (byte)'Z') return false;
+        if (metaLength < 48 || completeLength < 0 || (completeLength.HasValue && metaEnd > completeLength.Value)) return false;
+        bool sopClass = false, sopInstance = false, transferSyntax = false, implementationClass = false;
+        bool sampled = metaEnd > src.Length;
+        long cursor = 144;
+        while (cursor < metaEnd)
+        {
+            if (cursor > int.MaxValue || cursor + 8 > src.Length) return false;
+            int element = (int)cursor;
+            ushort group = ReadUInt16LittleEndian(src, element);
+            ushort tag = ReadUInt16LittleEndian(src, element + 2);
+            byte vr1 = src[element + 4], vr2 = src[element + 5];
+            if (group != 0x0002 || vr1 is < (byte)'A' or > (byte)'Z' || vr2 is < (byte)'A' or > (byte)'Z') return false;
+            bool longValue = IsDicomLongValueRepresentation(vr1, vr2);
+            int headerLength = longValue ? 12 : 8;
+            if (cursor + headerLength > src.Length) return false;
+            uint valueLength;
+            if (longValue)
+            {
+                if (src[element + 6] != 0 || src[element + 7] != 0) return false;
+                valueLength = ReadUInt32LittleEndian(src, element + 8);
+            }
+            else
+            {
+                valueLength = ReadUInt16LittleEndian(src, element + 6);
+            }
+            long valueOffset = cursor + headerLength;
+            long valueEnd = valueOffset + valueLength;
+            if (valueEnd < valueOffset || valueEnd > metaEnd || valueLength == uint.MaxValue) return false;
+            bool requiredUid = tag is 0x0002 or 0x0003 or 0x0010 or 0x0012;
+            if (requiredUid)
+            {
+                if (vr1 != (byte)'U' || vr2 != (byte)'I' || valueEnd > src.Length ||
+                    !IsValidDicomUid(src.Slice((int)valueOffset, (int)valueLength))) return false;
+                if (tag == 0x0002) { if (sopClass) return false; sopClass = true; }
+                else if (tag == 0x0003) { if (sopInstance) return false; sopInstance = true; }
+                else if (tag == 0x0010) { if (transferSyntax) return false; transferSyntax = true; }
+                else { if (implementationClass) return false; implementationClass = true; }
+            }
+            sampled |= valueEnd > src.Length;
+            cursor = valueEnd;
+        }
+        if (cursor != metaEnd || !sopClass || !sopInstance || !transferSyntax || !implementationClass) return false;
         result = BinaryResult("dcm", "application/dicom", "dicom:preamble+meta-header");
-        if (!completeLength.HasValue && metaEnd > src.Length)
+        if (!completeLength.HasValue && sampled)
         {
             result.Confidence = "Medium";
             result.Reason += ";sampled-meta-header";
+        }
+        return true;
+    }
+
+    private static bool IsDicomLongValueRepresentation(byte first, byte second)
+        => first == (byte)'O' && second is (byte)'B' or (byte)'D' or (byte)'F' or (byte)'L' or (byte)'W' ||
+           first == (byte)'S' && second == (byte)'Q' || first == (byte)'U' && second is (byte)'C' or (byte)'R' or (byte)'T' or (byte)'N';
+
+    private static bool IsValidDicomUid(ReadOnlySpan<byte> value)
+    {
+        if (value.Length is < 2 or > 64) return false;
+        int length = value.Length;
+        if (value[length - 1] is 0 or (byte)' ') length--;
+        if (length == 0 || value[0] == (byte)'.' || value[length - 1] == (byte)'.') return false;
+        bool previousDot = false;
+        for (int index = 0; index < length; index++)
+        {
+            byte current = value[index];
+            if (current == (byte)'.')
+            {
+                if (previousDot) return false;
+                previousDot = true;
+            }
+            else
+            {
+                if (current is < (byte)'0' or > (byte)'9') return false;
+                previousDot = false;
+            }
         }
         return true;
     }
@@ -321,19 +435,20 @@ internal static partial class Signatures
         if (src.Length < 24 || !src.Slice(0, 4).SequenceEqual("!BDN"u8) || !src.Slice(8, 2).SequenceEqual("SM"u8)) return false;
         ushort version = ReadUInt16LittleEndian(src, 10);
         ushort clientVersion = ReadUInt16LittleEndian(src, 12);
-        if (version is not (14 or 15) && version is not (>= 23 and <= 50)) return false;
+        if (version is not (14 or 15 or 21) && version is not (>= 23 and <= 50)) return false;
         if (clientVersion == 0 || src[14] != 1 || src[15] != 1 || ReadUInt32LittleEndian(src, 16) != 0 || ReadUInt32LittleEndian(src, 20) != 0) return false;
-        int requiredHeader = version < 23 ? 512 : 564;
+        bool unicode = version >= 21;
+        int requiredHeader = unicode ? 564 : 512;
         if (src.Length < requiredHeader)
         {
             if (completeLength.HasValue) return false;
-            result = BinaryResult("ndb", "application/vnd.ms-outlook", version < 23 ? "outlook-ndb:ansi;sampled-header" : "outlook-ndb:unicode;sampled-header");
+            result = BinaryResult("ndb", "application/vnd.ms-outlook", unicode ? "outlook-ndb:unicode;sampled-header" : "outlook-ndb:ansi;sampled-header");
             result.Confidence = "Medium";
             return true;
         }
         if (ReadUInt32LittleEndian(src, 4) != ComputeNdbCrc32(src.Slice(8, 464))) return false;
-        if (version >= 23 && ReadUInt32LittleEndian(src, 524) != ComputeNdbCrc32(src.Slice(8, 516))) return false;
-        result = BinaryResult("ndb", "application/vnd.ms-outlook", version < 23 ? "outlook-ndb:ansi" : "outlook-ndb:unicode");
+        if (unicode && ReadUInt32LittleEndian(src, 524) != ComputeNdbCrc32(src.Slice(8, 516))) return false;
+        result = BinaryResult("ndb", "application/vnd.ms-outlook", unicode ? "outlook-ndb:unicode" : "outlook-ndb:ansi");
         return true;
     }
 

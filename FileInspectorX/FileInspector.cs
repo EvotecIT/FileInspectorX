@@ -576,7 +576,8 @@ public static partial class FileInspector {
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
         if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
-        if (Signatures.TryMatchElf(src, completeLength, out var elf)) return Finish(Enrich(elf, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchElf(stream, out var elf) : Signatures.TryMatchElf(src, completeLength, out elf)))
+            return Finish(Enrich(elf, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchJavaClass(stream, out var javaClass) : Signatures.TryMatchJavaClass(src, completeLength, out javaClass)))
             return Finish(Enrich(javaClass, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchDex(stream, out var dex) : Signatures.TryMatchDex(src, completeLength, out dex)))

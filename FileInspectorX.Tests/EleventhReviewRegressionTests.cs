@@ -107,7 +107,7 @@ public sealed class EleventhReviewRegressionTests
     [Fact]
     public void DicomMetaLengthUsesTheKnownOrSampledBoundary()
     {
-        var bytes = Dicom(metaLength: 5000, totalLength: 6000);
+        var bytes = TestHelpers.CreateMinimalDicom(metaLength: 5000, totalLength: 6000);
         Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
 
         using (var stream = new NonSeekableReadStream(bytes)) {
@@ -117,7 +117,8 @@ public sealed class EleventhReviewRegressionTests
             Assert.Contains("sampled-meta-header", sampled?.Reason);
         }
 
-        var overlong = Dicom(metaLength: uint.MaxValue, totalLength: 156);
+        var overlong = TestHelpers.CreateMinimalDicom();
+        WriteUInt32LittleEndian(overlong, 140, uint.MaxValue);
         Assert.NotEqual("dcm", FileInspector.Detect(overlong)?.Extension);
     }
 
@@ -294,20 +295,6 @@ public sealed class EleventhReviewRegressionTests
         WriteUInt16LittleEndian(bytes, 0x54, 96);
         WriteUInt16LittleEndian(bytes, 0x56, 2);
         WriteUInt16LittleEndian(bytes, 0x58, 0x10B);
-        return bytes;
-    }
-
-    private static byte[] Dicom(uint metaLength, int totalLength)
-    {
-        var bytes = new byte[totalLength];
-        Encoding.ASCII.GetBytes("DICM").CopyTo(bytes, 128);
-        WriteUInt16LittleEndian(bytes, 132, 2);
-        Encoding.ASCII.GetBytes("UL").CopyTo(bytes, 136);
-        WriteUInt16LittleEndian(bytes, 138, 4);
-        WriteUInt32LittleEndian(bytes, 140, metaLength);
-        WriteUInt16LittleEndian(bytes, 144, 2);
-        WriteUInt16LittleEndian(bytes, 146, 1);
-        Encoding.ASCII.GetBytes("OB").CopyTo(bytes, 148);
         return bytes;
     }
 

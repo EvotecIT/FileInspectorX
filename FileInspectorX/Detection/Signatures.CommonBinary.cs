@@ -55,6 +55,8 @@ internal static partial class Signatures
         if (ReadUInt32BigEndian(src, 29) != ComputePngCrc(src.Slice(12, 17))) return false;
         bool complete = false;
         bool sawIdat = false;
+        bool idatSequenceEnded = false;
+        bool sawPlte = false;
         int cursor = 8;
         while (cursor + 12 <= src.Length)
         {
@@ -65,7 +67,23 @@ internal static partial class Signatures
             if (ReadUInt32BigEndian(src, cursor + 8 + chunkLength) != ComputePngCrc(typeAndData)) return false;
             uint type = ReadUInt32BigEndian(src, cursor + 4);
             if (cursor == 8 && type != 0x49484452) return false;
-            sawIdat |= type == 0x49444154;
+            if (cursor != 8 && type == 0x49484452) return false;
+            if (type == 0x504C5445)
+            {
+                if (sawPlte || sawIdat || colorType is 0 or 4 || chunkLength == 0 || chunkLength > 768 || chunkLength % 3 != 0) return false;
+                int paletteEntries = chunkLength / 3;
+                if (colorType == 3 && paletteEntries > 1 << bitDepth) return false;
+                sawPlte = true;
+            }
+            if (type == 0x49444154)
+            {
+                if (idatSequenceEnded || colorType == 3 && !sawPlte) return false;
+                sawIdat = true;
+            }
+            else if (sawIdat && type != 0x49454E44)
+            {
+                idatSequenceEnded = true;
+            }
             cursor += 12 + chunkLength;
             if (type == 0x49454E44)
             {

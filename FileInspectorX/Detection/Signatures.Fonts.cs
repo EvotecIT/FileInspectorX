@@ -111,7 +111,8 @@ internal static partial class Signatures {
             sawMaxp |= isMaxp;
         }
 
-        if (sawHmtxTransform && (!sawGlyfTransform || !sawLocaTransform || !sawHhea || !sawMaxp)) return false;
+        if (sawGlyfTransform != sawLocaTransform ||
+            sawHmtxTransform && (!sawGlyfTransform || !sawHhea || !sawMaxp)) return false;
 
         if (ReadUInt32BigEndian(header, 4) == 0x74746366 &&
             !TryReadWoff2CollectionDirectory(stream, declaredLength, ref cursor, tableCount)) return false;
@@ -366,7 +367,8 @@ internal static partial class Signatures {
                 sawMaxp |= isMaxp;
             }
 
-            if (sawHmtxTransform && (!sawGlyfTransform || !sawLocaTransform || !sawHhea || !sawMaxp)) return false;
+            if (sawGlyfTransform != sawLocaTransform ||
+                sawHmtxTransform && (!sawGlyfTransform || !sawHhea || !sawMaxp)) return false;
 
             if (isCollection && !TryValidateWoff2CollectionDirectory(src, ref cursor, tableCount)) return false;
             if (compressedSize == 0 || (ulong)cursor + compressedSize > declaredLength) return false;

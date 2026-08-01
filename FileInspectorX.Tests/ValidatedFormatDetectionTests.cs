@@ -427,7 +427,12 @@ public sealed class ValidatedFormatDetectionTests
         WriteUInt32LittleEndian(bytes, 12, 1);
         WriteUInt32LittleEndian(bytes, 16, 1);
         WriteUInt32LittleEndian(bytes, 76, 32);
-        WriteUInt32LittleEndian(bytes, 80, 0x40);
+        WriteUInt32LittleEndian(bytes, 80, 0x41);
+        WriteUInt32LittleEndian(bytes, 88, 32);
+        WriteUInt32LittleEndian(bytes, 92, 0x00FF0000);
+        WriteUInt32LittleEndian(bytes, 96, 0x0000FF00);
+        WriteUInt32LittleEndian(bytes, 100, 0x000000FF);
+        WriteUInt32LittleEndian(bytes, 104, 0xFF000000);
         WriteUInt32LittleEndian(bytes, 108, 0x1000);
         return bytes;
     }
@@ -444,20 +449,7 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] Dicom()
-    {
-        var bytes = new byte[158];
-        Encoding.ASCII.GetBytes("DICM").CopyTo(bytes, 128);
-        WriteUInt16LittleEndian(bytes, 132, 2);
-        Encoding.ASCII.GetBytes("UL").CopyTo(bytes, 136);
-        WriteUInt16LittleEndian(bytes, 138, 4);
-        WriteUInt32LittleEndian(bytes, 140, 14);
-        WriteUInt16LittleEndian(bytes, 144, 2);
-        WriteUInt16LittleEndian(bytes, 146, 1);
-        Encoding.ASCII.GetBytes("OB").CopyTo(bytes, 148);
-        WriteUInt32LittleEndian(bytes, 152, 2);
-        return bytes;
-    }
+    private static byte[] Dicom() => TestHelpers.CreateMinimalDicom();
 
     private static byte[] OutlookNdb() => TestHelpers.CreateMinimalOutlookNdb();
 

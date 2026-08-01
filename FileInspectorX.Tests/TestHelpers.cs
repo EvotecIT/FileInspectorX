@@ -205,17 +205,70 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalOutlookNdb(ushort version = 23)
     {
-        var bytes = new byte[version < 23 ? 512 : 564];
+        bool unicode = version >= 21;
+        var bytes = new byte[unicode ? 564 : 512];
         Encoding.ASCII.GetBytes("!BDN").CopyTo(bytes, 0);
         Encoding.ASCII.GetBytes("SM").CopyTo(bytes, 8);
         WriteUInt16LittleEndian(bytes, 10, version);
         WriteUInt16LittleEndian(bytes, 12, 19);
         bytes[14] = 1;
         bytes[15] = 1;
-        if (version >= 23)
+        if (unicode)
             WriteUInt32LittleEndian(bytes, 524, ComputeCrc32(bytes, 8, 516));
         WriteUInt32LittleEndian(bytes, 4, ComputeCrc32(bytes, 8, 464));
         return bytes;
+    }
+
+    internal static byte[] CreateMinimalDicom(int metaLength = 0, int totalLength = 0)
+    {
+        var meta = new List<byte>();
+        AddUid(0x0002, "1.2.840.10008.5.1.4.1.1.7");
+        AddUid(0x0003, "1.2.3.4.5.6.7.8.9");
+        AddUid(0x0010, "1.2.840.10008.1.2.1");
+        AddUid(0x0012, "1.2.826.0.1.3680043.10.543");
+        if (metaLength == 0) metaLength = meta.Count;
+        if (metaLength < meta.Count || metaLength - meta.Count is > 0 and < 12)
+            throw new ArgumentOutOfRangeException(nameof(metaLength));
+        if (metaLength > meta.Count)
+        {
+            int payloadLength = metaLength - meta.Count - 12;
+            AddUInt16(meta, 2); AddUInt16(meta, 0x0102);
+            meta.Add((byte)'O'); meta.Add((byte)'B'); meta.Add(0); meta.Add(0);
+            AddUInt32(meta, checked((uint)payloadLength));
+            for (int index = 0; index < payloadLength; index++) meta.Add(0);
+        }
+
+        int requiredLength = 144 + metaLength;
+        if (totalLength == 0) totalLength = requiredLength;
+        if (totalLength < requiredLength) throw new ArgumentOutOfRangeException(nameof(totalLength));
+        var bytes = new byte[totalLength];
+        Encoding.ASCII.GetBytes("DICM").CopyTo(bytes, 128);
+        WriteUInt16LittleEndian(bytes, 132, 2);
+        Encoding.ASCII.GetBytes("UL").CopyTo(bytes, 136);
+        WriteUInt16LittleEndian(bytes, 138, 4);
+        WriteUInt32LittleEndian(bytes, 140, checked((uint)metaLength));
+        meta.CopyTo(bytes, 144);
+        return bytes;
+
+        void AddUid(ushort tag, string uid)
+        {
+            byte[] value = Encoding.ASCII.GetBytes(uid);
+            int paddedLength = value.Length + (value.Length & 1);
+            AddUInt16(meta, 2); AddUInt16(meta, tag);
+            meta.Add((byte)'U'); meta.Add((byte)'I'); AddUInt16(meta, checked((ushort)paddedLength));
+            meta.AddRange(value);
+            if (paddedLength != value.Length) meta.Add(0);
+        }
+
+        static void AddUInt16(List<byte> target, ushort value)
+        {
+            target.Add((byte)value); target.Add((byte)(value >> 8));
+        }
+
+        static void AddUInt32(List<byte> target, uint value)
+        {
+            for (int index = 0; index < 4; index++) target.Add((byte)(value >> (8 * index)));
+        }
     }
 
     internal static byte[] CreateMinimalVhdx()

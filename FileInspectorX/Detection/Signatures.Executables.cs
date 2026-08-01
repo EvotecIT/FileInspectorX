@@ -7,7 +7,38 @@ internal static partial class Signatures {
     internal static bool TryMatchElf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchElf(src, src.Length, out result);
 
-    internal static bool TryMatchElf(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchElf(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
+        => TryMatchElf(src, completeLength, default, out result);
+
+    internal static bool TryMatchElf(Stream stream, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            if (stream.Length < 16 || !TryReadAt(stream, 0, (int)Math.Min(64, stream.Length), out var headerBytes)) return false;
+            var header = new ReadOnlySpan<byte>(headerBytes);
+            if (header.Length < 16 || header[4] is not (1 or 2)) return false;
+            bool littleEndian = header[5] == 1;
+            if (!littleEndian && header[5] != 2) return false;
+            int sectionOffsetField = header[4] == 1 ? 32 : 40;
+            int sectionEntrySizeField = header[4] == 1 ? 46 : 58;
+            ulong sectionOffset = header[4] == 1 ? ReadUInt32(header, sectionOffsetField, littleEndian) : ReadUInt64(header, sectionOffsetField, littleEndian);
+            ushort sectionEntrySize = ReadUInt16(header, sectionEntrySizeField, littleEndian);
+            ReadOnlySpan<byte> sectionZero = default;
+            byte[]? sectionZeroBytes = null;
+            if (sectionOffset != 0 && sectionEntrySize != 0 && sectionOffset <= long.MaxValue && sectionEntrySize <= stream.Length - (long)sectionOffset &&
+                TryReadAt(stream, (long)sectionOffset, sectionEntrySize, out sectionZeroBytes))
+                sectionZero = new ReadOnlySpan<byte>(sectionZeroBytes);
+            return TryMatchElf(header, stream.Length, sectionZero, out result);
+        } catch {
+            result = null;
+            return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryMatchElf(ReadOnlySpan<byte> src, long? completeLength, ReadOnlySpan<byte> sectionZero, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 16) return false;
         if (!(src[0] == 0x7F && src[1] == (byte)'E' && src[2] == (byte)'L' && src[3] == (byte)'F')) return false;
@@ -26,17 +57,34 @@ internal static partial class Signatures {
         int programCountOffset = clazz == 1 ? 44 : 56;
         int sectionEntrySizeOffset = clazz == 1 ? 46 : 58;
         int sectionCountOffset = clazz == 1 ? 48 : 60;
+        int sectionNameIndexOffset = clazz == 1 ? 50 : 62;
         ushort declaredHeaderSize = ReadUInt16(src, headerSizeOffset, littleEndian);
         ushort programEntrySize = ReadUInt16(src, programEntrySizeOffset, littleEndian);
-        ushort programCount = ReadUInt16(src, programCountOffset, littleEndian);
+        ushort declaredProgramCount = ReadUInt16(src, programCountOffset, littleEndian);
         ushort sectionEntrySize = ReadUInt16(src, sectionEntrySizeOffset, littleEndian);
-        ushort sectionCount = ReadUInt16(src, sectionCountOffset, littleEndian);
+        ushort declaredSectionCount = ReadUInt16(src, sectionCountOffset, littleEndian);
+        ushort declaredSectionNameIndex = ReadUInt16(src, sectionNameIndexOffset, littleEndian);
         bool knownType = etype <= 4 || etype is >= 0xFE00 and <= 0xFEFF || etype >= 0xFF00;
         if (!knownType || version != 1 || declaredHeaderSize != headerSize) return false;
-        if (programCount > 0 && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
-        if (sectionCount > 0 && sectionEntrySize != (clazz == 1 ? 40 : 64)) return false;
+        if (declaredProgramCount > 0 && declaredProgramCount != 0xFFFF && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
         ulong programOffset = clazz == 1 ? ReadUInt32(src, 28, littleEndian) : ReadUInt64(src, 32, littleEndian);
         ulong sectionOffset = clazz == 1 ? ReadUInt32(src, 32, littleEndian) : ReadUInt64(src, 40, littleEndian);
+        bool needsSectionZero = sectionOffset != 0 && (declaredSectionCount == 0 || declaredProgramCount == 0xFFFF || declaredSectionNameIndex == 0xFFFF);
+        int expectedSectionEntrySize = clazz == 1 ? 40 : 64;
+        if (sectionOffset != 0 && sectionEntrySize != expectedSectionEntrySize) return false;
+        if (sectionOffset == 0 && (declaredSectionCount != 0 || declaredProgramCount == 0xFFFF || declaredSectionNameIndex == 0xFFFF)) return false;
+        if (needsSectionZero && sectionZero.IsEmpty && sectionOffset <= int.MaxValue &&
+            (ulong)src.Length >= sectionOffset + sectionEntrySize)
+            sectionZero = src.Slice((int)sectionOffset, sectionEntrySize);
+        if (needsSectionZero && sectionZero.Length < expectedSectionEntrySize) return false;
+
+        ulong sectionCount = declaredSectionCount;
+        if (declaredSectionCount == 0 && sectionOffset != 0)
+            sectionCount = clazz == 1 ? ReadUInt32(sectionZero, 20, littleEndian) : ReadUInt64(sectionZero, 32, littleEndian);
+        ulong programCount = declaredProgramCount == 0xFFFF ? ReadUInt32(sectionZero, clazz == 1 ? 28 : 44, littleEndian) : declaredProgramCount;
+        ulong sectionNameIndex = declaredSectionNameIndex == 0xFFFF ? ReadUInt32(sectionZero, clazz == 1 ? 24 : 40, littleEndian) : declaredSectionNameIndex;
+        if (sectionOffset != 0 && sectionCount == 0 || sectionNameIndex != 0 && sectionNameIndex >= sectionCount) return false;
+        if (programCount > 0 && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
         if (completeLength < 0 ||
             !IsElfTableRangeValid(programOffset, programEntrySize, programCount, headerSize, completeLength) ||
             !IsElfTableRangeValid(sectionOffset, sectionEntrySize, sectionCount, headerSize, completeLength)) return false;
@@ -53,10 +101,11 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool IsElfTableRangeValid(ulong offset, ushort entrySize, ushort count, int headerSize, long? completeLength)
+    private static bool IsElfTableRangeValid(ulong offset, ushort entrySize, ulong count, int headerSize, long? completeLength)
     {
         if (count == 0) return offset == 0 || !completeLength.HasValue || offset <= (ulong)completeLength.Value;
         if (offset < (ulong)headerSize || entrySize == 0) return false;
+        if (count > ulong.MaxValue / entrySize) return false;
         ulong length = (ulong)entrySize * count;
         return !completeLength.HasValue || offset <= (ulong)completeLength.Value && length <= (ulong)completeLength.Value - offset;
     }
