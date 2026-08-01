@@ -357,7 +357,8 @@ internal static partial class Signatures
         diskType = ReadUInt32BigEndian(footer, 60);
         bool uniqueId = false;
         for (int index = 68; index < 84; index++) uniqueId |= footer[index] != 0;
-        if (diskType is < 2 or > 4 || originalSize == 0 || originalSize != currentSize || (currentSize & 511) != 0 ||
+        if (diskType is < 2 or > 4 || originalSize == 0 || currentSize == 0 ||
+            (originalSize & 511) != 0 || (currentSize & 511) != 0 ||
             geometry == 0 || (geometry >> 16) == 0 || ((geometry >> 8) & 0xFF) is 0 or > 16 || (geometry & 0xFF) == 0 || !uniqueId) return false;
         return ComputeVhdChecksum(footer, 64) == ReadUInt32BigEndian(footer, 64);
     }

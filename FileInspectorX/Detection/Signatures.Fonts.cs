@@ -36,11 +36,12 @@ internal static partial class Signatures {
             if (src.Length < 12) return false;
             uint version = ReadUInt32BigEndian(src, 4);
             uint fontCount = ReadUInt32BigEndian(src, 8);
-            long collectionHeaderLength = 12L + fontCount * 4L;
+            long collectionHeaderLength = 12L + fontCount * 4L + (version == 0x00020000u ? 12L : 0L);
             if (version is not (0x00010000u or 0x00020000u) || fontCount is < 1 or > 4095 ||
                 collectionHeaderLength > stream.Length || !TryReadAt(stream, 0, (int)collectionHeaderLength, out var collectionHeader)) return false;
 
             var header = new ReadOnlySpan<byte>(collectionHeader);
+            if (!TryValidateTtcDsigHeader(header, version, fontCount, stream.Length)) return false;
             bool anyCff = false;
             for (uint i = 0; i < fontCount; i++) {
                 uint directoryOffset = ReadUInt32BigEndian(header, checked(12 + (int)i * 4));
@@ -244,7 +245,9 @@ internal static partial class Signatures {
         if (src.Length < 16) return false;
         uint version = ReadUInt32BigEndian(src, 4);
         uint fontCount = ReadUInt32BigEndian(src, 8);
-        if (version is not (0x00010000u or 0x00020000u) || fontCount is < 1 or > 4095 || 12L + fontCount * 4L > src.Length)
+        long headerLength = 12L + fontCount * 4L + (version == 0x00020000u ? 12L : 0L);
+        if (version is not (0x00010000u or 0x00020000u) || fontCount is < 1 or > 4095 || headerLength > src.Length ||
+            !TryValidateTtcDsigHeader(src, version, fontCount, completeLength))
             return false;
 
         bool anyCff = false;
@@ -261,6 +264,21 @@ internal static partial class Signatures {
 
         result = FontCollectionResult(version, fontCount, anyCff);
         return true;
+    }
+
+    private static bool TryValidateTtcDsigHeader(ReadOnlySpan<byte> header, uint version, uint fontCount, long? completeLength)
+    {
+        if (version != 0x00020000u) return true;
+        long dsigFields = 12L + fontCount * 4L;
+        if (dsigFields > int.MaxValue || dsigFields + 12 > header.Length) return false;
+        int offset = (int)dsigFields;
+        uint tag = ReadUInt32BigEndian(header, offset);
+        uint length = ReadUInt32BigEndian(header, offset + 4);
+        uint dataOffset = ReadUInt32BigEndian(header, offset + 8);
+        if (tag == 0) return length == 0 && dataOffset == 0;
+        long headerLength = dsigFields + 12;
+        return tag == 0x44534947 && length >= 8 && dataOffset >= headerLength && (dataOffset & 3) == 0 &&
+               (!completeLength.HasValue || (ulong)dataOffset + length <= (ulong)completeLength.Value);
     }
 
     private static bool TryValidateCollectionFontDirectory(ReadOnlySpan<byte> directory, long directoryOffset, long? completeLength, out bool isCff) {

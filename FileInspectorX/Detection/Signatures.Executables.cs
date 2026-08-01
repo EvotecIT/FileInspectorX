@@ -661,7 +661,9 @@ internal static partial class Signatures {
     };
 
     private static bool IsDefinedJavaClassVersion(ushort major, ushort minor)
-        => major is >= 45 and <= 100 && (major < 56 || minor is 0 or ushort.MaxValue);
+        => major == 45 ? minor <= 3 :
+           major is >= 46 and <= 55 ? minor == 0 :
+           major is >= 56 and <= 100 && minor is 0 or ushort.MaxValue;
 
     private static bool AreJavaConstantPoolReferencesValid(byte[] tags, ushort[] reference1,
         ushort[] reference2, byte[] referenceKinds, ushort major) {

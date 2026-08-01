@@ -202,7 +202,7 @@ internal static partial class Signatures {
         if (ReadUInt16(src, 4, littleEndian) != 8 || ReadUInt16(src, 6, littleEndian) != 0) return false;
         isBigTiff = true;
         firstIfd = ReadUInt64(src, 8, littleEndian);
-        if (firstIfd < 16 || (firstIfd & 1) != 0) return false;
+        if (firstIfd < 16 || (firstIfd & 7) != 0) return false;
         return true;
     }
 
