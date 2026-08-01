@@ -399,7 +399,9 @@ internal static partial class Signatures {
         for (int offset = 0; offset < comp.Length; offset += 4)
             kinds |= GetFtypBrandKind(comp.Slice(offset, 4)) & ~FtypBrandKind.LegacyHeif;
         bool completeBox = boxLength <= (ulong)src.Length;
-        return TryCreateFtypResult(brand, kinds, completeBox, out result);
+        if (!TryCreateFtypResult(brand, kinds, completeBox, out result)) return false;
+        DowngradeFtypOnlyFile(result, completeLength, boxLength);
+        return true;
     }
 
     /// <summary>
@@ -451,13 +453,23 @@ internal static partial class Signatures {
                     kinds |= GetFtypBrandKind(brands.Slice(offset, 4)) & ~FtypBrandKind.LegacyHeif;
                 remaining -= batch;
             }
-            return TryCreateFtypResult(brand, kinds, completeBox: true, out result);
+            if (!TryCreateFtypResult(brand, kinds, completeBox: true, out result)) return false;
+            DowngradeFtypOnlyFile(result, stream.Length, boxLength);
+            return true;
         } catch {
             result = null;
             return false;
         } finally {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
+
+    private static void DowngradeFtypOnlyFile(ContentTypeDetectionResult? result, long? completeLength, ulong boxLength)
+    {
+        if (result == null || result.Confidence != "High" || !completeLength.HasValue ||
+            completeLength.Value < 0 || boxLength != (ulong)completeLength.Value) return;
+        result.Confidence = "Medium";
+        result.Reason += ";ftyp-only";
     }
 
     [Flags]

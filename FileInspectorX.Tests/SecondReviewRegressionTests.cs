@@ -41,16 +41,7 @@ public sealed class SecondReviewRegressionTests
     [Fact]
     public void CrxEmbeddedZipBeyondDetectionPrefixKeepsApiParity()
     {
-        const int signedHeaderLength = 5000;
-        const int zipOffset = 12 + signedHeaderLength;
-        var bytes = new byte[zipOffset + 31];
-        Encoding.ASCII.GetBytes("Cr24").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 4, 3);
-        WriteUInt32LittleEndian(bytes, 8, signedHeaderLength);
-        Encoding.ASCII.GetBytes("PK\u0003\u0004").CopyTo(bytes, zipOffset);
-        WriteUInt16LittleEndian(bytes, zipOffset + 4, 20);
-        WriteUInt16LittleEndian(bytes, zipOffset + 26, 1);
-        bytes[zipOffset + 30] = (byte)'a';
+        var bytes = TestHelpers.CreateMinimalCrx3(5000);
 
         AssertParity(bytes, "crx");
     }

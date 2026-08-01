@@ -48,6 +48,64 @@ internal static class TestHelpers
         return bytes;
     }
 
+    internal static byte[] CreateMinimalCrx3(int signedHeaderLength = 0)
+    {
+        var header = new List<byte> { 0x0A, 0x06, 0x0A, 0x01, 0x01, 0x12, 0x01, 0x01 };
+        AddProtobufVarint(header, (10000u << 3) | 2u);
+        header.Add(18);
+        header.Add(0x0A);
+        header.Add(16);
+        for (int index = 0; index < 16; index++) header.Add((byte)(index + 1));
+
+        if (signedHeaderLength > header.Count)
+        {
+            int remaining = signedHeaderLength - header.Count;
+            int payloadLength = -1;
+            for (int candidate = Math.Max(0, remaining - 1); candidate >= 0; candidate--)
+            {
+                if (1 + ProtobufVarintLength((uint)candidate) + candidate == remaining)
+                {
+                    payloadLength = candidate;
+                    break;
+                }
+            }
+            if (payloadLength < 0) throw new ArgumentOutOfRangeException(nameof(signedHeaderLength));
+            header.Add(0x1A);
+            AddProtobufVarint(header, (uint)payloadLength);
+            for (int index = 0; index < payloadLength; index++) header.Add(0xA5);
+        }
+
+        var zip = new byte[31];
+        Encoding.ASCII.GetBytes("PK\u0003\u0004").CopyTo(zip, 0);
+        WriteUInt16LittleEndian(zip, 4, 20);
+        WriteUInt16LittleEndian(zip, 26, 1);
+        zip[30] = (byte)'a';
+        var bytes = new byte[12 + header.Count + zip.Length];
+        Encoding.ASCII.GetBytes("Cr24").CopyTo(bytes, 0);
+        WriteUInt32LittleEndian(bytes, 4, 3);
+        WriteUInt32LittleEndian(bytes, 8, (uint)header.Count);
+        header.CopyTo(bytes, 12);
+        zip.CopyTo(bytes, 12 + header.Count);
+        return bytes;
+    }
+
+    private static void AddProtobufVarint(List<byte> bytes, uint value)
+    {
+        while (value >= 0x80)
+        {
+            bytes.Add((byte)(value | 0x80));
+            value >>= 7;
+        }
+        bytes.Add((byte)value);
+    }
+
+    private static int ProtobufVarintLength(uint value)
+    {
+        int length = 1;
+        while (value >= 0x80) { value >>= 7; length++; }
+        return length;
+    }
+
     internal static byte[] CreateMinimalDex(string version = "035", bool reverseEndian = false, int length = 0x70)
     {
         int headerSize = version == "041" ? 0x78 : 0x70;
@@ -258,7 +316,7 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalPng()
     {
-        var bytes = new byte[33];
+        var bytes = new byte[57];
         new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, 0);
         bytes[11] = 13;
         System.Text.Encoding.ASCII.GetBytes("IHDR").CopyTo(bytes, 12);
@@ -266,7 +324,23 @@ internal static class TestHelpers
         bytes[23] = 1;
         bytes[24] = 8;
         bytes[25] = 6;
+        WriteUInt32BigEndian(bytes, 29, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 12, 17)));
+        System.Text.Encoding.ASCII.GetBytes("IDAT").CopyTo(bytes, 37);
+        WriteUInt32BigEndian(bytes, 41, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 37, 4)));
+        System.Text.Encoding.ASCII.GetBytes("IEND").CopyTo(bytes, 49);
+        WriteUInt32BigEndian(bytes, 53, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 49, 4)));
         return bytes;
+    }
+
+    private static uint ComputeCrc32(ReadOnlySpan<byte> data)
+    {
+        uint crc = uint.MaxValue;
+        for (int index = 0; index < data.Length; index++)
+        {
+            crc ^= data[index];
+            for (int bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+        return ~crc;
     }
 
     internal static byte[] CreateEmptyZip()
@@ -327,6 +401,35 @@ internal static class TestHelpers
             WriteUInt32LittleEndian(tileDescription, 0, 1);
             WriteUInt32LittleEndian(tileDescription, 4, 1);
             WriteOpenExrAttribute(stream, "tiles", "tiledesc", tileDescription);
+        }
+        stream.WriteByte(0);
+        return stream.ToArray();
+    }
+
+    internal static byte[] CreateMinimalMultipartOpenExr(int partCount = 2)
+    {
+        using var stream = new MemoryStream();
+        stream.Write(new byte[] { 0x76, 0x2F, 0x31, 0x01 }, 0, 4);
+        WriteUInt32LittleEndian(stream, 2u | 0x00001000u);
+        for (int part = 0; part < partCount; part++)
+        {
+            var channelList = new byte[19];
+            channelList[0] = (byte)'R';
+            WriteUInt32LittleEndian(channelList, 2, 2);
+            WriteUInt32LittleEndian(channelList, 10, 1);
+            WriteUInt32LittleEndian(channelList, 14, 1);
+            WriteOpenExrAttribute(stream, "channels", "chlist", channelList);
+            WriteOpenExrAttribute(stream, "compression", "compression", new byte[] { 10 });
+            WriteOpenExrAttribute(stream, "dataWindow", "box2i", new byte[16]);
+            WriteOpenExrAttribute(stream, "displayWindow", "box2i", new byte[16]);
+            WriteOpenExrAttribute(stream, "lineOrder", "lineOrder", new byte[] { 0 });
+            WriteOpenExrAttribute(stream, "pixelAspectRatio", "float", new byte[] { 0, 0, 0x80, 0x3F });
+            WriteOpenExrAttribute(stream, "screenWindowCenter", "v2f", new byte[8]);
+            WriteOpenExrAttribute(stream, "screenWindowWidth", "float", new byte[] { 0, 0, 0x80, 0x3F });
+            WriteOpenExrAttribute(stream, "name", "string", Encoding.ASCII.GetBytes("part" + part));
+            WriteOpenExrAttribute(stream, "type", "string", Encoding.ASCII.GetBytes("scanlineimage"));
+            WriteOpenExrAttribute(stream, "chunkCount", "int", new byte[] { 1, 0, 0, 0 });
+            stream.WriteByte(0);
         }
         stream.WriteByte(0);
         return stream.ToArray();

@@ -349,16 +349,7 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] Crx()
-    {
-        var zip = TestHelpers.CreateEmptyZip();
-        var bytes = new byte[13 + zip.Length];
-        Encoding.ASCII.GetBytes("Cr24").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 4, 3);
-        WriteUInt32LittleEndian(bytes, 8, 1);
-        zip.CopyTo(bytes, 13);
-        return bytes;
-    }
+    private static byte[] Crx() => TestHelpers.CreateMinimalCrx3();
 
     private static byte[] Icon()
     {

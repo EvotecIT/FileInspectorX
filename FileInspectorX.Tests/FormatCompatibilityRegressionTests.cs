@@ -108,12 +108,14 @@ public sealed class FormatCompatibilityRegressionTests
     [InlineData("M4V ", null)]
     public void RegisteredVideoBrandsAreClassifiedAsMp4(string majorBrand, string? compatibleBrand)
     {
-        int length = compatibleBrand == null ? 16 : 20;
-        var bytes = new byte[length];
-        WriteUInt32BigEndian(bytes, 0, (uint)length);
+        int fileTypeLength = compatibleBrand == null ? 16 : 20;
+        var bytes = new byte[fileTypeLength + 8];
+        WriteUInt32BigEndian(bytes, 0, (uint)fileTypeLength);
         Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
         Encoding.ASCII.GetBytes(majorBrand).CopyTo(bytes, 8);
         if (compatibleBrand != null) Encoding.ASCII.GetBytes(compatibleBrand).CopyTo(bytes, 16);
+        WriteUInt32BigEndian(bytes, fileTypeLength, 8);
+        Encoding.ASCII.GetBytes("free").CopyTo(bytes, fileTypeLength + 4);
 
         AssertParity(bytes, "mp4", "High");
     }
@@ -292,9 +294,11 @@ public sealed class FormatCompatibilityRegressionTests
 
     private static byte[] LargeFtypBox()
     {
-        var bytes = new byte[5000];
-        WriteUInt32BigEndian(bytes, 0, (uint)bytes.Length);
+        var bytes = new byte[5008];
+        WriteUInt32BigEndian(bytes, 0, 5000);
         Encoding.ASCII.GetBytes("ftypavc1").CopyTo(bytes, 4);
+        WriteUInt32BigEndian(bytes, 5000, 8);
+        Encoding.ASCII.GetBytes("free").CopyTo(bytes, 5004);
         return bytes;
     }
 

@@ -147,8 +147,13 @@ internal static partial class Signatures
         if (footerLength == 0 || footerLength > stream.Length - 12) return false;
         if (!encrypted)
         {
-            if (footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes) ||
-                !TryReadAt(stream, stream.Length - 8 - footerLength, (int)footerLength, out var footer) ||
+            if (footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes))
+            {
+                result = BinaryResult("parquet", "application/vnd.apache.parquet", "parquet:framed;footer-budget");
+                result.Confidence = "Medium";
+                return true;
+            }
+            if (!TryReadAt(stream, stream.Length - 8 - footerLength, (int)footerLength, out var footer) ||
                 !TryValidateParquetMetadata(new ReadOnlySpan<byte>(footer))) return false;
         }
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
@@ -167,8 +172,14 @@ internal static partial class Signatures
         uint footerLength = ReadUInt32LittleEndian(tailSpan, 0);
         if (footerLength < 8 || footerLength > stream.Length - 18) return false;
         long footerStart = stream.Length - 10 - footerLength;
-        if (footerStart < 8 || footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes) ||
-            !TryReadAt(stream, footerStart, (int)footerLength, out var footerBytes) ||
+        if (footerStart < 8) return false;
+        if (footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes))
+        {
+            result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:framed;footer-budget");
+            result.Confidence = "Medium";
+            return true;
+        }
+        if (!TryReadAt(stream, footerStart, (int)footerLength, out var footerBytes) ||
             !TryValidateArrowFooter(new ReadOnlySpan<byte>(footerBytes))) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;

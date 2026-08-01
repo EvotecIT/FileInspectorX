@@ -75,7 +75,21 @@ internal static partial class Signatures {
             cursor += byteCount;
         }
 
-        return ShellLinkParseStatus.Complete;
+        while (true) {
+            ShellLinkParseStatus status = EnsureShellLinkRange(cursor, 4, src.Length, completeLength);
+            if (status != ShellLinkParseStatus.Complete) return status;
+            uint blockSize = ReadUInt32LittleEndian(src, cursor);
+            if (blockSize == 0) {
+                cursor += 4;
+                return completeLength.HasValue && cursor != completeLength.Value
+                    ? ShellLinkParseStatus.Invalid
+                    : ShellLinkParseStatus.Complete;
+            }
+            if (blockSize < 4) return ShellLinkParseStatus.Invalid;
+            status = EnsureShellLinkRange(cursor, blockSize, src.Length, completeLength);
+            if (status != ShellLinkParseStatus.Complete) return status;
+            cursor += checked((int)blockSize);
+        }
     }
 
     private static ShellLinkParseStatus EnsureShellLinkRange(int offset, long length, int sampledLength, long? completeLength) {

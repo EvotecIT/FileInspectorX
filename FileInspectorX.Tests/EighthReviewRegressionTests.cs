@@ -150,12 +150,15 @@ public sealed class EighthReviewRegressionTests
 
     private static byte[] FtypWithDecisiveBrand(int compatibleBrandCount)
     {
-        var bytes = new byte[16 + compatibleBrandCount * 4];
-        WriteUInt32BigEndian(bytes, 0, checked((uint)bytes.Length));
+        int fileTypeLength = 16 + compatibleBrandCount * 4;
+        var bytes = new byte[fileTypeLength + 8];
+        WriteUInt32BigEndian(bytes, 0, checked((uint)fileTypeLength));
         Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
         Encoding.ASCII.GetBytes("isom").CopyTo(bytes, 8);
         for (int index = 0; index < compatibleBrandCount; index++)
             Encoding.ASCII.GetBytes(index == compatibleBrandCount - 1 ? "avif" : "zzzz").CopyTo(bytes, 16 + index * 4);
+        WriteUInt32BigEndian(bytes, fileTypeLength, 8);
+        Encoding.ASCII.GetBytes("free").CopyTo(bytes, fileTypeLength + 4);
         return bytes;
     }
 

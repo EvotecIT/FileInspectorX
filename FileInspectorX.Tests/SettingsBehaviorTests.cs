@@ -5,6 +5,7 @@ using FileInspectorX;
 
 namespace FileInspectorX.Tests;
 
+[Xunit.Collection(nameof(DetectionSettingsCollection))]
 public class SettingsBehaviorTests
 {
     [Xunit.Fact]

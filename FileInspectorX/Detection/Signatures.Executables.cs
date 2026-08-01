@@ -339,6 +339,7 @@ internal static partial class Signatures {
         long directoryEnd = 8L + architectureCount * entrySize;
         if (directoryEnd > src.Length) return false;
 
+        bool allSlicesSampled = true;
         for (uint i = 0; i < architectureCount; i++) {
             int entryOffset = checked(8 + (int)i * entrySize);
             uint cpuType = ReadUInt32(src, entryOffset, littleEndian);
@@ -350,15 +351,103 @@ internal static partial class Signatures {
                 (totalLength.HasValue && (offset > (ulong)totalLength.Value || size > (ulong)totalLength.Value - offset))) return false;
             ulong alignment = 1UL << (int)alignmentPower;
             if ((offset & (alignment - 1)) != 0) return false;
+            if (offset + 8 <= (ulong)src.Length)
+            {
+                if (!TryValidateMachSliceHeader(src.Slice((int)offset, 8), cpuType)) return false;
+            }
+            else allSlicesSampled = false;
         }
 
         result = new ContentTypeDetectionResult {
             Extension = "macho",
             MimeType = "application/x-mach-binary",
-            Confidence = "High",
-            Reason = "macho:fat" + (is64Bit ? "64" : string.Empty) + (littleEndian ? "-le" : string.Empty)
+            Confidence = allSlicesSampled ? "High" : "Medium",
+            Reason = "macho:fat" + (is64Bit ? "64" : string.Empty) + (littleEndian ? "-le" : string.Empty) +
+                     (allSlicesSampled ? string.Empty : ";sampled-slices")
         };
         return true;
+    }
+
+    internal static bool TryMatchMachO(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            int prefixLength = (int)Math.Min(stream.Length, Math.Max(32, Settings.HeaderReadBytes));
+            if (prefixLength < 4 || !TryReadAt(stream, 0, prefixLength, out var prefix) ||
+                !TryMatchMachO(new ReadOnlySpan<byte>(prefix), stream.Length, out result)) return false;
+            uint magic = ReadUInt32BigEndian(new ReadOnlySpan<byte>(prefix), 0);
+            bool fat = magic is 0xCAFEBABE or 0xBEBAFECA or 0xCAFEBABF or 0xBFBAFECA;
+            if (!fat)
+            {
+                if (result?.Confidence != "Medium" || !result.Reason.Contains("sampled-load-commands")) return true;
+                bool thinLittleEndian = magic is 0xCEFAEDFE or 0xCFFAEDFE;
+                bool thin64Bit = magic is 0xFEEDFACF or 0xCFFAEDFE;
+                int headerSize = thin64Bit ? 32 : 28;
+                uint commandCount = ReadUInt32(new ReadOnlySpan<byte>(prefix), 16, thinLittleEndian);
+                uint commandBytes = ReadUInt32(new ReadOnlySpan<byte>(prefix), 20, thinLittleEndian);
+                uint alignment = thin64Bit ? 8u : 4u;
+                if (!TryValidateMachLoadCommands(stream, headerSize, commandCount, commandBytes, alignment, thinLittleEndian)) return false;
+                result.Confidence = "High";
+                result.Reason = result.Reason.Replace(";sampled-load-commands", string.Empty);
+                return true;
+            }
+            bool littleEndian = magic is 0xBEBAFECA or 0xBFBAFECA;
+            bool is64Bit = magic is 0xCAFEBABF or 0xBFBAFECA;
+            uint count = ReadUInt32(new ReadOnlySpan<byte>(prefix), 4, littleEndian);
+            int entrySize = is64Bit ? 32 : 20;
+            int directoryLength = checked(8 + (int)count * entrySize);
+            if (!TryReadAt(stream, 0, directoryLength, out var directory)) return false;
+            var entries = new ReadOnlySpan<byte>(directory);
+            for (int index = 0; index < count; index++)
+            {
+                int entry = 8 + index * entrySize;
+                uint cpuType = ReadUInt32(entries, entry, littleEndian);
+                ulong offset = is64Bit ? ReadUInt64(entries, entry + 8, littleEndian) : ReadUInt32(entries, entry + 8, littleEndian);
+                if (offset > long.MaxValue || !TryReadAt(stream, (long)offset, 8, out var slice) ||
+                    !TryValidateMachSliceHeader(new ReadOnlySpan<byte>(slice), cpuType)) return false;
+            }
+            result!.Confidence = "High";
+            result.Reason = result.Reason.Replace(";sampled-slices", string.Empty);
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryValidateMachSliceHeader(ReadOnlySpan<byte> src, uint expectedCpuType)
+    {
+        if (src.Length < 8) return false;
+        uint magic = ReadUInt32BigEndian(src, 0);
+        bool littleEndian = magic is 0xCEFAEDFE or 0xCFFAEDFE;
+        if (magic is not (0xFEEDFACE or 0xCEFAEDFE or 0xFEEDFACF or 0xCFFAEDFE)) return false;
+        return ReadUInt32(src, 4, littleEndian) == expectedCpuType;
+    }
+
+    private static bool TryValidateMachLoadCommands(Stream stream, int headerSize, uint commandCount,
+        uint commandBytes, uint alignment, bool littleEndian)
+    {
+        long cursor = headerSize;
+        long commandEnd = headerSize + (long)commandBytes;
+        for (uint index = 0; index < commandCount; index++)
+        {
+            if (cursor > commandEnd - 8 || !TryReadAt(stream, cursor, 8, out var commandHeader)) return false;
+            var header = new ReadOnlySpan<byte>(commandHeader);
+            uint command = ReadUInt32(header, 0, littleEndian);
+            uint size = ReadUInt32(header, 4, littleEndian);
+            if (command == 0 || size < 8 || size % alignment != 0 || size > commandEnd - cursor) return false;
+            cursor += size;
+        }
+        return cursor == commandEnd;
     }
 
     private static bool IsKnownMachCpuType(uint cpuType) {

@@ -261,7 +261,7 @@ public sealed class StructuredBinaryDetectionTests
 
     private static int RequiredHeaderLength(string extension) => extension switch
     {
-        "lnk" => 76,
+        "lnk" => 80,
         "class" => 11,
         "dex" => 112,
         "macho" => 32,
@@ -278,7 +278,7 @@ public sealed class StructuredBinaryDetectionTests
 
     private static byte[] ShellLink()
     {
-        var bytes = new byte[76];
+        var bytes = new byte[80];
         bytes[0] = 0x4C;
         new byte[] {
             0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -324,6 +324,8 @@ public sealed class StructuredBinaryDetectionTests
         WriteUInt32BigEndian(bytes, 16, 4096);
         WriteUInt32BigEndian(bytes, 20, 32);
         WriteUInt32BigEndian(bytes, 24, 12);
+        new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, 4096);
+        WriteUInt32LittleEndian(bytes, 4100, 0x01000007);
         return bytes;
     }
 

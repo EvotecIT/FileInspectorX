@@ -565,8 +565,10 @@ public static partial class FileInspector {
         if ((stream.CanSeek ? Signatures.TryMatchFont(stream, out var font) : Signatures.TryMatchFont(src, completeLength, out font)))
             return Finish(Enrich(font, src, stream, options));
         if (Signatures.TryMatchOpenExr(src, completeLength, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
-        if (Signatures.TryMatchPhotoshop(src, completeLength, out var photoshop)) return Finish(Enrich(photoshop, src, stream, options));
-        if (Signatures.TryMatchJpeg2000(src, completeLength, out var jpeg2000)) return Finish(Enrich(jpeg2000, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchPhotoshop(stream, out var photoshop) : Signatures.TryMatchPhotoshop(src, completeLength, out photoshop)))
+            return Finish(Enrich(photoshop, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchJpeg2000(stream, out var jpeg2000) : Signatures.TryMatchJpeg2000(src, completeLength, out jpeg2000)))
+            return Finish(Enrich(jpeg2000, src, stream, options));
         if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
         if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
         if (Signatures.TryMatchDerCertificate(srcMemory, out var der)) return Finish(Enrich(der, src, stream, options));
@@ -579,7 +581,8 @@ public static partial class FileInspector {
             return Finish(Enrich(javaClass, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchDex(stream, out var dex) : Signatures.TryMatchDex(src, completeLength, out dex)))
             return Finish(Enrich(dex, src, stream, options));
-        if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchMachO(stream, out var macho) : Signatures.TryMatchMachO(src, completeLength, out macho)))
+            return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, completeLength, out var cab)) return Finish(Enrich(cab, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchGlb(stream, out var glb) : Signatures.TryMatchGlb(src, completeLength, out glb)))
             return Finish(Enrich(glb, src, stream, options));

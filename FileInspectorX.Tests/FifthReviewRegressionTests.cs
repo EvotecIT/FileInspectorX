@@ -164,12 +164,14 @@ public sealed class FifthReviewRegressionTests
 
     private static byte[] Ftyp(string majorBrand, string? compatibleBrand = null)
     {
-        int length = compatibleBrand is null ? 16 : 20;
-        var bytes = new byte[length];
-        WriteUInt32BigEndian(bytes, 0, (uint)length);
+        int fileTypeLength = compatibleBrand is null ? 16 : 20;
+        var bytes = new byte[fileTypeLength + 8];
+        WriteUInt32BigEndian(bytes, 0, (uint)fileTypeLength);
         Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
         Encoding.ASCII.GetBytes(majorBrand).CopyTo(bytes, 8);
         if (compatibleBrand is not null) Encoding.ASCII.GetBytes(compatibleBrand).CopyTo(bytes, 16);
+        WriteUInt32BigEndian(bytes, fileTypeLength, 8);
+        Encoding.ASCII.GetBytes("free").CopyTo(bytes, fileTypeLength + 4);
         return bytes;
     }
 

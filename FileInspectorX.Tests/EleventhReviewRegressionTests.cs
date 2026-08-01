@@ -95,13 +95,13 @@ public sealed class EleventhReviewRegressionTests
     }
 
     [Fact]
-    public void PeUnknownMachineValueIsAccepted()
+    public void PeUnknownMachineValueIsRejected()
     {
         var bytes = Pe(machine: 0);
 
-        Assert.Equal("exe", FileInspector.Detect(bytes)?.Extension);
+        Assert.NotEqual("exe", FileInspector.Detect(bytes)?.Extension);
         using var stream = new MemoryStream(bytes, writable: false);
-        Assert.Equal("exe", FileInspector.Detect(stream)?.Extension);
+        Assert.NotEqual("exe", FileInspector.Detect(stream)?.Extension);
     }
 
     [Fact]
@@ -143,6 +143,7 @@ public sealed class EleventhReviewRegressionTests
 
         var large = ShellLink(6100, 0x00000084);
         WriteUInt16LittleEndian(large, 76, 3000);
+        WriteUInt32LittleEndian(large, 6078, 18);
         Assert.Equal("High", FileInspector.Detect(large)?.Confidence);
         using var stream = new NonSeekableReadStream(large);
         var sampled = FileInspector.Detect(stream);
@@ -176,19 +177,7 @@ public sealed class EleventhReviewRegressionTests
         Assert.NotEqual("mid", FileInspector.Detect(stream)?.Extension);
     }
 
-    private static byte[] Crx3(int signedHeaderLength)
-    {
-        int zipOffset = 12 + signedHeaderLength;
-        var bytes = new byte[zipOffset + 31];
-        Encoding.ASCII.GetBytes("Cr24").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 4, 3);
-        WriteUInt32LittleEndian(bytes, 8, (uint)signedHeaderLength);
-        Encoding.ASCII.GetBytes("PK\u0003\u0004").CopyTo(bytes, zipOffset);
-        WriteUInt16LittleEndian(bytes, zipOffset + 4, 20);
-        WriteUInt16LittleEndian(bytes, zipOffset + 26, 1);
-        bytes[zipOffset + 30] = (byte)'a';
-        return bytes;
-    }
+    private static byte[] Crx3(int signedHeaderLength) => TestHelpers.CreateMinimalCrx3(signedHeaderLength);
 
     private static byte[] Glb(int length)
     {
@@ -336,7 +325,7 @@ public sealed class EleventhReviewRegressionTests
 
     private static byte[] ShellLinkWithAllStructures()
     {
-        var bytes = ShellLink(128, 0x000000FF);
+        var bytes = ShellLink(132, 0x000000FF);
         int cursor = 76;
         WriteUInt16LittleEndian(bytes, cursor, 2);
         cursor += 4;

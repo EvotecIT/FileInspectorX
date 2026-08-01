@@ -20,53 +20,84 @@ internal static partial class Signatures {
         if (tiled && multipart) return false;
 
         int cursor = 8;
-        bool channels = false;
-        bool compression = false;
-        bool dataWindow = false;
-        bool displayWindow = false;
-        bool lineOrder = false;
-        bool pixelAspectRatio = false;
-        bool screenWindowCenter = false;
-        bool screenWindowWidth = false;
-        bool tiles = !tiled;
-        bool sawAttribute = false;
+        bool sawAnyPart = false;
         while (true)
         {
-            if (cursor >= src.Length)
-                return TryReturnSampledOpenExr(completeLength, sawAttribute, channels, compression, dataWindow, displayWindow,
-                    lineOrder, pixelAspectRatio, screenWindowCenter, screenWindowWidth, tiles, out result);
+            bool channels = false;
+            bool compression = false;
+            bool dataWindow = false;
+            bool displayWindow = false;
+            bool lineOrder = false;
+            bool pixelAspectRatio = false;
+            bool screenWindowCenter = false;
+            bool screenWindowWidth = false;
+            bool tiles = !tiled && !multipart;
+            bool nameAttribute = false;
+            bool typeAttribute = false;
+            bool chunkCount = false;
+            bool partRequiresTiles = tiled;
+            bool sawAttribute = false;
+
+            while (true)
+            {
+                if (cursor >= src.Length)
+                    return TryReturnSampledOpenExr(completeLength, sawAttribute || sawAnyPart, out result);
+                if (src[cursor] == 0)
+                {
+                    cursor++;
+                    if (!HasMandatoryOpenExrAttributes(channels, compression, dataWindow, displayWindow, lineOrder,
+                            pixelAspectRatio, screenWindowCenter, screenWindowWidth,
+                            tiles || (multipart && !partRequiresTiles)) ||
+                        (multipart && (!nameAttribute || !typeAttribute || !chunkCount || (partRequiresTiles && !tiles))))
+                        return false;
+                    sawAnyPart = true;
+                    break;
+                }
+
+                if (!TryReadOpenExrString(src, ref cursor, out string name) ||
+                    !TryReadOpenExrString(src, ref cursor, out string type) || cursor + 4 > src.Length)
+                    return TryReturnSampledOpenExr(completeLength, sawAttribute || sawAnyPart, out result);
+                uint valueLength = ReadUInt32(src, cursor, littleEndian: true);
+                cursor += 4;
+                if (valueLength == 0 || valueLength > int.MaxValue) return false;
+                sawAttribute = true;
+
+                if ((ulong)cursor + valueLength > (ulong)src.Length)
+                    return TryReturnSampledOpenExr(completeLength, true, out result);
+                var value = src.Slice(cursor, (int)valueLength);
+                if (!TryValidateOpenExrAttribute(name, type, value, out bool mandatory)) return false;
+                channels |= mandatory && name == "channels";
+                compression |= mandatory && name == "compression";
+                dataWindow |= mandatory && name == "dataWindow";
+                displayWindow |= mandatory && name == "displayWindow";
+                lineOrder |= mandatory && name == "lineOrder";
+                pixelAspectRatio |= mandatory && name == "pixelAspectRatio";
+                screenWindowCenter |= mandatory && name == "screenWindowCenter";
+                screenWindowWidth |= mandatory && name == "screenWindowWidth";
+                tiles |= mandatory && name == "tiles";
+                if (multipart && name == "name") nameAttribute = TryValidateOpenExrTextAttribute(type, value);
+                if (multipart && name == "type")
+                {
+                    typeAttribute = TryValidateOpenExrTextAttribute(type, value);
+                    if (typeAttribute)
+                    {
+                        string partType = System.Text.Encoding.ASCII.GetString(value.ToArray());
+                        if (partType is not ("scanlineimage" or "tiledimage" or "deepscanline" or "deeptile")) return false;
+                        partRequiresTiles = partType is "tiledimage" or "deeptile";
+                    }
+                }
+                if (multipart && name == "chunkCount")
+                    chunkCount = type == "int" && value.Length == 4 && ReadUInt32(value, 0, true) > 0;
+                cursor += (int)valueLength;
+            }
+
+            if (!multipart) break;
+            if (cursor >= src.Length) return TryReturnSampledOpenExr(completeLength, true, out result);
             if (src[cursor] == 0)
             {
                 cursor++;
-                if (!HasMandatoryOpenExrAttributes(channels, compression, dataWindow, displayWindow, lineOrder,
-                        pixelAspectRatio, screenWindowCenter, screenWindowWidth, tiles)) return false;
                 break;
             }
-
-            if (!TryReadOpenExrString(src, ref cursor, out string name) ||
-                !TryReadOpenExrString(src, ref cursor, out string type) || cursor + 4 > src.Length)
-                return TryReturnSampledOpenExr(completeLength, sawAttribute, channels, compression, dataWindow, displayWindow,
-                    lineOrder, pixelAspectRatio, screenWindowCenter, screenWindowWidth, tiles, out result);
-            uint valueLength = ReadUInt32(src, cursor, littleEndian: true);
-            cursor += 4;
-            if (valueLength == 0 || valueLength > int.MaxValue) return false;
-            sawAttribute = true;
-
-            if ((ulong)cursor + valueLength > (ulong)src.Length)
-                return TryReturnSampledOpenExr(completeLength, sawAttribute, channels, compression, dataWindow, displayWindow,
-                    lineOrder, pixelAspectRatio, screenWindowCenter, screenWindowWidth, tiles, out result);
-            var value = src.Slice(cursor, (int)valueLength);
-            if (!TryValidateOpenExrAttribute(name, type, value, out bool mandatory)) return false;
-            channels |= mandatory && name == "channels";
-            compression |= mandatory && name == "compression";
-            dataWindow |= mandatory && name == "dataWindow";
-            displayWindow |= mandatory && name == "displayWindow";
-            lineOrder |= mandatory && name == "lineOrder";
-            pixelAspectRatio |= mandatory && name == "pixelAspectRatio";
-            screenWindowCenter |= mandatory && name == "screenWindowCenter";
-            screenWindowWidth |= mandatory && name == "screenWindowWidth";
-            tiles |= mandatory && name == "tiles";
-            cursor += (int)valueLength;
         }
 
         result = new ContentTypeDetectionResult {
@@ -84,7 +115,7 @@ internal static partial class Signatures {
         switch (name)
         {
             case "channels": return type == "chlist" && TryValidateOpenExrChannelList(value);
-            case "compression": return type == "compression" && value.Length == 1 && value[0] <= 9;
+            case "compression": return type == "compression" && value.Length == 1 && value[0] <= 11;
             case "dataWindow":
             case "displayWindow":
                 return type == "box2i" && value.Length == 16 &&
@@ -124,6 +155,14 @@ internal static partial class Signatures {
         return channels > 0 && cursor == value.Length - 1 && value[cursor] == 0;
     }
 
+    private static bool TryValidateOpenExrTextAttribute(string type, ReadOnlySpan<byte> value)
+    {
+        if (type != "string" || value.Length == 0) return false;
+        for (int i = 0; i < value.Length; i++)
+            if (value[i] < 0x20 || value[i] > 0x7E) return false;
+        return true;
+    }
+
     private static bool IsPositiveFiniteOpenExrFloat(ReadOnlySpan<byte> value)
     {
         uint bits = ReadUInt32(value, 0, true);
@@ -157,9 +196,8 @@ internal static partial class Signatures {
         => channels && compression && dataWindow && displayWindow && lineOrder && pixelAspectRatio &&
            screenWindowCenter && screenWindowWidth && tiles;
 
-    private static bool TryReturnSampledOpenExr(long? completeLength, bool sawAttribute, bool channels, bool compression,
-        bool dataWindow, bool displayWindow, bool lineOrder, bool pixelAspectRatio, bool screenWindowCenter,
-        bool screenWindowWidth, bool tiles, out ContentTypeDetectionResult? result)
+    private static bool TryReturnSampledOpenExr(long? completeLength, bool sawAttribute,
+        out ContentTypeDetectionResult? result)
     {
         result = null;
         if (completeLength.HasValue || !sawAttribute) return false;
@@ -226,6 +264,50 @@ internal static partial class Signatures {
         if (length > int.MaxValue || (completeLength.HasValue && (ulong)cursor + length > (ulong)completeLength.Value)) return false;
         if ((ulong)cursor + length > (ulong)src.Length) return !completeLength.HasValue;
         cursor += (int)length;
+        return true;
+    }
+
+    internal static bool TryMatchPhotoshop(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (!TryReadAt(stream, 0, 26, out var header) ||
+                !TryMatchPhotoshop(new ReadOnlySpan<byte>(header), completeLength: null, out var sampled)) return false;
+            ushort version = ReadUInt16BigEndian(new ReadOnlySpan<byte>(header), 4);
+            long cursor = 26;
+            if (!TrySkipPhotoshopSection(stream, ref cursor, 4) ||
+                !TrySkipPhotoshopSection(stream, ref cursor, 4) ||
+                !TrySkipPhotoshopSection(stream, ref cursor, version == 1 ? 4 : 8) ||
+                cursor > stream.Length - 2 || !TryReadAt(stream, cursor, 2, out var compression) ||
+                ReadUInt16BigEndian(new ReadOnlySpan<byte>(compression), 0) > 3) return false;
+            sampled!.Confidence = "High";
+            sampled.Reason = "photoshop:" + (version == 1 ? "psd" : "psb");
+            result = sampled;
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TrySkipPhotoshopSection(Stream stream, ref long cursor, int lengthSize)
+    {
+        if (cursor < 0 || cursor > stream.Length - lengthSize ||
+            !TryReadAt(stream, cursor, lengthSize, out var encodedLength)) return false;
+        var span = new ReadOnlySpan<byte>(encodedLength);
+        ulong length = lengthSize == 4 ? ReadUInt32BigEndian(span, 0) : ReadUInt64(span, 0, false);
+        cursor += lengthSize;
+        if (length > (ulong)(stream.Length - cursor)) return false;
+        cursor += (long)length;
         return true;
     }
 
@@ -313,5 +395,90 @@ internal static partial class Signatures {
             cursor += (int)boxLength;
         }
         return cursor == src.Length && header && data;
+    }
+
+    internal static bool TryMatchJpeg2000(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (!TryReadAt(stream, 0, 28, out var prefix)) return false;
+            var span = new ReadOnlySpan<byte>(prefix);
+            if (ReadUInt32BigEndian(span, 0) != 12 ||
+                !span.Slice(4, 4).SequenceEqual("jP  "u8) ||
+                span[8] != 0x0D || span[9] != 0x0A || span[10] != 0x87 || span[11] != 0x0A ||
+                !span.Slice(16, 4).SequenceEqual("ftyp"u8)) return false;
+            uint fileTypeLength = ReadUInt32BigEndian(span, 12);
+            if (fileTypeLength < 20 || (fileTypeLength & 3) != 0 || fileTypeLength > stream.Length - 12) return false;
+            uint brand = ReadUInt32BigEndian(span, 20);
+            if (!TryGetJpeg2000Brand(brand, out string extension, out string mime)) return false;
+            bool compatible = false;
+            for (long offset = 28; offset < 12L + fileTypeLength; offset += 4)
+            {
+                if (!TryReadAt(stream, offset, 4, out var compatibleBrand)) return false;
+                if (ReadUInt32BigEndian(new ReadOnlySpan<byte>(compatibleBrand), 0) == brand) compatible = true;
+            }
+            if (!compatible) return false;
+
+            bool header = false;
+            bool data = false;
+            long cursor = 12L + fileTypeLength;
+            while (cursor < stream.Length)
+            {
+                if (cursor > stream.Length - 8 || !TryReadAt(stream, cursor, 8, out var boxHeader)) return false;
+                var box = new ReadOnlySpan<byte>(boxHeader);
+                uint length32 = ReadUInt32BigEndian(box, 0);
+                uint type = ReadUInt32BigEndian(box, 4);
+                long boxLength;
+                int headerLength = 8;
+                if (length32 == 1)
+                {
+                    if (cursor > stream.Length - 16 || !TryReadAt(stream, cursor + 8, 8, out var extended)) return false;
+                    ulong large = ReadUInt64(new ReadOnlySpan<byte>(extended), 0, false);
+                    if (large > long.MaxValue) return false;
+                    boxLength = (long)large;
+                    headerLength = 16;
+                }
+                else boxLength = length32 == 0 ? stream.Length - cursor : length32;
+                if (boxLength < headerLength || boxLength > stream.Length - cursor) return false;
+                if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
+                else
+                {
+                    header |= type == (brand == 0x6A707820 ? 0x6A707868u : 0x6A703268u);
+                    data |= header && type == 0x6A703263;
+                }
+                cursor += boxLength;
+            }
+            if (cursor != stream.Length || !header || !data) return false;
+            result = new ContentTypeDetectionResult {
+                Extension = extension,
+                MimeType = mime,
+                Confidence = "High",
+                Reason = "jpeg2000:" + extension
+            };
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryGetJpeg2000Brand(uint brand, out string extension, out string mime)
+    {
+        extension = string.Empty;
+        mime = string.Empty;
+        if (brand == 0x6A703220) { extension = "jp2"; mime = "image/jp2"; }
+        else if (brand == 0x6A707820) { extension = "jpx"; mime = "image/jpx"; }
+        else if (brand == 0x6A706D20) { extension = "jpm"; mime = "image/jpm"; }
+        else if (brand == 0x6D6A7032) { extension = "mj2"; mime = "video/mj2"; }
+        return extension.Length != 0;
     }
 }

@@ -12,7 +12,7 @@ internal static partial class Signatures
     internal static bool TryMatchCommonBinary(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         if (TryMatchPe(src, out result)) return true;
-        if (TryMatchPng(src, out result)) return true;
+        if (TryMatchPng(src, completeLength, out result)) return true;
         if (TryMatchGif(src, out result)) return true;
         if (TryMatchPdf(src, out result)) return true;
         if (TryMatchJpeg(src, out result)) return true;
@@ -32,6 +32,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPng(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchPng(src, src.Length, out result);
+
+    internal static bool TryMatchPng(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 33 || !src.Slice(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })) return false;
@@ -49,8 +52,44 @@ internal static partial class Signatures
             _ => false
         };
         if (width == 0 || height == 0 || !validDepth || src[26] != 0 || src[27] != 0 || src[28] > 1) return false;
-        result = BinaryResult("png", "image/png", "png:signature+ihdr");
+        if (ReadUInt32BigEndian(src, 29) != ComputePngCrc(src.Slice(12, 17))) return false;
+        bool complete = false;
+        bool sawIdat = false;
+        int cursor = 8;
+        while (cursor + 12 <= src.Length)
+        {
+            uint length = ReadUInt32BigEndian(src, cursor);
+            if (length > int.MaxValue || (ulong)cursor + 12 + length > (ulong)src.Length) break;
+            int chunkLength = (int)length;
+            var typeAndData = src.Slice(cursor + 4, 4 + chunkLength);
+            if (ReadUInt32BigEndian(src, cursor + 8 + chunkLength) != ComputePngCrc(typeAndData)) return false;
+            uint type = ReadUInt32BigEndian(src, cursor + 4);
+            if (cursor == 8 && type != 0x49484452) return false;
+            sawIdat |= type == 0x49444154;
+            cursor += 12 + chunkLength;
+            if (type == 0x49454E44)
+            {
+                if (chunkLength != 0 || !sawIdat || (completeLength.HasValue && cursor != completeLength.Value)) return false;
+                complete = true;
+                break;
+            }
+        }
+        if (completeLength.HasValue && completeLength.Value <= src.Length && !complete) return false;
+        bool fullyBounded = complete && completeLength.HasValue && cursor == completeLength.Value;
+        result = BinaryResult("png", "image/png", fullyBounded ? "png:chunks+iend" : "png:signature+ihdr;sampled-chunks");
+        if (!fullyBounded) result.Confidence = "Medium";
         return true;
+    }
+
+    private static uint ComputePngCrc(ReadOnlySpan<byte> data)
+    {
+        uint crc = uint.MaxValue;
+        for (int index = 0; index < data.Length; index++)
+        {
+            crc ^= data[index];
+            for (int bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+        return ~crc;
     }
 
     internal static bool TryMatchGif(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -314,6 +353,7 @@ internal static partial class Signatures
         if (peHeader.Length < 26 || peHeader[0] != (byte)'P' || peHeader[1] != (byte)'E' || peHeader[2] != 0 || peHeader[3] != 0) return false;
 
         ushort sections = ReadUInt16LittleEndian(peHeader, 6);
+        ushort machine = ReadUInt16LittleEndian(peHeader, 4);
         ushort optionalHeaderSize = ReadUInt16LittleEndian(peHeader, 20);
         ushort characteristics = ReadUInt16LittleEndian(peHeader, 22);
         long sectionTableEnd = peOffset + 24L + optionalHeaderSize + sections * 40L;
@@ -321,6 +361,7 @@ internal static partial class Signatures
 
         ushort optionalMagic = ReadUInt16LittleEndian(peHeader, 24);
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;
+        if (!IsCompatiblePeMachine(machine, optionalMagic)) return false;
         int minimumOptionalHeaderSize = optionalMagic == 0x10B ? 96 : 112;
         if (optionalHeaderSize < minimumOptionalHeaderSize) return false;
         string extension = (characteristics & 0x2000) != 0 ? "dll" : "exe";
@@ -332,6 +373,15 @@ internal static partial class Signatures
             Reason = optionalMagic == 0x20B ? "pe:pe32+" : "pe:pe32"
         };
         return true;
+    }
+
+    private static bool IsCompatiblePeMachine(ushort machine, ushort optionalMagic)
+    {
+        bool is64BitMachine = machine is 0x0200 or 0x6264 or 0x5064 or 0x5128 or 0x8664 or 0xAA64;
+        bool known = is64BitMachine || machine is 0x014C or 0x0166 or 0x0169 or 0x0184 or 0x01A2 or 0x01A3 or
+            0x01A6 or 0x01A8 or 0x01C0 or 0x01C2 or 0x01C4 or 0x01D3 or 0x01F0 or 0x01F1 or 0x01F2 or
+            0x0266 or 0x0284 or 0x0366 or 0x0466 or 0x0EBC or 0x5032 or 0x9041;
+        return known && (machine == 0x0EBC || optionalMagic == (is64BitMachine ? 0x20B : 0x10B));
     }
 
     internal static bool TryMatchPdf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -530,88 +580,6 @@ internal static partial class Signatures
         if (sampleRate == 0) return false;
         result = BinaryResult("flac", "audio/flac", "flac:streaminfo");
         return true;
-    }
-
-    internal static bool TryMatchCrx(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-        => TryMatchCrx(src, src.Length, out result);
-
-    internal static bool TryMatchCrx(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 12 || !src.Slice(0, 4).SequenceEqual("Cr24"u8)) return false;
-        uint version = ReadUInt32LittleEndian(src, 4);
-        long headerEnd;
-        if (version == 2)
-        {
-            if (src.Length < 16) return false;
-            headerEnd = 16L + ReadUInt32LittleEndian(src, 8) + ReadUInt32LittleEndian(src, 12);
-        }
-        else if (version == 3)
-        {
-            headerEnd = 12L + ReadUInt32LittleEndian(src, 8);
-        }
-        else return false;
-        if (headerEnd > int.MaxValue || completeLength < 0 ||
-            (completeLength.HasValue && headerEnd > completeLength.Value)) return false;
-        if (headerEnd > src.Length)
-        {
-            if (completeLength.HasValue && completeLength.Value <= src.Length) return false;
-            result = CrxResult(version, complete: false);
-            return true;
-        }
-
-        long? zipLength = completeLength.HasValue ? completeLength.Value - headerEnd : null;
-        if (!TryMatchZip(src.Slice((int)headerEnd), zipLength, out var zip)) return false;
-        result = CrxResult(version, completeLength.HasValue && zip?.Confidence == "High");
-        return true;
-    }
-
-    private static ContentTypeDetectionResult CrxResult(uint version, bool complete)
-    {
-        var result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
-        if (!complete)
-        {
-            result.Confidence = "Medium";
-            result.Reason += ";sampled-signed-header";
-        }
-        return result;
-    }
-
-    internal static bool TryMatchCrx(Stream stream, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (!stream.CanRead || !stream.CanSeek) return false;
-        long originalPosition = stream.Position;
-        try
-        {
-            if (stream.Length < 12 || !TryReadAt(stream, 0, (int)Math.Min(16, stream.Length), out var headerBytes)) return false;
-            var header = new ReadOnlySpan<byte>(headerBytes);
-            if (!header.Slice(0, 4).SequenceEqual("Cr24"u8)) return false;
-            uint version = ReadUInt32LittleEndian(header, 4);
-            long headerEnd;
-            if (version == 2)
-            {
-                if (header.Length < 16) return false;
-                headerEnd = 16L + ReadUInt32LittleEndian(header, 8) + ReadUInt32LittleEndian(header, 12);
-            }
-            else if (version == 3) headerEnd = 12L + ReadUInt32LittleEndian(header, 8);
-            else return false;
-
-            if (headerEnd < 12 || headerEnd + 30L > stream.Length ||
-                !TryReadAt(stream, headerEnd, 30, out var zipHeader) ||
-                !TryValidateZipLocalHeader(new ReadOnlySpan<byte>(zipHeader), stream.Length - headerEnd)) return false;
-            result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
-            return true;
-        }
-        catch
-        {
-            result = null;
-            return false;
-        }
-        finally
-        {
-            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
-        }
     }
 
     internal static bool TryMatchIcon(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

@@ -14,12 +14,14 @@ internal static partial class Signatures {
             Size = size;
             DataSize = dataSize;
             Record = record;
+            UnpaddedRecord = record && size == dataSize;
         }
 
         internal ulong Begin { get; }
         internal ulong Size { get; }
         internal ulong DataSize { get; }
         internal bool Record { get; }
+        internal bool UnpaddedRecord { get; }
     }
 
     internal static bool TryMatchHdf5(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -442,7 +444,7 @@ internal static partial class Signatures {
         ulong rawSize = elements * (uint)typeSize;
         if (rawSize > ulong.MaxValue - 3) return false;
         ulong expectedSize = (rawSize + 3) & ~3UL;
-        if (declaredSize != expectedSize || begin > long.MaxValue) return false;
+        if (((!record || declaredSize != rawSize) && declaredSize != expectedSize) || begin > long.MaxValue) return false;
         range = new NetCdfVariableRange(begin, declaredSize, rawSize, record);
         return true;
     }
@@ -468,6 +470,7 @@ internal static partial class Signatures {
         }
 
         records.Sort((left, right) => left.Begin.CompareTo(right.Begin));
+        if (records.Count != 1 && records.Exists(range => range.UnpaddedRecord && range.Size != ((range.DataSize + 3) & ~3UL))) return false;
         ulong recordStride = 0;
         if (records.Count == 1)
         {
