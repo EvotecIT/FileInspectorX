@@ -12,12 +12,12 @@ internal static partial class Signatures
     {
         if (TryMatchRpm(src, completeLength, out result)) return true;
         if (TryMatchQcow2(src, completeLength, out result)) return true;
-        if (TryMatchMidi(src, out result)) return true;
+        if (TryMatchMidi(src, completeLength, out result)) return true;
         if (TryMatchDds(src, out result)) return true;
         if (TryMatchQoi(src, out result)) return true;
         if (TryMatchDicom(src, out result)) return true;
         if (TryMatchOutlookNdb(src, out result)) return true;
-        if (TryMatchMatroska(src, out result)) return true;
+        if (TryMatchMatroska(src, completeLength, out result)) return true;
         result = null;
         return false;
     }
@@ -133,18 +133,6 @@ internal static partial class Signatures
         return false;
     }
 
-    internal static bool TryMatchMidi(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 22 || !src.Slice(0, 4).SequenceEqual("MThd"u8) || ReadUInt32BigEndian(src, 4) != 6) return false;
-        ushort format = ReadUInt16BigEndian(src, 8);
-        ushort tracks = ReadUInt16BigEndian(src, 10);
-        ushort division = ReadUInt16BigEndian(src, 12);
-        if (format > 2 || tracks == 0 || (format == 0 && tracks != 1) || division == 0 || !src.Slice(14, 4).SequenceEqual("MTrk"u8)) return false;
-        result = BinaryResult("mid", "audio/midi", $"midi:format={format};tracks={tracks}");
-        return true;
-    }
-
     internal static bool TryMatchDds(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {
         result = null;
@@ -210,11 +198,14 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchMatroska(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchMatroska(src, src.Length, out result);
+
+    internal static bool TryMatchMatroska(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (!TryReadMatroskaDocumentType(src, out string? docType, out int headerEnd) ||
-            !TryFindMatroskaSegment(src, headerEnd)) return false;
-        result = MatroskaResult(docType!);
+            !TryFindMatroskaSegment(src, headerEnd, completeLength, out bool sampledRootVoid)) return false;
+        result = MatroskaResult(docType!, sampledRootVoid);
         return true;
     }
 
@@ -240,22 +231,42 @@ internal static partial class Signatures
         return docType is "matroska" or "webm";
     }
 
-    private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor)
+    private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor, long? completeLength, out bool sampledRootVoid)
     {
+        sampledRootVoid = false;
         while (cursor < src.Length)
         {
             if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 })) return true;
             if (!TryReadEbmlVInt(src, ref cursor, stripMarker: false, out ulong id) || id != 0xEC ||
-                !TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong length) || length > (ulong)(src.Length - cursor)) return false;
+                !TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong length)) return false;
+            if (length > (ulong)(src.Length - cursor))
+            {
+                if (completeLength.HasValue) return false;
+                sampledRootVoid = true;
+                return true;
+            }
             cursor += (int)length;
+            if (cursor == src.Length && !completeLength.HasValue)
+            {
+                sampledRootVoid = true;
+                return true;
+            }
         }
         return false;
     }
 
-    private static ContentTypeDetectionResult MatroskaResult(string docType)
-        => docType == "webm"
+    private static ContentTypeDetectionResult MatroskaResult(string docType, bool sampledRootVoid = false)
+    {
+        var result = docType == "webm"
             ? BinaryResult("webm", "application/webm", "ebml:doctype=webm")
             : BinaryResult("matroska", "application/x-matroska", "ebml:doctype=matroska");
+        if (sampledRootVoid)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-root-void";
+        }
+        return result;
+    }
 
     internal static bool TryMatchMatroska(Stream stream, out ContentTypeDetectionResult? result)
     {

@@ -414,12 +414,14 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Midi()
     {
-        var bytes = new byte[22];
+        var bytes = new byte[26];
         Encoding.ASCII.GetBytes("MThd").CopyTo(bytes, 0);
         WriteUInt32BigEndian(bytes, 4, 6);
         WriteUInt16BigEndian(bytes, 10, 1);
         WriteUInt16BigEndian(bytes, 12, 96);
         Encoding.ASCII.GetBytes("MTrk").CopyTo(bytes, 14);
+        WriteUInt32BigEndian(bytes, 18, 4);
+        new byte[] { 0, 0xFF, 0x2F, 0 }.CopyTo(bytes, 22);
         return bytes;
     }
 

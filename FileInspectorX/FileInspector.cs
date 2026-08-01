@@ -538,6 +538,7 @@ public static partial class FileInspector {
         }
         if (stream.CanSeek && Signatures.TryMatchMatroska(stream, out var seekableMatroska)) return Finish(Enrich(seekableMatroska, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchQcow2(stream, out var seekableQcow2)) return Finish(Enrich(seekableQcow2, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchMidi(stream, out var seekableMidi)) return Finish(Enrich(seekableMidi, src, stream, options));
         if (Signatures.TryMatchExtendedHeaderFormats(src, completeLength, out var extendedBinary)) return Finish(Enrich(extendedBinary, src, stream, options));
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
@@ -550,7 +551,8 @@ public static partial class FileInspector {
         if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
         if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
-        if (Signatures.TryMatchFtyp(src, completeLength, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchFtyp(stream, out var ftyp) : Signatures.TryMatchFtyp(src, completeLength, out ftyp)))
+            return Finish(Enrich(ftyp, src, stream, options));
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchNetCdf(stream, out var netCdf) : Signatures.TryMatchNetCdf(src, out netCdf)))
             return Finish(Enrich(netCdf, src, stream, options));
@@ -567,7 +569,8 @@ public static partial class FileInspector {
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
         if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
         if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
-        if (Signatures.TryMatchJavaClass(src, out var javaClass)) return Finish(Enrich(javaClass, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchJavaClass(stream, out var javaClass) : Signatures.TryMatchJavaClass(src, out javaClass)))
+            return Finish(Enrich(javaClass, src, stream, options));
         if (Signatures.TryMatchDex(src, completeLength, out var dex)) return Finish(Enrich(dex, src, stream, options));
         if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));

@@ -152,13 +152,73 @@ internal static partial class Signatures {
             !TrySkipJavaMembers(src, ref cursor, constantPoolTags) ||
             !TrySkipJavaAttributes(src, ref cursor, constantPoolTags) || cursor != src.Length) return false;
 
-        result = new ContentTypeDetectionResult {
-            Extension = "class",
-            MimeType = "application/java-vm",
-            Confidence = "High",
-            Reason = $"java-class:{major}.{minor}"
-        };
+        result = JavaClassResult(major, minor);
         return true;
+    }
+
+    /// <summary>
+    /// Validates a complete JVM ClassFile without limiting seekable inputs to the detector's prefix sample.
+    /// Attribute payloads are skipped in place so large classes do not require whole-file allocation.
+    /// </summary>
+    internal static bool TryMatchJavaClass(Stream stream, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            if (stream.Length < 10) return false;
+            stream.Seek(0, SeekOrigin.Begin);
+            if (!TryReadJavaU4(stream, out uint magic) || magic != 0xCAFEBABE ||
+                !TryReadJavaU2(stream, out ushort minor) ||
+                !TryReadJavaU2(stream, out ushort major) ||
+                !TryReadJavaU2(stream, out ushort constantPoolCount) ||
+                major < 45 || major > 100 || constantPoolCount < 2) return false;
+
+            var constantPoolTags = new byte[constantPoolCount];
+            for (int index = 1; index < constantPoolCount; index++) {
+                int tagValue = stream.ReadByte();
+                if (tagValue < 0 || !IsJavaConstantPoolTag((byte)tagValue)) return false;
+                byte tag = (byte)tagValue;
+                constantPoolTags[index] = tag;
+                ulong payloadLength;
+                if (tag == 1) {
+                    if (!TryReadJavaU2(stream, out ushort utf8Length)) return false;
+                    payloadLength = utf8Length;
+                } else {
+                    payloadLength = tag switch {
+                        3 or 4 or 9 or 10 or 11 or 12 or 17 or 18 => 4,
+                        5 or 6 => 8,
+                        7 or 8 or 16 or 19 or 20 => 2,
+                        15 => 3,
+                        _ => 0
+                    };
+                }
+                if ((tag != 1 && payloadLength == 0) || !TrySkipJavaBytes(stream, payloadLength)) return false;
+                if (tag is 5 or 6 && ++index >= constantPoolCount) return false;
+            }
+
+            if (!TryReadJavaU2(stream, out _) ||
+                !TryReadJavaU2(stream, out ushort thisClass) ||
+                !TryReadJavaU2(stream, out ushort superClass) ||
+                !TryReadJavaU2(stream, out ushort interfaceCount) ||
+                !IsJavaConstantPoolReference(constantPoolTags, thisClass, 7) ||
+                (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7))) return false;
+            for (int index = 0; index < interfaceCount; index++) {
+                if (!TryReadJavaU2(stream, out ushort interfaceClass) ||
+                    !IsJavaConstantPoolReference(constantPoolTags, interfaceClass, 7)) return false;
+            }
+            if (!TrySkipJavaMembers(stream, constantPoolTags) ||
+                !TrySkipJavaMembers(stream, constantPoolTags) ||
+                !TrySkipJavaAttributes(stream, constantPoolTags) ||
+                stream.Position != stream.Length) return false;
+
+            result = JavaClassResult(major, minor);
+            return true;
+        } catch {
+            result = null;
+            return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     internal static bool TryMatchDex(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -247,6 +307,13 @@ internal static partial class Signatures {
     private static bool IsJavaConstantPoolReference(byte[] tags, ushort index, byte expectedTag)
         => index > 0 && index < tags.Length && tags[index] == expectedTag;
 
+    private static ContentTypeDetectionResult JavaClassResult(ushort major, ushort minor) => new() {
+        Extension = "class",
+        MimeType = "application/java-vm",
+        Confidence = "High",
+        Reason = $"java-class:{major}.{minor}"
+    };
+
     private static bool TrySkipJavaMembers(ReadOnlySpan<byte> src, ref int cursor, byte[] constantPoolTags)
     {
         if (cursor + 2 > src.Length) return false;
@@ -285,6 +352,61 @@ internal static partial class Signatures {
             if (!IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1) || length > src.Length - cursor) return false;
             cursor += (int)length;
         }
+        return true;
+    }
+
+    private static bool TrySkipJavaMembers(Stream stream, byte[] constantPoolTags) {
+        if (!TryReadJavaU2(stream, out ushort count)) return false;
+        for (int index = 0; index < count; index++) {
+            if (!TryReadJavaU2(stream, out _) ||
+                !TryReadJavaU2(stream, out ushort nameIndex) ||
+                !TryReadJavaU2(stream, out ushort descriptorIndex) ||
+                !TryReadJavaU2(stream, out ushort attributes) ||
+                !IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1) ||
+                !IsJavaConstantPoolReference(constantPoolTags, descriptorIndex, 1) ||
+                !TrySkipJavaAttributes(stream, constantPoolTags, attributes)) return false;
+        }
+        return true;
+    }
+
+    private static bool TrySkipJavaAttributes(Stream stream, byte[] constantPoolTags) {
+        if (!TryReadJavaU2(stream, out ushort count)) return false;
+        return TrySkipJavaAttributes(stream, constantPoolTags, count);
+    }
+
+    private static bool TrySkipJavaAttributes(Stream stream, byte[] constantPoolTags, ushort count) {
+        for (int index = 0; index < count; index++) {
+            if (!TryReadJavaU2(stream, out ushort nameIndex) ||
+                !TryReadJavaU4(stream, out uint length) ||
+                !IsJavaConstantPoolReference(constantPoolTags, nameIndex, 1) ||
+                !TrySkipJavaBytes(stream, length)) return false;
+        }
+        return true;
+    }
+
+    private static bool TryReadJavaU2(Stream stream, out ushort value) {
+        value = 0;
+        int high = stream.ReadByte();
+        int low = stream.ReadByte();
+        if (high < 0 || low < 0) return false;
+        value = (ushort)((high << 8) | low);
+        return true;
+    }
+
+    private static bool TryReadJavaU4(Stream stream, out uint value) {
+        value = 0;
+        int b0 = stream.ReadByte();
+        int b1 = stream.ReadByte();
+        int b2 = stream.ReadByte();
+        int b3 = stream.ReadByte();
+        if (b0 < 0 || b1 < 0 || b2 < 0 || b3 < 0) return false;
+        value = ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | (uint)b3;
+        return true;
+    }
+
+    private static bool TrySkipJavaBytes(Stream stream, ulong count) {
+        if (count > (ulong)(stream.Length - stream.Position)) return false;
+        stream.Seek((long)count, SeekOrigin.Current);
         return true;
     }
 

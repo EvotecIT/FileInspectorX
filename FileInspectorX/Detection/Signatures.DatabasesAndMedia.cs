@@ -241,64 +241,160 @@ internal static partial class Signatures {
         if ((boxLength & 3) != 0 || (completeLength.HasValue && boxLength > (ulong)completeLength.Value)) return false;
         var brand = src.Slice(brandOffset, 4);
         ulong compatibilityLength = boxLength - (ulong)compatibleOffset;
-        int compatibleBytes = (int)Math.Min(240UL, Math.Min(compatibilityLength, (ulong)Math.Max(0, src.Length - compatibleOffset)));
+        int compatibleBytes = (int)Math.Min(compatibilityLength, (ulong)Math.Max(0, src.Length - compatibleOffset));
+        compatibleBytes -= compatibleBytes & 3;
         ReadOnlySpan<byte> comp = compatibleBytes > 0 ? src.Slice(compatibleOffset, compatibleBytes) : ReadOnlySpan<byte>.Empty;
-        static bool HasBrand(ReadOnlySpan<byte> major, ReadOnlySpan<byte> compat, ReadOnlySpan<byte> sought) {
-            if (major.SequenceEqual(sought)) return true;
-            for (int i = 0; i + 4 <= compat.Length; i += 4)
-                if (compat.Slice(i, 4).SequenceEqual(sought)) return true;
+        FtypBrandKind kinds = GetFtypBrandKind(brand);
+        for (int offset = 0; offset < comp.Length; offset += 4)
+            kinds |= GetFtypBrandKind(comp.Slice(offset, 4)) & ~FtypBrandKind.LegacyHeif;
+        bool completeBox = boxLength <= (ulong)src.Length;
+        return TryCreateFtypResult(brand, kinds, completeBox, out result);
+    }
+
+    /// <summary>
+    /// Scans the complete File Type Box from a seekable stream, including compatibility lists larger than the prefix sample.
+    /// </summary>
+    internal static bool TryMatchFtyp(Stream stream, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            if (stream.Length < 16 || !TryReadAt(stream, 0, (int)Math.Min(24, stream.Length), out var headerBytes)) return false;
+            var header = new ReadOnlySpan<byte>(headerBytes);
+            if (!header.Slice(4, 4).SequenceEqual("ftyp"u8)) return false;
+            uint size32 = ReadUInt32BigEndian(header, 0);
+            int brandOffset;
+            int compatibleOffset;
+            ulong boxLength;
+            if (size32 == 1) {
+                if (header.Length < 24) return false;
+                boxLength = ReadUInt64(header, 8, littleEndian: false);
+                brandOffset = 16;
+                compatibleOffset = 24;
+                if (boxLength < 24) return false;
+            } else {
+                brandOffset = 8;
+                compatibleOffset = 16;
+                boxLength = size32 == 0 ? (ulong)stream.Length : size32;
+                if (boxLength < 16) return false;
+            }
+            if ((boxLength & 3) != 0 || boxLength > (ulong)stream.Length) return false;
+            var brand = header.Slice(brandOffset, 4).ToArray();
+            FtypBrandKind kinds = GetFtypBrandKind(brand);
+            long remaining = (long)boxLength - compatibleOffset;
+            stream.Seek(compatibleOffset, SeekOrigin.Begin);
+            var buffer = new byte[4096];
+            while (remaining > 0) {
+                int batch = (int)Math.Min(buffer.Length, remaining);
+                int read = 0;
+                while (read < batch) {
+                    int current = stream.Read(buffer, read, batch - read);
+                    if (current <= 0) return false;
+                    read += current;
+                }
+                var brands = new ReadOnlySpan<byte>(buffer, 0, batch);
+                for (int offset = 0; offset < brands.Length; offset += 4)
+                    kinds |= GetFtypBrandKind(brands.Slice(offset, 4)) & ~FtypBrandKind.LegacyHeif;
+                remaining -= batch;
+            }
+            return TryCreateFtypResult(brand, kinds, completeBox: true, out result);
+        } catch {
+            result = null;
             return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
 
-        if (HasBrand(brand, comp, "avif"u8) || HasBrand(brand, comp, "avis"u8)) {
+    [Flags]
+    private enum FtypBrandKind {
+        None = 0,
+        Avif = 1,
+        Heic = 2,
+        GenericHeif = 4,
+        LegacyHeif = 8,
+        QuickTime = 16,
+        M4A = 32,
+        ThreeGpp = 64,
+        Mp4 = 128
+    }
+
+    private static FtypBrandKind GetFtypBrandKind(ReadOnlySpan<byte> brand) {
+        if (brand.SequenceEqual("avif"u8) || brand.SequenceEqual("avis"u8)) return FtypBrandKind.Avif;
+        if (brand.SequenceEqual("heic"u8) || brand.SequenceEqual("heix"u8) ||
+            brand.SequenceEqual("hevc"u8) || brand.SequenceEqual("hevx"u8) ||
+            brand.SequenceEqual("heim"u8) || brand.SequenceEqual("heis"u8) ||
+            brand.SequenceEqual("hevm"u8) || brand.SequenceEqual("hevs"u8)) return FtypBrandKind.Heic;
+        if (brand.SequenceEqual("mif1"u8) || brand.SequenceEqual("mif2"u8) || brand.SequenceEqual("msf1"u8)) return FtypBrandKind.GenericHeif;
+        if (brand.SequenceEqual("heif"u8)) return FtypBrandKind.LegacyHeif;
+        if (brand.SequenceEqual("qt  "u8)) return FtypBrandKind.QuickTime;
+        if (brand.SequenceEqual("M4A "u8) || brand.SequenceEqual("M4B "u8) || brand.SequenceEqual("F4A "u8)) return FtypBrandKind.M4A;
+        if (brand[0] == (byte)'3' && brand[1] == (byte)'g' && (brand[2] == (byte)'p' || brand[2] == (byte)'2')) return FtypBrandKind.ThreeGpp;
+        if (brand.SequenceEqual("isom"u8) || brand.SequenceEqual("iso2"u8) ||
+            brand.SequenceEqual("iso3"u8) || brand.SequenceEqual("iso4"u8) ||
+            brand.SequenceEqual("iso5"u8) || brand.SequenceEqual("iso6"u8) ||
+            brand.SequenceEqual("mp41"u8) || brand.SequenceEqual("mp42"u8) ||
+            brand.SequenceEqual("avc1"u8) || brand.SequenceEqual("av01"u8) ||
+            brand.SequenceEqual("M4V "u8) || brand.SequenceEqual("MSNV"u8) || brand.SequenceEqual("dash"u8)) return FtypBrandKind.Mp4;
+        return FtypBrandKind.None;
+    }
+
+    private static bool TryCreateFtypResult(ReadOnlySpan<byte> majorBrand, FtypBrandKind kinds, bool completeBox, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!completeBox) {
+            if (IsSpecificFtypMajor(majorBrand) &&
+                TryCreateFtypResult(majorBrand, GetFtypBrandKind(majorBrand), completeBox: true, out result) &&
+                result != null) {
+                result.Confidence = "Medium";
+                result.Reason += ";sampled-compatible-brands";
+                return true;
+            }
+            result = new ContentTypeDetectionResult {
+                Extension = "isobmff",
+                MimeType = "application/octet-stream",
+                Confidence = "Medium",
+                Reason = "ftyp:sampled-compatible-brands",
+                ReasonDetails = "major-brand=" + System.Text.Encoding.ASCII.GetString(majorBrand.ToArray())
+            };
+            return true;
+        }
+        if ((kinds & FtypBrandKind.Avif) != 0)
             result = new ContentTypeDetectionResult { Extension = "avif", MimeType = "image/avif", Confidence = "High", Reason = "ftyp:avif" };
-            return true;
-        }
-        if (HasBrand(brand, comp, "heic"u8) || HasBrand(brand, comp, "heix"u8) ||
-            HasBrand(brand, comp, "hevc"u8) || HasBrand(brand, comp, "hevx"u8) ||
-            HasBrand(brand, comp, "heim"u8) || HasBrand(brand, comp, "heis"u8) ||
-            HasBrand(brand, comp, "hevm"u8) || HasBrand(brand, comp, "hevs"u8)) {
+        else if ((kinds & FtypBrandKind.Heic) != 0)
             result = new ContentTypeDetectionResult { Extension = "heic", MimeType = "image/heic", Confidence = "High", Reason = "ftyp:heif" };
-            return true;
-        }
-        if (HasBrand(brand, comp, "mif1"u8) || HasBrand(brand, comp, "mif2"u8) || HasBrand(brand, comp, "msf1"u8)) {
+        else if ((kinds & FtypBrandKind.GenericHeif) != 0)
             result = new ContentTypeDetectionResult { Extension = "heif", MimeType = "image/heif", Confidence = "High", Reason = "ftyp:heif-generic" };
-            return true;
-        }
-        if (brand.SequenceEqual("heif"u8)) {
+        else if ((kinds & FtypBrandKind.LegacyHeif) != 0)
             result = new ContentTypeDetectionResult { Extension = "heif", MimeType = "image/heif", Confidence = "Medium", Reason = "ftyp:heif-legacy-brand" };
-            return true;
-        }
-        if (HasBrand(brand, comp, "qt  "u8)) {
+        else if ((kinds & FtypBrandKind.QuickTime) != 0)
             result = new ContentTypeDetectionResult { Extension = "mov", MimeType = "video/quicktime", Confidence = "High", Reason = "ftyp:quicktime" };
-            return true;
-        }
-        if (HasBrand(brand, comp, "M4A "u8) || HasBrand(brand, comp, "M4B "u8) || HasBrand(brand, comp, "F4A "u8)) {
+        else if ((kinds & FtypBrandKind.M4A) != 0)
             result = new ContentTypeDetectionResult { Extension = "m4a", MimeType = "audio/mp4", Confidence = "High", Reason = "ftyp:m4a" };
-            return true;
-        }
-        if ((brand[0] == (byte)'3' && brand[1] == (byte)'g' && (brand[2] == (byte)'p' || brand[2] == (byte)'2')) ||
-            HasBrand(brand, comp, "3gp4"u8) || HasBrand(brand, comp, "3g2a"u8)) {
+        else if ((kinds & FtypBrandKind.ThreeGpp) != 0)
             result = new ContentTypeDetectionResult { Extension = "3gp", MimeType = "video/3gpp", Confidence = "High", Reason = "ftyp:3gp" };
-            return true;
-        }
-        if (HasBrand(brand, comp, "isom"u8) || HasBrand(brand, comp, "iso2"u8) ||
-            HasBrand(brand, comp, "iso3"u8) || HasBrand(brand, comp, "iso4"u8) ||
-            HasBrand(brand, comp, "iso5"u8) || HasBrand(brand, comp, "iso6"u8) ||
-            HasBrand(brand, comp, "mp41"u8) || HasBrand(brand, comp, "mp42"u8) ||
-            HasBrand(brand, comp, "avc1"u8) || HasBrand(brand, comp, "av01"u8) ||
-            HasBrand(brand, comp, "M4V "u8) || HasBrand(brand, comp, "MSNV"u8) || HasBrand(brand, comp, "dash"u8)) {
+        else if ((kinds & FtypBrandKind.Mp4) != 0)
             result = new ContentTypeDetectionResult { Extension = "mp4", MimeType = "video/mp4", Confidence = "High", Reason = "ftyp:mp4" };
-            return true;
-        }
-
-        result = new ContentTypeDetectionResult {
-            Extension = "isobmff",
-            MimeType = "application/octet-stream",
-            Confidence = "Medium",
-            Reason = "ftyp:unknown-brand",
-            ReasonDetails = "major-brand=" + System.Text.Encoding.ASCII.GetString(brand.ToArray())
-        };
+        else
+            result = new ContentTypeDetectionResult {
+                Extension = "isobmff",
+                MimeType = "application/octet-stream",
+                Confidence = "Medium",
+                Reason = "ftyp:unknown-brand",
+                ReasonDetails = "major-brand=" + System.Text.Encoding.ASCII.GetString(majorBrand.ToArray())
+            };
         return true;
     }
+
+    private static bool IsSpecificFtypMajor(ReadOnlySpan<byte> brand)
+        => brand.SequenceEqual("avif"u8) || brand.SequenceEqual("avis"u8) ||
+           brand.SequenceEqual("heic"u8) || brand.SequenceEqual("heix"u8) ||
+           brand.SequenceEqual("hevc"u8) || brand.SequenceEqual("hevx"u8) ||
+           brand.SequenceEqual("heim"u8) || brand.SequenceEqual("heis"u8) ||
+           brand.SequenceEqual("hevm"u8) || brand.SequenceEqual("hevs"u8) ||
+           brand.SequenceEqual("heif"u8) || brand.SequenceEqual("qt  "u8) ||
+           brand.SequenceEqual("M4A "u8) || brand.SequenceEqual("M4B "u8) || brand.SequenceEqual("F4A "u8) ||
+           (brand[0] == (byte)'3' && brand[1] == (byte)'g' && (brand[2] == (byte)'p' || brand[2] == (byte)'2')) ||
+           brand.SequenceEqual("mp41"u8) || brand.SequenceEqual("mp42"u8) ||
+           brand.SequenceEqual("avc1"u8) || brand.SequenceEqual("M4V "u8) ||
+           brand.SequenceEqual("MSNV"u8) || brand.SequenceEqual("dash"u8);
 }
