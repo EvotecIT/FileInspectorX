@@ -156,25 +156,9 @@ public sealed class SixthReviewRegressionTests
         }
     }
 
-    private static byte[] Parquet()
-    {
-        var bytes = new byte[13];
-        Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
-        bytes[4] = 1;
-        WriteUInt32LittleEndian(bytes, 5, 1);
-        Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 9);
-        return bytes;
-    }
+    private static byte[] Parquet() => TestHelpers.CreateMinimalParquet();
 
-    private static byte[] Arrow()
-    {
-        var bytes = new byte[26];
-        Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 8, 4);
-        WriteUInt32LittleEndian(bytes, 16, 8);
-        Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 20);
-        return bytes;
-    }
+    private static byte[] Arrow() => TestHelpers.CreateMinimalArrow();
 
     private static byte[] Deb()
     {
@@ -252,17 +236,7 @@ public sealed class SixthReviewRegressionTests
         return bytes;
     }
 
-    private static byte[] OutlookNdb()
-    {
-        var bytes = new byte[24];
-        Encoding.ASCII.GetBytes("!BDN").CopyTo(bytes, 0);
-        Encoding.ASCII.GetBytes("SM").CopyTo(bytes, 8);
-        WriteUInt16LittleEndian(bytes, 10, 23);
-        WriteUInt16LittleEndian(bytes, 12, 19);
-        bytes[14] = 1;
-        bytes[15] = 1;
-        return bytes;
-    }
+    private static byte[] OutlookNdb() => TestHelpers.CreateMinimalOutlookNdb();
 
     private static void WriteArMember(Stream stream, string name, byte[] data)
     {

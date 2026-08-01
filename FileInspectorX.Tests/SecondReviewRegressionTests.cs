@@ -176,14 +176,7 @@ public sealed class SecondReviewRegressionTests
     }
 
     private static byte[] LargeDex()
-    {
-        var bytes = new byte[5000];
-        Encoding.ASCII.GetBytes("dex\n035\0").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 32, (uint)bytes.Length);
-        WriteUInt32LittleEndian(bytes, 36, 0x70);
-        WriteUInt32LittleEndian(bytes, 40, 0x12345678);
-        return bytes;
-    }
+        => TestHelpers.CreateMinimalDex(length: 5000);
 
     private static byte[] LargeRpm()
     {

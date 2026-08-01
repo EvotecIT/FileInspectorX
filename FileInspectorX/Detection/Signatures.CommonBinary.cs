@@ -266,7 +266,8 @@ internal static partial class Signatures
         ushort sections = ReadUInt16LittleEndian(peHeader, 6);
         ushort optionalHeaderSize = ReadUInt16LittleEndian(peHeader, 20);
         ushort characteristics = ReadUInt16LittleEndian(peHeader, 22);
-        if (sections is < 1 or > 96 || optionalHeaderSize < 2 || peOffset + 24L + optionalHeaderSize > totalLength) return false;
+        long sectionTableEnd = peOffset + 24L + optionalHeaderSize + sections * 40L;
+        if (sections is < 1 or > 96 || optionalHeaderSize < 2 || sectionTableEnd > totalLength) return false;
 
         ushort optionalMagic = ReadUInt16LittleEndian(peHeader, 24);
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;

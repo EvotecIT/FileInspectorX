@@ -300,24 +300,9 @@ public sealed class StructuredBinaryDetectionTests
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
 
-    private static byte[] Dex()
-    {
-        var bytes = new byte[0x70];
-        new byte[] { (byte)'d', (byte)'e', (byte)'x', (byte)'\n', (byte)'0', (byte)'3', (byte)'5', 0 }.CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 32, (uint)bytes.Length);
-        WriteUInt32LittleEndian(bytes, 36, 0x70);
-        WriteUInt32LittleEndian(bytes, 40, 0x12345678);
-        return bytes;
-    }
+    private static byte[] Dex() => TestHelpers.CreateMinimalDex();
 
-    private static byte[] ReverseEndianDex()
-    {
-        var bytes = Dex();
-        WriteUInt32BigEndian(bytes, 32, (uint)bytes.Length);
-        WriteUInt32BigEndian(bytes, 36, 0x70);
-        WriteUInt32BigEndian(bytes, 40, 0x12345678);
-        return bytes;
-    }
+    private static byte[] ReverseEndianDex() => TestHelpers.CreateMinimalDex(reverseEndian: true);
 
     private static byte[] ThinMachO()
     {
@@ -443,30 +428,9 @@ public sealed class StructuredBinaryDetectionTests
 
     private static byte[] DeepOpenExr() => TestHelpers.CreateMinimalOpenExr(0x00000800);
 
-    private static byte[] Photoshop(ushort version)
-    {
-        var bytes = new byte[26];
-        new byte[] { (byte)'8', (byte)'B', (byte)'P', (byte)'S' }.CopyTo(bytes, 0);
-        WriteUInt16BigEndian(bytes, 4, version);
-        WriteUInt16BigEndian(bytes, 12, 3);
-        WriteUInt32BigEndian(bytes, 14, 100);
-        WriteUInt32BigEndian(bytes, 18, 200);
-        WriteUInt16BigEndian(bytes, 22, 8);
-        WriteUInt16BigEndian(bytes, 24, 3);
-        return bytes;
-    }
+    private static byte[] Photoshop(ushort version) => TestHelpers.CreateMinimalPhotoshop(version);
 
-    private static byte[] Jpeg2000(string brand)
-    {
-        var bytes = new byte[32];
-        new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
-        WriteUInt32BigEndian(bytes, 12, 20);
-        new byte[] { (byte)'f', (byte)'t', (byte)'y', (byte)'p' }.CopyTo(bytes, 16);
-        var brandBytes = System.Text.Encoding.ASCII.GetBytes(brand);
-        brandBytes.CopyTo(bytes, 20);
-        brandBytes.CopyTo(bytes, 28);
-        return bytes;
-    }
+    private static byte[] Jpeg2000(string brand) => TestHelpers.CreateMinimalJpeg2000(brand);
 
     private static void WriteUInt16BigEndian(byte[] bytes, int offset, ushort value)
     {

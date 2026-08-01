@@ -161,11 +161,14 @@ public sealed class ThirdReviewRegressionTests
 
     private static byte[] Parquet(string start, string end)
     {
-        var bytes = new byte[13];
+        var bytes = start == "PAR1" && end == "PAR1" ? TestHelpers.CreateMinimalParquet() : new byte[13];
         Encoding.ASCII.GetBytes(start).CopyTo(bytes, 0);
-        bytes[4] = 1;
-        WriteUInt32LittleEndian(bytes, 5, 1);
-        Encoding.ASCII.GetBytes(end).CopyTo(bytes, 9);
+        if (bytes.Length == 13)
+        {
+            bytes[4] = 1;
+            WriteUInt32LittleEndian(bytes, 5, 1);
+        }
+        Encoding.ASCII.GetBytes(end).CopyTo(bytes, bytes.Length - 4);
         return bytes;
     }
 

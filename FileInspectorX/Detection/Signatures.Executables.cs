@@ -4,7 +4,10 @@ namespace FileInspectorX;
 /// Executable formats (ELF, Java class, DEX, Mach-O) detection.
 /// </summary>
 internal static partial class Signatures {
-    internal static bool TryMatchElf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchElf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchElf(src, src.Length, out result);
+
+    internal static bool TryMatchElf(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 16) return false;
         if (!(src[0] == 0x7F && src[1] == (byte)'E' && src[2] == (byte)'L' && src[3] == (byte)'F')) return false;
@@ -32,6 +35,11 @@ internal static partial class Signatures {
         if (!knownType || version != 1 || declaredHeaderSize != headerSize) return false;
         if (programCount > 0 && programEntrySize != (clazz == 1 ? 32 : 56)) return false;
         if (sectionCount > 0 && sectionEntrySize != (clazz == 1 ? 40 : 64)) return false;
+        ulong programOffset = clazz == 1 ? ReadUInt32(src, 28, littleEndian) : ReadUInt64(src, 32, littleEndian);
+        ulong sectionOffset = clazz == 1 ? ReadUInt32(src, 32, littleEndian) : ReadUInt64(src, 40, littleEndian);
+        if (completeLength < 0 ||
+            !IsElfTableRangeValid(programOffset, programEntrySize, programCount, headerSize, completeLength) ||
+            !IsElfTableRangeValid(sectionOffset, sectionEntrySize, sectionCount, headerSize, completeLength)) return false;
 
         string c = clazz == 2 ? "64" : "32";
         string e = littleEndian ? "le" : "be";
@@ -43,6 +51,14 @@ internal static partial class Signatures {
         var r = $"elf:{c}-{e}" + (et == "" ? "" : $":{et}") + (mach == "" ? "" : $":{mach}");
         result = new ContentTypeDetectionResult { Extension = "elf", MimeType = "application/x-elf", Confidence = "High", Reason = r };
         return true;
+    }
+
+    private static bool IsElfTableRangeValid(ulong offset, ushort entrySize, ushort count, int headerSize, long? completeLength)
+    {
+        if (count == 0) return offset == 0 || !completeLength.HasValue || offset <= (ulong)completeLength.Value;
+        if (offset < (ulong)headerSize || entrySize == 0) return false;
+        ulong length = (ulong)entrySize * count;
+        return !completeLength.HasValue || offset <= (ulong)completeLength.Value && length <= (ulong)completeLength.Value - offset;
     }
 
     internal static bool TryMatchMachO(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -207,6 +223,27 @@ internal static partial class Signatures {
     internal static bool TryMatchDex(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchDex(src, src.Length, out result);
 
+    internal static bool TryMatchDex(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek || stream.Length < 0x70) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length <= Math.Max(0x78, Settings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
+                TryReadAt(stream, 0, (int)stream.Length, out var complete))
+                return TryMatchDex(new ReadOnlySpan<byte>(complete), stream.Length, out result);
+            if (!TryReadAt(stream, 0, 0x78, out var header) || !TryMatchDex(new ReadOnlySpan<byte>(header), null, out result)) return false;
+            result!.Confidence = "Medium";
+            result.Reason += ";integrity-budget-exceeded";
+            return true;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
     internal static bool TryMatchDex(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 0x70 || src[0] != (byte)'d' || src[1] != (byte)'e' || src[2] != (byte)'x' ||
@@ -238,13 +275,39 @@ internal static partial class Signatures {
         }
         else if (completeLength.HasValue && fileSize != completeLength.Value) return false;
 
+        bool integrityValidated = false;
+        if (completeLength.HasValue && fileSize <= int.MaxValue && fileSize <= src.Length)
+        {
+            int dexLength = (int)fileSize;
+            using var sha1 = System.Security.Cryptography.SHA1.Create();
+            byte[] calculatedSignature = sha1.ComputeHash(src.Slice(32, dexLength - 32).ToArray());
+            if (!src.Slice(12, 20).SequenceEqual(calculatedSignature)) return false;
+            uint storedChecksum = ReadUInt32(src, 8, fieldsAreLittleEndian);
+            if (storedChecksum != ComputeAdler32(src.Slice(12, dexLength - 12))) return false;
+            integrityValidated = true;
+        }
+
         result = new ContentTypeDetectionResult {
             Extension = "dex",
             MimeType = "application/vnd.android.dex",
-            Confidence = "High",
-            Reason = $"dex:{version:000}" + (fieldsAreLittleEndian ? string.Empty : ":reverse-endian")
+            Confidence = integrityValidated ? "High" : "Medium",
+            Reason = $"dex:{version:000}" + (fieldsAreLittleEndian ? string.Empty : ":reverse-endian") +
+                     (integrityValidated ? string.Empty : ";integrity-not-sampled")
         };
         return true;
+    }
+
+    private static uint ComputeAdler32(ReadOnlySpan<byte> data)
+    {
+        const uint Modulus = 65521;
+        uint a = 1;
+        uint b = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            a = (a + data[i]) % Modulus;
+            b = (b + a) % Modulus;
+        }
+        return (b << 16) | a;
     }
 
     private static bool TryMatchFatMachO(ReadOnlySpan<byte> src, bool littleEndian, long? totalLength, out ContentTypeDetectionResult? result) {

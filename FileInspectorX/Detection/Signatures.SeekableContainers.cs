@@ -53,7 +53,9 @@ internal static partial class Signatures
         if (!src.Slice(src.Length - 4, 4).SequenceEqual(encrypted ? "PARE"u8 : "PAR1"u8)) return false;
         uint footerLength = ReadUInt32LittleEndian(src, src.Length - 8);
         if (footerLength == 0 || footerLength > src.Length - 12) return false;
+        if (!encrypted && !TryValidateParquetMetadata(src.Slice(src.Length - 8 - (int)footerLength, (int)footerLength))) return false;
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
+        if (encrypted) result.Confidence = "Medium";
         return true;
     }
 
@@ -66,7 +68,8 @@ internal static partial class Signatures
         if (footerLength < 8 || footerLength > src.Length - 18) return false;
         int footerStart = checked(src.Length - 10 - (int)footerLength);
         uint rootOffset = ReadUInt32LittleEndian(src, footerStart);
-        if (footerStart < 8 || rootOffset < 4 || (ulong)rootOffset + 4 > footerLength) return false;
+        if (footerStart < 8 || rootOffset < 4 || (ulong)rootOffset + 4 > footerLength ||
+            !TryValidateArrowFooter(src.Slice(footerStart, (int)footerLength))) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;
     }
@@ -108,8 +111,9 @@ internal static partial class Signatures
     {
         result = null;
         if (src.Length < 1024 * 1024 || !src.Slice(0, 8).SequenceEqual("vhdxfile"u8)) return false;
-        bool header = src.Slice(64 * 1024, 4).SequenceEqual("head"u8) || src.Slice(128 * 1024, 4).SequenceEqual("head"u8);
-        bool region = src.Slice(192 * 1024, 4).SequenceEqual("regi"u8) || src.Slice(256 * 1024, 4).SequenceEqual("regi"u8);
+        bool header = TryValidateVhdxHeader(src.Slice(64 * 1024, 4096)) || TryValidateVhdxHeader(src.Slice(128 * 1024, 4096));
+        bool region = TryValidateVhdxRegionTable(src.Slice(192 * 1024, 64 * 1024), src.Length) ||
+                      TryValidateVhdxRegionTable(src.Slice(256 * 1024, 64 * 1024), src.Length);
         if (!header || !region) return false;
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");
         return true;
@@ -132,7 +136,14 @@ internal static partial class Signatures
         if (!tailSpan.Slice(4, 4).SequenceEqual(encrypted ? "PARE"u8 : "PAR1"u8)) return false;
         uint footerLength = ReadUInt32LittleEndian(tailSpan, 0);
         if (footerLength == 0 || footerLength > stream.Length - 12) return false;
+        if (!encrypted)
+        {
+            if (footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes) ||
+                !TryReadAt(stream, stream.Length - 8 - footerLength, (int)footerLength, out var footer) ||
+                !TryValidateParquetMetadata(new ReadOnlySpan<byte>(footer))) return false;
+        }
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
+        if (encrypted) result.Confidence = "Medium";
         return true;
     }
 
@@ -147,9 +158,9 @@ internal static partial class Signatures
         uint footerLength = ReadUInt32LittleEndian(tailSpan, 0);
         if (footerLength < 8 || footerLength > stream.Length - 18) return false;
         long footerStart = stream.Length - 10 - footerLength;
-        if (footerStart < 8 || !TryReadAt(stream, footerStart, 4, out var rootBytes)) return false;
-        uint rootOffset = ReadUInt32LittleEndian(new ReadOnlySpan<byte>(rootBytes), 0);
-        if (rootOffset < 4 || (ulong)rootOffset + 4 > footerLength) return false;
+        if (footerStart < 8 || footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes) ||
+            !TryReadAt(stream, footerStart, (int)footerLength, out var footerBytes) ||
+            !TryValidateArrowFooter(new ReadOnlySpan<byte>(footerBytes))) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;
     }
@@ -190,8 +201,10 @@ internal static partial class Signatures
     {
         result = null;
         if (stream.Length < 1024 * 1024 || !TryReadAt(stream, 0, 8, out var signature) || !new ReadOnlySpan<byte>(signature).SequenceEqual("vhdxfile"u8)) return false;
-        bool header = MatchesAt(stream, 64 * 1024, "head"u8) || MatchesAt(stream, 128 * 1024, "head"u8);
-        bool region = MatchesAt(stream, 192 * 1024, "regi"u8) || MatchesAt(stream, 256 * 1024, "regi"u8);
+        bool header = TryReadAt(stream, 64 * 1024, 4096, out var header1) && TryValidateVhdxHeader(new ReadOnlySpan<byte>(header1)) ||
+                      TryReadAt(stream, 128 * 1024, 4096, out var header2) && TryValidateVhdxHeader(new ReadOnlySpan<byte>(header2));
+        bool region = TryReadAt(stream, 192 * 1024, 64 * 1024, out var region1) && TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region1), stream.Length) ||
+                      TryReadAt(stream, 256 * 1024, 64 * 1024, out var region2) && TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region2), stream.Length);
         if (!header || !region) return false;
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");
         return true;
@@ -250,6 +263,178 @@ internal static partial class Signatures
         if (~sum != storedChecksum) return false;
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
         return true;
+    }
+
+    private static bool TryValidateParquetMetadata(ReadOnlySpan<byte> metadata)
+    {
+        int cursor = 0;
+        short previousField = 0;
+        bool version = false, schema = false, rows = false, rowGroups = false;
+        while (cursor < metadata.Length)
+        {
+            byte header = metadata[cursor++];
+            if (header == 0) break;
+            int type = header & 0x0F;
+            int delta = header >> 4;
+            short field = delta == 0 ? ReadCompactFieldId(metadata, ref cursor) : checked((short)(previousField + delta));
+            if (field <= previousField) return false;
+            previousField = field;
+            if (field == 1) { if (type != 5 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; version = true; }
+            else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0)) return false; schema = true; }
+            else if (field == 3) { if (type != 6 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; rows = true; }
+            else if (field == 4) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: false, 0)) return false; rowGroups = true; }
+            else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
+        }
+        return cursor == metadata.Length && version && schema && rows && rowGroups;
+    }
+
+    private static short ReadCompactFieldId(ReadOnlySpan<byte> src, ref int cursor)
+    {
+        return TryReadCompactVarint(src, ref cursor, out ulong value) && value <= ushort.MaxValue
+            ? (short)((long)(value >> 1) ^ -(long)(value & 1)) : (short)-1;
+    }
+
+    private static bool SkipCompactList(ReadOnlySpan<byte> src, ref int cursor, bool requireNonEmpty, int depth)
+    {
+        if (cursor >= src.Length || depth > 8) return false;
+        byte header = src[cursor++];
+        int count = header >> 4;
+        int elementType = header & 0x0F;
+        if (count == 15)
+        {
+            if (!TryReadCompactVarint(src, ref cursor, out ulong longCount) || longCount > 4096) return false;
+            count = (int)longCount;
+        }
+        if (requireNonEmpty && count == 0) return false;
+        for (int i = 0; i < count; i++) if (!SkipCompactValue(src, ref cursor, elementType, depth + 1)) return false;
+        return true;
+    }
+
+    private static bool SkipCompactValue(ReadOnlySpan<byte> src, ref int cursor, int type, int depth)
+    {
+        if (depth > 8) return false;
+        if (type is 1 or 2) return true;
+        if (type is 3) return cursor++ < src.Length;
+        if (type is 4 or 5 or 6) return TryReadCompactVarint(src, ref cursor, out _);
+        if (type == 7) { if (cursor + 8 > src.Length) return false; cursor += 8; return true; }
+        if (type == 8) { if (!TryReadCompactVarint(src, ref cursor, out ulong length) || length > (ulong)(src.Length - cursor)) return false; cursor += (int)length; return true; }
+        if (type == 9) return SkipCompactList(src, ref cursor, false, depth + 1);
+        if (type == 12)
+        {
+            short previous = 0;
+            while (cursor < src.Length)
+            {
+                byte header = src[cursor++];
+                if (header == 0) return true;
+                int delta = header >> 4;
+                short field = delta == 0 ? ReadCompactFieldId(src, ref cursor) : checked((short)(previous + delta));
+                if (field <= previous || !SkipCompactValue(src, ref cursor, header & 0x0F, depth + 1)) return false;
+                previous = field;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryReadCompactVarint(ReadOnlySpan<byte> src, ref int cursor, out ulong value)
+    {
+        value = 0;
+        for (int shift = 0; shift < 64 && cursor < src.Length; shift += 7)
+        {
+            byte current = src[cursor++];
+            value |= (ulong)(current & 0x7F) << shift;
+            if ((current & 0x80) == 0) return true;
+        }
+        return false;
+    }
+
+    private static bool TryValidateArrowFooter(ReadOnlySpan<byte> footer)
+    {
+        if (footer.Length < 16) return false;
+        uint root = ReadUInt32LittleEndian(footer, 0);
+        if (root > int.MaxValue || root + 8 > footer.Length) return false;
+        int table = (int)root;
+        int vtableDistance = (int)ReadUInt32LittleEndian(footer, table);
+        if (vtableDistance <= 0 || vtableDistance > table) return false;
+        int vtable = table - vtableDistance;
+        if (vtable + 8 > footer.Length) return false;
+        ushort vtableLength = ReadUInt16LittleEndian(footer, vtable);
+        ushort objectLength = ReadUInt16LittleEndian(footer, vtable + 2);
+        ushort versionOffset = ReadUInt16LittleEndian(footer, vtable + 4);
+        ushort schemaOffset = ReadUInt16LittleEndian(footer, vtable + 6);
+        if (vtableLength < 8 || objectLength < 8 || versionOffset == 0 || schemaOffset == 0 ||
+            table + versionOffset + 2 > footer.Length || table + schemaOffset + 4 > footer.Length) return false;
+        ushort version = ReadUInt16LittleEndian(footer, table + versionOffset);
+        if (version > 4) return false;
+        uint schemaRelative = ReadUInt32LittleEndian(footer, table + schemaOffset);
+        ulong schemaTableValue = (ulong)table + schemaOffset + schemaRelative;
+        if (schemaRelative < 4 || schemaTableValue + 4 > (ulong)footer.Length) return false;
+        int schemaTable = (int)schemaTableValue;
+        int schemaVtableDistance = (int)ReadUInt32LittleEndian(footer, schemaTable);
+        if (schemaVtableDistance <= 0 || schemaVtableDistance > schemaTable) return false;
+        int schemaVtable = schemaTable - schemaVtableDistance;
+        return schemaVtable + 4 <= footer.Length && ReadUInt16LittleEndian(footer, schemaVtable) >= 4 &&
+               ReadUInt16LittleEndian(footer, schemaVtable + 2) >= 4;
+    }
+
+    private static bool TryValidateVhdxHeader(ReadOnlySpan<byte> header)
+    {
+        if (header.Length != 4096 || !header.Slice(0, 4).SequenceEqual("head"u8) ||
+            ReadUInt16LittleEndian(header, 64) != 0 || ReadUInt16LittleEndian(header, 66) != 1 ||
+            ReadUInt64(header, 8, true) == 0) return false;
+        uint stored = ReadUInt32LittleEndian(header, 4);
+        return stored != 0 && ComputeCrc32C(header, 4, 4) == stored;
+    }
+
+    private static bool TryValidateVhdxRegionTable(ReadOnlySpan<byte> table, long fileLength)
+    {
+        if (table.Length != 64 * 1024 || !table.Slice(0, 4).SequenceEqual("regi"u8)) return false;
+        uint entries = ReadUInt32LittleEndian(table, 8);
+        if (entries is < 1 or > 2047 || ReadUInt32LittleEndian(table, 12) != 0 ||
+            ComputeCrc32C(table, 4, 4) != ReadUInt32LittleEndian(table, 4)) return false;
+        bool bat = false;
+        bool metadata = false;
+        ulong batOffset = 0, batEnd = 0, metadataOffset = 0, metadataEnd = 0;
+        var batGuid = new byte[] { 0x66, 0x77, 0xC2, 0x2D, 0x23, 0xF6, 0x00, 0x42, 0x9D, 0x64, 0x11, 0x5E, 0x9B, 0xFD, 0x4A, 0x08 };
+        var metadataGuid = new byte[] { 0x06, 0xA2, 0x7C, 0x8B, 0x90, 0x47, 0x9A, 0x4B, 0xB8, 0xFE, 0x57, 0x5F, 0x05, 0x0F, 0x88, 0x6E };
+        for (uint i = 0; i < entries; i++)
+        {
+            int offset = checked(16 + (int)i * 32);
+            var guid = table.Slice(offset, 16);
+            ulong fileOffset = ReadUInt64(table, offset + 16, true);
+            uint length = ReadUInt32LittleEndian(table, offset + 24);
+            uint flags = ReadUInt32LittleEndian(table, offset + 28);
+            if (length == 0 || (length & 0xFFFFF) != 0 || fileOffset < 0x100000 || (fileOffset & 0xFFFFF) != 0 ||
+                fileOffset > (ulong)fileLength || length > (ulong)fileLength - fileOffset || flags > 1) return false;
+            ulong end = fileOffset + length;
+            if (guid.SequenceEqual(batGuid))
+            {
+                if (bat || flags != 1) return false;
+                bat = true;
+                batOffset = fileOffset;
+                batEnd = end;
+            }
+            else if (guid.SequenceEqual(metadataGuid))
+            {
+                if (metadata || flags != 1) return false;
+                metadata = true;
+                metadataOffset = fileOffset;
+                metadataEnd = end;
+            }
+            else if (flags == 1) return false;
+        }
+        return bat && metadata && (batEnd <= metadataOffset || metadataEnd <= batOffset);
+    }
+
+    private static uint ComputeCrc32C(ReadOnlySpan<byte> data, int zeroOffset, int zeroLength)
+    {
+        uint crc = uint.MaxValue;
+        for (int i = 0; i < data.Length; i++)
+        {
+            byte value = i >= zeroOffset && i < zeroOffset + zeroLength ? (byte)0 : data[i];
+            crc ^= value;
+            for (int bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0x82F63B78u : crc >> 1;
+        }
+        return ~crc;
     }
 
     private static bool TryReadAt(Stream stream, long offset, int count, out byte[] bytes)

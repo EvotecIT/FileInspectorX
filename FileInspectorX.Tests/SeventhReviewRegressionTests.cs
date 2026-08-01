@@ -110,10 +110,12 @@ public sealed class SeventhReviewRegressionTests
 
     private static byte[] Parquet(int length)
     {
+        var minimal = TestHelpers.CreateMinimalParquet();
         var bytes = new byte[length];
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
-        bytes[length - 9] = 1;
-        WriteUInt32LittleEndian(bytes, length - 8, 1);
+        int footerLength = minimal.Length - 12;
+        Buffer.BlockCopy(minimal, 4, bytes, length - 8 - footerLength, footerLength);
+        WriteUInt32LittleEndian(bytes, length - 8, (uint)footerLength);
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, length - 4);
         return bytes;
     }

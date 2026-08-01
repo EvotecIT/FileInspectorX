@@ -563,7 +563,7 @@ public static partial class FileInspector {
         if ((stream.CanSeek ? Signatures.TryMatchFont(stream, out var font) : Signatures.TryMatchFont(src, completeLength, out font)))
             return Finish(Enrich(font, src, stream, options));
         if (Signatures.TryMatchOpenExr(src, completeLength, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
-        if (Signatures.TryMatchPhotoshop(src, out var photoshop)) return Finish(Enrich(photoshop, src, stream, options));
+        if (Signatures.TryMatchPhotoshop(src, completeLength, out var photoshop)) return Finish(Enrich(photoshop, src, stream, options));
         if (Signatures.TryMatchJpeg2000(src, completeLength, out var jpeg2000)) return Finish(Enrich(jpeg2000, src, stream, options));
         if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
         if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
@@ -572,10 +572,11 @@ public static partial class FileInspector {
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
         if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
-        if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
+        if (Signatures.TryMatchElf(src, completeLength, out var elf)) return Finish(Enrich(elf, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchJavaClass(stream, out var javaClass) : Signatures.TryMatchJavaClass(src, completeLength, out javaClass)))
             return Finish(Enrich(javaClass, src, stream, options));
-        if (Signatures.TryMatchDex(src, completeLength, out var dex)) return Finish(Enrich(dex, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchDex(stream, out var dex) : Signatures.TryMatchDex(src, completeLength, out dex)))
+            return Finish(Enrich(dex, src, stream, options));
         if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, completeLength, out var cab)) return Finish(Enrich(cab, src, stream, options));
         if (Signatures.TryMatchGlb(src, completeLength, out var glb)) return Finish(Enrich(glb, src, stream, options));
@@ -1381,7 +1382,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchNetCdf(data, out var netCdf)) return Finish(Enrich(netCdf, data, null, options));
         if (Signatures.TryMatchFont(data, out var font)) return Finish(Enrich(font, data, null, options));
         if (Signatures.TryMatchOpenExr(data, data.Length, out var openExr)) return Finish(Enrich(openExr, data, null, options));
-        if (Signatures.TryMatchPhotoshop(data, out var photoshop)) return Finish(Enrich(photoshop, data, null, options));
+        if (Signatures.TryMatchPhotoshop(data, data.Length, out var photoshop)) return Finish(Enrich(photoshop, data, null, options));
         if (Signatures.TryMatchJpeg2000(data, out var jpeg2000)) return Finish(Enrich(jpeg2000, data, null, options));
         if (dataMemory.HasValue)
         {
@@ -1399,7 +1400,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));
         if (Signatures.TryMatch7z(data, out var _7z)) return Finish(Enrich(_7z, data, null, options));
         if (Signatures.TryMatchRar(data, out var rar)) return Finish(Enrich(rar, data, null, options));
-        if (Signatures.TryMatchElf(data, out var elf)) return Finish(Enrich(elf, data, null, options));
+        if (Signatures.TryMatchElf(data, data.Length, out var elf)) return Finish(Enrich(elf, data, null, options));
         if (Signatures.TryMatchJavaClass(data, out var javaClass)) return Finish(Enrich(javaClass, data, null, options));
         if (Signatures.TryMatchDex(data, out var dex)) return Finish(Enrich(dex, data, null, options));
         if (Signatures.TryMatchMachO(data, out var macho)) return Finish(Enrich(macho, data, null, options));

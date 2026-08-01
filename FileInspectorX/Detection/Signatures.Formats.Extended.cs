@@ -16,7 +16,7 @@ internal static partial class Signatures
         if (TryMatchDds(src, out result)) return true;
         if (TryMatchQoi(src, out result)) return true;
         if (TryMatchDicom(src, completeLength, out result)) return true;
-        if (TryMatchOutlookNdb(src, out result)) return true;
+        if (TryMatchOutlookNdb(src, completeLength, out result)) return true;
         if (TryMatchMatroska(src, completeLength, out result)) return true;
         result = null;
         return false;
@@ -313,15 +313,39 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchOutlookNdb(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchOutlookNdb(src, src.Length, out result);
+
+    internal static bool TryMatchOutlookNdb(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 24 || !src.Slice(0, 4).SequenceEqual("!BDN"u8) || !src.Slice(8, 2).SequenceEqual("SM"u8)) return false;
         ushort version = ReadUInt16LittleEndian(src, 10);
         ushort clientVersion = ReadUInt16LittleEndian(src, 12);
         if (version is not (14 or 15) && version is not (>= 23 and <= 50)) return false;
-        if (clientVersion == 0 || src[14] != 1 || src[15] != 1) return false;
+        if (clientVersion == 0 || src[14] != 1 || src[15] != 1 || ReadUInt32LittleEndian(src, 16) != 0 || ReadUInt32LittleEndian(src, 20) != 0) return false;
+        int requiredHeader = version < 23 ? 512 : 564;
+        if (src.Length < requiredHeader)
+        {
+            if (completeLength.HasValue) return false;
+            result = BinaryResult("ndb", "application/vnd.ms-outlook", version < 23 ? "outlook-ndb:ansi;sampled-header" : "outlook-ndb:unicode;sampled-header");
+            result.Confidence = "Medium";
+            return true;
+        }
+        if (ReadUInt32LittleEndian(src, 4) != ComputeNdbCrc32(src.Slice(8, 464))) return false;
+        if (version >= 23 && ReadUInt32LittleEndian(src, 524) != ComputeNdbCrc32(src.Slice(8, 516))) return false;
         result = BinaryResult("ndb", "application/vnd.ms-outlook", version < 23 ? "outlook-ndb:ansi" : "outlook-ndb:unicode");
         return true;
+    }
+
+    private static uint ComputeNdbCrc32(ReadOnlySpan<byte> data)
+    {
+        uint crc = uint.MaxValue;
+        for (int i = 0; i < data.Length; i++)
+        {
+            crc ^= data[i];
+            for (int bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+        return ~crc;
     }
 
     internal static bool TryMatchMatroska(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

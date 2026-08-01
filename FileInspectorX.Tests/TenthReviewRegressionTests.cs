@@ -185,26 +185,9 @@ public sealed class TenthReviewRegressionTests
         return bytes;
     }
 
-    private static byte[] Dex(string version)
-    {
-        var bytes = new byte[0x70];
-        Encoding.ASCII.GetBytes("dex\n" + version + "\0").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 32, (uint)bytes.Length);
-        WriteUInt32LittleEndian(bytes, 36, 0x70);
-        WriteUInt32LittleEndian(bytes, 40, 0x12345678);
-        return bytes;
-    }
+    private static byte[] Dex(string version) => TestHelpers.CreateMinimalDex(version);
 
-    private static byte[] Jpeg2000()
-    {
-        var bytes = new byte[32];
-        new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
-        WriteUInt32BigEndian(bytes, 12, 20);
-        Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 16);
-        Encoding.ASCII.GetBytes("jp2 ").CopyTo(bytes, 20);
-        Encoding.ASCII.GetBytes("jp2 ").CopyTo(bytes, 28);
-        return bytes;
-    }
+    private static byte[] Jpeg2000() => TestHelpers.CreateMinimalJpeg2000();
 
     private static byte[] MinimalCab()
     {

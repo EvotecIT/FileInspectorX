@@ -34,8 +34,8 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("dcm", Dicom(), 136);
         yield return Sample("ndb", OutlookNdb(), 8);
         yield return Sample("matroska", Matroska(), 6);
-        yield return Sample("parquet", Parquet(), 12);
-        yield return Sample("arrow", Arrow(), 25);
+        yield return Sample("parquet", Parquet(), 4);
+        yield return Sample("arrow", Arrow(), 6);
         yield return Sample("deb", Deb(), 80);
         yield return Sample("vhd", Vhd(), 511);
         yield return Sample("vhdx", Vhdx(), 64 * 1024);
@@ -468,16 +468,7 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] OutlookNdb()
-    {
-        var bytes = new byte[24];
-        Encoding.ASCII.GetBytes("!BDN").CopyTo(bytes, 0);
-        Encoding.ASCII.GetBytes("SM").CopyTo(bytes, 8);
-        WriteUInt16LittleEndian(bytes, 10, 23);
-        WriteUInt16LittleEndian(bytes, 12, 19);
-        bytes[14] = 1; bytes[15] = 1;
-        return bytes;
-    }
+    private static byte[] OutlookNdb() => TestHelpers.CreateMinimalOutlookNdb();
 
     private static byte[] Matroska()
     {
@@ -488,25 +479,9 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] Parquet()
-    {
-        var bytes = new byte[13];
-        Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
-        bytes[4] = 1;
-        WriteUInt32LittleEndian(bytes, 5, 1);
-        Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 9);
-        return bytes;
-    }
+    private static byte[] Parquet() => TestHelpers.CreateMinimalParquet();
 
-    private static byte[] Arrow()
-    {
-        var bytes = new byte[26];
-        Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 8, 4);
-        WriteUInt32LittleEndian(bytes, 16, 8);
-        Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 20);
-        return bytes;
-    }
+    private static byte[] Arrow() => TestHelpers.CreateMinimalArrow();
 
     private static byte[] Deb()
     {
@@ -530,14 +505,7 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] Vhdx()
-    {
-        var bytes = new byte[1024 * 1024];
-        Encoding.ASCII.GetBytes("vhdxfile").CopyTo(bytes, 0);
-        Encoding.ASCII.GetBytes("head").CopyTo(bytes, 64 * 1024);
-        Encoding.ASCII.GetBytes("regi").CopyTo(bytes, 192 * 1024);
-        return bytes;
-    }
+    private static byte[] Vhdx() => TestHelpers.CreateMinimalVhdx();
 
     private static void WriteArMember(Stream stream, string name, byte[] data)
     {

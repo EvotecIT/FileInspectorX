@@ -291,7 +291,7 @@ public sealed class EleventhReviewRegressionTests
 
     private static byte[] Pe(ushort machine)
     {
-        var bytes = new byte[184];
+        var bytes = new byte[224];
         Encoding.ASCII.GetBytes("MZ").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 0x3C, 0x40);
         Encoding.ASCII.GetBytes("PE\0\0").CopyTo(bytes, 0x40);

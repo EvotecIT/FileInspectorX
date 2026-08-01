@@ -176,13 +176,9 @@ public sealed class FifthReviewRegressionTests
     private static byte[] Dex041Container()
     {
         const int containerSize = 5000;
-        var bytes = new byte[containerSize];
-        Encoding.ASCII.GetBytes("dex\n041\0").CopyTo(bytes, 0);
+        var bytes = TestHelpers.CreateMinimalDex("041", length: containerSize);
         WriteUInt32LittleEndian(bytes, 32, 4096);
-        WriteUInt32LittleEndian(bytes, 36, 0x78);
-        WriteUInt32LittleEndian(bytes, 40, 0x12345678);
-        WriteUInt32LittleEndian(bytes, 112, containerSize);
-        WriteUInt32LittleEndian(bytes, 116, 0);
+        TestHelpers.FinalizeDex(bytes, dexLength: 4096);
         return bytes;
     }
 
