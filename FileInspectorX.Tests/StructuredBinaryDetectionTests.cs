@@ -439,9 +439,9 @@ public sealed class StructuredBinaryDetectionTests
         return bytes;
     }
 
-    private static byte[] OpenExr() => new byte[] { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00 };
+    private static byte[] OpenExr() => TestHelpers.CreateMinimalOpenExr();
 
-    private static byte[] DeepOpenExr() => new byte[] { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x08, 0x00, 0x00 };
+    private static byte[] DeepOpenExr() => TestHelpers.CreateMinimalOpenExr(0x00000800);
 
     private static byte[] Photoshop(ushort version)
     {

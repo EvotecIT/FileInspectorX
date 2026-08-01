@@ -541,6 +541,7 @@ public static partial class FileInspector {
         if (stream.CanSeek && Signatures.TryMatchMatroska(stream, out var seekableMatroska)) return Finish(Enrich(seekableMatroska, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchQcow2(stream, out var seekableQcow2)) return Finish(Enrich(seekableQcow2, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchMidi(stream, out var seekableMidi)) return Finish(Enrich(seekableMidi, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchRpm(stream, out var seekableRpm)) return Finish(Enrich(seekableRpm, src, stream, options));
         if (Signatures.TryMatchExtendedHeaderFormats(src, completeLength, out var extendedBinary)) return Finish(Enrich(extendedBinary, src, stream, options));
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
@@ -557,11 +558,11 @@ public static partial class FileInspector {
         if ((stream.CanSeek ? Signatures.TryMatchFtyp(stream, out var ftyp) : Signatures.TryMatchFtyp(src, completeLength, out ftyp)))
             return Finish(Enrich(ftyp, src, stream, options));
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
-        if ((stream.CanSeek ? Signatures.TryMatchNetCdf(stream, out var netCdf) : Signatures.TryMatchNetCdf(src, out netCdf)))
+        if ((stream.CanSeek ? Signatures.TryMatchNetCdf(stream, out var netCdf) : Signatures.TryMatchNetCdf(src, completeLength, out netCdf)))
             return Finish(Enrich(netCdf, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchFont(stream, out var font) : Signatures.TryMatchFont(src, completeLength, out font)))
             return Finish(Enrich(font, src, stream, options));
-        if (Signatures.TryMatchOpenExr(src, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
+        if (Signatures.TryMatchOpenExr(src, completeLength, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
         if (Signatures.TryMatchPhotoshop(src, out var photoshop)) return Finish(Enrich(photoshop, src, stream, options));
         if (Signatures.TryMatchJpeg2000(src, completeLength, out var jpeg2000)) return Finish(Enrich(jpeg2000, src, stream, options));
         if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
@@ -1379,7 +1380,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
         if (Signatures.TryMatchNetCdf(data, out var netCdf)) return Finish(Enrich(netCdf, data, null, options));
         if (Signatures.TryMatchFont(data, out var font)) return Finish(Enrich(font, data, null, options));
-        if (Signatures.TryMatchOpenExr(data, out var openExr)) return Finish(Enrich(openExr, data, null, options));
+        if (Signatures.TryMatchOpenExr(data, data.Length, out var openExr)) return Finish(Enrich(openExr, data, null, options));
         if (Signatures.TryMatchPhotoshop(data, out var photoshop)) return Finish(Enrich(photoshop, data, null, options));
         if (Signatures.TryMatchJpeg2000(data, out var jpeg2000)) return Finish(Enrich(jpeg2000, data, null, options));
         if (dataMemory.HasValue)

@@ -67,7 +67,10 @@ internal static partial class Signatures {
         }
     }
 
-    internal static bool TryMatchNetCdf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchNetCdf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchNetCdf(src, src.Length, out result);
+
+    internal static bool TryMatchNetCdf(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (src.Length < 4 || src[0] != (byte)'C' || src[1] != (byte)'D' || src[2] != (byte)'F' ||
             (src[3] != 1 && src[3] != 2 && src[3] != 5))
@@ -75,17 +78,36 @@ internal static partial class Signatures {
 
         bool isCdf5 = src[3] == 5;
         int cursor = 4;
-        if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out _) ||
-            !TrySkipNetCdfDimensions(src, ref cursor, isCdf5, out ulong dimensionCount) ||
-            !TrySkipNetCdfAttributes(src, ref cursor, isCdf5) ||
-            !TrySkipNetCdfVariables(src, ref cursor, isCdf5, src[3] == 1, dimensionCount)) return false;
+        bool completeHeader = TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out _) &&
+            TrySkipNetCdfDimensions(src, ref cursor, isCdf5, out ulong dimensionCount) &&
+            TrySkipNetCdfAttributes(src, ref cursor, isCdf5) &&
+            TrySkipNetCdfVariables(src, ref cursor, isCdf5, src[3] == 1, dimensionCount);
+        if (!completeHeader)
+        {
+            if (completeLength.HasValue || !TryMatchSampledNetCdf(src, out result)) return false;
+            return true;
+        }
 
-        result = new ContentTypeDetectionResult {
-            Extension = "nc",
-            MimeType = "application/x-netcdf",
-            Confidence = "High",
-            Reason = src[3] == 1 ? "netcdf:classic" : src[3] == 2 ? "netcdf:64-bit-offset" : "netcdf:64-bit-data"
-        };
+        result = NetCdfResult(src[3], completeLength.HasValue, sampledReason: completeLength.HasValue ? null : "sampled-length-unknown");
+        return true;
+    }
+
+    private static bool TryMatchSampledNetCdf(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        using var sample = new MemoryStream(src.ToArray(), writable: false);
+        var reader = new NetCdfStreamReader(sample, sample.Length, sampleMayContinue: true, int.MaxValue);
+        if (!reader.TryReadByte(out byte c) || c != (byte)'C' ||
+            !reader.TryReadByte(out byte d) || d != (byte)'D' ||
+            !reader.TryReadByte(out byte f) || f != (byte)'F' ||
+            !reader.TryReadByte(out byte version) || version is not (1 or 2 or 5)) return false;
+        bool isCdf5 = version == 5;
+        bool parsed = reader.TryReadNonNegative(isCdf5, out _) &&
+                      reader.TrySkipDimensions(isCdf5, out ulong dimensionCount) &&
+                      reader.TrySkipAttributes(isCdf5) &&
+                      reader.TrySkipVariables(isCdf5, version == 1, dimensionCount);
+        if (!parsed && (!reader.Incomplete || reader.StructuralEvidence < 2)) return false;
+        result = NetCdfResult(version, complete: false, sampledReason: "sampled-header");
         return true;
     }
 
@@ -97,7 +119,8 @@ internal static partial class Signatures {
         try
         {
             stream.Seek(0, SeekOrigin.Begin);
-            var reader = new NetCdfStreamReader(stream, stream.Length);
+            var reader = new NetCdfStreamReader(stream, stream.Length, sampleMayContinue: false,
+                Math.Max(256, Settings.DetectionReadBudgetBytes));
             if (!reader.TryReadByte(out byte c) || c != (byte)'C' ||
                 !reader.TryReadByte(out byte d) || d != (byte)'D' ||
                 !reader.TryReadByte(out byte f) || f != (byte)'F' ||
@@ -106,13 +129,13 @@ internal static partial class Signatures {
             if (!reader.TryReadNonNegative(isCdf5, out _) ||
                 !reader.TrySkipDimensions(isCdf5, out ulong dimensionCount) ||
                 !reader.TrySkipAttributes(isCdf5) ||
-                !reader.TrySkipVariables(isCdf5, version == 1, dimensionCount)) return false;
-            result = new ContentTypeDetectionResult {
-                Extension = "nc",
-                MimeType = "application/x-netcdf",
-                Confidence = "High",
-                Reason = version == 1 ? "netcdf:classic" : version == 2 ? "netcdf:64-bit-offset" : "netcdf:64-bit-data"
-            };
+                !reader.TrySkipVariables(isCdf5, version == 1, dimensionCount))
+            {
+                if (!reader.BudgetExceeded || reader.StructuralEvidence < 1) return false;
+                result = NetCdfResult(version, complete: false, sampledReason: "validation-budget-exceeded");
+                return true;
+            }
+            result = NetCdfResult(version, complete: true, sampledReason: null);
             return true;
         }
         catch
@@ -129,17 +152,27 @@ internal static partial class Signatures {
     private sealed class NetCdfStreamReader {
         private readonly Stream _stream;
         private readonly long _length;
+        private readonly bool _sampleMayContinue;
+        private long _remainingBudget;
 
-        internal NetCdfStreamReader(Stream stream, long length) {
+        internal NetCdfStreamReader(Stream stream, long length, bool sampleMayContinue, long readBudget) {
             _stream = stream;
             _length = length;
+            _sampleMayContinue = sampleMayContinue;
+            _remainingBudget = readBudget;
         }
+
+        internal bool Incomplete { get; private set; }
+        internal bool BudgetExceeded { get; private set; }
+        internal int StructuralEvidence { get; private set; }
 
         internal bool TryReadByte(out byte value) {
             value = 0;
-            if (_stream.Position >= _length) return false;
+            if (_remainingBudget <= 0) { BudgetExceeded = true; return false; }
+            if (_stream.Position >= _length) { Incomplete = _sampleMayContinue; return false; }
             int current = _stream.ReadByte();
             if (current < 0) return false;
+            _remainingBudget--;
             value = (byte)current;
             return true;
         }
@@ -177,21 +210,50 @@ internal static partial class Signatures {
             count = 0;
             if (!TryReadUInt32(out uint tag) || !TryReadNonNegative(isCdf5, out count)) return false;
             if (tag == 0) return count == 0;
-            return tag == expectedTag && count is > 0 and <= 1000000;
+            if (tag != expectedTag || count is not (> 0 and <= 1000000)) return false;
+            StructuralEvidence++;
+            return true;
         }
 
         private bool TrySkipName(bool isCdf5) {
             if (!TryReadNonNegative(isCdf5, out ulong length) || length == 0 ||
-                length > (ulong)Math.Max(0, _length - _stream.Position)) return false;
-            byte last = 0;
-            for (ulong i = 0; i < length; i++) {
-                if (!TryReadByte(out byte current) || current < 0x20 || current == (byte)'/' || current == 0x7F) return false;
-                last = current;
-            }
+                !TryScanName(length, out byte last)) return false;
             if (last == (byte)' ') return false;
             int padding = (int)((4 - (length & 3)) & 3);
             for (int i = 0; i < padding; i++)
                 if (!TryReadByte(out byte current) || current != 0) return false;
+            return true;
+        }
+
+        private bool TryScanName(ulong length, out byte last)
+        {
+            last = 0;
+            long available = Math.Max(0, _length - _stream.Position);
+            ulong scanLength = Math.Min(length, (ulong)available);
+            if ((ulong)Math.Max(0, _remainingBudget) < scanLength) scanLength = (ulong)Math.Max(0, _remainingBudget);
+            var buffer = new byte[4096];
+            ulong scanned = 0;
+            while (scanned < scanLength)
+            {
+                int wanted = (int)Math.Min((ulong)buffer.Length, scanLength - scanned);
+                int read = _stream.Read(buffer, 0, wanted);
+                if (read <= 0) { Incomplete = _sampleMayContinue; return false; }
+                _remainingBudget -= read;
+                for (int i = 0; i < read; i++)
+                {
+                    byte current = buffer[i];
+                    if (current < 0x20 || current == (byte)'/' || current == 0x7F) return false;
+                    last = current;
+                }
+                scanned += (uint)read;
+            }
+            if (scanned < length)
+            {
+                if (_remainingBudget <= 0) BudgetExceeded = true;
+                else Incomplete = _sampleMayContinue;
+                return false;
+            }
+            StructuralEvidence++;
             return true;
         }
 
@@ -213,8 +275,17 @@ internal static partial class Signatures {
                     return false;
                 ulong byteCount = valueCount * (uint)typeSize;
                 ulong padded = (byteCount + 3) & ~3UL;
-                if (padded < byteCount || padded > (ulong)Math.Max(0, _length - _stream.Position)) return false;
-                if (byteCount > long.MaxValue || _stream.Seek((long)byteCount, SeekOrigin.Current) > _length) return false;
+                if (padded < byteCount) return false;
+                if (padded > (ulong)Math.Max(0, _length - _stream.Position))
+                {
+                    Incomplete = _sampleMayContinue;
+                    return false;
+                }
+                if (byteCount > long.MaxValue || _stream.Seek((long)byteCount, SeekOrigin.Current) > _length)
+                {
+                    Incomplete = _sampleMayContinue;
+                    return false;
+                }
                 for (ulong padding = byteCount; padding < padded; padding++)
                     if (!TryReadByte(out byte current) || current != 0) return false;
             }
@@ -234,6 +305,15 @@ internal static partial class Signatures {
             return true;
         }
     }
+
+    private static ContentTypeDetectionResult NetCdfResult(byte version, bool complete, string? sampledReason)
+        => new() {
+            Extension = "nc",
+            MimeType = "application/x-netcdf",
+            Confidence = complete ? "High" : "Medium",
+            Reason = (version == 1 ? "netcdf:classic" : version == 2 ? "netcdf:64-bit-offset" : "netcdf:64-bit-data") +
+                     (sampledReason == null ? string.Empty : ";" + sampledReason)
+        };
 
     private static bool TrySkipNetCdfDimensions(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out ulong count)
     {

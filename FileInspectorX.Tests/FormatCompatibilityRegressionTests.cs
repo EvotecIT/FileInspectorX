@@ -275,12 +275,14 @@ public sealed class FormatCompatibilityRegressionTests
     private static byte[] LargeRpmSignatureHeader()
     {
         const int dataLength = 5000;
-        var bytes = new byte[112 + 16 + dataLength];
+        var bytes = new byte[112 + 16 + dataLength + 32];
         new byte[] { 0xED, 0xAB, 0xEE, 0xDB, 3, 0 }.CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 78, 5);
         new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 96);
         WriteUInt32BigEndian(bytes, 104, 1);
         WriteUInt32BigEndian(bytes, 108, dataLength);
+        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 112 + 16 + dataLength);
+        WriteUInt32BigEndian(bytes, 112 + 16 + dataLength + 8, 1);
         return bytes;
     }
 

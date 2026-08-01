@@ -54,15 +54,26 @@ internal static partial class Signatures
             if (stream.Length < 26 || !TryReadAt(stream, 0, 14, out var header) ||
                 !TryReadMidiHeader(new ReadOnlySpan<byte>(header), out ushort format, out ushort tracks)) return false;
             stream.Seek(14, SeekOrigin.Begin);
+            long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+            bool budgetExceeded = false;
             for (int track = 0; track < tracks; track++)
             {
                 if (!TryReadMidiMarker(stream, "MTrk"u8) || !TryReadMidiU4(stream, out uint trackLength) ||
                     trackLength > (ulong)(stream.Length - stream.Position)) return false;
                 long trackEnd = stream.Position + trackLength;
-                if (!TryValidateMidiTrack(stream, trackEnd)) return false;
+                if (!budgetExceeded && trackLength <= (ulong)remainingValidationBudget)
+                {
+                    if (!TryValidateMidiTrack(stream, trackEnd)) return false;
+                    remainingValidationBudget -= trackLength;
+                }
+                else
+                {
+                    budgetExceeded = true;
+                    stream.Seek(trackEnd, SeekOrigin.Begin);
+                }
             }
             if (stream.Position != stream.Length) return false;
-            result = MidiResult(format, tracks, complete: true);
+            result = MidiResult(format, tracks, complete: true, budgetExceeded);
             return true;
         }
         catch
@@ -299,12 +310,13 @@ internal static partial class Signatures
         return true;
     }
 
-    private static ContentTypeDetectionResult MidiResult(ushort format, ushort tracks, bool complete)
+    private static ContentTypeDetectionResult MidiResult(ushort format, ushort tracks, bool complete, bool budgetExceeded = false)
         => new()
         {
             Extension = "mid",
             MimeType = "audio/midi",
-            Confidence = complete ? "High" : "Medium",
-            Reason = $"midi:format={format};tracks={tracks}" + (complete ? string.Empty : ";sampled-length-unknown")
+            Confidence = complete && !budgetExceeded ? "High" : "Medium",
+            Reason = $"midi:format={format};tracks={tracks}" +
+                     (!complete ? ";sampled-length-unknown" : budgetExceeded ? ";validation-budget-exceeded" : string.Empty)
         };
 }

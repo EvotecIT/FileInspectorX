@@ -25,9 +25,51 @@ internal static partial class Signatures
     internal static bool TryMatchRpm(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchRpm(src, src.Length, out result);
 
+    internal static bool TryMatchRpm(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 144 || !TryReadAt(stream, 0, 112, out var prefix)) return false;
+            var src = new ReadOnlySpan<byte>(prefix);
+            if (!TryGetRpmMainHeaderOffset(src, stream.Length, out long mainHeaderOffset) ||
+                !TryReadAt(stream, mainHeaderOffset, 16, out var mainHeader) ||
+                !TryValidateRpmMainHeader(new ReadOnlySpan<byte>(mainHeader), mainHeaderOffset, stream.Length)) return false;
+            result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
     internal static bool TryMatchRpm(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
+        if (!TryGetRpmMainHeaderOffset(src, completeLength, out long mainHeaderOffset)) return false;
+        if (mainHeaderOffset + 16L > src.Length)
+        {
+            if (completeLength.HasValue) return false;
+            result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header;sampled-main-header");
+            result.Confidence = "Medium";
+            return true;
+        }
+        if (!TryValidateRpmMainHeader(src.Slice((int)mainHeaderOffset, 16), mainHeaderOffset, completeLength)) return false;
+        result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
+        return true;
+    }
+
+    private static bool TryGetRpmMainHeaderOffset(ReadOnlySpan<byte> src, long? completeLength, out long mainHeaderOffset)
+    {
+        mainHeaderOffset = 0;
         if (src.Length < 112 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0xED, 0xAB, 0xEE, 0xDB })) return false;
         if (src[4] != 3 || src[5] != 0 || ReadUInt16BigEndian(src, 6) > 1 || ReadUInt16BigEndian(src, 78) != 5) return false;
         for (int i = 80; i < 96; i++) if (src[i] != 0) return false;
@@ -35,10 +77,21 @@ internal static partial class Signatures
         for (int i = 100; i < 104; i++) if (src[i] != 0) return false;
         uint indexCount = ReadUInt32BigEndian(src, 104);
         uint dataLength = ReadUInt32BigEndian(src, 108);
-        if (indexCount is < 1 or > 65535 || dataLength > 0x40000000 ||
-            (completeLength.HasValue && 112L + indexCount * 16L + dataLength > completeLength.Value)) return false;
-        result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
-        return true;
+        if (indexCount is < 1 or > 65535 || dataLength > 0x40000000) return false;
+        long signatureEnd = 112L + indexCount * 16L + dataLength;
+        mainHeaderOffset = (signatureEnd + 7L) & ~7L;
+        return signatureEnd >= 112 && mainHeaderOffset >= signatureEnd &&
+               (!completeLength.HasValue || mainHeaderOffset + 16L <= completeLength.Value);
+    }
+
+    private static bool TryValidateRpmMainHeader(ReadOnlySpan<byte> header, long mainHeaderOffset, long? completeLength)
+    {
+        if (header.Length < 16 || !header.Slice(0, 4).SequenceEqual(new byte[] { 0x8E, 0xAD, 0xE8, 0x01 })) return false;
+        for (int i = 4; i < 8; i++) if (header[i] != 0) return false;
+        uint indexCount = ReadUInt32BigEndian(header, 8);
+        uint dataLength = ReadUInt32BigEndian(header, 12);
+        return indexCount is >= 1 and <= 65535 && dataLength <= 0x40000000 &&
+               (!completeLength.HasValue || mainHeaderOffset + 16L + indexCount * 16L + dataLength <= completeLength.Value);
     }
 
     internal static bool TryMatchQcow2(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -161,10 +214,22 @@ internal static partial class Signatures
         uint fourCc = ReadUInt32LittleEndian(src, 84);
         uint caps = ReadUInt32LittleEndian(src, 108);
         if ((flags & 0x1007) != 0x1007 || height == 0 || width == 0 || pixelFormatSize != 32 || (caps & 0x1000) == 0) return false;
-        if ((pixelFormatFlags & 0x4) != 0 && fourCc == 0x30315844 && src.Length < 148) return false;
+        if ((pixelFormatFlags & 0x4) != 0 && fourCc == 0x30315844)
+        {
+            if (src.Length < 148) return false;
+            uint dxgiFormat = ReadUInt32LittleEndian(src, 128);
+            uint resourceDimension = ReadUInt32LittleEndian(src, 132);
+            uint miscFlag = ReadUInt32LittleEndian(src, 136);
+            uint arraySize = ReadUInt32LittleEndian(src, 140);
+            if (!IsKnownDdsDxgiFormat(dxgiFormat) || resourceDimension is < 2 or > 4 || arraySize == 0 ||
+                (resourceDimension == 4 && (arraySize != 1 || (miscFlag & 0x4) != 0))) return false;
+        }
         result = BinaryResult("dds", "image/vnd-ms.dds", "dds:header+pixel-format");
         return true;
     }
+
+    private static bool IsKnownDdsDxgiFormat(uint format)
+        => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190;
 
     internal static bool TryMatchQoi(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
     {

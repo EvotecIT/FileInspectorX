@@ -92,6 +92,56 @@ internal static class TestHelpers
         return bytes;
     }
 
+    internal static byte[] CreateMinimalOpenExr(uint flags = 0)
+    {
+        using var stream = new MemoryStream();
+        stream.Write(new byte[] { 0x76, 0x2F, 0x31, 0x01 }, 0, 4);
+        WriteUInt32LittleEndian(stream, 2u | flags);
+
+        var channelList = new byte[19];
+        channelList[0] = (byte)'R';
+        WriteUInt32LittleEndian(channelList, 2, 2);
+        WriteUInt32LittleEndian(channelList, 10, 1);
+        WriteUInt32LittleEndian(channelList, 14, 1);
+        WriteOpenExrAttribute(stream, "channels", "chlist", channelList);
+        WriteOpenExrAttribute(stream, "compression", "compression", new byte[] { 0 });
+        WriteOpenExrAttribute(stream, "dataWindow", "box2i", new byte[16]);
+        WriteOpenExrAttribute(stream, "displayWindow", "box2i", new byte[16]);
+        WriteOpenExrAttribute(stream, "lineOrder", "lineOrder", new byte[] { 0 });
+        WriteOpenExrAttribute(stream, "pixelAspectRatio", "float", new byte[] { 0, 0, 0x80, 0x3F });
+        WriteOpenExrAttribute(stream, "screenWindowCenter", "v2f", new byte[8]);
+        WriteOpenExrAttribute(stream, "screenWindowWidth", "float", new byte[] { 0, 0, 0x80, 0x3F });
+        if ((flags & 0x00000200) != 0)
+        {
+            var tileDescription = new byte[9];
+            WriteUInt32LittleEndian(tileDescription, 0, 1);
+            WriteUInt32LittleEndian(tileDescription, 4, 1);
+            WriteOpenExrAttribute(stream, "tiles", "tiledesc", tileDescription);
+        }
+        stream.WriteByte(0);
+        return stream.ToArray();
+    }
+
+    private static void WriteOpenExrAttribute(Stream stream, string name, string type, byte[] value)
+    {
+        var nameBytes = System.Text.Encoding.ASCII.GetBytes(name);
+        stream.Write(nameBytes, 0, nameBytes.Length);
+        stream.WriteByte(0);
+        var typeBytes = System.Text.Encoding.ASCII.GetBytes(type);
+        stream.Write(typeBytes, 0, typeBytes.Length);
+        stream.WriteByte(0);
+        WriteUInt32LittleEndian(stream, checked((uint)value.Length));
+        stream.Write(value, 0, value.Length);
+    }
+
+    private static void WriteUInt32LittleEndian(Stream stream, uint value)
+    {
+        stream.WriteByte((byte)value);
+        stream.WriteByte((byte)(value >> 8));
+        stream.WriteByte((byte)(value >> 16));
+        stream.WriteByte((byte)(value >> 24));
+    }
+
     private static void WriteUInt16LittleEndian(byte[] bytes, int offset, ushort value)
     {
         bytes[offset] = (byte)value;

@@ -389,11 +389,13 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Rpm()
     {
-        var bytes = new byte[128];
+        var bytes = new byte[160];
         new byte[] { 0xED, 0xAB, 0xEE, 0xDB, 3, 0 }.CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 78, 5);
         new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 96);
         WriteUInt32BigEndian(bytes, 104, 1);
+        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 128);
+        WriteUInt32BigEndian(bytes, 136, 1);
         return bytes;
     }
 

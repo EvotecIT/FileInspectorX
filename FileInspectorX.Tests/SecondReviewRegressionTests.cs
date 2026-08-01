@@ -193,6 +193,8 @@ public sealed class SecondReviewRegressionTests
         new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 96);
         WriteUInt32BigEndian(bytes, 104, 1);
         WriteUInt32BigEndian(bytes, 108, 4800);
+        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 4928);
+        WriteUInt32BigEndian(bytes, 4936, 1);
         return bytes;
     }
 

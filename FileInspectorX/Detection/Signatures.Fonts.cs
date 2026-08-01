@@ -74,23 +74,44 @@ internal static partial class Signatures {
         long cursor = 48;
         stream.Seek(cursor, SeekOrigin.Begin);
         Span<byte> tag = stackalloc byte[4];
+        bool sawGlyfTransform = false;
+        bool sawLocaTransform = false;
+        bool sawHhea = false;
+        bool sawMaxp = false;
+        bool sawHmtxTransform = false;
         for (int table = 0; table < tableCount; table++) {
             if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte flags)) return false;
             int tagIndex = flags & 0x3F;
             int transformVersion = flags >> 6;
-            bool isGlyfOrLoca = tagIndex is 10 or 11;
+            bool isGlyf = tagIndex == 10;
+            bool isLoca = tagIndex == 11;
+            bool isHmtx = tagIndex == 3;
+            bool isHhea = tagIndex == 2;
+            bool isMaxp = tagIndex == 4;
             if (tagIndex == 0x3F) {
                 for (int i = 0; i < tag.Length; i++) {
                     if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out tag[i]) || tag[i] < 0x20 || tag[i] > 0x7E)
                         return false;
                 }
-                isGlyfOrLoca = tag.SequenceEqual("glyf"u8) || tag.SequenceEqual("loca"u8);
+                isGlyf = tag.SequenceEqual("glyf"u8);
+                isLoca = tag.SequenceEqual("loca"u8);
+                isHmtx = tag.SequenceEqual("hmtx"u8);
+                isHhea = tag.SequenceEqual("hhea"u8);
+                isMaxp = tag.SequenceEqual("maxp"u8);
             }
             if (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint originalLength) || originalLength == 0)
                 return false;
-            bool transformed = isGlyfOrLoca ? transformVersion != 3 : transformVersion != 0;
-            if (transformed && !TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out _)) return false;
+            if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
+            if (transformed && (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint transformedLength) || transformedLength == 0))
+                return false;
+            sawGlyfTransform |= isGlyf && transformed;
+            sawLocaTransform |= isLoca && transformed;
+            sawHmtxTransform |= isHmtx && transformed;
+            sawHhea |= isHhea;
+            sawMaxp |= isMaxp;
         }
+
+        if (sawHmtxTransform && (!sawGlyfTransform || !sawLocaTransform || !sawHhea || !sawMaxp)) return false;
 
         if (ReadUInt32BigEndian(header, 4) == 0x74746366 &&
             !TryReadWoff2CollectionDirectory(stream, declaredLength, ref cursor, tableCount)) return false;
@@ -308,25 +329,44 @@ internal static partial class Signatures {
         if (isWoff2) {
             uint compressedSize = ReadUInt32BigEndian(src, 20);
             int cursor = 48;
+            bool sawGlyfTransform = false;
+            bool sawLocaTransform = false;
+            bool sawHhea = false;
+            bool sawMaxp = false;
+            bool sawHmtxTransform = false;
             for (int table = 0; table < tableCount; table++)
             {
                 if (cursor >= src.Length) return false;
                 byte flags = src[cursor++];
                 int tagIndex = flags & 0x3F;
                 int transformVersion = flags >> 6;
-                bool isGlyfOrLoca = tagIndex is 10 or 11;
+                bool isGlyf = tagIndex == 10;
+                bool isLoca = tagIndex == 11;
+                bool isHmtx = tagIndex == 3;
+                bool isHhea = tagIndex == 2;
+                bool isMaxp = tagIndex == 4;
                 if (tagIndex == 0x3F) {
                     if (src.Length < cursor + 4) return false;
                     for (int i = 0; i < 4; i++)
                         if (src[cursor + i] < 0x20 || src[cursor + i] > 0x7E) return false;
-                    isGlyfOrLoca = src.Slice(cursor, 4).SequenceEqual("glyf"u8) ||
-                                   src.Slice(cursor, 4).SequenceEqual("loca"u8);
+                    isGlyf = src.Slice(cursor, 4).SequenceEqual("glyf"u8);
+                    isLoca = src.Slice(cursor, 4).SequenceEqual("loca"u8);
+                    isHmtx = src.Slice(cursor, 4).SequenceEqual("hmtx"u8);
+                    isHhea = src.Slice(cursor, 4).SequenceEqual("hhea"u8);
+                    isMaxp = src.Slice(cursor, 4).SequenceEqual("maxp"u8);
                     cursor += 4;
                 }
                 if (!TryReadUIntBase128(src, ref cursor, out uint originalLength) || originalLength == 0) return false;
-                bool transformed = isGlyfOrLoca ? transformVersion != 3 : transformVersion != 0;
-                if (transformed && !TryReadUIntBase128(src, ref cursor, out _)) return false;
+                if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
+                if (transformed && (!TryReadUIntBase128(src, ref cursor, out uint transformedLength) || transformedLength == 0)) return false;
+                sawGlyfTransform |= isGlyf && transformed;
+                sawLocaTransform |= isLoca && transformed;
+                sawHmtxTransform |= isHmtx && transformed;
+                sawHhea |= isHhea;
+                sawMaxp |= isMaxp;
             }
+
+            if (sawHmtxTransform && (!sawGlyfTransform || !sawLocaTransform || !sawHhea || !sawMaxp)) return false;
 
             if (isCollection && !TryValidateWoff2CollectionDirectory(src, ref cursor, tableCount)) return false;
             if (compressedSize == 0 || (ulong)cursor + compressedSize > declaredLength) return false;
@@ -357,6 +397,25 @@ internal static partial class Signatures {
         bool nonCanonicalReserved = isWoff2 && reserved != 0;
         result = WoffResult(isWoff2, nonCanonicalReserved, sampledReason: null);
         return true;
+    }
+
+    private static bool TryGetWoff2TransformState(bool isGlyf, bool isLoca, bool isHmtx,
+        int transformVersion, out bool transformed)
+    {
+        transformed = false;
+        if (isGlyf || isLoca)
+        {
+            if (transformVersion is not (0 or 3)) return false;
+            transformed = transformVersion == 0;
+            return true;
+        }
+        if (isHmtx)
+        {
+            if (transformVersion is not (0 or 1)) return false;
+            transformed = transformVersion == 1;
+            return true;
+        }
+        return transformVersion == 0;
     }
 
     private static ContentTypeDetectionResult WoffResult(bool isWoff2, bool nonCanonicalReserved, string? sampledReason) {

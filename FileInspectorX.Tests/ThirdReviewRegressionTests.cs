@@ -33,7 +33,7 @@ public sealed class ThirdReviewRegressionTests
 
     [Fact]
     public void DeepTiledOpenExrIsAccepted()
-        => AssertParity(new byte[] { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x0A, 0x00, 0x00 }, "exr");
+        => AssertParity(TestHelpers.CreateMinimalOpenExr(0x00000A00), "exr");
 
     [Theory]
     [InlineData((ushort)0, "none")]
