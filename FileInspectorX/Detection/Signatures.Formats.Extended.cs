@@ -355,8 +355,8 @@ internal static partial class Signatures
     {
         result = null;
         if (!TryReadMatroskaDocumentType(src, out string? docType, out int headerEnd) ||
-            !TryFindMatroskaSegment(src, headerEnd, completeLength, out bool sampledRootVoid)) return false;
-        result = MatroskaResult(docType!, sampledRootVoid);
+            !TryFindMatroskaSegment(src, headerEnd, completeLength, out bool sampledRootVoid, out bool rootScanBudgetExceeded)) return false;
+        result = MatroskaResult(docType!, sampledRootVoid, rootScanBudgetExceeded);
         return true;
     }
 
@@ -382,11 +382,19 @@ internal static partial class Signatures
         return docType is "matroska" or "webm";
     }
 
-    private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor, long? completeLength, out bool sampledRootVoid)
+    private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor, long? completeLength,
+        out bool sampledRootVoid, out bool rootScanBudgetExceeded)
     {
         sampledRootVoid = false;
+        rootScanBudgetExceeded = false;
+        int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
         while (cursor < src.Length)
         {
+            if (remainingElements-- == 0)
+            {
+                rootScanBudgetExceeded = true;
+                return true;
+            }
             if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
             {
                 cursor += 4;
@@ -415,7 +423,8 @@ internal static partial class Signatures
         return false;
     }
 
-    private static ContentTypeDetectionResult MatroskaResult(string docType, bool sampledRootVoid = false)
+    private static ContentTypeDetectionResult MatroskaResult(string docType, bool sampledRootVoid = false,
+        bool rootScanBudgetExceeded = false)
     {
         var result = docType == "webm"
             ? BinaryResult("webm", "application/webm", "ebml:doctype=webm")
@@ -424,6 +433,11 @@ internal static partial class Signatures
         {
             result.Confidence = "Medium";
             result.Reason += ";sampled-root-void";
+        }
+        if (rootScanBudgetExceeded)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";root-scan-budget";
         }
         return result;
     }
@@ -442,8 +456,14 @@ internal static partial class Signatures
             int read = ReadHeaderBytes(stream, bytes);
             if (!TryReadMatroskaDocumentType(new ReadOnlySpan<byte>(bytes, 0, read), out string? docType, out int headerEnd)) return false;
             long cursor = headerEnd;
+            int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
             while (cursor < stream.Length)
             {
+                if (remainingElements-- == 0)
+                {
+                    result = MatroskaResult(docType!, rootScanBudgetExceeded: true);
+                    return true;
+                }
                 if (stream.Length - cursor >= 4 && TryReadAt(stream, cursor, 4, out var idBytes) &&
                     new ReadOnlySpan<byte>(idBytes).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
                 {

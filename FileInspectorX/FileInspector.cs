@@ -549,11 +549,13 @@ public static partial class FileInspector {
         if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchEvtx(stream, out var evtx) : Signatures.TryMatchEvtx(src, completeLength, out evtx)))
             return Finish(Enrich(evtx, src, stream, options));
-        if (Signatures.TryMatchMinidump(src, completeLength, out var minidump)) return Finish(Enrich(minidump, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchMinidump(stream, out var minidump) : Signatures.TryMatchMinidump(src, completeLength, out minidump)))
+            return Finish(Enrich(minidump, src, stream, options));
         if (Signatures.TryMatchProtectedDump(src, out var protectedDump)) return Finish(Enrich(protectedDump, src, stream, options));
         if (Signatures.TryMatchShellLink(src, completeLength, out var shellLink)) return Finish(Enrich(shellLink, src, stream, options));
         if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
-        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchRegistryHive(stream, out var hive) : Signatures.TryMatchRegistryHive(src, completeLength, out hive)))
+            return Finish(Enrich(hive, src, stream, options));
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchFtyp(stream, out var ftyp) : Signatures.TryMatchFtyp(src, completeLength, out ftyp)))
             return Finish(Enrich(ftyp, src, stream, options));
@@ -579,7 +581,8 @@ public static partial class FileInspector {
             return Finish(Enrich(dex, src, stream, options));
         if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, completeLength, out var cab)) return Finish(Enrich(cab, src, stream, options));
-        if (Signatures.TryMatchGlb(src, completeLength, out var glb)) return Finish(Enrich(glb, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchGlb(stream, out var glb) : Signatures.TryMatchGlb(src, completeLength, out glb)))
+            return Finish(Enrich(glb, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, completeLength, out tiff)))
             return Finish(Enrich(tiff, src, stream, options));
         // ISO requires file path offsets; skip here

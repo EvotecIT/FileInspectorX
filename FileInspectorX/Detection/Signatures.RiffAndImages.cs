@@ -38,8 +38,78 @@ internal static partial class Signatures {
         if (version != 2 || totalLength < 21 || (totalLength & 3) != 0 || contentType != 0x4E4F534A ||
             contentLength == 0 || (contentLength & 3) != 0 || contentLength > totalLength - 20 ||
             !HasGlbJsonObjectStart(src, 20, contentLength)) return false;
+        if (completeLength.HasValue && totalLength <= src.Length && !TryValidateGlbV2Chunks(src.Slice(0, (int)totalLength))) return false;
         result = GlbResult(version, completeLength.HasValue);
         return true;
+    }
+
+    internal static bool TryMatchGlb(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 20 || stream.Length > uint.MaxValue) return false;
+            int prefixLength = (int)Math.Min(stream.Length, Math.Max(20, Settings.DetectionReadBudgetBytes));
+            if (!TryReadAt(stream, 0, prefixLength, out var prefix)) return false;
+            var src = new ReadOnlySpan<byte>(prefix);
+            if (!TryMatchGlb(src, completeLength: null, out var sampled)) return false;
+            uint version = ReadUInt32LittleEndian(src, 4);
+            uint totalLength = ReadUInt32LittleEndian(src, 8);
+            if (totalLength != stream.Length) return false;
+            if (version == 1)
+            {
+                result = GlbResult(version, complete: true);
+                return true;
+            }
+
+            long cursor = 12;
+            int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            while (cursor < stream.Length)
+            {
+                if (remainingHeaders-- == 0)
+                {
+                    result = sampled;
+                    result!.Reason += ";chunk-scan-budget";
+                    return true;
+                }
+                if (stream.Length - cursor < 8 || !TryReadAt(stream, cursor, 8, out var chunkHeader)) return false;
+                var header = new ReadOnlySpan<byte>(chunkHeader);
+                uint chunkLength = ReadUInt32LittleEndian(header, 0);
+                uint chunkType = ReadUInt32LittleEndian(header, 4);
+                if ((chunkLength & 3) != 0 || chunkLength > stream.Length - cursor - 8 ||
+                    (cursor == 12 && chunkType != 0x4E4F534A)) return false;
+                cursor += 8 + chunkLength;
+            }
+            if (cursor != stream.Length) return false;
+            result = GlbResult(version, complete: true);
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryValidateGlbV2Chunks(ReadOnlySpan<byte> src)
+    {
+        int cursor = 12;
+        while (cursor < src.Length)
+        {
+            if (src.Length - cursor < 8) return false;
+            uint chunkLength = ReadUInt32LittleEndian(src, cursor);
+            uint chunkType = ReadUInt32LittleEndian(src, cursor + 4);
+            if ((chunkLength & 3) != 0 || chunkLength > (uint)(src.Length - cursor - 8) ||
+                (cursor == 12 && chunkType != 0x4E4F534A)) return false;
+            cursor += 8 + (int)chunkLength;
+        }
+        return cursor == src.Length;
     }
 
     private static ContentTypeDetectionResult GlbResult(uint version, bool complete) => new() {

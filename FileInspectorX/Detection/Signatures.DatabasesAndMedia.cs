@@ -9,6 +9,9 @@ internal static partial class Signatures {
     /// Recognizes Windows registry hive files.
     /// </summary>
     internal static bool TryMatchRegistryHive(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchRegistryHive(src, src.Length, out result);
+
+    internal static bool TryMatchRegistryHive(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 4096 || !src.Slice(0, 4).SequenceEqual("regf"u8)) return false;
@@ -22,22 +25,59 @@ internal static partial class Signatures {
         uint hiveBinsSize = ReadUInt32LittleEndian(src, 40);
         uint clustering = ReadUInt32LittleEndian(src, 44);
         if (primarySequence == 0 || secondarySequence == 0 || major != 1 || minor is < 3 or > 6 ||
-            fileType != 0 || fileFormat != 1 || rootCellOffset < 0x20 || hiveBinsSize == 0 || (hiveBinsSize & 0xFFF) != 0 || clustering != 1)
+            fileType != 0 || fileFormat != 1 || rootCellOffset < 0x20 || hiveBinsSize == 0 ||
+            rootCellOffset >= hiveBinsSize || (hiveBinsSize & 0xFFF) != 0 || clustering != 1)
             return false;
         uint checksum = 0;
         for (int offset = 0; offset < 0x1FC; offset += 4) checksum ^= ReadUInt32LittleEndian(src, offset);
         if (checksum == 0) checksum = 1;
         else if (checksum == uint.MaxValue) checksum = 0xFFFFFFFE;
         if (checksum != ReadUInt32LittleEndian(src, 0x1FC)) return false;
+        ulong requiredLength = 4096UL + hiveBinsSize;
+        if (completeLength < 0 || (completeLength.HasValue && requiredLength > (ulong)completeLength.Value)) return false;
+        bool hasHiveBinHeader = src.Length >= 4108;
+        if (hasHiveBinHeader)
+        {
+            uint firstBinOffset = ReadUInt32LittleEndian(src, 4100);
+            uint firstBinSize = ReadUInt32LittleEndian(src, 4104);
+            if (!src.Slice(4096, 4).SequenceEqual("hbin"u8) || firstBinOffset != 0 ||
+                firstBinSize < 4096 || (firstBinSize & 0xFFF) != 0 || firstBinSize > hiveBinsSize) return false;
+        }
+        else if (completeLength.HasValue)
+        {
+            return false;
+        }
         bool dirty = primarySequence != secondarySequence;
         result = new ContentTypeDetectionResult {
             Extension = "hive",
             MimeType = "application/x-windows-registry-hive",
-            Confidence = dirty ? "Medium" : "High",
-            Reason = dirty ? "registry-hive:base-block:dirty" : "registry-hive:base-block",
+            Confidence = dirty || !hasHiveBinHeader ? "Medium" : "High",
+            Reason = dirty ? "registry-hive:base-block:dirty" :
+                hasHiveBinHeader ? "registry-hive:base-block+hbin" : "registry-hive:base-block;sampled-hbin",
             ReasonDetails = dirty ? $"registry-hive:sequence-mismatch={primarySequence}/{secondarySequence};recovery-may-be-required" : null
         };
         return true;
+    }
+
+    internal static bool TryMatchRegistryHive(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            return stream.Length >= 4108 && TryReadAt(stream, 0, 4108, out var header) &&
+                   TryMatchRegistryHive(new ReadOnlySpan<byte>(header), stream.Length, out result);
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     /// <summary>
@@ -95,18 +135,17 @@ internal static partial class Signatures {
 
     internal static bool TryMatchEvtx(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
-        if (src.Length < 128 || !src.Slice(0, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'F', (byte)'i', (byte)'l', (byte)'e', 0 })) return false;
-        uint headerSize = ReadUInt32LittleEndian(src, 0x20);
-        ushort minor = ReadUInt16LittleEndian(src, 0x24);
-        ushort major = ReadUInt16LittleEndian(src, 0x26);
-        ushort blockSize = ReadUInt16LittleEndian(src, 0x28);
-        ushort chunkCount = ReadUInt16LittleEndian(src, 0x2A);
-        long requiredLength = 4096L + chunkCount * 65536L;
-        if (headerSize != 128 || major != 3 || minor != 1 || blockSize != 4096 || chunkCount == 0 ||
-            completeLength < 0 || (completeLength.HasValue && requiredLength > completeLength.Value)) return false;
-        bool hasChunkSignature = src.Length >= 4104 && src.Slice(4096, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 });
-        if (src.Length >= 4104 && !hasChunkSignature) return false;
-        result = EvtxResult(hasChunkSignature && completeLength.HasValue);
+        if (!TryReadEvtxHeader(src, completeLength, out ushort chunkCount, out long requiredLength)) return false;
+        int validatedChunks = 0;
+        for (int index = 0; index < chunkCount; index++)
+        {
+            long offset = 4096L + index * 65536L;
+            if (offset + 8 > src.Length) break;
+            if (!src.Slice((int)offset, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 })) return false;
+            validatedChunks++;
+        }
+        bool complete = completeLength.HasValue && requiredLength <= src.Length && validatedChunks == chunkCount;
+        result = EvtxResult(complete);
         return true;
     }
 
@@ -116,10 +155,16 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try {
             if (stream.Length < 4104 || !TryReadAt(stream, 0, 128, out var header) ||
-                !TryMatchEvtx(new ReadOnlySpan<byte>(header), stream.Length, out _) ||
-                !TryReadAt(stream, 4096, 8, out var chunk) ||
-                !new ReadOnlySpan<byte>(chunk).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 })) return false;
-            result = EvtxResult(complete: true);
+                !TryReadEvtxHeader(new ReadOnlySpan<byte>(header), stream.Length, out ushort chunkCount, out _)) return false;
+            int maxChunks = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            int validatedChunks = Math.Min(chunkCount, maxChunks);
+            for (int index = 0; index < validatedChunks; index++)
+            {
+                long offset = 4096L + index * 65536L;
+                if (!TryReadAt(stream, offset, 8, out var chunk) ||
+                    !new ReadOnlySpan<byte>(chunk).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'C', (byte)'h', (byte)'n', (byte)'k', 0 })) return false;
+            }
+            result = EvtxResult(complete: validatedChunks == chunkCount);
             return true;
         } catch {
             result = null;
@@ -127,6 +172,22 @@ internal static partial class Signatures {
         } finally {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
+
+    private static bool TryReadEvtxHeader(ReadOnlySpan<byte> src, long? completeLength,
+        out ushort chunkCount, out long requiredLength)
+    {
+        chunkCount = 0;
+        requiredLength = 0;
+        if (src.Length < 128 || !src.Slice(0, 8).SequenceEqual(new byte[] { (byte)'E', (byte)'l', (byte)'f', (byte)'F', (byte)'i', (byte)'l', (byte)'e', 0 })) return false;
+        uint headerSize = ReadUInt32LittleEndian(src, 0x20);
+        ushort minor = ReadUInt16LittleEndian(src, 0x24);
+        ushort major = ReadUInt16LittleEndian(src, 0x26);
+        ushort blockSize = ReadUInt16LittleEndian(src, 0x28);
+        chunkCount = ReadUInt16LittleEndian(src, 0x2A);
+        requiredLength = 4096L + chunkCount * 65536L;
+        return headerSize == 128 && major == 3 && minor == 1 && blockSize == 4096 && chunkCount != 0 &&
+               (!completeLength.HasValue || completeLength.Value >= 0 && requiredLength <= completeLength.Value);
     }
 
     private static ContentTypeDetectionResult EvtxResult(bool complete) => new() {
@@ -149,16 +210,72 @@ internal static partial class Signatures {
         uint version = ReadUInt32LittleEndian(src, 4);
         uint streams = ReadUInt32LittleEndian(src, 8);
         uint directoryRva = ReadUInt32LittleEndian(src, 12);
-        if ((version & 0xFFFF) != 0xA793 || streams > 65535 ||
+        if ((version & 0xFFFF) != 0xA793 || streams > 65535 || completeLength < 0 ||
             (streams == 0 ? directoryRva != 0 : directoryRva < 32) ||
             (streams != 0 && completeLength.HasValue && directoryRva + streams * 12L > completeLength.Value)) return false;
+        bool complete = streams == 0;
+        if (streams != 0 && directoryRva + streams * 12L <= src.Length)
+        {
+            if (!completeLength.HasValue || !TryValidateMinidumpDirectory(
+                    src.Slice((int)directoryRva, (int)streams * 12), completeLength.Value)) return false;
+            complete = true;
+        }
         result = new ContentTypeDetectionResult
         {
             Extension = "dmp",
             MimeType = "application/x-ms-minidump",
-            Confidence = "High",
-            Reason = streams == 0 ? "dmp:minidump-header;empty-directory" : "dmp:minidump-header"
+            Confidence = complete ? "High" : "Medium",
+            Reason = streams == 0 ? "dmp:minidump-header;empty-directory" :
+                complete ? "dmp:minidump-header+stream-ranges" : "dmp:minidump-header;sampled-directory"
         };
+        return true;
+    }
+
+    internal static bool TryMatchMinidump(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 32 || !TryReadAt(stream, 0, 32, out var header)) return false;
+            var src = new ReadOnlySpan<byte>(header);
+            if (!src.Slice(0, 4).SequenceEqual("MDMP"u8) || (ReadUInt32LittleEndian(src, 4) & 0xFFFF) != 0xA793) return false;
+            uint streams = ReadUInt32LittleEndian(src, 8);
+            uint directoryRva = ReadUInt32LittleEndian(src, 12);
+            if (streams > 65535 || (streams == 0 ? directoryRva != 0 : directoryRva < 32) ||
+                directoryRva + streams * 12L > stream.Length) return false;
+            if (streams == 0) return TryMatchMinidump(src, stream.Length, out result);
+            long directoryLength = streams * 12L;
+            if (directoryLength > Math.Max(32, Settings.DetectionReadBudgetBytes))
+            {
+                result = new ContentTypeDetectionResult { Extension = "dmp", MimeType = "application/x-ms-minidump", Confidence = "Medium", Reason = "dmp:minidump-header;directory-budget" };
+                return true;
+            }
+            if (!TryReadAt(stream, directoryRva, (int)directoryLength, out var directory) ||
+                !TryValidateMinidumpDirectory(new ReadOnlySpan<byte>(directory), stream.Length)) return false;
+            result = new ContentTypeDetectionResult { Extension = "dmp", MimeType = "application/x-ms-minidump", Confidence = "High", Reason = "dmp:minidump-header+stream-ranges" };
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryValidateMinidumpDirectory(ReadOnlySpan<byte> directory, long completeLength)
+    {
+        for (int offset = 0; offset < directory.Length; offset += 12)
+        {
+            uint size = ReadUInt32LittleEndian(directory, offset + 4);
+            uint rva = ReadUInt32LittleEndian(directory, offset + 8);
+            if (size != 0 && (rva > completeLength || size > completeLength - rva)) return false;
+        }
         return true;
     }
 

@@ -193,6 +193,9 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt32LittleEndian(bytes, 36, 0x20);
         WriteUInt32LittleEndian(bytes, 40, 0x1000);
         WriteUInt32LittleEndian(bytes, 44, 1);
+        Encoding.ASCII.GetBytes("hbin").CopyTo(bytes, 4096);
+        WriteUInt32LittleEndian(bytes, 4100, 0);
+        WriteUInt32LittleEndian(bytes, 4104, 0x1000);
         uint checksum = 0;
         for (int offset = 0; offset < 0x1FC; offset += 4) checksum ^= ReadUInt32LittleEndian(bytes, offset);
         WriteUInt32LittleEndian(bytes, 0x1FC, checksum);

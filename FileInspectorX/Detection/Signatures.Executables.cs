@@ -91,7 +91,7 @@ internal static partial class Signatures {
         uint commandBytes = ReadUInt32(src, 20, littleEndian);
         uint commandAlignment = is64Bit ? 8u : 4u;
 
-        if (!IsKnownMachCpuType(cpuType) || fileType < 1 || fileType > 12) return false;
+        if (!IsKnownMachCpuType(cpuType) || fileType < 1 || fileType > 14) return false;
         if ((commandBytes % commandAlignment) != 0) return false;
         if (commandCount == 0) {
             if (commandBytes != 0) return false;
@@ -160,7 +160,7 @@ internal static partial class Signatures {
                 !TryReadJavaU2(stream, out ushort minor) ||
                 !TryReadJavaU2(stream, out ushort major) ||
                 !TryReadJavaU2(stream, out ushort constantPoolCount) ||
-                major < 45 || major > 100 || constantPoolCount < 2) return false;
+                !IsDefinedJavaClassVersion(major, minor) || constantPoolCount < 2) return false;
 
             var constantPoolTags = new byte[constantPoolCount];
             var constantPoolReference1 = new ushort[constantPoolCount];
@@ -384,7 +384,7 @@ internal static partial class Signatures {
         minor = ReadUInt16BigEndian(src, 4);
         major = ReadUInt16BigEndian(src, 6);
         ushort constantPoolCount = ReadUInt16BigEndian(src, 8);
-        if (major < 45 || major > 100 || constantPoolCount < 2) return JavaSampleStatus.Invalid;
+        if (!IsDefinedJavaClassVersion(major, minor) || constantPoolCount < 2) return JavaSampleStatus.Invalid;
 
         var constantPoolTags = new byte[constantPoolCount];
         var constantPoolReference1 = new ushort[constantPoolCount];
@@ -508,6 +508,9 @@ internal static partial class Signatures {
         Confidence = "High",
         Reason = $"java-class:{major}.{minor}"
     };
+
+    private static bool IsDefinedJavaClassVersion(ushort major, ushort minor)
+        => major is >= 45 and <= 100 && (major < 56 || minor is 0 or ushort.MaxValue);
 
     private static bool AreJavaConstantPoolReferencesValid(byte[] tags, ushort[] reference1,
         ushort[] reference2, byte[] referenceKinds, ushort major) {

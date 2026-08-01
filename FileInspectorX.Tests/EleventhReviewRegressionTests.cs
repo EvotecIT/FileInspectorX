@@ -199,6 +199,11 @@ public sealed class EleventhReviewRegressionTests
         WriteUInt32LittleEndian(bytes, 12, 4);
         WriteUInt32LittleEndian(bytes, 16, 0x4E4F534A);
         Encoding.ASCII.GetBytes("{}  ").CopyTo(bytes, 20);
+        if (length > 24)
+        {
+            WriteUInt32LittleEndian(bytes, 24, (uint)length - 32);
+            WriteUInt32LittleEndian(bytes, 28, 0x004E4942);
+        }
         return bytes;
     }
 

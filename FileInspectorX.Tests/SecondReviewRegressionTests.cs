@@ -172,6 +172,8 @@ public sealed class SecondReviewRegressionTests
         WriteUInt32LittleEndian(bytes, 12, 4);
         WriteUInt32LittleEndian(bytes, 16, 0x4E4F534A);
         Encoding.ASCII.GetBytes("{}  ").CopyTo(bytes, 20);
+        WriteUInt32LittleEndian(bytes, 24, (uint)bytes.Length - 32);
+        WriteUInt32LittleEndian(bytes, 28, 0x004E4942);
         return bytes;
     }
 
@@ -265,6 +267,9 @@ public sealed class SecondReviewRegressionTests
         WriteUInt32LittleEndian(bytes, 36, 0x20);
         WriteUInt32LittleEndian(bytes, 40, 0x1000);
         WriteUInt32LittleEndian(bytes, 44, 1);
+        Encoding.ASCII.GetBytes("hbin").CopyTo(bytes, 4096);
+        WriteUInt32LittleEndian(bytes, 4100, 0);
+        WriteUInt32LittleEndian(bytes, 4104, 0x1000);
         uint current = 0;
         for (int offset = 0; offset < 0x1FC; offset += 4) current ^= ReadUInt32LittleEndian(bytes, offset);
         WriteUInt32LittleEndian(bytes, 0x100, current ^ calculated);
