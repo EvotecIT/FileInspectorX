@@ -4,6 +4,7 @@ namespace FileInspectorX;
 /// Database/media container signatures (SQLite, MP4/HEIF ftyp box family).
 /// </summary>
 internal static partial class Signatures {
+    private const ulong FtypCompatibilityScanBudget = 1UL << 20;
     /// <summary>
     /// Recognizes Windows registry hive files.
     /// </summary>
@@ -281,7 +282,10 @@ internal static partial class Signatures {
             if ((boxLength & 3) != 0 || boxLength > (ulong)stream.Length) return false;
             var brand = header.Slice(brandOffset, 4).ToArray();
             FtypBrandKind kinds = GetFtypBrandKind(brand);
-            long remaining = (long)boxLength - compatibleOffset;
+            ulong compatibilityLength = boxLength - (ulong)compatibleOffset;
+            if (compatibilityLength > FtypCompatibilityScanBudget)
+                return TryCreateFtypResult(brand, kinds, completeBox: false, out result);
+            long remaining = (long)compatibilityLength;
             stream.Seek(compatibleOffset, SeekOrigin.Begin);
             var buffer = new byte[4096];
             while (remaining > 0) {

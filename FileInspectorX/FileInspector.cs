@@ -514,7 +514,8 @@ public static partial class FileInspector {
         if (!stream.CanSeek && completeLength.HasValue && Signatures.TryMatchCompleteContainers(src, out var completeContainer))
             return Finish(Enrich(completeContainer, src, stream, options));
 
-        if (stream.CanSeek && Signatures.TryMatchPe(stream, out var seekablePe)) return Finish(Enrich(seekablePe, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchPe(stream, out var validatedPe) : Signatures.TryMatchPe(src, completeLength, out validatedPe)))
+            return Finish(Enrich(validatedPe, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
         if (!stream.CanSeek && Signatures.TryMatchPcapNg(src, completeLength, out var sampledPcapNg)) return Finish(Enrich(sampledPcapNg, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchCrx(stream, out var seekableCrx)) return Finish(Enrich(seekableCrx, src, stream, options));
@@ -575,7 +576,7 @@ public static partial class FileInspector {
         if (Signatures.TryMatchMachO(src, completeLength, out var macho)) return Finish(Enrich(macho, src, stream, options));
         if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
         if (Signatures.TryMatchGlb(src, completeLength, out var glb)) return Finish(Enrich(glb, src, stream, options));
-        if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, out tiff)))
+        if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, completeLength, out tiff)))
             return Finish(Enrich(tiff, src, stream, options));
         // ISO requires file path offsets; skip here
 

@@ -386,7 +386,7 @@ internal static partial class Signatures {
             mime = "font/ttf";
             return true;
         }
-        if (flavor == 0x4F54544F) {
+        if (flavor is 0x4F54544F or 0x74797031) {
             extension = "otf";
             mime = "font/otf";
             return true;

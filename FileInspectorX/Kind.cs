@@ -60,7 +60,7 @@ public static class KindClassifier {
         if (ext is "rpm" or "deb" or "crx" or "apk" or "jar" or "ipa" or "vsix" or "appx" or "msix" or "xap" or "nupkg" ||
             guessed is "apk" or "jar" or "ipa" or "vsix" or "appx" or "msix" or "xap" or "nupkg") return ContentKind.Package;
         if (ext is "qcow2" or "vhd" or "vhdx" or "dmg" or "iso" or "udf") return ContentKind.DiskImage;
-        if (ext is "pcap" or "pcapng" or "etl" or "dmp" or "mdmp") return ContentKind.Capture;
+        if (ext is "pcap" or "pcapng" or "etl" or "evtx" or "dmp" or "mdmp") return ContentKind.Capture;
         if (ext is "ttf" or "otf" or "woff" or "woff2" or "ttc" or "otc") return ContentKind.Font;
         if (ext is "parquet" or "arrow" or "h5" or "hdf5" or "nc") return ContentKind.StructuredData;
         if (ext == "dcm") return ContentKind.Medical;

@@ -94,7 +94,7 @@ internal static partial class Signatures
         uint centralOffset = ReadUInt32LittleEndian(src, 16);
         ushort commentLength = ReadUInt16LittleEndian(src, 20);
         if (disk != 0 || centralDisk != 0 || entriesOnDisk != entriesTotal ||
-            (entriesTotal == 0) != (centralSize == 0 && centralOffset == 0) ||
+            entriesTotal != 0 || centralSize != 0 || centralOffset != 0 ||
             22L + commentLength != completeLength.Value) return false;
         result = BinaryResult("zip", "application/zip", "zip:end-of-central-directory");
         return true;
@@ -130,7 +130,7 @@ internal static partial class Signatures
             uint centralOffset = ReadUInt32LittleEndian(src, 16);
             ushort commentLength = ReadUInt16LittleEndian(src, 20);
             if (disk != 0 || centralDisk != 0 || entriesOnDisk != entriesTotal ||
-                (entriesTotal == 0) != (centralSize == 0 && centralOffset == 0) ||
+                entriesTotal != 0 || centralSize != 0 || centralOffset != 0 ||
                 22L + commentLength != stream.Length) return false;
             result = BinaryResult("zip", "application/zip", "zip:end-of-central-directory");
             return true;
@@ -202,12 +202,34 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPe(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchPe(src, src.Length, out result);
+
+    internal static bool TryMatchPe(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 0x40 || src[0] != (byte)'M' || src[1] != (byte)'Z') return false;
         uint peOffset = ReadUInt32LittleEndian(src, 0x3C);
-        if (peOffset < 0x40 || peOffset > int.MaxValue || peOffset + 26L > src.Length) return false;
-        return TryValidatePeHeader(src.Slice((int)peOffset), peOffset, src.Length, out result);
+        if (peOffset < 0x40 || peOffset > int.MaxValue ||
+            (completeLength.HasValue && peOffset + 26L > completeLength.Value)) return false;
+        if (peOffset + 26L <= src.Length)
+        {
+            if (!TryValidatePeHeader(src.Slice((int)peOffset), peOffset, completeLength ?? long.MaxValue, out result)) return false;
+            if (!completeLength.HasValue && peOffset + 24L + ReadUInt16LittleEndian(src, (int)peOffset + 20) > src.Length)
+            {
+                result!.Confidence = "Medium";
+                result.Reason += ";sampled-optional-header";
+            }
+            return true;
+        }
+        if (completeLength.HasValue) return false;
+        result = new ContentTypeDetectionResult
+        {
+            Extension = "exe",
+            MimeType = "application/x-msdownload",
+            Confidence = "Medium",
+            Reason = "pe:dos-header;sampled-pe-offset"
+        };
+        return true;
     }
 
     internal static bool TryMatchPe(Stream stream, out ContentTypeDetectionResult? result)

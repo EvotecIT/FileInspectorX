@@ -206,11 +206,33 @@ internal static partial class Signatures
     private static bool TryMatchQoi(Stream stream, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (stream.Length < 22 || !TryReadAt(stream, 0, 14, out var header) || !TryReadAt(stream, stream.Length - 8, 8, out var end)) return false;
-        if (!TryMatchQoi(new ReadOnlySpan<byte>(header), out var headerResult) || !new ReadOnlySpan<byte>(end).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0, 1 })) return false;
+        if (stream.Length < 23 || !TryReadAt(stream, 0, 14, out var header) || !TryReadAt(stream, stream.Length - 8, 8, out var end)) return false;
+        if (!TryMatchQoi(new ReadOnlySpan<byte>(header), out var headerResult) ||
+            !new ReadOnlySpan<byte>(end).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0, 1 })) return false;
+        var headerSpan = new ReadOnlySpan<byte>(header);
+        ulong expectedPixels = (ulong)ReadUInt32BigEndian(headerSpan, 4) * ReadUInt32BigEndian(headerSpan, 8);
+        long dataEnd = stream.Length - 8;
+        long cursor = 14;
+        ulong pixels = 0;
+        stream.Seek(cursor, SeekOrigin.Begin);
+        while (cursor < dataEnd && pixels < expectedPixels)
+        {
+            int current = stream.ReadByte();
+            if (current < 0) return false;
+            cursor++;
+            byte operation = (byte)current;
+            int payloadLength = operation == 0xFE ? 3 : operation == 0xFF ? 4 : (operation & 0xC0) == 0x80 ? 1 : 0;
+            ulong produced = (operation & 0xC0) == 0xC0 && operation < 0xFE ? (ulong)(operation & 0x3F) + 1 : 1;
+            if (cursor + payloadLength > dataEnd || produced > expectedPixels - pixels) return false;
+            for (int index = 0; index < payloadLength; index++)
+                if (stream.ReadByte() < 0) return false;
+            cursor += payloadLength;
+            pixels += produced;
+        }
+        if (pixels != expectedPixels || cursor != dataEnd) return false;
         result = headerResult;
         result!.Confidence = "High";
-        result.Reason = "qoi:header+end-marker";
+        result.Reason = "qoi:header+pixel-stream+end-marker";
         return true;
     }
 

@@ -161,13 +161,48 @@ internal static partial class Signatures
         if (width == 0 || height == 0 || channels is not (3 or 4) || colorSpace > 1) return false;
         string confidence = "Medium";
         string reason = "qoi:header";
-        if (src.Length >= 22 && src.Slice(src.Length - 8, 8).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0, 1 }))
+        ulong pixelCount = (ulong)width * height;
+        if (src.Length >= 23 && src.Slice(src.Length - 8, 8).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0, 1 }) &&
+            TryValidateQoiChunks(src.Slice(14, src.Length - 22), pixelCount))
         {
             confidence = "High";
-            reason += "+end-marker";
+            reason += "+pixel-stream+end-marker";
         }
         result = new ContentTypeDetectionResult { Extension = "qoi", MimeType = "image/qoi", Confidence = confidence, Reason = reason };
         return true;
+    }
+
+    private static bool TryValidateQoiChunks(ReadOnlySpan<byte> chunks, ulong expectedPixels)
+    {
+        ulong pixels = 0;
+        int cursor = 0;
+        while (cursor < chunks.Length && pixels < expectedPixels)
+        {
+            byte operation = chunks[cursor++];
+            ulong produced = 1;
+            if (operation == 0xFE)
+            {
+                if (cursor + 3 > chunks.Length) return false;
+                cursor += 3;
+            }
+            else if (operation == 0xFF)
+            {
+                if (cursor + 4 > chunks.Length) return false;
+                cursor += 4;
+            }
+            else if ((operation & 0xC0) == 0x80)
+            {
+                if (cursor >= chunks.Length) return false;
+                cursor++;
+            }
+            else if ((operation & 0xC0) == 0xC0)
+            {
+                produced = (ulong)(operation & 0x3F) + 1;
+            }
+            if (produced > expectedPixels - pixels) return false;
+            pixels += produced;
+        }
+        return pixels == expectedPixels && cursor == chunks.Length;
     }
 
     internal static bool TryMatchDicom(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

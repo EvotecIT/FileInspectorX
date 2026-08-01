@@ -51,10 +51,34 @@ internal static partial class Signatures {
         return false;
     }
 
-    internal static bool TryMatchTiff(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
+    internal static bool TryMatchTiff(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchTiff(src, src.Length, out result);
+
+    internal static bool TryMatchTiff(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
         result = null;
         if (!TryReadTiffHeader(src, out bool littleEndian, out bool isBigTiff, out ulong firstIfd)) return false;
-        if (!TryValidateTiffIfd(src, firstIfd, littleEndian, isBigTiff, (ulong)src.Length)) return false;
+        int countSize = isBigTiff ? 8 : 2;
+        if (completeLength < 0 || firstIfd > ulong.MaxValue - (uint)countSize) return false;
+        ulong directoryCountEnd = firstIfd + (uint)countSize;
+        if (completeLength.HasValue && directoryCountEnd > (ulong)completeLength.Value) return false;
+        if (directoryCountEnd > (ulong)src.Length) {
+            if (completeLength.HasValue) return false;
+            result = TiffResult(littleEndian, isBigTiff);
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-ifd-offset";
+            return true;
+        }
+        int offset = (int)firstIfd;
+        ulong entries = isBigTiff ? ReadUInt64(src, offset, littleEndian) : ReadUInt16(src, offset, littleEndian);
+        if (!completeLength.HasValue && !IsTiffDirectoryRangeValid(firstIfd, entries, isBigTiff, (ulong)src.Length)) {
+            if (!IsTiffDirectoryRangeValid(firstIfd, entries, isBigTiff, ulong.MaxValue)) return false;
+            result = TiffResult(littleEndian, isBigTiff);
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-ifd-directory";
+            return true;
+        }
+        ulong validationLength = completeLength.HasValue ? (ulong)completeLength.Value : (ulong)src.Length;
+        if (!IsTiffDirectoryRangeValid(firstIfd, entries, isBigTiff, validationLength)) return false;
         result = TiffResult(littleEndian, isBigTiff);
         return true;
     }
@@ -103,20 +127,14 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool TryValidateTiffIfd(ReadOnlySpan<byte> src, ulong firstIfd, bool littleEndian, bool isBigTiff, ulong completeLength) {
-        int countSize = isBigTiff ? 8 : 2;
-        if (firstIfd > int.MaxValue || firstIfd + (uint)countSize > (ulong)src.Length) return false;
-        int offset = (int)firstIfd;
-        ulong entries = isBigTiff ? ReadUInt64(src, offset, littleEndian) : ReadUInt16(src, offset, littleEndian);
-        return IsTiffDirectoryRangeValid(firstIfd, entries, isBigTiff, completeLength);
-    }
-
     private static bool IsTiffDirectoryRangeValid(ulong firstIfd, ulong entries, bool isBigTiff, ulong completeLength) {
         ulong countSize = isBigTiff ? 8UL : 2UL;
         ulong entrySize = isBigTiff ? 20UL : 12UL;
         ulong nextOffsetSize = isBigTiff ? 8UL : 4UL;
-        if (firstIfd > completeLength || entries > (ulong.MaxValue - firstIfd - countSize - nextOffsetSize) / entrySize) return false;
-        return firstIfd + countSize + entries * entrySize + nextOffsetSize <= completeLength;
+        if (firstIfd > completeLength || firstIfd > ulong.MaxValue - countSize - nextOffsetSize) return false;
+        ulong fixedLength = firstIfd + countSize + nextOffsetSize;
+        if (entries > (ulong.MaxValue - fixedLength) / entrySize) return false;
+        return fixedLength + entries * entrySize <= completeLength;
     }
 
     private static ContentTypeDetectionResult TiffResult(bool littleEndian, bool isBigTiff) => new() {
