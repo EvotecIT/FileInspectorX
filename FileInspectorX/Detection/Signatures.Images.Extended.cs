@@ -613,7 +613,7 @@ internal static partial class Signatures {
             if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
             else
             {
-                header |= type == (brand == 0x6A707820 ? 0x6A707868u : 0x6A703268u);
+                header |= type == GetJpeg2000HeaderBoxType(brand);
                 data |= header && type == 0x6A703263;
             }
             cursor += (int)boxLength;
@@ -681,7 +681,7 @@ internal static partial class Signatures {
                 if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
                 else
                 {
-                    header |= type == (brand == 0x6A707820 ? 0x6A707868u : 0x6A703268u);
+                    header |= type == GetJpeg2000HeaderBoxType(brand);
                     data |= header && type == 0x6A703263;
                 }
                 cursor += boxLength;
@@ -716,4 +716,7 @@ internal static partial class Signatures {
         else if (brand == 0x6D6A7032) { extension = "mj2"; mime = "video/mj2"; }
         return extension.Length != 0;
     }
+
+    private static uint GetJpeg2000HeaderBoxType(uint brand)
+        => brand == 0x6A707820 ? 0x6A707868u : brand == 0x6A706D20 ? 0x6A706D68u : 0x6A703268u;
 }

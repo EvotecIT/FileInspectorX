@@ -229,6 +229,8 @@ internal static partial class Signatures
     private static bool TryValidateDebTarMember(Stream stream, string name, long offset, long length, out bool tarValidated)
     {
         tarValidated = false;
+        if (name is "control.tar" or "data.tar")
+            return TryValidateCompleteTarArchive(stream, offset, length, out tarValidated);
         int prefixLength = (int)Math.Min(length, 512);
         return prefixLength > 0 && TryReadAt(stream, offset, prefixLength, out var prefix) &&
                TryValidateDebTarMember(name, new ReadOnlySpan<byte>(prefix), out tarValidated, length);
@@ -239,11 +241,7 @@ internal static partial class Signatures
         tarValidated = false;
         long length = completeLength ?? payload.Length;
         if (name is "control.tar" or "data.tar")
-        {
-            if (length < 265 || payload.Length < 265 || !TryMatchTar(payload, out _)) return false;
-            tarValidated = true;
-            return true;
-        }
+            return length == payload.Length && TryValidateCompleteTarArchive(payload, out tarValidated);
         if (name.EndsWith(".tar.gz", StringComparison.Ordinal)) return length >= 10 && payload.Length >= 10 && TryMatchGzip(payload, out _);
         if (name.EndsWith(".tar.bz2", StringComparison.Ordinal)) return length >= 10 && payload.Length >= 10 && TryMatchBzip2(payload, out _);
         if (name.EndsWith(".tar.xz", StringComparison.Ordinal))
@@ -264,6 +262,103 @@ internal static partial class Signatures
         uint highestBit = 1;
         while (highestBit <= dictionarySize / 2) highestBit <<= 1;
         return dictionarySize == highestBit || dictionarySize - highestBit == highestBit / 2;
+    }
+
+    private static bool TryValidateCompleteTarArchive(ReadOnlySpan<byte> archive, out bool complete)
+    {
+        complete = false;
+        if (archive.Length < 1536 || (archive.Length & 511) != 0) return false;
+        long cursor = 0;
+        bool sawHeader = false;
+        int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
+        while (cursor <= archive.Length - 512)
+        {
+            if (remainingHeaders-- == 0) return sawHeader;
+            var header = archive.Slice((int)cursor, 512);
+            if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
+            if (zeroBlock)
+            {
+                if (!sawHeader || cursor > archive.Length - 1024 ||
+                    !IsAllZero(archive.Slice((int)cursor + 512, 512))) return false;
+                complete = true;
+                return true;
+            }
+            sawHeader = true;
+            if (paddedDataLength > (ulong)(archive.Length - cursor - 512)) return false;
+            cursor += 512 + (long)paddedDataLength;
+        }
+        return false;
+    }
+
+    private static bool TryValidateCompleteTarArchive(Stream stream, long offset, long length, out bool complete)
+    {
+        complete = false;
+        if (offset < 0 || length < 1536 || (length & 511) != 0 || offset > stream.Length - length) return false;
+        long cursor = 0;
+        bool sawHeader = false;
+        int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
+        while (cursor <= length - 512)
+        {
+            if (remainingHeaders-- == 0) return sawHeader;
+            if (!TryReadAt(stream, offset + cursor, 512, out var headerBytes)) return false;
+            var header = new ReadOnlySpan<byte>(headerBytes);
+            if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
+            if (zeroBlock)
+            {
+                if (!sawHeader || cursor > length - 1024 ||
+                    !TryReadAt(stream, offset + cursor + 512, 512, out var secondZero) ||
+                    !IsAllZero(new ReadOnlySpan<byte>(secondZero))) return false;
+                complete = true;
+                return true;
+            }
+            sawHeader = true;
+            if (paddedDataLength > (ulong)(length - cursor - 512)) return false;
+            cursor += 512 + (long)paddedDataLength;
+        }
+        return false;
+    }
+
+    private static bool TryReadTarHeader(ReadOnlySpan<byte> header, out ulong paddedDataLength, out bool zeroBlock)
+    {
+        paddedDataLength = 0;
+        zeroBlock = IsAllZero(header);
+        if (zeroBlock) return true;
+        if (header.Length != 512 || !header.Slice(257, 5).SequenceEqual("ustar"u8) ||
+            !TryReadTarOctal(header.Slice(124, 12), out ulong dataLength) ||
+            !TryReadTarOctal(header.Slice(148, 8), out ulong storedChecksum)) return false;
+        ulong checksum = 0;
+        for (int index = 0; index < header.Length; index++)
+            checksum += index is >= 148 and < 156 ? 0x20u : header[index];
+        if (checksum != storedChecksum || dataLength > ulong.MaxValue - 511) return false;
+        paddedDataLength = (dataLength + 511) & ~511UL;
+        return true;
+    }
+
+    private static bool TryReadTarOctal(ReadOnlySpan<byte> field, out ulong value)
+    {
+        value = 0;
+        bool sawDigit = false;
+        bool terminated = false;
+        foreach (byte current in field)
+        {
+            if (current is 0 or 0x20)
+            {
+                terminated |= sawDigit;
+                continue;
+            }
+            if (terminated || current is < (byte)'0' or > (byte)'7' || value > (ulong.MaxValue - 7) / 8)
+                return false;
+            sawDigit = true;
+            value = value * 8 + (uint)(current - (byte)'0');
+        }
+        return sawDigit;
+    }
+
+    private static bool IsAllZero(ReadOnlySpan<byte> value)
+    {
+        foreach (byte current in value)
+            if (current != 0) return false;
+        return true;
     }
 
     private static bool TryMatchVhdx(Stream stream, out ContentTypeDetectionResult? result)

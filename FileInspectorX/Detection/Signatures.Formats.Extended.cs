@@ -158,6 +158,7 @@ internal static partial class Signatures
             if (src.Length < 104) return false;
             uint headerLength = ReadUInt32BigEndian(src, 100);
             if (headerLength < 104 || (headerLength & 7) != 0 ||
+                headerLength > clusterSize ||
                 (completeLength.HasValue && headerLength > completeLength.Value)) return false;
             if (cryptMethod == 2 && !TryValidateQcow2LuksExtension(src, headerLength, clusterSize, completeLength)) return false;
         }

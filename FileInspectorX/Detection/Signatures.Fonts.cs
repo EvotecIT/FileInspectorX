@@ -43,13 +43,28 @@ internal static partial class Signatures {
             var header = new ReadOnlySpan<byte>(collectionHeader);
             if (!TryValidateTtcDsigHeader(header, version, fontCount, stream.Length)) return false;
             bool anyCff = false;
+            long directoryReadBudget = Math.Max(collectionHeaderLength, Math.Max(256, Settings.DetectionReadBudgetBytes));
+            long remainingDirectoryReadBudget = directoryReadBudget - collectionHeaderLength;
             for (uint i = 0; i < fontCount; i++) {
                 uint directoryOffset = ReadUInt32BigEndian(header, checked(12 + (int)i * 4));
-                if (directoryOffset + 12L > stream.Length || !TryReadAt(stream, directoryOffset, 12, out var directoryHeader)) return false;
+                if (directoryOffset + 12L > stream.Length) return false;
+                if (remainingDirectoryReadBudget < 12)
+                {
+                    result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
+                    return true;
+                }
+                if (!TryReadAt(stream, directoryOffset, 12, out var directoryHeader)) return false;
+                remainingDirectoryReadBudget -= 12;
                 ushort tableCount = ReadUInt16BigEndian(new ReadOnlySpan<byte>(directoryHeader), 4);
                 long directoryLength = 12L + tableCount * 16L;
-                if (tableCount is < 1 or > 4095 || directoryOffset + directoryLength > stream.Length ||
-                    !TryReadAt(stream, directoryOffset, (int)directoryLength, out var directoryBytes)) return false;
+                if (tableCount is < 1 or > 4095 || directoryOffset + directoryLength > stream.Length) return false;
+                if (directoryLength > remainingDirectoryReadBudget)
+                {
+                    result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
+                    return true;
+                }
+                if (!TryReadAt(stream, directoryOffset, (int)directoryLength, out var directoryBytes)) return false;
+                remainingDirectoryReadBudget -= directoryLength;
                 var directory = new ReadOnlySpan<byte>(directoryBytes);
                 if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, out bool isCff)) return false;
                 anyCff |= isCff;
@@ -252,14 +267,23 @@ internal static partial class Signatures {
             return false;
 
         bool anyCff = false;
+        long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
         for (uint i = 0; i < fontCount; i++) {
             uint directoryOffset = ReadUInt32BigEndian(src, checked(12 + (int)i * 4));
             if (directoryOffset > int.MaxValue || directoryOffset + 12L > src.Length) return false;
             int offset = (int)directoryOffset;
             ushort tableCount = ReadUInt16BigEndian(src, offset + 4);
             long directoryLength = 12L + tableCount * 16L;
-            if (tableCount is < 1 or > 4095 || (ulong)directoryOffset + (ulong)directoryLength > (ulong)src.Length ||
-                !TryValidateCollectionFontDirectory(src.Slice(offset, (int)directoryLength), directoryOffset, completeLength, out bool isCff)) return false;
+            if (tableCount is < 1 or > 4095 || (ulong)directoryOffset + (ulong)directoryLength > (ulong)src.Length)
+                return false;
+            if (directoryLength > remainingValidationBudget)
+            {
+                result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
+                return true;
+            }
+            remainingValidationBudget -= directoryLength;
+            if (!TryValidateCollectionFontDirectory(src.Slice(offset, (int)directoryLength), directoryOffset,
+                    completeLength, out bool isCff)) return false;
             anyCff |= isCff;
         }
 
@@ -321,11 +345,13 @@ internal static partial class Signatures {
                  (sampledReason == null ? string.Empty : ";" + sampledReason)
     };
 
-    private static ContentTypeDetectionResult FontCollectionResult(uint version, uint fontCount, bool anyCff) => new() {
+    private static ContentTypeDetectionResult FontCollectionResult(uint version, uint fontCount, bool anyCff,
+        string? sampledReason = null) => new() {
         Extension = anyCff ? "otc" : "ttc",
         MimeType = "font/collection",
-        Confidence = "High",
-        Reason = $"font-collection:v{version >> 16};fonts={fontCount}"
+        Confidence = sampledReason == null ? "High" : "Medium",
+        Reason = $"font-collection:v{version >> 16};fonts={fontCount}" +
+                 (sampledReason == null ? string.Empty : ";" + sampledReason)
     };
 
     private static bool TryMatchWoff(ReadOnlySpan<byte> src, long? completeLength, bool isWoff2, out ContentTypeDetectionResult? result) {

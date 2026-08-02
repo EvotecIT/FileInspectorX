@@ -103,7 +103,7 @@ internal static partial class Signatures {
 
     private static bool IsElfTableRangeValid(ulong offset, ushort entrySize, ulong count, int headerSize, long? completeLength)
     {
-        if (count == 0) return offset == 0 || !completeLength.HasValue || offset <= (ulong)completeLength.Value;
+        if (count == 0) return offset == 0;
         if (offset < (ulong)headerSize || entrySize == 0) return false;
         if (count > ulong.MaxValue / entrySize) return false;
         ulong length = (ulong)entrySize * count;

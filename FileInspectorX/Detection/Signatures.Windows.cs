@@ -85,7 +85,7 @@ internal static partial class Signatures {
                     ? ShellLinkParseStatus.Invalid
                     : ShellLinkParseStatus.Complete;
             }
-            if (blockSize < 4) return ShellLinkParseStatus.Invalid;
+            if (blockSize < 8) return ShellLinkParseStatus.Invalid;
             status = EnsureShellLinkRange(cursor, blockSize, src.Length, completeLength);
             if (status != ShellLinkParseStatus.Complete) return status;
             cursor += checked((int)blockSize);

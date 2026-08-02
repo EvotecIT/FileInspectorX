@@ -152,7 +152,7 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalJpeg2000(string brand = "jp2 ")
     {
-        string firstRequired = brand == "jpx " ? "jpxh" : brand == "mjp2" ? "moov" : "jp2h";
+        string firstRequired = brand == "jpx " ? "jpxh" : brand == "jpm " ? "jpmh" : brand == "mjp2" ? "moov" : "jp2h";
         string secondRequired = brand == "mjp2" ? "mdat" : "jp2c";
         var bytes = new byte[48];
         new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);

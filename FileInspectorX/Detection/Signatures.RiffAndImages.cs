@@ -66,6 +66,8 @@ internal static partial class Signatures {
 
             long cursor = 12;
             int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            bool sawJson = false;
+            bool sawBin = false;
             while (cursor < stream.Length)
             {
                 if (remainingHeaders-- == 0)
@@ -78,11 +80,20 @@ internal static partial class Signatures {
                 var header = new ReadOnlySpan<byte>(chunkHeader);
                 uint chunkLength = ReadUInt32LittleEndian(header, 0);
                 uint chunkType = ReadUInt32LittleEndian(header, 4);
-                if ((chunkLength & 3) != 0 || chunkLength > stream.Length - cursor - 8 ||
-                    (cursor == 12 && chunkType != 0x4E4F534A)) return false;
+                if ((chunkLength & 3) != 0 || chunkLength > stream.Length - cursor - 8) return false;
+                if (chunkType == 0x4E4F534A)
+                {
+                    if (sawJson || cursor != 12) return false;
+                    sawJson = true;
+                }
+                else if (chunkType == 0x004E4942)
+                {
+                    if (!sawJson || sawBin) return false;
+                    sawBin = true;
+                }
                 cursor += 8 + chunkLength;
             }
-            if (cursor != stream.Length) return false;
+            if (cursor != stream.Length || !sawJson) return false;
             result = GlbResult(version, complete: true);
             return true;
         }
@@ -100,16 +111,27 @@ internal static partial class Signatures {
     private static bool TryValidateGlbV2Chunks(ReadOnlySpan<byte> src)
     {
         int cursor = 12;
+        bool sawJson = false;
+        bool sawBin = false;
         while (cursor < src.Length)
         {
             if (src.Length - cursor < 8) return false;
             uint chunkLength = ReadUInt32LittleEndian(src, cursor);
             uint chunkType = ReadUInt32LittleEndian(src, cursor + 4);
-            if ((chunkLength & 3) != 0 || chunkLength > (uint)(src.Length - cursor - 8) ||
-                (cursor == 12 && chunkType != 0x4E4F534A)) return false;
+            if ((chunkLength & 3) != 0 || chunkLength > (uint)(src.Length - cursor - 8)) return false;
+            if (chunkType == 0x4E4F534A)
+            {
+                if (sawJson || cursor != 12) return false;
+                sawJson = true;
+            }
+            else if (chunkType == 0x004E4942)
+            {
+                if (!sawJson || sawBin) return false;
+                sawBin = true;
+            }
             cursor += 8 + (int)chunkLength;
         }
-        return cursor == src.Length;
+        return cursor == src.Length && sawJson;
     }
 
     private static ContentTypeDetectionResult GlbResult(uint version, bool complete) => new() {
