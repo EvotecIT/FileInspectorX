@@ -18,11 +18,36 @@ internal static partial class Signatures
     private static bool TryValidateVhdBat(ReadOnlySpan<byte> table, long fileLength, VhdBatInfo bat)
     {
         if ((ulong)table.Length != bat.TableLength || bat.Entries > (uint)(table.Length / 4) || fileLength < 512) return false;
+        return TryValidateVhdBatEntries(table, bat.Entries, fileLength, bat);
+    }
+
+    private static StructuredValidationStatus TryValidateVhdBat(Stream stream, VhdBatInfo bat)
+    {
+        int budget = Math.Max(4096, Settings.DetectionReadBudgetBytes);
+        if (bat.TableLength <= (ulong)budget)
+        {
+            if (!TryReadAt(stream, checked((long)bat.TableOffset), checked((int)bat.TableLength), out var table))
+                return StructuredValidationStatus.Invalid;
+            return TryValidateVhdBat(new ReadOnlySpan<byte>(table), stream.Length, bat)
+                ? StructuredValidationStatus.Complete
+                : StructuredValidationStatus.Invalid;
+        }
+
+        int sampleLength = budget & ~3;
+        if (sampleLength < 4 || !TryReadAt(stream, checked((long)bat.TableOffset), sampleLength, out var sample) ||
+            !TryValidateVhdBatEntries(new ReadOnlySpan<byte>(sample), (uint)(sampleLength / 4), stream.Length, bat))
+            return StructuredValidationStatus.Invalid;
+        return StructuredValidationStatus.Sampled;
+    }
+
+    private static bool TryValidateVhdBatEntries(ReadOnlySpan<byte> table, uint entries, long fileLength, VhdBatInfo bat)
+    {
+        if (entries > (uint)(table.Length / 4) || fileLength < 512) return false;
         ulong bitmapLength = (((ulong)bat.BlockSize / 512 + 7) / 8 + 511) & ~511UL;
         ulong tableEnd = bat.TableOffset + bat.TableLength;
         ulong dataEnd = (ulong)fileLength - 512;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
-        for (uint index = 0; index < bat.Entries; index++)
+        for (uint index = 0; index < entries; index++)
         {
             uint sector = ReadUInt32BigEndian(table, checked((int)index * 4));
             if (sector == uint.MaxValue) continue;

@@ -6,23 +6,28 @@ namespace FileInspectorX;
 internal static partial class Signatures
 {
     private static bool TryValidateParquetRowGroups(ReadOnlySpan<byte> src, ref int cursor, long dataEnd,
-        out int count, out long totalRows)
+        out int count, out long totalRows, out int columnCount)
     {
         count = 0;
         totalRows = 0;
+        columnCount = -1;
         if (!TryReadCompactStructListHeader(src, ref cursor, allowEmpty: true, out count)) return false;
         for (int index = 0; index < count; index++)
         {
-            if (!TryValidateParquetRowGroup(src, ref cursor, dataEnd, out long rows) || rows > long.MaxValue - totalRows)
+            if (!TryValidateParquetRowGroup(src, ref cursor, dataEnd, out long rows, out int currentColumnCount) ||
+                columnCount >= 0 && currentColumnCount != columnCount || rows > long.MaxValue - totalRows)
                 return false;
+            columnCount = currentColumnCount;
             totalRows += rows;
         }
         return true;
     }
 
-    private static bool TryValidateParquetRowGroup(ReadOnlySpan<byte> src, ref int cursor, long dataEnd, out long rows)
+    private static bool TryValidateParquetRowGroup(ReadOnlySpan<byte> src, ref int cursor, long dataEnd,
+        out long rows, out int columnCount)
     {
         rows = 0;
+        columnCount = 0;
         bool columns = false, totalByteSize = false, rowCount = false;
         short previous = 0;
         var fields = new System.Collections.Generic.HashSet<short>();
@@ -38,7 +43,7 @@ internal static partial class Signatures
             if (!fields.Add(field)) return false;
             if (field == 1)
             {
-                if (type != 9 || !TryValidateNonEmptyParquetColumnChunks(src, ref cursor, dataEnd)) return false;
+                if (type != 9 || !TryValidateNonEmptyParquetColumnChunks(src, ref cursor, dataEnd, out columnCount)) return false;
                 columns = true;
             }
             else if (field == 2)
@@ -57,9 +62,10 @@ internal static partial class Signatures
         return false;
     }
 
-    private static bool TryValidateNonEmptyParquetColumnChunks(ReadOnlySpan<byte> src, ref int cursor, long dataEnd)
+    private static bool TryValidateNonEmptyParquetColumnChunks(ReadOnlySpan<byte> src, ref int cursor, long dataEnd,
+        out int count)
     {
-        if (!TryReadCompactStructListHeader(src, ref cursor, allowEmpty: false, out int count)) return false;
+        if (!TryReadCompactStructListHeader(src, ref cursor, allowEmpty: false, out count)) return false;
         for (int index = 0; index < count; index++)
         {
             bool fileOffset = false;

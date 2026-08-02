@@ -468,6 +468,11 @@ internal static partial class Signatures
                     rowBytes * planeRows > ulong.MaxValue / currentDepth) return false;
                 mipLength = rowBytes * planeRows * currentDepth;
             }
+            else if (dxgiFormat is 68 or 69 or >= 100 and <= 110)
+            {
+                if (!TryGetDdsYuvMipLength(dxgiFormat, currentWidth, currentHeight, currentDepth,
+                        mip == 0 ? pitchOrLinearSize : 0, out mipLength)) return false;
+            }
             else if (dxgiFormat != 0 && TryGetDdsBitsPerPixel(dxgiFormat, out uint dxgiBits))
             {
                 ulong rowBytes = (currentWidth * (ulong)dxgiBits + 7UL) / 8UL;
@@ -526,14 +531,77 @@ internal static partial class Signatures
         bits = 0;
         if (format is >= 1 and <= 4) bits = 128;
         else if (format is >= 5 and <= 8) bits = 96;
-        else if (format is >= 9 and <= 22 or >= 109 and <= 110) bits = 64;
-        else if (format is >= 23 and <= 47 or >= 67 and <= 69 or >= 87 and <= 93 or >= 100 and <= 102 or >= 106 and <= 108 or >= 111 and <= 115) bits = 32;
-        else if (format is >= 48 and <= 59 or >= 85 and <= 86 or 105) bits = 16;
-        else if (format is >= 60 and <= 65) bits = 8;
+        else if (format is >= 9 and <= 22) bits = 64;
+        else if (format is >= 23 and <= 47 or >= 67 and <= 69 or >= 87 and <= 93) bits = 32;
+        else if (format is >= 48 and <= 59 or >= 85 and <= 86 or 114 or 115 or 189 or 190) bits = 16;
+        else if (format is >= 60 and <= 65 or 111 or 112 or 113) bits = 8;
         else if (format == 66) bits = 1;
-        else if (format == 103) bits = 12;
-        else if (format == 104) bits = 24;
         return bits != 0;
+    }
+
+    private static bool TryGetDdsYuvMipLength(uint format, uint width, uint height, uint depth,
+        uint declaredPitch, out ulong length)
+    {
+        length = 0;
+        ulong rowBytes;
+        ulong rows;
+        switch (format)
+        {
+            case 68: // R8G8_B8G8
+            case 69: // G8R8_G8B8
+                if ((width & 1) != 0) return false;
+                rowBytes = (ulong)width / 2 * 4;
+                rows = height;
+                break;
+            case 100: // AYUV
+            case 101: // Y410
+                rowBytes = (ulong)width * 4;
+                rows = height;
+                break;
+            case 102: // Y416
+                rowBytes = (ulong)width * 8;
+                rows = height;
+                break;
+            case 103: // NV12
+            case 106: // 420_OPAQUE
+                if ((width & 1) != 0 || (height & 1) != 0) return false;
+                rowBytes = width;
+                rows = (ulong)height + height / 2UL;
+                break;
+            case 104: // P010
+            case 105: // P016
+                if ((width & 1) != 0 || (height & 1) != 0) return false;
+                rowBytes = (ulong)width * 2;
+                rows = (ulong)height + height / 2UL;
+                break;
+            case 107: // YUY2
+                if ((width & 1) != 0) return false;
+                rowBytes = ((ulong)width + 1) / 2 * 4;
+                rows = height;
+                break;
+            case 108: // Y210
+            case 109: // Y216
+                if ((width & 1) != 0) return false;
+                rowBytes = ((ulong)width + 1) / 2 * 8;
+                rows = height;
+                break;
+            case 110: // NV11
+                if ((width & 3) != 0) return false;
+                rowBytes = ((ulong)width + 3) / 4 * 4;
+                rows = (ulong)height * 2;
+                break;
+            default:
+                return false;
+        }
+        if (declaredPitch != 0)
+        {
+            if (declaredPitch < rowBytes) return false;
+            rowBytes = declaredPitch;
+        }
+        if (rowBytes == 0 || rows == 0 || rowBytes > ulong.MaxValue / rows ||
+            rowBytes * rows > ulong.MaxValue / depth) return false;
+        length = rowBytes * rows * depth;
+        return length != 0;
     }
 
     private static bool IsKnownDdsDxgiFormat(uint format)
@@ -809,15 +877,15 @@ internal static partial class Signatures
             result.Confidence = "Medium";
             return true;
         }
-        if (ReadUInt32LittleEndian(src, 4) != ComputeNdbCrc32(src.Slice(8, 464))) return false;
-        if (unicode && ReadUInt32LittleEndian(src, 524) != ComputeNdbCrc32(src.Slice(8, 516))) return false;
+        if (ReadUInt32LittleEndian(src, 4) != ComputeCrc32(src.Slice(8, 464))) return false;
+        if (unicode && ReadUInt32LittleEndian(src, 524) != ComputeCrc32(src.Slice(8, 516))) return false;
         result = BinaryResult("ndb", "application/vnd.ms-outlook", unicode ? "outlook-ndb:unicode" : "outlook-ndb:ansi");
         result.Confidence = "Medium";
         result.Reason += ";root-pages-not-validated";
         return true;
     }
 
-    private static uint ComputeNdbCrc32(ReadOnlySpan<byte> data)
+    private static uint ComputeCrc32(ReadOnlySpan<byte> data)
     {
         uint crc = uint.MaxValue;
         for (int i = 0; i < data.Length; i++)

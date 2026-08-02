@@ -523,6 +523,7 @@ internal static partial class Signatures
     {
         result = null;
         if (!TryValidateVhdFooter(footer, out uint diskType, out ulong dataOffset, out ulong currentSize)) return false;
+        StructuredValidationStatus batStatus = StructuredValidationStatus.Complete;
         if (diskType == 2)
         {
             if (dataOffset != ulong.MaxValue || currentSize > long.MaxValue || currentSize + 512UL != (ulong)stream.Length) return false;
@@ -532,11 +533,16 @@ internal static partial class Signatures
             if (dataOffset > long.MaxValue || dataOffset + 1024UL > (ulong)stream.Length ||
                 !TryReadAt(stream, (long)dataOffset, 1024, out var dynamicHeader) ||
                 !TryValidateVhdDynamicHeader(new ReadOnlySpan<byte>(dynamicHeader), stream.Length, diskType, currentSize, out VhdBatInfo bat) ||
-                bat.TableOffset > long.MaxValue || bat.TableLength > int.MaxValue ||
-                !TryReadAt(stream, (long)bat.TableOffset, (int)bat.TableLength, out var table) ||
-                !TryValidateVhdBat(new ReadOnlySpan<byte>(table), stream.Length, bat)) return false;
+                bat.TableOffset > long.MaxValue) return false;
+            batStatus = TryValidateVhdBat(stream, bat);
+            if (batStatus == StructuredValidationStatus.Invalid) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
+        if (batStatus == StructuredValidationStatus.Sampled)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";bat-scan-budget";
+        }
         if (diskType == 4)
         {
             result.Confidence = "Medium";
@@ -589,7 +595,7 @@ internal static partial class Signatures
         ulong requiredEntries = blockSize == 0 ? ulong.MaxValue :
             currentSize / blockSize + (currentSize % blockSize == 0 ? 0UL : 1UL);
         if (entries == 0 || blockSize < 512 * 1024 || (blockSize & (blockSize - 1)) != 0 ||
-            requiredEntries > entries ||
+            requiredEntries != entries ||
             tableOffset < 1536 || (tableOffset & 511) != 0 || tableOffset > (ulong)fileLength || tableLength > (ulong)fileLength - tableOffset) return false;
         if (diskType == 4)
         {
@@ -616,7 +622,7 @@ internal static partial class Signatures
         var fields = new System.Collections.Generic.HashSet<short>();
         bool version = false, schema = false, rows = false, rowGroups = false;
         long declaredRows = 0, rowGroupRows = 0;
-        int rowGroupCount = 0;
+        int rowGroupCount = 0, schemaLeafCount = -1, rowGroupColumnCount = -1;
         bool stopped = false;
         while (cursor < metadata.Length)
         {
@@ -634,21 +640,23 @@ internal static partial class Signatures
                 if (type != 5 || !TryReadCompactInt32(metadata, ref cursor, out int fileVersion) || fileVersion is not (1 or 2)) return false;
                 version = true;
             }
-            else if (field == 2) { if (type != 9 || !TryValidateParquetSchemaList(metadata, ref cursor)) return false; schema = true; }
+            else if (field == 2) { if (type != 9 || !TryValidateParquetSchemaList(metadata, ref cursor, out schemaLeafCount)) return false; schema = true; }
             else if (field == 3)
             {
                 if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out declaredRows) || declaredRows < 0) return false;
                 rows = true;
             }
-            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, dataEnd, out rowGroupCount, out rowGroupRows)) return false; rowGroups = true; }
+            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, dataEnd, out rowGroupCount, out rowGroupRows, out rowGroupColumnCount)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
         return stopped && cursor == metadata.Length && version && schema && rows && rowGroups &&
-               rowGroupRows == declaredRows && (declaredRows == 0 || rowGroupCount > 0);
+               rowGroupRows == declaredRows && (declaredRows == 0 || rowGroupCount > 0) &&
+               (rowGroupCount == 0 || rowGroupColumnCount == schemaLeafCount);
     }
 
-    private static bool TryValidateParquetSchemaList(ReadOnlySpan<byte> src, ref int cursor)
+    private static bool TryValidateParquetSchemaList(ReadOnlySpan<byte> src, ref int cursor, out int leafCount)
     {
+        leafCount = 0;
         if (cursor >= src.Length) return false;
         byte listHeader = src[cursor++];
         int count = listHeader >> 4;
@@ -669,6 +677,7 @@ internal static partial class Signatures
                 if (hasType || hasRepetition || !hasChildren) return false;
             }
             else if (!hasRepetition || (children > 0 ? hasType : !hasType)) return false;
+            if (index != 0 && children == 0) leafCount++;
             if (children > count - index - 1 || openSlots > int.MaxValue - children) return false;
             openSlots += children;
         }

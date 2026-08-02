@@ -19,6 +19,7 @@ internal static partial class Signatures
         long directoryEnd = directoryOffset + directorySize;
         if (directoryOffset < 0 || directoryEnd > src.Length || directoryEnd > int.MaxValue) return StructuredValidationStatus.Invalid;
         int cursor = (int)directoryOffset;
+        bool allPayloadsVerified = true;
         for (int entry = 0; entry < entryCount; entry++)
         {
             if (cursor > directoryEnd - 46 || ReadUInt32LittleEndian(src, cursor) != 0x02014B50) return StructuredValidationStatus.Invalid;
@@ -40,11 +41,13 @@ internal static partial class Signatures
                 recordEnd > directoryEnd) return StructuredValidationStatus.Invalid;
             ReadOnlySpan<byte> centralName = src.Slice(cursor + 46, nameLength);
             if (!TryValidateCentralZipLocalHeader(src, localOffset, directoryOffset,
-                    method, flags, crc32, compressedSize, uncompressedSize, centralName))
+                    method, flags, crc32, compressedSize, uncompressedSize, centralName, out bool payloadVerified))
                 return StructuredValidationStatus.Invalid;
+            allPayloadsVerified &= payloadVerified;
             cursor = (int)recordEnd;
         }
-        return cursor == directoryEnd ? StructuredValidationStatus.Complete : StructuredValidationStatus.Invalid;
+        return cursor != directoryEnd ? StructuredValidationStatus.Invalid :
+            allPayloadsVerified ? StructuredValidationStatus.Complete : StructuredValidationStatus.Sampled;
     }
 
     private static StructuredValidationStatus TryValidateZipCentralDirectory(Stream stream)
@@ -61,6 +64,7 @@ internal static partial class Signatures
         long directoryEnd = directoryOffset + directorySize;
         long cursor = directoryOffset;
         int remainingBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        bool allPayloadsVerified = true;
         for (int entry = 0; entry < entryCount; entry++)
         {
             if (remainingBudget < 76) return StructuredValidationStatus.Sampled;
@@ -96,6 +100,15 @@ internal static partial class Signatures
                 !new ReadOnlySpan<byte>(localNameBytes).SequenceEqual(new ReadOnlySpan<byte>(centralNameBytes)))
                 return StructuredValidationStatus.Invalid;
             remainingBudget -= localNameLength;
+            if (method == 0 && (flags & 1) == 0)
+            {
+                if (compressedSize != uncompressedSize) return StructuredValidationStatus.Invalid;
+                if (compressedSize > remainingBudget) return StructuredValidationStatus.Sampled;
+                if (!TryReadAt(stream, archiveOffset + dataOffset, checked((int)compressedSize), out var payload) ||
+                    ComputeCrc32(new ReadOnlySpan<byte>(payload)) != crc32) return StructuredValidationStatus.Invalid;
+                remainingBudget -= checked((int)compressedSize);
+            }
+            else allPayloadsVerified = false;
             if ((flags & 0x0008) != 0)
             {
                 long descriptorOffset = dataOffset + compressedSize;
@@ -109,7 +122,8 @@ internal static partial class Signatures
             }
             cursor = recordEnd;
         }
-        return cursor == directoryEnd ? StructuredValidationStatus.Complete : StructuredValidationStatus.Invalid;
+        return cursor != directoryEnd ? StructuredValidationStatus.Invalid :
+            allPayloadsVerified ? StructuredValidationStatus.Complete : StructuredValidationStatus.Sampled;
     }
 
     private static bool TryFindStandardZipDirectory(ReadOnlySpan<byte> tail, long tailOffset, long fileLength,
@@ -142,14 +156,21 @@ internal static partial class Signatures
 
     private static bool TryValidateCentralZipLocalHeader(ReadOnlySpan<byte> src, uint localOffset, long directoryOffset,
         ushort method, ushort flags, uint crc32, uint compressedSize, uint uncompressedSize,
-        ReadOnlySpan<byte> centralName)
+        ReadOnlySpan<byte> centralName, out bool payloadVerified)
     {
+        payloadVerified = false;
         if (localOffset > int.MaxValue || localOffset + 30L > directoryOffset || localOffset + 30L > src.Length) return false;
         if (!TryValidateCentralZipLocalHeaderFields(src.Slice((int)localOffset, 30), localOffset, directoryOffset,
                 method, flags, crc32, compressedSize, uncompressedSize,
                 out ushort localNameLength, out long dataOffset) || localNameLength != centralName.Length ||
             localOffset + 30L + localNameLength > directoryOffset || localOffset + 30L + localNameLength > src.Length) return false;
         if (!src.Slice((int)localOffset + 30, localNameLength).SequenceEqual(centralName)) return false;
+        if (method == 0 && (flags & 1) == 0)
+        {
+            if (compressedSize != uncompressedSize || dataOffset > src.Length - compressedSize ||
+                ComputeCrc32(src.Slice((int)dataOffset, (int)compressedSize)) != crc32) return false;
+            payloadVerified = true;
+        }
         if ((flags & 0x0008) == 0) return true;
         long descriptorOffset = dataOffset + compressedSize;
         int descriptorLength = (int)Math.Min(16, directoryOffset - descriptorOffset);

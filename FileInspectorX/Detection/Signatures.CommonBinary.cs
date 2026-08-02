@@ -696,6 +696,7 @@ internal static partial class Signatures
         ushort major = ReadUInt16(src, 4, littleEndian);
         ushort minor = ReadUInt16(src, 6, littleEndian);
         uint snapLength = ReadUInt32(src, 16, littleEndian);
+        bool linkLayerValidated = IsValidatedPcapLinkLayer(ReadUInt32(src, 20, littleEndian));
         if (major != 2 || minor != 4 || snapLength == 0 || snapLength > 0x10000000 || completeLength < 0) return false;
         int cursor = 24;
         while (cursor < src.Length)
@@ -706,6 +707,7 @@ internal static partial class Signatures
                 result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
                 result.Confidence = "Medium";
                 result.Reason += ";sampled-record";
+                if (!linkLayerValidated) result.Reason += ";link-layer-not-validated";
                 return true;
             }
             uint fraction = ReadUInt32(src, cursor + 4, littleEndian);
@@ -720,12 +722,18 @@ internal static partial class Signatures
                 result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
                 result.Confidence = "Medium";
                 result.Reason += ";sampled-payload";
+                if (!linkLayerValidated) result.Reason += ";link-layer-not-validated";
                 return true;
             }
             cursor = (int)recordEnd;
         }
         if (completeLength.HasValue && cursor != completeLength.Value) return false;
         result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
+        if (!linkLayerValidated)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";link-layer-not-validated";
+        }
         return true;
     }
 
@@ -747,6 +755,7 @@ internal static partial class Signatures
             else return false;
             if (ReadUInt16(global, 4, littleEndian) != 2 || ReadUInt16(global, 6, littleEndian) != 4) return false;
             uint snapLength = ReadUInt32(global, 16, littleEndian);
+            bool linkLayerValidated = IsValidatedPcapLinkLayer(ReadUInt32(global, 20, littleEndian));
             if (snapLength == 0 || snapLength > 0x10000000) return false;
             long cursor = 24;
             int remainingRecords = Math.Max(1, Settings.DetectionReadBudgetBytes / 16);
@@ -757,6 +766,7 @@ internal static partial class Signatures
                     result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
                     result.Confidence = "Medium";
                     result.Reason += ";record-scan-budget";
+                    if (!linkLayerValidated) result.Reason += ";link-layer-not-validated";
                     return true;
                 }
                 if (stream.Length - cursor < 16 || !TryReadAt(stream, cursor, 16, out var recordBytes)) return false;
@@ -770,6 +780,11 @@ internal static partial class Signatures
             }
             if (cursor != stream.Length) return false;
             result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
+            if (!linkLayerValidated)
+            {
+                result.Confidence = "Medium";
+                result.Reason += ";link-layer-not-validated";
+            }
             return true;
         }
         catch
@@ -781,6 +796,13 @@ internal static partial class Signatures
         {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
+
+    private static bool IsValidatedPcapLinkLayer(uint value)
+    {
+        if ((value & 0xFFFF0000u) != 0) return false;
+        return (value & 0xFFFFu) is 0 or 1 or 6 or 7 or 8 or 9 or 10 or 12 or 50 or 51 or
+            101 or 105 or 107 or 113 or 127 or 228 or 229 or 230 or 276;
     }
 
     internal static bool TryMatchPcapNg(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

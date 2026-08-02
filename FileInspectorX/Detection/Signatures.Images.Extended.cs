@@ -677,6 +677,24 @@ internal static partial class Signatures {
         return decodedLength == expectedLength;
     }
 
+    private readonly struct Jpeg2000ImageInfo
+    {
+        internal Jpeg2000ImageInfo(uint width, uint height, byte[] componentDepths)
+        {
+            Width = width;
+            Height = height;
+            ComponentDepths = componentDepths;
+        }
+
+        internal uint Width { get; }
+        internal uint Height { get; }
+        internal byte[]? ComponentDepths { get; }
+
+        internal bool Matches(Jpeg2000ImageInfo other)
+            => Width == other.Width && Height == other.Height && ComponentDepths != null &&
+               other.ComponentDepths != null && new ReadOnlySpan<byte>(ComponentDepths).SequenceEqual(other.ComponentDepths);
+    }
+
     private static bool IsPhotoshopZlibHeader(ReadOnlySpan<byte> header)
     {
         if (header.Length < 2) return false;
@@ -744,6 +762,7 @@ internal static partial class Signatures {
         bool header = false;
         bool sawHeaderBox = false;
         bool data = false;
+        Jpeg2000ImageInfo headerInfo = default;
         while (cursor < src.Length)
         {
             if (cursor + 8 > src.Length) return false;
@@ -778,13 +797,14 @@ internal static partial class Signatures {
                 {
                     if (sawHeaderBox) return false;
                     sawHeaderBox = true;
-                    header = TryValidateJpeg2000HeaderPayload(src.Slice(cursor + headerLength, (int)boxLength - headerLength), brand);
+                    header = TryValidateJpeg2000HeaderPayload(src.Slice(cursor + headerLength, (int)boxLength - headerLength), brand, out headerInfo);
                     if (!header) return false;
                 }
                 if (type == 0x6A703263)
                 {
                     if (!header || !TryValidateJpeg2000Codestream(
-                            src.Slice(cursor + headerLength, (int)boxLength - headerLength))) return false;
+                            src.Slice(cursor + headerLength, (int)boxLength - headerLength), out Jpeg2000ImageInfo codestreamInfo) ||
+                        (brand is 0x6A703220 or 0x6A707820) && !headerInfo.Matches(codestreamInfo)) return false;
                     data = true;
                 }
             }
@@ -870,6 +890,7 @@ internal static partial class Signatures {
             bool sampledMj2 = false;
             bool sampledCodestream = false;
             bool sawHeaderBox = false;
+            Jpeg2000ImageInfo headerInfo = default;
             long cursor = 12L + fileTypeLength;
             int remainingBoxHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
             while (cursor < stream.Length)
@@ -921,13 +942,14 @@ internal static partial class Signatures {
                     {
                         if (sawHeaderBox) return false;
                         sawHeaderBox = true;
-                        header = TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand);
+                        header = TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand, out headerInfo);
                         if (!header) return false;
                     }
                     if (type == 0x6A703263)
                     {
                         if (!header || !TryValidateJpeg2000Codestream(stream, cursor + headerLength,
-                                boxLength - headerLength, out bool currentCodestreamSampled)) return false;
+                                boxLength - headerLength, out bool currentCodestreamSampled, out Jpeg2000ImageInfo codestreamInfo) ||
+                            (brand is 0x6A703220 or 0x6A707820) && !headerInfo.Matches(codestreamInfo)) return false;
                         data = true;
                         sampledCodestream |= currentCodestreamSampled;
                     }
@@ -970,10 +992,13 @@ internal static partial class Signatures {
     private static uint GetJpeg2000HeaderBoxType(uint brand)
         => brand == 0x6A707820 ? 0x6A707868u : brand == 0x6A706D20 ? 0x6A706D68u : 0x6A703268u;
 
-    private static bool TryValidateJpeg2000HeaderPayload(ReadOnlySpan<byte> payload, uint brand)
+    private static bool TryValidateJpeg2000HeaderPayload(ReadOnlySpan<byte> payload, uint brand, out Jpeg2000ImageInfo imageInfo)
     {
+        imageInfo = default;
         if (brand == 0x6A706D20) return payload.Length >= 8 && ReadUInt32BigEndian(payload, 0) >= 8 && ReadUInt32BigEndian(payload, 0) <= payload.Length;
-        if (!TryValidateJpeg2000ImageHeader(payload, out ushort components, out byte bits)) return false;
+        if (!TryValidateJpeg2000ImageHeader(payload, out uint width, out uint height, out ushort components, out byte bits)) return false;
+        byte[] componentDepths = new byte[components];
+        if (bits != 0xFF) for (int component = 0; component < componentDepths.Length; component++) componentDepths[component] = bits;
         bool sawBitsPerComponent = false;
         bool sawColourSpecification = false;
         int cursor = 22;
@@ -997,9 +1022,10 @@ internal static partial class Signatures {
             if (type == 0x62706363)
             {
                 if (sawBitsPerComponent || boxLength != headerLength + components) return false;
-                var componentDepths = payload.Slice(cursor + headerLength, components);
-                for (int component = 0; component < componentDepths.Length; component++)
-                    if ((componentDepths[component] & 0x7F) > 37) return false;
+                var declaredDepths = payload.Slice(cursor + headerLength, components);
+                for (int component = 0; component < declaredDepths.Length; component++)
+                    if ((declaredDepths[component] & 0x7F) > 37) return false;
+                declaredDepths.CopyTo(componentDepths);
                 sawBitsPerComponent = true;
             }
             else if (type == 0x636F6C72)
@@ -1009,15 +1035,22 @@ internal static partial class Signatures {
             }
             cursor += (int)boxLength;
         }
-        return (bits == 0xFF) == sawBitsPerComponent && (brand != 0x6A703220 || sawColourSpecification);
+        if ((bits == 0xFF) != sawBitsPerComponent || brand == 0x6A703220 && !sawColourSpecification) return false;
+        imageInfo = new Jpeg2000ImageInfo(width, height, componentDepths);
+        return true;
     }
 
-    private static bool TryValidateJpeg2000HeaderPayload(Stream stream, long offset, long length, uint brand)
+    private static bool TryValidateJpeg2000HeaderPayload(Stream stream, long offset, long length, uint brand,
+        out Jpeg2000ImageInfo imageInfo)
     {
+        imageInfo = default;
         int required = brand == 0x6A706D20 ? 8 : 22;
         if (length < required || !TryReadAt(stream, offset, required, out var bytes)) return false;
-        if (brand == 0x6A706D20) return TryValidateJpeg2000HeaderPayload(new ReadOnlySpan<byte>(bytes), brand);
-        if (!TryValidateJpeg2000ImageHeader(new ReadOnlySpan<byte>(bytes), out ushort components, out byte bits)) return false;
+        if (brand == 0x6A706D20) return TryValidateJpeg2000HeaderPayload(new ReadOnlySpan<byte>(bytes), brand, out imageInfo);
+        if (!TryValidateJpeg2000ImageHeader(new ReadOnlySpan<byte>(bytes), out uint width, out uint height,
+                out ushort components, out byte bits)) return false;
+        byte[] componentDepths = new byte[components];
+        if (bits != 0xFF) for (int component = 0; component < componentDepths.Length; component++) componentDepths[component] = bits;
         bool sawBitsPerComponent = false;
         bool sawColourSpecification = false;
         long cursor = 22;
@@ -1046,6 +1079,7 @@ internal static partial class Signatures {
                     !TryReadAt(stream, offset + cursor + headerLength, components, out var depths)) return false;
                 for (int component = 0; component < depths.Length; component++)
                     if ((depths[component] & 0x7F) > 37) return false;
+                depths.CopyTo(componentDepths, 0);
                 sawBitsPerComponent = true;
             }
             else if (type == 0x636F6C72)
@@ -1058,7 +1092,9 @@ internal static partial class Signatures {
             }
             cursor += boxLength;
         }
-        return (bits == 0xFF) == sawBitsPerComponent && (brand != 0x6A703220 || sawColourSpecification);
+        if ((bits == 0xFF) != sawBitsPerComponent || brand == 0x6A703220 && !sawColourSpecification) return false;
+        imageInfo = new Jpeg2000ImageInfo(width, height, componentDepths);
+        return true;
     }
 
     private static bool TryValidateJpeg2000ColourSpecification(ReadOnlySpan<byte> payload, long? declaredLength = null)
@@ -1071,35 +1107,42 @@ internal static partial class Signatures {
         return method is 2 or 3 && length > 3;
     }
 
-    private static bool TryValidateJpeg2000ImageHeader(ReadOnlySpan<byte> payload, out ushort components, out byte bits)
+    private static bool TryValidateJpeg2000ImageHeader(ReadOnlySpan<byte> payload, out uint width, out uint height,
+        out ushort components, out byte bits)
     {
+        width = 0;
+        height = 0;
         components = 0;
         bits = 0;
         if (payload.Length < 22 || ReadUInt32BigEndian(payload, 0) != 22 || ReadUInt32BigEndian(payload, 4) != 0x69686472) return false;
-        uint height = ReadUInt32BigEndian(payload, 8);
-        uint width = ReadUInt32BigEndian(payload, 12);
+        height = ReadUInt32BigEndian(payload, 8);
+        width = ReadUInt32BigEndian(payload, 12);
         components = ReadUInt16BigEndian(payload, 16);
         bits = payload[18];
         return height != 0 && width != 0 && components != 0 && (bits == 0xFF || (bits & 0x7F) <= 37) &&
                payload[19] == 7 && payload[20] <= 1 && payload[21] <= 1;
     }
 
-    private static bool TryValidateJpeg2000Codestream(ReadOnlySpan<byte> payload)
-        => TryValidateJpeg2000CodestreamFraming(payload, payload.Length, requireEnd: true);
+    private static bool TryValidateJpeg2000Codestream(ReadOnlySpan<byte> payload, out Jpeg2000ImageInfo imageInfo)
+        => TryValidateJpeg2000CodestreamFraming(payload, payload.Length, requireEnd: true, out imageInfo);
 
-    private static bool TryValidateJpeg2000Codestream(Stream stream, long offset, long length, out bool sampled)
+    private static bool TryValidateJpeg2000Codestream(Stream stream, long offset, long length, out bool sampled,
+        out Jpeg2000ImageInfo imageInfo)
     {
         sampled = false;
+        imageInfo = default;
         if (length < 61 || !TryReadAt(stream, offset + length - 2, 2, out var end) || end[0] != 0xFF || end[1] != 0xD9) return false;
         int budget = Math.Max(256, Settings.DetectionReadBudgetBytes);
         int readLength = (int)Math.Min(length, budget);
         if (!TryReadAt(stream, offset, readLength, out var bytes)) return false;
         sampled = readLength < length;
-        return TryValidateJpeg2000CodestreamFraming(new ReadOnlySpan<byte>(bytes), length, requireEnd: !sampled);
+        return TryValidateJpeg2000CodestreamFraming(new ReadOnlySpan<byte>(bytes), length, requireEnd: !sampled, out imageInfo);
     }
 
-    private static bool TryValidateJpeg2000CodestreamFraming(ReadOnlySpan<byte> payload, long declaredLength, bool requireEnd)
+    private static bool TryValidateJpeg2000CodestreamFraming(ReadOnlySpan<byte> payload, long declaredLength, bool requireEnd,
+        out Jpeg2000ImageInfo imageInfo)
     {
+        imageInfo = default;
         if (payload.Length < 47 || payload[0] != 0xFF || payload[1] != 0x4F ||
             payload[2] != 0xFF || payload[3] != 0x51) return false;
         ushort sizLength = ReadUInt16BigEndian(payload, 4);
@@ -1111,11 +1154,14 @@ internal static partial class Signatures {
         ushort components = ReadUInt16BigEndian(payload, 40);
         if (components == 0 || sizLength != 38 + components * 3 || xSize <= xOrigin || ySize <= yOrigin ||
             tileWidth == 0 || tileHeight == 0 || tileXOrigin > xOrigin || tileYOrigin > yOrigin) return false;
+        byte[] componentDepths = new byte[components];
         for (int component = 0; component < components; component++)
         {
             int descriptor = 42 + component * 3;
             if ((payload[descriptor] & 0x7F) > 37 || payload[descriptor + 1] == 0 || payload[descriptor + 2] == 0) return false;
+            componentDepths[component] = payload[descriptor];
         }
+        imageInfo = new Jpeg2000ImageInfo(xSize - xOrigin, ySize - yOrigin, componentDepths);
         ulong tilesAcross = ((ulong)xSize - tileXOrigin + tileWidth - 1) / tileWidth;
         ulong tilesDown = ((ulong)ySize - tileYOrigin + tileHeight - 1) / tileHeight;
         ulong tileCountValue = tilesAcross * tilesDown;
