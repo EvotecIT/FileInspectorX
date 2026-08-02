@@ -52,14 +52,14 @@ public sealed class FifthReviewRegressionTests
     public void NonSeekableZipWithVariableHeaderBeyondTheSampleIsMediumConfidence()
     {
         var bytes = ZipWithLongFileName();
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
 
         using var stream = new NonSeekableReadStream(bytes);
         var result = FileInspector.Detect(stream);
 
         Assert.Equal("zip", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
-        Assert.Equal("zip:local-file-header;sampled-variable-header", result?.Reason);
+        Assert.Equal("zip:local-file-header;sampled-variable-header;local-header-only", result?.Reason);
     }
 
     [Fact]

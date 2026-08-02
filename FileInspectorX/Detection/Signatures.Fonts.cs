@@ -57,6 +57,10 @@ internal static partial class Signatures {
             bool anyCff = false;
             long directoryReadBudget = Math.Max(collectionHeaderLength, Math.Max(256, Settings.DetectionReadBudgetBytes));
             long remainingDirectoryReadBudget = directoryReadBudget - collectionHeaderLength;
+            var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
+                (0, (ulong)collectionHeaderLength)
+            };
+            var directories = new System.Collections.Generic.List<(uint Offset, int Length)>();
             for (uint i = 0; i < fontCount; i++) {
                 uint directoryOffset = ReadUInt32BigEndian(header, checked(12 + (int)i * 4));
                 if (directoryOffset + 12L > stream.Length) return false;
@@ -70,6 +74,23 @@ internal static partial class Signatures {
                 ushort tableCount = ReadUInt16BigEndian(new ReadOnlySpan<byte>(directoryHeader), 4);
                 long directoryLength = 12L + tableCount * 16L;
                 if (tableCount is < 1 or > 4095 || directoryOffset + directoryLength > stream.Length) return false;
+                ulong directoryEnd = (ulong)directoryOffset + (ulong)directoryLength;
+                bool existingDirectory = false;
+                for (int range = 0; range < directoryRanges.Count; range++)
+                {
+                    if (directoryOffset == directoryRanges[range].Start && directoryEnd == directoryRanges[range].End)
+                    {
+                        existingDirectory = true;
+                        break;
+                    }
+                    if (directoryOffset < directoryRanges[range].End && directoryEnd > directoryRanges[range].Start) return false;
+                }
+                if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
+                directories.Add((directoryOffset, (int)directoryLength));
+            }
+            for (int index = 0; index < directories.Count; index++) {
+                uint directoryOffset = directories[index].Offset;
+                int directoryLength = directories[index].Length;
                 if (directoryLength > remainingDirectoryReadBudget)
                 {
                     result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
@@ -78,7 +99,7 @@ internal static partial class Signatures {
                 if (!TryReadAt(stream, directoryOffset, (int)directoryLength, out var directoryBytes)) return false;
                 remainingDirectoryReadBudget -= directoryLength;
                 var directory = new ReadOnlySpan<byte>(directoryBytes);
-                if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, out bool isCff)) return false;
+                if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, directoryRanges, out bool isCff)) return false;
                 anyCff |= isCff;
             }
 
@@ -287,6 +308,10 @@ internal static partial class Signatures {
 
         bool anyCff = false;
         long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
+            (0, (ulong)headerLength)
+        };
+        var directories = new System.Collections.Generic.List<(uint Offset, int Length)>();
         for (uint i = 0; i < fontCount; i++) {
             uint directoryOffset = ReadUInt32BigEndian(src, checked(12 + (int)i * 4));
             if (directoryOffset > int.MaxValue || directoryOffset + 12L > src.Length) return false;
@@ -295,14 +320,31 @@ internal static partial class Signatures {
             long directoryLength = 12L + tableCount * 16L;
             if (tableCount is < 1 or > 4095 || (ulong)directoryOffset + (ulong)directoryLength > (ulong)src.Length)
                 return false;
+            ulong directoryEnd = (ulong)directoryOffset + (ulong)directoryLength;
+            bool existingDirectory = false;
+            for (int range = 0; range < directoryRanges.Count; range++)
+            {
+                if (directoryOffset == directoryRanges[range].Start && directoryEnd == directoryRanges[range].End)
+                {
+                    existingDirectory = true;
+                    break;
+                }
+                if (directoryOffset < directoryRanges[range].End && directoryEnd > directoryRanges[range].Start) return false;
+            }
+            if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
+            directories.Add((directoryOffset, (int)directoryLength));
+        }
+        for (int index = 0; index < directories.Count; index++) {
+            uint directoryOffset = directories[index].Offset;
+            int directoryLength = directories[index].Length;
             if (directoryLength > remainingValidationBudget)
             {
                 result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
                 return true;
             }
             remainingValidationBudget -= directoryLength;
-            if (!TryValidateCollectionFontDirectory(src.Slice(offset, (int)directoryLength), directoryOffset,
-                    completeLength, out bool isCff)) return false;
+            if (!TryValidateCollectionFontDirectory(src.Slice((int)directoryOffset, directoryLength), directoryOffset,
+                    completeLength, directoryRanges, out bool isCff)) return false;
             anyCff |= isCff;
         }
 
@@ -325,7 +367,8 @@ internal static partial class Signatures {
                (!completeLength.HasValue || (ulong)dataOffset + length <= (ulong)completeLength.Value);
     }
 
-    private static bool TryValidateCollectionFontDirectory(ReadOnlySpan<byte> directory, long directoryOffset, long? completeLength, out bool isCff) {
+    private static bool TryValidateCollectionFontDirectory(ReadOnlySpan<byte> directory, long directoryOffset, long? completeLength,
+        System.Collections.Generic.IReadOnlyList<(ulong Start, ulong End)> protectedRanges, out bool isCff) {
         isCff = false;
         if (directory.Length < 28 || directoryOffset < 0 || completeLength < 0) return false;
         uint flavor = ReadUInt32BigEndian(directory, 0);
@@ -356,6 +399,8 @@ internal static partial class Signatures {
             if (tableLength == 0 || (tableOffset & 3) != 0 ||
                 (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
             ulong tableEnd = (ulong)tableOffset + tableLength;
+            for (int range = 0; range < protectedRanges.Count; range++)
+                if (tableOffset < protectedRanges[range].End && tableEnd > protectedRanges[range].Start) return false;
             for (int range = 0; range < tableRanges.Count; range++)
                 if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
             tableRanges.Add((tableOffset, tableEnd));

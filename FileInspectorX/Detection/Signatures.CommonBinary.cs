@@ -21,8 +21,8 @@ internal static partial class Signatures
         if (TryMatchBzip2(src, completeLength, out result)) return true;
         if (TryMatchOgg(src, completeLength, out result)) return true;
         if (TryMatchMp3(src, completeLength, out result)) return true;
-        if (TryMatchWasm(src, out result)) return true;
-        if (TryMatchPcapNg(src, out result)) return true;
+        if (TryMatchWasm(src, completeLength, out result)) return true;
+        if (TryMatchPcapNg(src, completeLength, out result)) return true;
         if (TryMatchPcap(src, completeLength, out result)) return true;
         if (TryMatchFlac(src, out result)) return true;
         if (TryMatchCrx(src, out result)) return true;
@@ -218,11 +218,16 @@ internal static partial class Signatures
                 src.Length - localOffset, out bool sampledHeader))
         {
             string reason = localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header";
+            StructuredValidationStatus directoryStatus = completeLength == src.Length
+                ? TryValidateZipCentralDirectory(src)
+                : StructuredValidationStatus.Sampled;
+            bool medium = sampledHeader || directoryStatus != StructuredValidationStatus.Complete;
             result = new ContentTypeDetectionResult {
                 Extension = "zip",
                 MimeType = "application/zip",
-                Confidence = sampledHeader ? "Medium" : "High",
-                Reason = sampledHeader ? reason + ";sampled-variable-header" : reason
+                Confidence = medium ? "Medium" : "High",
+                Reason = reason + (sampledHeader ? ";sampled-variable-header" : string.Empty) +
+                         (directoryStatus == StructuredValidationStatus.Complete ? ";central-directory" : ";local-header-only")
             };
             return true;
         }
@@ -271,8 +276,14 @@ internal static partial class Signatures
             if (read >= localOffset + 30 &&
                 TryValidateZipLocalHeader(src.Slice(localOffset), stream.Length - localOffset, read - localOffset, out _))
             {
-                result = BinaryResult("zip", "application/zip",
-                    localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header");
+                string reason = localOffset == 0 ? "zip:local-file-header" : "zip:spanning-marker+local-file-header";
+                StructuredValidationStatus directoryStatus = TryValidateZipCentralDirectory(stream);
+                result = new ContentTypeDetectionResult {
+                    Extension = "zip",
+                    MimeType = "application/zip",
+                    Confidence = directoryStatus == StructuredValidationStatus.Complete ? "High" : "Medium",
+                    Reason = reason + (directoryStatus == StructuredValidationStatus.Complete ? ";central-directory" : ";local-header-only")
+                };
                 return true;
             }
             if (localOffset != 0) return false;
@@ -608,10 +619,20 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchWasm(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchWasm(src, src.Length, out result);
+
+    internal static bool TryMatchWasm(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 8 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0, 0x61, 0x73, 0x6D }) || ReadUInt32LittleEndian(src, 4) != 1) return false;
+        StructuredValidationStatus status = TryValidateWasmSections(src, completeLength);
+        if (status == StructuredValidationStatus.Invalid) return false;
         result = BinaryResult("wasm", "application/wasm", "wasm:version=1");
+        if (status == StructuredValidationStatus.Sampled)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-sections";
+        }
         return true;
     }
 
@@ -726,32 +747,14 @@ internal static partial class Signatures
     internal static bool TryMatchPcapNg(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (src.Length < 28 || ReadUInt32BigEndian(src, 0) != 0x0A0D0D0A) return false;
-        uint byteOrder = ReadUInt32BigEndian(src, 8);
-        bool littleEndian;
-        if (byteOrder == 0x4D3C2B1A) littleEndian = true;
-        else if (byteOrder == 0x1A2B3C4D) littleEndian = false;
-        else return false;
-        uint blockLength = ReadUInt32(src, 4, littleEndian);
-        ushort major = ReadUInt16(src, 12, littleEndian);
-        ushort minor = ReadUInt16(src, 14, littleEndian);
-        long sectionLength = unchecked((long)ReadUInt64(src, 16, littleEndian));
-        if (blockLength < 28 || (blockLength & 3) != 0 || major != 1 || minor != 0 ||
-            sectionLength < -1 || (completeLength.HasValue && (blockLength > completeLength.Value ||
-                (sectionLength >= 0 && (ulong)sectionLength > (ulong)(completeLength.Value - blockLength))))) return false;
-        if (blockLength > src.Length)
-        {
-            if (completeLength.HasValue) return false;
-            result = new ContentTypeDetectionResult {
-                Extension = "pcapng",
-                MimeType = "application/x-pcapng",
-                Confidence = "Medium",
-                Reason = "pcapng:section-header;sampled-block"
-            };
-            return true;
-        }
-        if (ReadUInt32(src, checked((int)blockLength - 4), littleEndian) != blockLength) return false;
+        StructuredValidationStatus status = TryValidatePcapNgBlocks(src, completeLength);
+        if (status == StructuredValidationStatus.Invalid) return false;
         result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
+        if (status == StructuredValidationStatus.Sampled)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-block";
+        }
         return true;
     }
 
@@ -762,24 +765,14 @@ internal static partial class Signatures
         long originalPosition = stream.Position;
         try
         {
-            if (stream.Length < 28 || !TryReadAt(stream, 0, 24, out var headerBytes)) return false;
-            var header = new ReadOnlySpan<byte>(headerBytes);
-            if (ReadUInt32BigEndian(header, 0) != 0x0A0D0D0A) return false;
-            uint byteOrder = ReadUInt32BigEndian(header, 8);
-            bool littleEndian;
-            if (byteOrder == 0x4D3C2B1A) littleEndian = true;
-            else if (byteOrder == 0x1A2B3C4D) littleEndian = false;
-            else return false;
-            uint blockLength = ReadUInt32(header, 4, littleEndian);
-            ushort major = ReadUInt16(header, 12, littleEndian);
-            ushort minor = ReadUInt16(header, 14, littleEndian);
-            long sectionLength = unchecked((long)ReadUInt64(header, 16, littleEndian));
-            if (blockLength < 28 || (blockLength & 3) != 0 || blockLength > stream.Length ||
-                major != 1 || minor != 0 || sectionLength < -1 ||
-                (sectionLength >= 0 && (ulong)sectionLength > (ulong)(stream.Length - blockLength)) ||
-                !TryReadAt(stream, blockLength - 4L, 4, out var trailerBytes) ||
-                ReadUInt32(new ReadOnlySpan<byte>(trailerBytes), 0, littleEndian) != blockLength) return false;
+            StructuredValidationStatus status = TryValidatePcapNgBlocks(stream);
+            if (status == StructuredValidationStatus.Invalid) return false;
             result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
+            if (status == StructuredValidationStatus.Sampled)
+            {
+                result.Confidence = "Medium";
+                result.Reason += ";block-scan-budget";
+            }
             return true;
         }
         catch

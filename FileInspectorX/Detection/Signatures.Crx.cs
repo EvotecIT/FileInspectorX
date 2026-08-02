@@ -95,10 +95,11 @@ internal static partial class Signatures
             if (!TryReadAt(stream, headerEnd, 30, out var zipHeader) ||
                 !TryValidateZipLocalHeader(new ReadOnlySpan<byte>(zipHeader), stream.Length - headerEnd)) return false;
             result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
-            if (!signedHeaderValidated)
+            StructuredValidationStatus zipStatus = TryValidateZipCentralDirectory(stream, headerEnd, stream.Length - headerEnd);
+            if (!signedHeaderValidated || zipStatus != StructuredValidationStatus.Complete)
             {
                 result.Confidence = "Medium";
-                result.Reason += ";signed-header-budget";
+                result.Reason += !signedHeaderValidated ? ";signed-header-budget" : ";zip-local-header-only";
             }
             return true;
         }

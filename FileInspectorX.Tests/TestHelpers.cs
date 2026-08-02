@@ -79,11 +79,14 @@ internal static class TestHelpers
             for (int index = 0; index < payloadLength; index++) header.Add(0xA5);
         }
 
-        var zip = new byte[31];
-        Encoding.ASCII.GetBytes("PK\u0003\u0004").CopyTo(zip, 0);
-        WriteUInt16LittleEndian(zip, 4, 20);
-        WriteUInt16LittleEndian(zip, 26, 1);
-        zip[30] = (byte)'a';
+        byte[] zip;
+        using (var zipStream = new MemoryStream())
+        {
+            using (var archive = new System.IO.Compression.ZipArchive(zipStream,
+                       System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+                archive.CreateEntry("a");
+            zip = zipStream.ToArray();
+        }
         var bytes = new byte[12 + header.Count + zip.Length];
         Encoding.ASCII.GetBytes("Cr24").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 4, 3);

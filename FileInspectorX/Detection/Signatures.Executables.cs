@@ -671,8 +671,8 @@ internal static partial class Signatures {
             }
             if (payloadLength == 0) return JavaSampleStatus.Invalid;
             if (payloadLength > src.Length - cursor) return JavaSampleStatus.NeedMore;
-            if (tag == 1)
-                constantPoolUtf8[index] = System.Text.Encoding.UTF8.GetString(src.Slice(cursor + 2, payloadLength - 2).ToArray());
+            if (tag == 1 && !TryDecodeJavaModifiedUtf8(src.Slice(cursor + 2, payloadLength - 2), out constantPoolUtf8[index]))
+                return JavaSampleStatus.Invalid;
             switch (tag) {
                 case 7:
                 case 8:
@@ -886,8 +886,7 @@ internal static partial class Signatures {
             if (current <= 0) return false;
             read += current;
         }
-        value = System.Text.Encoding.UTF8.GetString(bytes);
-        return true;
+        return TryDecodeJavaModifiedUtf8(new ReadOnlySpan<byte>(bytes), out value);
     }
 
     private static bool IsJavaZeroSuperClassValid(byte[] tags, ushort[] classNameReferences, string?[] utf8,
