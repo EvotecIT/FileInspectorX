@@ -36,7 +36,7 @@ internal static partial class Signatures {
                 TryValidateHdf5Superblock(src.Slice((int)offset), offset, completeLength, out ulong rootAddress, out bool modern) &&
                 (!modern || TryValidateHdf5RootObjectHeader(src, rootAddress, completeLength))) {
                 bool complete = completeLength.HasValue && (!modern || rootAddress + 6 <= (ulong)src.Length);
-                result = Hdf5Result(offset, complete);
+                result = Hdf5Result(offset, complete, rootValidated: modern && complete);
                 return true;
             }
             if (offset > int.MaxValue / 2) break;
@@ -77,7 +77,7 @@ internal static partial class Signatures {
                     TryValidateHdf5Superblock(candidate, offset, length, out ulong rootAddress, out bool modern) &&
                     (!modern || TryReadAt(stream, checked((long)rootAddress), 6, out var rootHeader) &&
                      TryValidateHdf5ObjectHeaderV2(new ReadOnlySpan<byte>(rootHeader)))) {
-                    result = Hdf5Result(offset);
+                    result = Hdf5Result(offset, rootValidated: modern);
                     return true;
                 }
                 if (offset > long.MaxValue / 2) break;
@@ -270,7 +270,7 @@ internal static partial class Signatures {
                 return false;
             }
             var buffer = new byte[4096];
-            var characters = new char[(int)length];
+            var nameBytes = new byte[(int)length];
             ulong scanned = 0;
             while (scanned < scanLength)
             {
@@ -282,13 +282,13 @@ internal static partial class Signatures {
                 {
                     byte current = buffer[i];
                     if (current < 0x20 || current == (byte)'/' || current == 0x7F) return false;
-                    characters[(int)scanned + i] = (char)current;
+                    nameBytes[(int)scanned + i] = current;
                     last = current;
                 }
                 scanned += (uint)read;
             }
+            if (!TryDecodeNetCdfName(nameBytes, out name)) return false;
             StructuralEvidence++;
-            name = new string(characters);
             return true;
         }
 
@@ -583,11 +583,23 @@ internal static partial class Signatures {
         if (src[cursor + (int)length - 1] == (byte)' ') return false;
         for (ulong padding = length; padding < padded; padding++)
             if (src[cursor + (int)padding] != 0) return false;
-        var characters = new char[(int)length];
-        for (int character = 0; character < characters.Length; character++) characters[character] = (char)src[cursor + character];
-        name = new string(characters);
+        if (!TryDecodeNetCdfName(src.Slice(cursor, (int)length).ToArray(), out name)) return false;
         cursor += (int)padded;
         return true;
+    }
+
+    private static bool TryDecodeNetCdfName(byte[] bytes, out string name)
+    {
+        name = string.Empty;
+        try
+        {
+            name = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+            return name.Length != 0;
+        }
+        catch (System.Text.DecoderFallbackException)
+        {
+            return false;
+        }
     }
 
     private static bool TryReadNetCdfNonNegative(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out ulong value)
@@ -792,10 +804,11 @@ internal static partial class Signatures {
 
     private static bool IsValidHdfIntegerSize(byte size) => size is 2 or 4 or 8 or 16;
 
-    private static ContentTypeDetectionResult Hdf5Result(long offset, bool completeLength = true) => new() {
+    private static ContentTypeDetectionResult Hdf5Result(long offset, bool completeLength = true, bool rootValidated = true) => new() {
         Extension = "h5",
         MimeType = "application/x-hdf5",
-        Confidence = completeLength ? "High" : "Medium",
-        Reason = "hdf5:signature@" + offset + (completeLength ? string.Empty : ";sampled-length-unknown")
+        Confidence = completeLength && rootValidated ? "High" : "Medium",
+        Reason = "hdf5:signature@" + offset +
+                 (!completeLength ? ";sampled-length-unknown" : !rootValidated ? ";legacy-root-not-validated" : string.Empty)
     };
 }

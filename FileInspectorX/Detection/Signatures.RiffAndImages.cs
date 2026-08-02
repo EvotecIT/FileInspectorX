@@ -302,6 +302,7 @@ internal static partial class Signatures {
         if (status == TiffDirectoryStatus.Invalid) return false;
         result = TiffResult(littleEndian, isBigTiff);
         if (status == TiffDirectoryStatus.Sampled) { result.Confidence = "Medium"; result.Reason += ";sampled-ifd-offset;sampled-ifd-chain"; }
+        else if (status == TiffDirectoryStatus.Partial) { result.Confidence = "Medium"; result.Reason += ";image-data-not-validated"; }
         return true;
     }
 
@@ -316,6 +317,7 @@ internal static partial class Signatures {
             if (status == TiffDirectoryStatus.Invalid) return false;
             result = TiffResult(littleEndian, isBigTiff);
             if (status == TiffDirectoryStatus.Sampled) { result.Confidence = "Medium"; result.Reason += ";ifd-budget"; }
+            else if (status == TiffDirectoryStatus.Partial) { result.Confidence = "Medium"; result.Reason += ";image-data-not-validated"; }
             return true;
         } catch {
             result = null;
@@ -357,7 +359,7 @@ internal static partial class Signatures {
         return fixedLength + entries * entrySize <= completeLength;
     }
 
-    private enum TiffDirectoryStatus { Invalid, Sampled, Complete }
+    private enum TiffDirectoryStatus { Invalid, Partial, Sampled, Complete }
 
     private static TiffDirectoryStatus InspectTiffDirectories(ReadOnlySpan<byte> src, long? completeLength,
         bool littleEndian, bool isBigTiff, ulong firstIfd) {
@@ -366,6 +368,7 @@ internal static partial class Signatures {
         var visited = new System.Collections.Generic.HashSet<ulong>();
         int remainingEntries = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
         ulong current = firstIfd;
+        bool usableImageDirectory = false;
         while (current != 0) {
             if (!visited.Add(current) || current > int.MaxValue) return TiffDirectoryStatus.Invalid;
             int countSize = isBigTiff ? 8 : 2;
@@ -380,6 +383,8 @@ internal static partial class Signatures {
             ulong directoryEnd = current + (ulong)countSize + count * (ulong)entrySize + (ulong)inlineSize;
             if (directoryEnd > (ulong)src.Length) return completeLength.HasValue ? TiffDirectoryStatus.Invalid : TiffDirectoryStatus.Sampled;
             ushort previousTag = 0;
+            bool width = false, height = false;
+            ulong stripOffsets = 0, stripByteCounts = 0, tileOffsets = 0, tileByteCounts = 0, jpegOffset = 0, jpegByteCount = 0;
             for (ulong index = 0; index < count; index++) {
                 int entry = checked(offset + countSize + (int)index * entrySize);
                 ushort tag = ReadUInt16(src, entry, littleEndian);
@@ -389,6 +394,8 @@ internal static partial class Signatures {
                 int typeSize = GetTiffTypeSize(type, isBigTiff);
                 ulong valueCount = isBigTiff ? ReadUInt64(src, entry + 4, littleEndian) : ReadUInt32(src, entry + 4, littleEndian);
                 if (typeSize == 0 || valueCount > ulong.MaxValue / (uint)typeSize) return TiffDirectoryStatus.Invalid;
+                TrackTiffImageField(tag, type, valueCount, isBigTiff, ref width, ref height, ref stripOffsets, ref stripByteCounts,
+                    ref tileOffsets, ref tileByteCounts, ref jpegOffset, ref jpegByteCount);
                 ulong valueLength = valueCount * (uint)typeSize;
                 if (valueLength > (ulong)inlineSize) {
                     ulong valueOffset = isBigTiff ? ReadUInt64(src, entry + 12, littleEndian) : ReadUInt32(src, entry + 8, littleEndian);
@@ -397,19 +404,22 @@ internal static partial class Signatures {
                         valueOffset > totalLength || valueLength > totalLength - valueOffset) return TiffDirectoryStatus.Invalid;
                 }
             }
+            usableImageDirectory |= IsUsableTiffImageDirectory(width, height, stripOffsets, stripByteCounts,
+                tileOffsets, tileByteCounts, jpegOffset, jpegByteCount);
             remainingEntries -= (int)count;
             int nextOffset = checked(offset + countSize + (int)count * entrySize);
             current = isBigTiff ? ReadUInt64(src, nextOffset, littleEndian) : ReadUInt32(src, nextOffset, littleEndian);
             if (current != 0 && (current < (isBigTiff ? 16UL : 8UL) || (current & (isBigTiff ? 7UL : 1UL)) != 0))
                 return TiffDirectoryStatus.Invalid;
         }
-        return TiffDirectoryStatus.Complete;
+        return usableImageDirectory ? TiffDirectoryStatus.Complete : TiffDirectoryStatus.Partial;
     }
 
     private static TiffDirectoryStatus InspectTiffDirectories(Stream stream, bool littleEndian, bool isBigTiff, ulong firstIfd) {
         var visited = new System.Collections.Generic.HashSet<ulong>();
         int remainingEntries = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
         ulong current = firstIfd;
+        bool usableImageDirectory = false;
         while (current != 0) {
             if (!visited.Add(current) || current > long.MaxValue) return TiffDirectoryStatus.Invalid;
             int countSize = isBigTiff ? 8 : 2;
@@ -423,14 +433,19 @@ internal static partial class Signatures {
             if (payloadLength > int.MaxValue || !TryReadAt(stream, (long)current + countSize, (int)payloadLength, out var payloadBytes)) return TiffDirectoryStatus.Invalid;
             var payload = new ReadOnlySpan<byte>(payloadBytes);
             ushort previousTag = 0;
+            bool width = false, height = false;
+            ulong stripOffsets = 0, stripByteCounts = 0, tileOffsets = 0, tileByteCounts = 0, jpegOffset = 0, jpegByteCount = 0;
             for (ulong index = 0; index < count; index++) {
                 int entry = checked((int)index * entrySize);
                 ushort tag = ReadUInt16(payload, entry, littleEndian);
                 if (index != 0 && tag <= previousTag) return TiffDirectoryStatus.Invalid;
                 previousTag = tag;
-                int typeSize = GetTiffTypeSize(ReadUInt16(payload, entry + 2, littleEndian), isBigTiff);
+                ushort type = ReadUInt16(payload, entry + 2, littleEndian);
+                int typeSize = GetTiffTypeSize(type, isBigTiff);
                 ulong valueCount = isBigTiff ? ReadUInt64(payload, entry + 4, littleEndian) : ReadUInt32(payload, entry + 4, littleEndian);
                 if (typeSize == 0 || valueCount > ulong.MaxValue / (uint)typeSize) return TiffDirectoryStatus.Invalid;
+                TrackTiffImageField(tag, type, valueCount, isBigTiff, ref width, ref height, ref stripOffsets, ref stripByteCounts,
+                    ref tileOffsets, ref tileByteCounts, ref jpegOffset, ref jpegByteCount);
                 ulong valueLength = valueCount * (uint)typeSize;
                 if (valueLength > (ulong)nextSize) {
                     ulong valueOffset = isBigTiff ? ReadUInt64(payload, entry + 12, littleEndian) : ReadUInt32(payload, entry + 8, littleEndian);
@@ -439,13 +454,40 @@ internal static partial class Signatures {
                         valueOffset > (ulong)stream.Length || valueLength > (ulong)stream.Length - valueOffset) return TiffDirectoryStatus.Invalid;
                 }
             }
+            usableImageDirectory |= IsUsableTiffImageDirectory(width, height, stripOffsets, stripByteCounts,
+                tileOffsets, tileByteCounts, jpegOffset, jpegByteCount);
             remainingEntries -= (int)count;
             int nextOffset = checked((int)count * entrySize);
             current = isBigTiff ? ReadUInt64(payload, nextOffset, littleEndian) : ReadUInt32(payload, nextOffset, littleEndian);
             if (current != 0 && (current < (isBigTiff ? 16UL : 8UL) || (current & (isBigTiff ? 7UL : 1UL)) != 0)) return TiffDirectoryStatus.Invalid;
         }
-        return TiffDirectoryStatus.Complete;
+        return usableImageDirectory ? TiffDirectoryStatus.Complete : TiffDirectoryStatus.Partial;
     }
+
+    private static void TrackTiffImageField(ushort tag, ushort type, ulong count, bool isBigTiff,
+        ref bool width, ref bool height, ref ulong stripOffsets, ref ulong stripByteCounts,
+        ref ulong tileOffsets, ref ulong tileByteCounts, ref ulong jpegOffset, ref ulong jpegByteCount)
+    {
+        bool unsignedInteger = type is 3 or 4 || isBigTiff && type == 16;
+        if (!unsignedInteger || count == 0) return;
+        switch (tag)
+        {
+            case 256 when count == 1: width = true; break;
+            case 257 when count == 1: height = true; break;
+            case 273: stripOffsets = count; break;
+            case 279: stripByteCounts = count; break;
+            case 324: tileOffsets = count; break;
+            case 325: tileByteCounts = count; break;
+            case 513 when count == 1: jpegOffset = 1; break;
+            case 514 when count == 1: jpegByteCount = 1; break;
+        }
+    }
+
+    private static bool IsUsableTiffImageDirectory(bool width, bool height, ulong stripOffsets, ulong stripByteCounts,
+        ulong tileOffsets, ulong tileByteCounts, ulong jpegOffset, ulong jpegByteCount)
+        => width && height && (stripOffsets != 0 && stripOffsets == stripByteCounts ||
+                              tileOffsets != 0 && tileOffsets == tileByteCounts ||
+                              jpegOffset == 1 && jpegByteCount == 1);
 
     private static int GetTiffTypeSize(ushort type, bool isBigTiff) => type switch {
         1 or 2 or 6 or 7 => 1,

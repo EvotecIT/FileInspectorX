@@ -59,7 +59,7 @@ public sealed class FormatCompatibilityRegressionTests
             WriteUInt32LittleEndian(bytes, 4, ifdOffset);
         }
 
-        AssertParity(bytes, "tif", "High");
+        AssertParity(bytes, "tif", "Medium");
     }
 
     [Fact]

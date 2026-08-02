@@ -161,7 +161,8 @@ internal static partial class Signatures
             {
                 if (cursor >= track.Length) return false;
                 byte type = track[cursor++];
-                if (!TryReadMidiVariableLength(track, ref cursor, out uint length) || length > track.Length - cursor) return false;
+                if (!TryReadMidiVariableLength(track, ref cursor, out uint length) ||
+                    !IsValidMidiMetaEventLength(type, length) || length > track.Length - cursor) return false;
                 cursor += (int)length;
                 if (type == 0x2F) return length == 0 && cursor == track.Length;
                 continue;
@@ -216,6 +217,7 @@ internal static partial class Signatures
                 int lengthStart = cursor;
                 if (!TryReadMidiVariableLength(track, ref cursor, out uint length))
                     return cursor == track.Length && cursor - lengthStart <= 4;
+                if (!IsValidMidiMetaEventLength(type, length)) return false;
                 if (length > track.Length - cursor) return true;
                 cursor += (int)length;
                 if (type == 0x2F) return false;
@@ -264,6 +266,7 @@ internal static partial class Signatures
             {
                 if (!TryReadMidiByte(stream, trackEnd, out byte type) ||
                     !TryReadMidiVariableLength(stream, trackEnd, out uint length) ||
+                    !IsValidMidiMetaEventLength(type, length) ||
                     length > (ulong)(trackEnd - stream.Position)) return false;
                 stream.Seek(length, SeekOrigin.Current);
                 if (type == 0x2F) return length == 0 && stream.Position == trackEnd;
@@ -289,6 +292,18 @@ internal static partial class Signatures
         }
         return false;
     }
+
+    private static bool IsValidMidiMetaEventLength(byte type, uint length) => type switch
+    {
+        0x00 => length == 2, // Sequence Number
+        0x20 or 0x21 => length == 1, // MIDI Channel Prefix / MIDI Port
+        0x2F => length == 0, // End of Track
+        0x51 => length == 3, // Set Tempo
+        0x54 => length == 5, // SMPTE Offset
+        0x58 => length == 4, // Time Signature
+        0x59 => length == 2, // Key Signature
+        _ => true
+    };
 
     private static bool TryReadMidiVariableLength(Stream stream, long end, out uint value)
     {

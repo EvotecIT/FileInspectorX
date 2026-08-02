@@ -169,18 +169,20 @@ public sealed class EighteenthReviewRegressionTests
 
     private static byte[] ArrowWithNegativeVtableDisplacements()
     {
-        var footer = new byte[64];
+        var footer = new byte[76];
         TestHelpers.WriteUInt32LittleEndian(footer, 0, 12);
         TestHelpers.WriteUInt32LittleEndian(footer, 12, unchecked((uint)-40));
         TestHelpers.WriteUInt16LittleEndian(footer, 16, 4);
         TestHelpers.WriteUInt32LittleEndian(footer, 20, 20);
-        TestHelpers.WriteUInt32LittleEndian(footer, 40, unchecked((uint)-20));
+        TestHelpers.WriteUInt32LittleEndian(footer, 40, unchecked((uint)-28));
+        TestHelpers.WriteUInt32LittleEndian(footer, 44, 4);
         TestHelpers.WriteUInt16LittleEndian(footer, 52, 8);
         TestHelpers.WriteUInt16LittleEndian(footer, 54, 12);
         TestHelpers.WriteUInt16LittleEndian(footer, 56, 4);
         TestHelpers.WriteUInt16LittleEndian(footer, 58, 8);
-        TestHelpers.WriteUInt16LittleEndian(footer, 60, 4);
-        TestHelpers.WriteUInt16LittleEndian(footer, 62, 4);
+        TestHelpers.WriteUInt16LittleEndian(footer, 68, 8);
+        TestHelpers.WriteUInt16LittleEndian(footer, 70, 8);
+        TestHelpers.WriteUInt16LittleEndian(footer, 74, 4);
 
         var bytes = new byte[8 + footer.Length + 10];
         Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 0);

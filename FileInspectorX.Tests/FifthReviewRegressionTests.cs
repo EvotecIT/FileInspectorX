@@ -7,7 +7,7 @@ public sealed class FifthReviewRegressionTests
 {
     [Fact]
     public void Hdf5AtOffsetZeroUsesTheCompleteSeekableLength()
-        => AssertParity(LargeLegacyHdf5(), "h5", "High");
+        => AssertParity(LargeLegacyHdf5(), "h5", "Medium");
 
     [Fact]
     public void GenericHeifBrandsPreserveTheImageContainer()

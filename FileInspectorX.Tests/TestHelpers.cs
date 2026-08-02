@@ -301,7 +301,7 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalArrow()
     {
-        var footer = new byte[52];
+        var footer = new byte[60];
         WriteUInt32LittleEndian(footer, 0, 16);
         WriteUInt16LittleEndian(footer, 4, 12);
         WriteUInt16LittleEndian(footer, 6, 12);
@@ -309,9 +309,11 @@ internal static class TestHelpers
         WriteUInt16LittleEndian(footer, 10, 8);
         WriteUInt32LittleEndian(footer, 16, 12);
         WriteUInt32LittleEndian(footer, 24, 24);
-        WriteUInt16LittleEndian(footer, 40, 4);
-        WriteUInt16LittleEndian(footer, 42, 4);
+        WriteUInt16LittleEndian(footer, 40, 8);
+        WriteUInt16LittleEndian(footer, 42, 8);
+        WriteUInt16LittleEndian(footer, 46, 4);
         WriteUInt32LittleEndian(footer, 48, 8);
+        WriteUInt32LittleEndian(footer, 52, 4);
 
         var bytes = new byte[8 + footer.Length + 10];
         Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 0);

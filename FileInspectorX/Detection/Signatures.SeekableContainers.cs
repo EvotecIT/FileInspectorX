@@ -754,10 +754,31 @@ internal static partial class Signatures
         ulong schemaTableValue = (ulong)table + schemaOffset + schemaRelative;
         if (schemaRelative < 4 || schemaTableValue + 4 > (ulong)footer.Length) return false;
         int schemaTable = (int)schemaTableValue;
-        if (!TryGetArrowVtable(footer, schemaTable, 4, out _, out _)) return false;
+        if (!TryValidateArrowSchema(footer, schemaTable)) return false;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
         return TryValidateArrowBlockVector(footer, table, dictionariesOffset, dataRegionEnd, ranges) &&
                TryValidateArrowBlockVector(footer, table, recordBatchesOffset, dataRegionEnd, ranges);
+    }
+
+    private static bool TryValidateArrowSchema(ReadOnlySpan<byte> footer, int schemaTable)
+    {
+        if (!TryGetArrowVtable(footer, schemaTable, 8, out int vtable, out ushort objectLength)) return false;
+        ushort fieldsOffset = ReadUInt16LittleEndian(footer, vtable + 6);
+        if (fieldsOffset == 0 || fieldsOffset + 4 > objectLength) return false;
+        int field = schemaTable + fieldsOffset;
+        uint relative = ReadUInt32LittleEndian(footer, field);
+        if (relative < 4 || (ulong)field + relative + 4 > (ulong)footer.Length) return false;
+        int vector = checked(field + (int)relative);
+        uint count = ReadUInt32LittleEndian(footer, vector);
+        if (count > 1_000_000 || (ulong)vector + 4UL + (ulong)count * 4UL > (ulong)footer.Length) return false;
+        for (uint index = 0; index < count; index++)
+        {
+            int item = checked(vector + 4 + (int)index * 4);
+            uint itemRelative = ReadUInt32LittleEndian(footer, item);
+            if (itemRelative < 4 || (ulong)item + itemRelative + 4 > (ulong)footer.Length ||
+                !TryGetArrowVtable(footer, checked(item + (int)itemRelative), 4, out _, out _)) return false;
+        }
+        return true;
     }
 
     private static bool TryValidateArrowBlockVector(ReadOnlySpan<byte> footer, int table, ushort fieldOffset,
