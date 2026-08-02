@@ -31,6 +31,7 @@ internal static partial class Signatures {
         if (version == 1) {
             if (totalLength < 21 || contentLength == 0 || contentLength > totalLength - 20 || contentType != 0 ||
                 !HasGlbJsonObjectStart(src, 20, contentLength)) return false;
+            if (completeLength.HasValue && !TryValidateGlbJson(src.Slice(20, (int)contentLength), allowSpacePadding: false)) return false;
             result = GlbResult(version, completeLength.HasValue);
             return true;
         }
@@ -60,6 +61,15 @@ internal static partial class Signatures {
             if (totalLength != stream.Length) return false;
             if (version == 1)
             {
+                uint jsonLength = ReadUInt32LittleEndian(src, 12);
+                if (jsonLength > Settings.DetectionReadBudgetBytes)
+                {
+                    result = sampled;
+                    result!.Reason += ";json-scan-budget";
+                    return true;
+                }
+                if (!TryReadAt(stream, 20, (int)jsonLength, out var jsonBytes) ||
+                    !TryValidateGlbJson(new ReadOnlySpan<byte>(jsonBytes), allowSpacePadding: false)) return false;
                 result = GlbResult(version, complete: true);
                 return true;
             }
@@ -68,6 +78,7 @@ internal static partial class Signatures {
             int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
             bool sawJson = false;
             bool sawBin = false;
+            bool jsonValidated = false;
             while (cursor < stream.Length)
             {
                 if (remainingHeaders-- == 0)
@@ -85,6 +96,12 @@ internal static partial class Signatures {
                 {
                     if (sawJson || cursor != 12) return false;
                     sawJson = true;
+                    if (chunkLength <= Settings.DetectionReadBudgetBytes)
+                    {
+                        if (!TryReadAt(stream, cursor + 8, (int)chunkLength, out var jsonBytes) ||
+                            !TryValidateGlbJson(new ReadOnlySpan<byte>(jsonBytes), allowSpacePadding: true)) return false;
+                        jsonValidated = true;
+                    }
                 }
                 else if (chunkType == 0x004E4942)
                 {
@@ -94,7 +111,8 @@ internal static partial class Signatures {
                 cursor += 8 + chunkLength;
             }
             if (cursor != stream.Length || !sawJson) return false;
-            result = GlbResult(version, complete: true);
+            result = GlbResult(version, complete: jsonValidated);
+            if (!jsonValidated) result.Reason += ";json-scan-budget";
             return true;
         }
         catch
@@ -122,6 +140,7 @@ internal static partial class Signatures {
             if (chunkType == 0x4E4F534A)
             {
                 if (sawJson || cursor != 12) return false;
+                if (!TryValidateGlbJson(src.Slice(cursor + 8, (int)chunkLength), allowSpacePadding: true)) return false;
                 sawJson = true;
             }
             else if (chunkType == 0x004E4942)
@@ -151,6 +170,127 @@ internal static partial class Signatures {
         }
         return false;
     }
+
+    private static bool TryValidateGlbJson(ReadOnlySpan<byte> json, bool allowSpacePadding)
+    {
+        int length = json.Length;
+        if (allowSpacePadding) while (length > 0 && json[length - 1] == (byte)' ') length--;
+        if (length == 0) return false;
+        try { _ = new System.Text.UTF8Encoding(false, true).GetString(json.Slice(0, length).ToArray()); }
+        catch { return false; }
+        int cursor = 0;
+        SkipJsonWhitespace(json.Slice(0, length), ref cursor);
+        if (!TryReadJsonValue(json.Slice(0, length), ref cursor, 0, requireObject: true)) return false;
+        SkipJsonWhitespace(json.Slice(0, length), ref cursor);
+        return cursor == length;
+    }
+
+    private static bool TryReadJsonValue(ReadOnlySpan<byte> json, ref int cursor, int depth, bool requireObject = false)
+    {
+        if (depth > 64) return false;
+        SkipJsonWhitespace(json, ref cursor);
+        if (cursor >= json.Length || requireObject && json[cursor] != (byte)'{') return false;
+        byte token = json[cursor];
+        if (token == (byte)'{')
+        {
+            cursor++;
+            SkipJsonWhitespace(json, ref cursor);
+            if (cursor < json.Length && json[cursor] == (byte)'}') { cursor++; return true; }
+            while (cursor < json.Length)
+            {
+                if (!TryReadJsonString(json, ref cursor)) return false;
+                SkipJsonWhitespace(json, ref cursor);
+                if (cursor >= json.Length || json[cursor++] != (byte)':') return false;
+                if (!TryReadJsonValue(json, ref cursor, depth + 1)) return false;
+                SkipJsonWhitespace(json, ref cursor);
+                if (cursor >= json.Length) return false;
+                if (json[cursor] == (byte)'}') { cursor++; return true; }
+                if (json[cursor++] != (byte)',') return false;
+                SkipJsonWhitespace(json, ref cursor);
+            }
+            return false;
+        }
+        if (token == (byte)'[')
+        {
+            cursor++;
+            SkipJsonWhitespace(json, ref cursor);
+            if (cursor < json.Length && json[cursor] == (byte)']') { cursor++; return true; }
+            while (cursor < json.Length)
+            {
+                if (!TryReadJsonValue(json, ref cursor, depth + 1)) return false;
+                SkipJsonWhitespace(json, ref cursor);
+                if (cursor >= json.Length) return false;
+                if (json[cursor] == (byte)']') { cursor++; return true; }
+                if (json[cursor++] != (byte)',') return false;
+            }
+            return false;
+        }
+        if (token == (byte)'"') return TryReadJsonString(json, ref cursor);
+        if (token == (byte)'t') return TryReadJsonLiteral(json, ref cursor, "true"u8);
+        if (token == (byte)'f') return TryReadJsonLiteral(json, ref cursor, "false"u8);
+        if (token == (byte)'n') return TryReadJsonLiteral(json, ref cursor, "null"u8);
+        return TryReadJsonNumber(json, ref cursor);
+    }
+
+    private static bool TryReadJsonString(ReadOnlySpan<byte> json, ref int cursor)
+    {
+        if (cursor >= json.Length || json[cursor++] != (byte)'"') return false;
+        while (cursor < json.Length)
+        {
+            byte current = json[cursor++];
+            if (current == (byte)'"') return true;
+            if (current < 0x20) return false;
+            if (current != (byte)'\\') continue;
+            if (cursor >= json.Length) return false;
+            byte escaped = json[cursor++];
+            if (escaped is (byte)'"' or (byte)'\\' or (byte)'/' or (byte)'b' or (byte)'f' or (byte)'n' or (byte)'r' or (byte)'t') continue;
+            if (escaped != (byte)'u' || cursor + 4 > json.Length) return false;
+            for (int digit = 0; digit < 4; digit++) if (!IsJsonHex(json[cursor + digit])) return false;
+            cursor += 4;
+        }
+        return false;
+    }
+
+    private static bool TryReadJsonLiteral(ReadOnlySpan<byte> json, ref int cursor, ReadOnlySpan<byte> literal)
+    {
+        if (json.Length - cursor < literal.Length || !json.Slice(cursor, literal.Length).SequenceEqual(literal)) return false;
+        cursor += literal.Length;
+        return true;
+    }
+
+    private static bool TryReadJsonNumber(ReadOnlySpan<byte> json, ref int cursor)
+    {
+        int start = cursor;
+        if (cursor < json.Length && json[cursor] == (byte)'-') cursor++;
+        if (cursor >= json.Length) return false;
+        if (json[cursor] == (byte)'0') cursor++;
+        else if (json[cursor] is >= (byte)'1' and <= (byte)'9') while (cursor < json.Length && json[cursor] is >= (byte)'0' and <= (byte)'9') cursor++;
+        else return false;
+        if (cursor < json.Length && json[cursor] == (byte)'.')
+        {
+            cursor++;
+            int digits = cursor;
+            while (cursor < json.Length && json[cursor] is >= (byte)'0' and <= (byte)'9') cursor++;
+            if (cursor == digits) return false;
+        }
+        if (cursor < json.Length && json[cursor] is (byte)'e' or (byte)'E')
+        {
+            cursor++;
+            if (cursor < json.Length && json[cursor] is (byte)'+' or (byte)'-') cursor++;
+            int digits = cursor;
+            while (cursor < json.Length && json[cursor] is >= (byte)'0' and <= (byte)'9') cursor++;
+            if (cursor == digits) return false;
+        }
+        return cursor > start;
+    }
+
+    private static void SkipJsonWhitespace(ReadOnlySpan<byte> json, ref int cursor)
+    {
+        while (cursor < json.Length && json[cursor] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') cursor++;
+    }
+
+    private static bool IsJsonHex(byte value)
+        => value is >= (byte)'0' and <= (byte)'9' or >= (byte)'A' and <= (byte)'F' or >= (byte)'a' and <= (byte)'f';
 
     internal static bool TryMatchTiff(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchTiff(src, src.Length, out result);
@@ -239,8 +379,12 @@ internal static partial class Signatures {
             int inlineSize = isBigTiff ? 8 : 4;
             ulong directoryEnd = current + (ulong)countSize + count * (ulong)entrySize + (ulong)inlineSize;
             if (directoryEnd > (ulong)src.Length) return completeLength.HasValue ? TiffDirectoryStatus.Invalid : TiffDirectoryStatus.Sampled;
+            ushort previousTag = 0;
             for (ulong index = 0; index < count; index++) {
                 int entry = checked(offset + countSize + (int)index * entrySize);
+                ushort tag = ReadUInt16(src, entry, littleEndian);
+                if (index != 0 && tag <= previousTag) return TiffDirectoryStatus.Invalid;
+                previousTag = tag;
                 ushort type = ReadUInt16(src, entry + 2, littleEndian);
                 int typeSize = GetTiffTypeSize(type, isBigTiff);
                 ulong valueCount = isBigTiff ? ReadUInt64(src, entry + 4, littleEndian) : ReadUInt32(src, entry + 4, littleEndian);
@@ -278,8 +422,12 @@ internal static partial class Signatures {
             long payloadLength = checked((long)count * entrySize + nextSize);
             if (payloadLength > int.MaxValue || !TryReadAt(stream, (long)current + countSize, (int)payloadLength, out var payloadBytes)) return TiffDirectoryStatus.Invalid;
             var payload = new ReadOnlySpan<byte>(payloadBytes);
+            ushort previousTag = 0;
             for (ulong index = 0; index < count; index++) {
                 int entry = checked((int)index * entrySize);
+                ushort tag = ReadUInt16(payload, entry, littleEndian);
+                if (index != 0 && tag <= previousTag) return TiffDirectoryStatus.Invalid;
+                previousTag = tag;
                 int typeSize = GetTiffTypeSize(ReadUInt16(payload, entry + 2, littleEndian), isBigTiff);
                 ulong valueCount = isBigTiff ? ReadUInt64(payload, entry + 4, littleEndian) : ReadUInt32(payload, entry + 4, littleEndian);
                 if (typeSize == 0 || valueCount > ulong.MaxValue / (uint)typeSize) return TiffDirectoryStatus.Invalid;

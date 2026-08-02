@@ -23,7 +23,7 @@ internal static partial class Signatures
         if (TryMatchMp3(src, out result)) return true;
         if (TryMatchWasm(src, out result)) return true;
         if (TryMatchPcapNg(src, out result)) return true;
-        if (TryMatchPcap(src, out result)) return true;
+        if (TryMatchPcap(src, completeLength, out result)) return true;
         if (TryMatchFlac(src, out result)) return true;
         if (TryMatchCrx(src, out result)) return true;
         if (TryMatchIcon(src, out result)) return true;
@@ -675,6 +675,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPcap(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchPcap(src, src.Length, out result);
+
+    internal static bool TryMatchPcap(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 24) return false;
@@ -689,9 +692,91 @@ internal static partial class Signatures
         ushort major = ReadUInt16(src, 4, littleEndian);
         ushort minor = ReadUInt16(src, 6, littleEndian);
         uint snapLength = ReadUInt32(src, 16, littleEndian);
-        if (major != 2 || minor != 4 || snapLength == 0 || snapLength > 0x10000000) return false;
+        if (major != 2 || minor != 4 || snapLength == 0 || snapLength > 0x10000000 || completeLength < 0) return false;
+        int cursor = 24;
+        while (cursor < src.Length)
+        {
+            if (src.Length - cursor < 16)
+            {
+                if (completeLength.HasValue) return false;
+                result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
+                result.Confidence = "Medium";
+                result.Reason += ";sampled-record";
+                return true;
+            }
+            uint fraction = ReadUInt32(src, cursor + 4, littleEndian);
+            uint includedLength = ReadUInt32(src, cursor + 8, littleEndian);
+            uint originalLength = ReadUInt32(src, cursor + 12, littleEndian);
+            if (fraction >= (nanoseconds ? 1000000000u : 1000000u) || includedLength > snapLength || includedLength > originalLength) return false;
+            long recordEnd = (long)cursor + 16L + includedLength;
+            if (completeLength.HasValue && recordEnd > completeLength.Value) return false;
+            if (recordEnd > src.Length)
+            {
+                if (completeLength.HasValue) return false;
+                result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
+                result.Confidence = "Medium";
+                result.Reason += ";sampled-payload";
+                return true;
+            }
+            cursor = (int)recordEnd;
+        }
+        if (completeLength.HasValue && cursor != completeLength.Value) return false;
         result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
         return true;
+    }
+
+    internal static bool TryMatchPcap(Stream stream, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < 24 || !TryReadAt(stream, 0, 24, out var globalBytes)) return false;
+            var global = new ReadOnlySpan<byte>(globalBytes);
+            uint magic = ReadUInt32BigEndian(global, 0);
+            bool littleEndian, nanoseconds;
+            if (magic == 0xD4C3B2A1) { littleEndian = true; nanoseconds = false; }
+            else if (magic == 0xA1B2C3D4) { littleEndian = false; nanoseconds = false; }
+            else if (magic == 0x4D3CB2A1) { littleEndian = true; nanoseconds = true; }
+            else if (magic == 0xA1B23C4D) { littleEndian = false; nanoseconds = true; }
+            else return false;
+            if (ReadUInt16(global, 4, littleEndian) != 2 || ReadUInt16(global, 6, littleEndian) != 4) return false;
+            uint snapLength = ReadUInt32(global, 16, littleEndian);
+            if (snapLength == 0 || snapLength > 0x10000000) return false;
+            long cursor = 24;
+            int remainingRecords = Math.Max(1, Settings.DetectionReadBudgetBytes / 16);
+            while (cursor < stream.Length)
+            {
+                if (remainingRecords-- == 0)
+                {
+                    result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
+                    result.Confidence = "Medium";
+                    result.Reason += ";record-scan-budget";
+                    return true;
+                }
+                if (stream.Length - cursor < 16 || !TryReadAt(stream, cursor, 16, out var recordBytes)) return false;
+                var record = new ReadOnlySpan<byte>(recordBytes);
+                uint fraction = ReadUInt32(record, 4, littleEndian);
+                uint includedLength = ReadUInt32(record, 8, littleEndian);
+                uint originalLength = ReadUInt32(record, 12, littleEndian);
+                if (fraction >= (nanoseconds ? 1000000000u : 1000000u) || includedLength > snapLength || includedLength > originalLength ||
+                    includedLength > stream.Length - cursor - 16) return false;
+                cursor += 16L + includedLength;
+            }
+            if (cursor != stream.Length) return false;
+            result = BinaryResult("pcap", "application/vnd.tcpdump.pcap", nanoseconds ? "pcap:nanosecond" : "pcap:microsecond");
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
+        finally
+        {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
     }
 
     internal static bool TryMatchPcapNg(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -792,21 +877,55 @@ internal static partial class Signatures
             (completeLength.HasValue && (directoryEnd > completeLength.Value || directoryEnd > src.Length))) return false;
         int availableEntries = Math.Min(count, Math.Max(0, src.Length - 6) / 16);
         if (availableEntries == 0 || (completeLength.HasValue && availableEntries != count)) return false;
+        var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+        bool sampledPayload = false;
         for (int index = 0; index < availableEntries; index++)
         {
             int entryOffset = 6 + index * 16;
+            int width = src[entryOffset] == 0 ? 256 : src[entryOffset];
+            int height = src[entryOffset + 1] == 0 ? 256 : src[entryOffset + 1];
+            ushort firstField = ReadUInt16LittleEndian(src, entryOffset + 4);
+            ushort secondField = ReadUInt16LittleEndian(src, entryOffset + 6);
+            if (type == 1 && (firstField != 1 || secondField is not (1 or 4 or 8 or 16 or 24 or 32)) ||
+                type == 2 && (firstField >= width || secondField >= height)) return false;
             uint imageSize = ReadUInt32LittleEndian(src, entryOffset + 8);
             uint imageOffset = ReadUInt32LittleEndian(src, entryOffset + 12);
             if (imageSize == 0 || imageOffset < directoryEnd ||
                 (completeLength.HasValue && ((ulong)imageOffset + imageSize > (ulong)completeLength.Value))) return false;
+            ulong imageEnd = (ulong)imageOffset + imageSize;
+            for (int range = 0; range < ranges.Count; range++)
+                if (imageOffset < ranges[range].End && imageEnd > ranges[range].Start) return false;
+            ranges.Add((imageOffset, imageEnd));
+            if (imageEnd <= (ulong)src.Length)
+            {
+                if (!TryValidateIconPayload(src.Slice((int)imageOffset, (int)imageSize), width, height, secondField, type)) return false;
+            }
+            else if (completeLength.HasValue) return false;
+            else sampledPayload = true;
         }
         string extension = type == 1 ? "ico" : "cur";
         result = new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = type == 1 ? "image/x-icon" : "image/x-win-bitmap",
-            Confidence = completeLength.HasValue ? "High" : "Medium",
-            Reason = completeLength.HasValue ? $"icon-directory:{extension}" : $"icon-directory:{extension};sampled-length-unknown"
+            Confidence = completeLength.HasValue && !sampledPayload ? "High" : "Medium",
+            Reason = completeLength.HasValue && !sampledPayload ? $"icon-directory:{extension}" : $"icon-directory:{extension};sampled-length-unknown;sampled-payload"
         };
+        return true;
+    }
+
+    private static bool TryValidateIconPayload(ReadOnlySpan<byte> payload, int width, int height, ushort directoryBitCount, ushort type)
+    {
+        if (TryMatchPng(payload, payload.Length, out _)) return true;
+        if (payload.Length < 40) return false;
+        uint dibSize = ReadUInt32LittleEndian(payload, 0);
+        if (dibSize is not (40 or 52 or 56 or 108 or 124) || dibSize > payload.Length) return false;
+        int dibWidth = unchecked((int)ReadUInt32LittleEndian(payload, 4));
+        int dibHeight = unchecked((int)ReadUInt32LittleEndian(payload, 8));
+        ushort planes = ReadUInt16LittleEndian(payload, 12);
+        ushort bitCount = ReadUInt16LittleEndian(payload, 14);
+        uint compression = ReadUInt32LittleEndian(payload, 16);
+        if (dibWidth != width || dibHeight != height * 2 || planes != 1 || bitCount is not (1 or 4 or 8 or 16 or 24 or 32) ||
+            type == 1 && directoryBitCount != bitCount || compression > 6 || compression == 4 || compression == 5) return false;
         return true;
     }
 
@@ -823,8 +942,30 @@ internal static partial class Signatures
             ushort count = ReadUInt16LittleEndian(header, 4);
             if (count is < 1 or > 1024) return false;
             int directoryLength = checked(6 + count * 16);
-            return TryReadAt(stream, 0, directoryLength, out var directoryBytes) &&
-                   TryMatchIcon(new ReadOnlySpan<byte>(directoryBytes), stream.Length, out result);
+            if (stream.Length <= Settings.DetectionReadBudgetBytes)
+                return TryReadAt(stream, 0, (int)stream.Length, out var completeBytes) &&
+                       TryMatchIcon(new ReadOnlySpan<byte>(completeBytes), stream.Length, out result);
+            if (!TryReadAt(stream, 0, directoryLength, out var directoryBytes) ||
+                !TryMatchIcon(new ReadOnlySpan<byte>(directoryBytes), completeLength: null, out result)) return false;
+            var directory = new ReadOnlySpan<byte>(directoryBytes);
+            ushort type = ReadUInt16LittleEndian(directory, 2);
+            for (int index = 0; index < count; index++)
+            {
+                int entry = 6 + index * 16;
+                int width = directory[entry] == 0 ? 256 : directory[entry];
+                int height = directory[entry + 1] == 0 ? 256 : directory[entry + 1];
+                ushort bitCount = ReadUInt16LittleEndian(directory, entry + 6);
+                uint imageSize = ReadUInt32LittleEndian(directory, entry + 8);
+                uint imageOffset = ReadUInt32LittleEndian(directory, entry + 12);
+                int prefixLength = (int)Math.Min(imageSize, 124u);
+                if (!TryReadAt(stream, imageOffset, prefixLength, out var payloadPrefix)) return false;
+                var payload = new ReadOnlySpan<byte>(payloadPrefix);
+                if (!TryMatchPng(payload, completeLength: null, out _) &&
+                    !TryValidateIconPayload(payload, width, height, bitCount, type)) return false;
+            }
+            result!.Confidence = "Medium";
+            result.Reason = "icon-directory:" + result.Extension + ";payload-scan-budget";
+            return true;
         }
         catch
         {

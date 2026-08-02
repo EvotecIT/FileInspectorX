@@ -174,7 +174,7 @@ public sealed class SeventeenthReviewRegressionTests
 
     private static byte[] DdsRgb()
     {
-        var bytes = new byte[128];
+        var bytes = new byte[132];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 4, 124);
         WriteUInt32LittleEndian(bytes, 8, 0x1007);

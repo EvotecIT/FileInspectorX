@@ -33,7 +33,7 @@ public sealed class TwelfthReviewRegressionTests
         AssertNotDetectedAs("rpm", truncated);
 
         var badMainMagic = (byte[])valid.Clone();
-        badMainMagic[128] = 0;
+        badMainMagic[136] = 0;
         AssertNotDetectedAs("rpm", badMainMagic);
     }
 
@@ -156,13 +156,22 @@ public sealed class TwelfthReviewRegressionTests
 
     private static byte[] Rpm()
     {
-        var bytes = new byte[160];
+        var bytes = new byte[174];
         new byte[] { 0xED, 0xAB, 0xEE, 0xDB, 3, 0 }.CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 78, 5);
         new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 96);
         WriteUInt32BigEndian(bytes, 104, 1);
-        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 128);
-        WriteUInt32BigEndian(bytes, 136, 1);
+        WriteUInt32BigEndian(bytes, 108, 1);
+        WriteUInt32BigEndian(bytes, 112, 1000);
+        WriteUInt32BigEndian(bytes, 116, 7);
+        WriteUInt32BigEndian(bytes, 124, 1);
+        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 136);
+        WriteUInt32BigEndian(bytes, 144, 1);
+        WriteUInt32BigEndian(bytes, 148, 1);
+        WriteUInt32BigEndian(bytes, 152, 1000);
+        WriteUInt32BigEndian(bytes, 156, 7);
+        WriteUInt32BigEndian(bytes, 164, 1);
+        new byte[] { 0x1F, 0x8B, 8, 0, 0 }.CopyTo(bytes, 169);
         return bytes;
     }
 
@@ -199,7 +208,7 @@ public sealed class TwelfthReviewRegressionTests
 
     private static byte[] DdsDx10()
     {
-        var bytes = new byte[148];
+        var bytes = new byte[152];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 4, 124);
         WriteUInt32LittleEndian(bytes, 8, 0x1007);

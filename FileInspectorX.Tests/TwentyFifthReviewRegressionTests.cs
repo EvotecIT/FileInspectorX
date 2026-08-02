@@ -269,7 +269,7 @@ public sealed class TwentyFifthReviewRegressionTests
 
     private static byte[] DdsDx10()
     {
-        var bytes = new byte[148];
+        var bytes = new byte[152];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         TestHelpers.WriteUInt32LittleEndian(bytes, 4, 124);
         TestHelpers.WriteUInt32LittleEndian(bytes, 8, 0x1007);

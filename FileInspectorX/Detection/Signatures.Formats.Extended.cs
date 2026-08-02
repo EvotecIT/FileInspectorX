@@ -13,7 +13,7 @@ internal static partial class Signatures
         if (TryMatchRpm(src, completeLength, out result)) return true;
         if (TryMatchQcow2(src, completeLength, out result)) return true;
         if (TryMatchMidi(src, completeLength, out result)) return true;
-        if (TryMatchDds(src, out result)) return true;
+        if (TryMatchDds(src, completeLength, out result)) return true;
         if (TryMatchQoi(src, out result)) return true;
         if (TryMatchDicom(src, completeLength, out result)) return true;
         if (TryMatchOutlookNdb(src, completeLength, out result)) return true;
@@ -34,9 +34,17 @@ internal static partial class Signatures
         {
             if (stream.Length < 144 || !TryReadAt(stream, 0, 112, out var prefix)) return false;
             var src = new ReadOnlySpan<byte>(prefix);
-            if (!TryGetRpmMainHeaderOffset(src, stream.Length, out long mainHeaderOffset) ||
+            if (!TryGetRpmMainHeaderOffset(src, stream.Length, out long mainHeaderOffset, out int signatureLength) ||
+                signatureLength > Settings.DetectionReadBudgetBytes ||
+                !TryReadAt(stream, 96, signatureLength, out var signatureHeader) ||
+                !TryValidateRpmHeader(new ReadOnlySpan<byte>(signatureHeader), out _) ||
                 !TryReadAt(stream, mainHeaderOffset, 16, out var mainHeader) ||
-                !TryValidateRpmMainHeader(new ReadOnlySpan<byte>(mainHeader), mainHeaderOffset, stream.Length)) return false;
+                !TryGetRpmHeaderLength(new ReadOnlySpan<byte>(mainHeader), out int mainLength) ||
+                mainLength > Settings.DetectionReadBudgetBytes || mainHeaderOffset + mainLength > stream.Length ||
+                !TryReadAt(stream, mainHeaderOffset, mainLength, out var completeMainHeader) ||
+                !TryValidateRpmHeader(new ReadOnlySpan<byte>(completeMainHeader), out _) ||
+                !TryReadAt(stream, mainHeaderOffset + mainLength, (int)Math.Min(6, stream.Length - mainHeaderOffset - mainLength), out var payloadPrefix) ||
+                !IsRpmPayloadPrefix(new ReadOnlySpan<byte>(payloadPrefix))) return false;
             result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
             return true;
         }
@@ -54,7 +62,15 @@ internal static partial class Signatures
     internal static bool TryMatchRpm(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (!TryGetRpmMainHeaderOffset(src, completeLength, out long mainHeaderOffset)) return false;
+        if (!TryGetRpmMainHeaderOffset(src, completeLength, out long mainHeaderOffset, out int signatureLength)) return false;
+        if (signatureLength > src.Length - 96)
+        {
+            if (completeLength.HasValue) return false;
+            result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header;sampled-signature-header");
+            result.Confidence = "Medium";
+            return true;
+        }
+        if (!TryValidateRpmHeader(src.Slice(96, signatureLength), out _)) return false;
         if (mainHeaderOffset + 16L > src.Length)
         {
             if (completeLength.HasValue) return false;
@@ -62,14 +78,26 @@ internal static partial class Signatures
             result.Confidence = "Medium";
             return true;
         }
-        if (!TryValidateRpmMainHeader(src.Slice((int)mainHeaderOffset, 16), mainHeaderOffset, completeLength)) return false;
+        if (!TryGetRpmHeaderLength(src.Slice((int)mainHeaderOffset, 16), out int mainLength)) return false;
+        long payloadOffset = mainHeaderOffset + mainLength;
+        if (completeLength.HasValue && payloadOffset >= completeLength.Value) return false;
+        if (payloadOffset > src.Length)
+        {
+            if (completeLength.HasValue) return false;
+            result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header;sampled-main-header");
+            result.Confidence = "Medium";
+            return true;
+        }
+        if (!TryValidateRpmHeader(src.Slice((int)mainHeaderOffset, mainLength), out _) ||
+            !IsRpmPayloadPrefix(src.Slice((int)payloadOffset))) return false;
         result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
         return true;
     }
 
-    private static bool TryGetRpmMainHeaderOffset(ReadOnlySpan<byte> src, long? completeLength, out long mainHeaderOffset)
+    private static bool TryGetRpmMainHeaderOffset(ReadOnlySpan<byte> src, long? completeLength, out long mainHeaderOffset, out int signatureLength)
     {
         mainHeaderOffset = 0;
+        signatureLength = 0;
         if (src.Length < 112 || !src.Slice(0, 4).SequenceEqual(new byte[] { 0xED, 0xAB, 0xEE, 0xDB })) return false;
         if (src[4] != 3 || src[5] != 0 || ReadUInt16BigEndian(src, 6) > 1 || ReadUInt16BigEndian(src, 78) != 5) return false;
         for (int i = 80; i < 96; i++) if (src[i] != 0) return false;
@@ -79,19 +107,73 @@ internal static partial class Signatures
         uint dataLength = ReadUInt32BigEndian(src, 108);
         if (indexCount is < 1 or > 65535 || dataLength > 0x40000000) return false;
         long signatureEnd = 112L + indexCount * 16L + dataLength;
+        long computedLength = signatureEnd - 96L;
+        if (computedLength > int.MaxValue) return false;
+        signatureLength = (int)computedLength;
         mainHeaderOffset = (signatureEnd + 7L) & ~7L;
         return signatureEnd >= 112 && mainHeaderOffset >= signatureEnd &&
                (!completeLength.HasValue || mainHeaderOffset + 16L <= completeLength.Value);
     }
 
-    private static bool TryValidateRpmMainHeader(ReadOnlySpan<byte> header, long mainHeaderOffset, long? completeLength)
+    private static bool TryGetRpmHeaderLength(ReadOnlySpan<byte> header, out int length)
     {
+        length = 0;
         if (header.Length < 16 || !header.Slice(0, 4).SequenceEqual(new byte[] { 0x8E, 0xAD, 0xE8, 0x01 })) return false;
         for (int i = 4; i < 8; i++) if (header[i] != 0) return false;
         uint indexCount = ReadUInt32BigEndian(header, 8);
         uint dataLength = ReadUInt32BigEndian(header, 12);
-        return indexCount is >= 1 and <= 65535 && dataLength <= 0x40000000 &&
-               (!completeLength.HasValue || mainHeaderOffset + 16L + indexCount * 16L + dataLength <= completeLength.Value);
+        long computed = 16L + indexCount * 16L + dataLength;
+        if (indexCount is < 1 or > 65535 || dataLength > 0x40000000 || computed > int.MaxValue) return false;
+        length = (int)computed;
+        return true;
+    }
+
+    private static bool TryValidateRpmHeader(ReadOnlySpan<byte> header, out int length)
+    {
+        if (!TryGetRpmHeaderLength(header, out length) || header.Length < length) return false;
+        uint indexCount = ReadUInt32BigEndian(header, 8);
+        uint dataLength = ReadUInt32BigEndian(header, 12);
+        int storeOffset = checked(16 + (int)indexCount * 16);
+        for (uint index = 0; index < indexCount; index++)
+        {
+            int record = checked(16 + (int)index * 16);
+            uint tag = ReadUInt32BigEndian(header, record);
+            uint type = ReadUInt32BigEndian(header, record + 4);
+            uint offset = ReadUInt32BigEndian(header, record + 8);
+            uint count = ReadUInt32BigEndian(header, record + 12);
+            if (tag == 0 || type is < 1 or > 9 || count == 0 || offset > dataLength) return false;
+            ulong valueLength;
+            if (type is 1 or 2) valueLength = count;
+            else if (type == 3) valueLength = (ulong)count * 2;
+            else if (type == 4) valueLength = (ulong)count * 4;
+            else if (type == 5) valueLength = (ulong)count * 8;
+            else if (type == 7) valueLength = count;
+            else
+            {
+                int strings = 0;
+                int cursor = storeOffset + (int)offset;
+                int storeEnd = storeOffset + (int)dataLength;
+                while (cursor < storeEnd && strings < count)
+                {
+                    if (header[cursor++] == 0) strings++;
+                }
+                if (strings != count) return false;
+                valueLength = (ulong)(cursor - storeOffset) - offset;
+            }
+            if (valueLength > dataLength - offset) return false;
+        }
+        return true;
+    }
+
+    private static bool IsRpmPayloadPrefix(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length >= 2 && payload[0] == 0x1F && payload[1] == 0x8B) return true;
+        if (payload.Length >= 3 && payload.Slice(0, 3).SequenceEqual("BZh"u8)) return true;
+        if (payload.Length >= 6 && payload.Slice(0, 6).SequenceEqual(new byte[] { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 })) return true;
+        if (payload.Length >= 4 && ReadUInt32LittleEndian(payload, 0) == 0xFD2FB528) return true;
+        if (payload.Length < 5 || payload[0] > 224 || payload[0] % 9 > 4) return false;
+        uint dictionarySize = ReadUInt32LittleEndian(payload, 1);
+        return dictionarySize is >= 4096 and <= 0x60000000;
     }
 
     internal static bool TryMatchQcow2(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -233,6 +315,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchDds(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchDds(src, src.Length, out result);
+
+    internal static bool TryMatchDds(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 128 || !src.Slice(0, 4).SequenceEqual("DDS "u8) || ReadUInt32LittleEndian(src, 4) != 124) return false;
@@ -250,6 +335,8 @@ internal static partial class Signatures
         uint caps = ReadUInt32LittleEndian(src, 108);
         uint depth = ReadUInt32LittleEndian(src, 24);
         uint caps2 = ReadUInt32LittleEndian(src, 112);
+        uint mipMapCount = ReadUInt32LittleEndian(src, 28);
+        uint pitchOrLinearSize = ReadUInt32LittleEndian(src, 20);
         if ((flags & 0x1007) != 0x1007 || height == 0 || width == 0 || pixelFormatSize != 32 || (caps & 0x1000) == 0) return false;
         const uint fourCcFlag = 0x4;
         const uint rgbFlag = 0x40;
@@ -286,13 +373,16 @@ internal static partial class Signatures
         {
             return false;
         }
+        uint arraySize = 1;
+        bool dx10Cube = false;
+        uint dxgiFormat = 0;
         if (hasFourCc && fourCc == 0x30315844)
         {
             if (src.Length < 148) return false;
-            uint dxgiFormat = ReadUInt32LittleEndian(src, 128);
+            dxgiFormat = ReadUInt32LittleEndian(src, 128);
             uint resourceDimension = ReadUInt32LittleEndian(src, 132);
             uint miscFlag = ReadUInt32LittleEndian(src, 136);
-            uint arraySize = ReadUInt32LittleEndian(src, 140);
+            arraySize = ReadUInt32LittleEndian(src, 140);
             uint alphaMode = ReadUInt32LittleEndian(src, 144);
             if (!IsKnownDdsDxgiFormat(dxgiFormat) || resourceDimension is < 2 or > 4 || arraySize == 0 ||
                 alphaMode > 4 ||
@@ -300,9 +390,70 @@ internal static partial class Signatures
                 (resourceDimension == 3 && (depth != 0 || (flags & 0x800000) != 0 || (caps2 & 0x200000) != 0)) ||
                 (resourceDimension == 4 && (arraySize != 1 || (miscFlag & 0x4) != 0 || depth == 0 ||
                     (flags & 0x800000) == 0 || (caps2 & 0x200000) == 0))) return false;
+            dx10Cube = (miscFlag & 0x4) != 0;
         }
+        int headerLength = hasFourCc && fourCc == 0x30315844 ? 148 : 128;
+        if (!TryGetDdsMinimumPayloadLength(width, height, depth, mipMapCount, flags, caps2,
+                hasFourCc, fourCc, dxgiFormat, rgbBitCount, pitchOrLinearSize, arraySize, dx10Cube,
+                out ulong minimumPayload) || completeLength < headerLength ||
+            (completeLength.HasValue && minimumPayload > (ulong)(completeLength.Value - headerLength))) return false;
         result = BinaryResult("dds", "image/vnd-ms.dds", "dds:header+pixel-format");
+        if (!completeLength.HasValue) { result.Confidence = "Medium"; result.Reason += ";sampled-length-unknown"; }
         return true;
+    }
+
+    private static bool TryGetDdsMinimumPayloadLength(uint width, uint height, uint depth, uint declaredMipCount,
+        uint flags, uint caps2, bool hasFourCc, uint fourCc, uint dxgiFormat, uint bitCount,
+        uint pitchOrLinearSize, uint arraySize, bool dx10Cube, out ulong length)
+    {
+        length = 0;
+        uint mipCount = (flags & 0x20000) != 0 ? declaredMipCount : 1;
+        if (mipCount is < 1 or > 32) return false;
+        uint surfaces = arraySize;
+        if (dx10Cube)
+        {
+            if (surfaces > uint.MaxValue / 6) return false;
+            surfaces *= 6;
+        }
+        else if ((caps2 & 0x200) != 0)
+        {
+            uint faceBits = caps2 & 0xFC00;
+            int faces = 0;
+            for (uint bit = 0x400; bit <= 0x8000; bit <<= 1) if ((faceBits & bit) != 0) faces++;
+            if (faces == 0) return false;
+            surfaces = (uint)faces;
+        }
+        if (surfaces == 0) return false;
+        uint currentWidth = width, currentHeight = height, currentDepth = Math.Max(1u, depth);
+        for (uint mip = 0; mip < mipCount; mip++)
+        {
+            ulong mipLength;
+            int blockBytes = GetDdsBlockBytes(fourCc, dxgiFormat);
+            if (blockBytes != 0)
+                mipLength = ((currentWidth + 3UL) / 4UL) * ((currentHeight + 3UL) / 4UL) * currentDepth * (uint)blockBytes;
+            else if (!hasFourCc && bitCount != 0)
+                mipLength = ((currentWidth * (ulong)bitCount + 7UL) / 8UL) * currentHeight * currentDepth;
+            else if (mip == 0 && pitchOrLinearSize != 0)
+                mipLength = pitchOrLinearSize * (ulong)currentDepth;
+            else
+                mipLength = ((ulong)currentWidth * currentHeight * currentDepth + 7UL) / 8UL;
+            if (mipLength == 0 || mipLength > ulong.MaxValue / surfaces || length > ulong.MaxValue - mipLength * surfaces) return false;
+            length += mipLength * surfaces;
+            currentWidth = Math.Max(1u, currentWidth >> 1);
+            currentHeight = Math.Max(1u, currentHeight >> 1);
+            currentDepth = Math.Max(1u, currentDepth >> 1);
+        }
+        return true;
+    }
+
+    private static int GetDdsBlockBytes(uint fourCc, uint dxgiFormat)
+    {
+        if (fourCc is 0x31545844 or 0x31495441 or 0x55344342 or 0x53344342) return 8; // DXT1, ATI1, BC4U/S
+        if (fourCc is 0x32545844 or 0x33545844 or 0x34545844 or 0x35545844 or
+            0x32495441 or 0x55354342 or 0x53354342) return 16; // DXT2-5, ATI2, BC5U/S
+        if (dxgiFormat is >= 70 and <= 72 or >= 79 and <= 81) return 8;
+        if (dxgiFormat is >= 73 and <= 78 or >= 82 and <= 84 or >= 94 and <= 99) return 16;
+        return 0;
     }
 
     private static bool IsKnownDdsDxgiFormat(uint format)
@@ -549,8 +700,9 @@ internal static partial class Signatures
     {
         result = null;
         if (!TryReadMatroskaDocumentType(src, out string? docType, out int headerEnd) ||
-            !TryFindMatroskaSegment(src, headerEnd, completeLength, out bool sampledRootVoid, out bool rootScanBudgetExceeded)) return false;
-        result = MatroskaResult(docType!, sampledRootVoid, rootScanBudgetExceeded);
+            !TryFindMatroskaSegment(src, headerEnd, completeLength, out bool sampledRootVoid,
+                out bool rootScanBudgetExceeded, out bool sampledSegment)) return false;
+        result = MatroskaResult(docType!, sampledRootVoid, rootScanBudgetExceeded, sampledSegment);
         return true;
     }
 
@@ -603,10 +755,11 @@ internal static partial class Signatures
     }
 
     private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor, long? completeLength,
-        out bool sampledRootVoid, out bool rootScanBudgetExceeded)
+        out bool sampledRootVoid, out bool rootScanBudgetExceeded, out bool sampledSegment)
     {
         sampledRootVoid = false;
         rootScanBudgetExceeded = false;
+        sampledSegment = false;
         int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
         while (cursor < src.Length)
         {
@@ -619,10 +772,16 @@ internal static partial class Signatures
             {
                 cursor += 4;
                 if (!TryReadEbmlSize(src, ref cursor, out ulong segmentLength, out bool unknownLength)) return false;
-                if (unknownLength) return true;
-                if (completeLength.HasValue)
-                    return cursor <= completeLength.Value && segmentLength <= (ulong)(completeLength.Value - cursor);
-                if (segmentLength > (ulong)(src.Length - cursor)) sampledRootVoid = true;
+                if (completeLength.HasValue && cursor > completeLength.Value) return false;
+                ulong availableLength = (ulong)Math.Max(0, src.Length - cursor);
+                ulong? completeSegmentLength = unknownLength
+                    ? completeLength.HasValue ? (ulong)(completeLength.Value - cursor) : null
+                    : segmentLength;
+                if (completeLength.HasValue && (cursor > completeLength.Value || !unknownLength && segmentLength > (ulong)(completeLength.Value - cursor))) return false;
+                MatroskaSegmentStatus status = InspectMatroskaSegmentChildren(src.Slice(cursor), completeSegmentLength);
+                if (status == MatroskaSegmentStatus.Invalid) return false;
+                sampledSegment = status == MatroskaSegmentStatus.Sampled;
+                if (!completeLength.HasValue && (!completeSegmentLength.HasValue || completeSegmentLength.Value > availableLength)) sampledSegment = true;
                 return true;
             }
             if (!TryReadEbmlVInt(src, ref cursor, stripMarker: false, out ulong id) || id != 0xEC ||
@@ -644,7 +803,7 @@ internal static partial class Signatures
     }
 
     private static ContentTypeDetectionResult MatroskaResult(string docType, bool sampledRootVoid = false,
-        bool rootScanBudgetExceeded = false)
+        bool rootScanBudgetExceeded = false, bool sampledSegment = false)
     {
         var result = docType == "webm"
             ? BinaryResult("webm", "application/webm", "ebml:doctype=webm")
@@ -659,7 +818,39 @@ internal static partial class Signatures
             result.Confidence = "Medium";
             result.Reason += ";root-scan-budget";
         }
+        if (sampledSegment)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";sampled-segment";
+        }
         return result;
+    }
+
+    private enum MatroskaSegmentStatus { Invalid, Sampled, Complete }
+
+    private static MatroskaSegmentStatus InspectMatroskaSegmentChildren(ReadOnlySpan<byte> payload, ulong? completeLength)
+    {
+        int cursor = 0;
+        bool info = false, tracks = false;
+        int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 16);
+        ulong scanLength = completeLength ?? (ulong)payload.Length;
+        while ((ulong)cursor < scanLength)
+        {
+            if (remainingElements-- == 0) return MatroskaSegmentStatus.Sampled;
+            if (cursor >= payload.Length) return MatroskaSegmentStatus.Sampled;
+            if (!TryReadEbmlVInt(payload, ref cursor, stripMarker: false, out ulong id) ||
+                !TryReadEbmlSize(payload, ref cursor, out ulong length, out bool unknownLength))
+                return completeLength.HasValue && completeLength.Value <= (ulong)payload.Length
+                    ? MatroskaSegmentStatus.Invalid : MatroskaSegmentStatus.Sampled;
+            if (unknownLength)
+                return id == 0x1F43B675 && info && tracks ? MatroskaSegmentStatus.Complete : MatroskaSegmentStatus.Invalid;
+            if (length > scanLength - (ulong)cursor) return MatroskaSegmentStatus.Invalid;
+            if (id == 0x1549A966) { if (length == 0 || info) return MatroskaSegmentStatus.Invalid; info = true; }
+            if (id == 0x1654AE6B) { if (length == 0 || tracks) return MatroskaSegmentStatus.Invalid; tracks = true; }
+            if (length > (ulong)(payload.Length - cursor)) return MatroskaSegmentStatus.Sampled;
+            cursor += (int)length;
+        }
+        return (ulong)cursor == scanLength && info && tracks ? MatroskaSegmentStatus.Complete : MatroskaSegmentStatus.Invalid;
     }
 
     internal static bool TryMatchMatroska(Stream stream, out ContentTypeDetectionResult? result)
@@ -690,7 +881,13 @@ internal static partial class Signatures
                     stream.Seek(cursor + 4, SeekOrigin.Begin);
                     if (!TryReadEbmlSize(stream, out ulong segmentLength, out bool unknownLength) ||
                         (!unknownLength && segmentLength > (ulong)(stream.Length - stream.Position))) return false;
-                    result = MatroskaResult(docType!);
+                    long segmentPayloadOffset = stream.Position;
+                    ulong completeSegmentLength = unknownLength ? (ulong)(stream.Length - segmentPayloadOffset) : segmentLength;
+                    int segmentReadLength = (int)Math.Min(completeSegmentLength, (ulong)Math.Max(16, Settings.DetectionReadBudgetBytes));
+                    if (!TryReadAt(stream, segmentPayloadOffset, segmentReadLength, out var segmentBytes)) return false;
+                    MatroskaSegmentStatus status = InspectMatroskaSegmentChildren(new ReadOnlySpan<byte>(segmentBytes), completeSegmentLength);
+                    if (status == MatroskaSegmentStatus.Invalid) return false;
+                    result = MatroskaResult(docType!, sampledSegment: status == MatroskaSegmentStatus.Sampled);
                     return true;
                 }
                 if (!TryReadAt(stream, cursor, 1, out var voidId) || voidId[0] != 0xEC) return false;

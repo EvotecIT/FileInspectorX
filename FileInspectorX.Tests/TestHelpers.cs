@@ -154,8 +154,8 @@ internal static class TestHelpers
     {
         string firstRequired = brand == "jpx " ? "jpxh" : brand == "jpm " ? "jpmh" : brand == "mjp2" ? "moov" : "jp2h";
         string secondRequired = brand == "mjp2" ? "mdat" : "jp2c";
-        int headerLength = brand == "mjp2" ? 8 : brand == "jpm " ? 16 : 30;
-        int dataLength = brand == "mjp2" ? 8 : 12;
+        int headerLength = brand == "mjp2" ? 34 : brand == "jpm " ? 16 : 30;
+        int dataLength = brand == "mjp2" ? 9 : 12;
         var bytes = new byte[32 + headerLength + dataLength];
         new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
         WriteUInt32BigEndian(bytes, 12, 20);
@@ -167,7 +167,16 @@ internal static class TestHelpers
         if (brand == "jpm ") {
             WriteUInt32BigEndian(bytes, 40, 8);
             Encoding.ASCII.GetBytes("free").CopyTo(bytes, 44);
-        } else if (brand != "mjp2") {
+        } else if (brand == "mjp2") {
+            WriteUInt32BigEndian(bytes, 40, 9);
+            Encoding.ASCII.GetBytes("mvhd").CopyTo(bytes, 44);
+            bytes[48] = 0;
+            WriteUInt32BigEndian(bytes, 49, 17);
+            Encoding.ASCII.GetBytes("trak").CopyTo(bytes, 53);
+            WriteUInt32BigEndian(bytes, 57, 9);
+            Encoding.ASCII.GetBytes("mdia").CopyTo(bytes, 61);
+            bytes[65] = 0;
+        } else {
             WriteUInt32BigEndian(bytes, 40, 22);
             Encoding.ASCII.GetBytes("ihdr").CopyTo(bytes, 44);
             WriteUInt32BigEndian(bytes, 48, 1);
@@ -357,12 +366,17 @@ internal static class TestHelpers
     internal static byte[] CreateMinimalMatroska(string documentType = "matroska")
     {
         byte[] documentTypeBytes = Encoding.ASCII.GetBytes(documentType);
-        var bytes = new byte[4 + 1 + 3 + documentTypeBytes.Length + 5];
+        byte[] segmentPayload = {
+            0x15, 0x49, 0xA9, 0x66, 0x85, 0x2A, 0xD7, 0xB1, 0x81, 0x01,
+            0x16, 0x54, 0xAE, 0x6B, 0x83, 0xAE, 0x81, 0x00
+        };
+        var bytes = new byte[4 + 1 + 3 + documentTypeBytes.Length + 5 + segmentPayload.Length];
         new byte[] { 0x1A, 0x45, 0xDF, 0xA3, (byte)(0x80 | (3 + documentTypeBytes.Length)), 0x42, 0x82,
             (byte)(0x80 | documentTypeBytes.Length) }.CopyTo(bytes, 0);
         documentTypeBytes.CopyTo(bytes, 8);
         int segment = 8 + documentTypeBytes.Length;
-        new byte[] { 0x18, 0x53, 0x80, 0x67, 0x80 }.CopyTo(bytes, segment);
+        new byte[] { 0x18, 0x53, 0x80, 0x67, (byte)(0x80 | segmentPayload.Length) }.CopyTo(bytes, segment);
+        segmentPayload.CopyTo(bytes, segment + 5);
         return bytes;
     }
 

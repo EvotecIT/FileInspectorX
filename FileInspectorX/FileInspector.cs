@@ -518,6 +518,7 @@ public static partial class FileInspector {
             return Finish(Enrich(validatedPe, src, stream, options));
         if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
         if (!stream.CanSeek && Signatures.TryMatchPcapNg(src, completeLength, out var sampledPcapNg)) return Finish(Enrich(sampledPcapNg, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchPcap(stream, out var seekablePcap)) return Finish(Enrich(seekablePcap, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchCrx(stream, out var seekableCrx) : Signatures.TryMatchCrx(src, completeLength, out seekableCrx)))
             return Finish(Enrich(seekableCrx, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchIcon(stream, out var validatedIcon) : Signatures.TryMatchIcon(src, completeLength, out validatedIcon)))

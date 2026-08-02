@@ -325,7 +325,7 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Pcap()
     {
-        var bytes = new byte[26];
+        var bytes = new byte[24];
         new byte[] { 0xD4, 0xC3, 0xB2, 0xA1 }.CopyTo(bytes, 0);
         WriteUInt16LittleEndian(bytes, 4, 2);
         WriteUInt16LittleEndian(bytes, 6, 4);
@@ -357,12 +357,16 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Icon()
     {
-        var bytes = new byte[23];
+        byte[] png = TestHelpers.CreateMinimalPng();
+        var bytes = new byte[22 + png.Length];
         WriteUInt16LittleEndian(bytes, 2, 1);
         WriteUInt16LittleEndian(bytes, 4, 1);
         bytes[6] = 1; bytes[7] = 1;
-        WriteUInt32LittleEndian(bytes, 14, 1);
+        WriteUInt16LittleEndian(bytes, 10, 1);
+        WriteUInt16LittleEndian(bytes, 12, 32);
+        WriteUInt32LittleEndian(bytes, 14, (uint)png.Length);
         WriteUInt32LittleEndian(bytes, 18, 22);
+        png.CopyTo(bytes, 22);
         return bytes;
     }
 
@@ -384,13 +388,22 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Rpm()
     {
-        var bytes = new byte[160];
+        var bytes = new byte[174];
         new byte[] { 0xED, 0xAB, 0xEE, 0xDB, 3, 0 }.CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 78, 5);
         new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 96);
         WriteUInt32BigEndian(bytes, 104, 1);
-        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 128);
-        WriteUInt32BigEndian(bytes, 136, 1);
+        WriteUInt32BigEndian(bytes, 108, 1);
+        WriteUInt32BigEndian(bytes, 112, 1000);
+        WriteUInt32BigEndian(bytes, 116, 7);
+        WriteUInt32BigEndian(bytes, 124, 1);
+        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 136);
+        WriteUInt32BigEndian(bytes, 144, 1);
+        WriteUInt32BigEndian(bytes, 148, 1);
+        WriteUInt32BigEndian(bytes, 152, 1000);
+        WriteUInt32BigEndian(bytes, 156, 7);
+        WriteUInt32BigEndian(bytes, 164, 1);
+        new byte[] { 0x1F, 0x8B, 8, 0, 0 }.CopyTo(bytes, 169);
         return bytes;
     }
 
@@ -424,7 +437,7 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Dds()
     {
-        var bytes = new byte[128];
+        var bytes = new byte[132];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 4, 124);
         WriteUInt32LittleEndian(bytes, 8, 0x1007);

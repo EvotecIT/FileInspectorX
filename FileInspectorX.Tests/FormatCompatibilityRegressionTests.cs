@@ -147,7 +147,7 @@ public sealed class FormatCompatibilityRegressionTests
     [Fact]
     public void MatroskaHeaderAtDetectionBoundaryKeepsApiParity()
     {
-        var bytes = new byte[4101];
+        var bytes = new byte[4119];
         new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0x4F, 0xFA, 0x42, 0x82, 0x88 }
             .CopyTo(bytes, 0);
         Encoding.ASCII.GetBytes("matroska").CopyTo(bytes, 9);
@@ -155,7 +155,11 @@ public sealed class FormatCompatibilityRegressionTests
         bytes[18] = 0x4F;
         bytes[19] = 0xEC;
         new byte[] { 0x18, 0x53, 0x80, 0x67 }.CopyTo(bytes, 4096);
-        bytes[4100] = 0x80;
+        bytes[4100] = 0x92;
+        new byte[] {
+            0x15, 0x49, 0xA9, 0x66, 0x85, 0x2A, 0xD7, 0xB1, 0x81, 0x01,
+            0x16, 0x54, 0xAE, 0x6B, 0x83, 0xAE, 0x81, 0x00
+        }.CopyTo(bytes, 4101);
 
         AssertParity(bytes, "matroska", "High");
     }
@@ -285,14 +289,23 @@ public sealed class FormatCompatibilityRegressionTests
     private static byte[] LargeRpmSignatureHeader()
     {
         const int dataLength = 5000;
-        var bytes = new byte[112 + 16 + dataLength + 32];
+        const int mainOffset = 112 + 16 + dataLength;
+        var bytes = new byte[mainOffset + 16 + 16 + 1 + 5];
         new byte[] { 0xED, 0xAB, 0xEE, 0xDB, 3, 0 }.CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 78, 5);
         new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 96);
         WriteUInt32BigEndian(bytes, 104, 1);
         WriteUInt32BigEndian(bytes, 108, dataLength);
-        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, 112 + 16 + dataLength);
-        WriteUInt32BigEndian(bytes, 112 + 16 + dataLength + 8, 1);
+        WriteUInt32BigEndian(bytes, 112, 1000);
+        WriteUInt32BigEndian(bytes, 116, 7);
+        WriteUInt32BigEndian(bytes, 124, dataLength);
+        new byte[] { 0x8E, 0xAD, 0xE8, 1 }.CopyTo(bytes, mainOffset);
+        WriteUInt32BigEndian(bytes, mainOffset + 8, 1);
+        WriteUInt32BigEndian(bytes, mainOffset + 12, 1);
+        WriteUInt32BigEndian(bytes, mainOffset + 16, 1000);
+        WriteUInt32BigEndian(bytes, mainOffset + 20, 7);
+        WriteUInt32BigEndian(bytes, mainOffset + 28, 1);
+        new byte[] { 0x1F, 0x8B, 8, 0, 0 }.CopyTo(bytes, mainOffset + 33);
         return bytes;
     }
 

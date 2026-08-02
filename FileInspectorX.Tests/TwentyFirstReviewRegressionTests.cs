@@ -143,7 +143,7 @@ public sealed class TwentyFirstReviewRegressionTests
 
     private static byte[] NetCdfWithTwoFixedVariables(bool overlap)
     {
-        var bytes = new byte[128];
+        var bytes = new byte[132];
         Encoding.ASCII.GetBytes("CDF").CopyTo(bytes, 0);
         bytes[3] = 1;
         WriteUInt32BigEndian(bytes, 8, 10);
@@ -186,7 +186,7 @@ public sealed class TwentyFirstReviewRegressionTests
 
     private static byte[] LegacyBumpDds(uint pixelFormatFlag)
     {
-        var bytes = new byte[128];
+        var bytes = new byte[132];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 4, 124);
         WriteUInt32LittleEndian(bytes, 8, 0x1007);

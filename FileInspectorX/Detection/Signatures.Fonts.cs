@@ -451,6 +451,7 @@ internal static partial class Signatures {
             }
             ulong fontDataEnd = (ulong)minimumLength;
             var tableTags = new System.Collections.Generic.HashSet<uint>();
+            var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
             for (int table = 0; table < tableCount; table++) {
                 int record = 44 + table * 20;
                 for (int tag = 0; tag < 4; tag++)
@@ -461,6 +462,10 @@ internal static partial class Signatures {
                 uint originalLength = ReadUInt32BigEndian(src, record + 12);
                 if ((tableOffset & 3) != 0 || tableOffset < minimumLength || compressedLength == 0 ||
                     originalLength < compressedLength || (ulong)tableOffset + compressedLength > declaredLength) return false;
+                ulong tableEnd = (ulong)tableOffset + compressedLength;
+                for (int range = 0; range < tableRanges.Count; range++)
+                    if ((ulong)tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
+                tableRanges.Add(((ulong)tableOffset, tableEnd));
                 fontDataEnd = Math.Max(fontDataEnd, (ulong)tableOffset + compressedLength);
             }
             if (!TryValidateWoffOptionalLayout(declaredLength, fontDataEnd,

@@ -541,7 +541,11 @@ internal static partial class Signatures
             short field = (short)decodedField;
             if (!fields.Add(field)) return false;
             previousField = field;
-            if (field == 1) { if (type != 5 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; version = true; }
+            if (field == 1)
+            {
+                if (type != 5 || !TryReadCompactInt32(metadata, ref cursor, out int fileVersion) || fileVersion is not (1 or 2)) return false;
+                version = true;
+            }
             else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0, requiredElementType: 12)) return false; schema = true; }
             else if (field == 3)
             {
@@ -629,6 +633,15 @@ internal static partial class Signatures
         value = 0;
         if (!TryReadCompactVarint(src, ref cursor, out ulong encoded)) return false;
         value = (long)(encoded >> 1) ^ -((long)encoded & 1L);
+        return true;
+    }
+
+    private static bool TryReadCompactInt32(ReadOnlySpan<byte> src, ref int cursor, out int value)
+    {
+        value = 0;
+        if (!TryReadCompactVarint(src, ref cursor, out ulong encoded) || encoded > uint.MaxValue) return false;
+        uint compact = (uint)encoded;
+        value = (int)(compact >> 1) ^ -((int)compact & 1);
         return true;
     }
 

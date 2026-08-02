@@ -203,7 +203,8 @@ public sealed class SixthReviewRegressionTests
     {
         const int count = 256;
         const int directoryEnd = 6 + count * 16;
-        var bytes = new byte[directoryEnd + count];
+        byte[] png = TestHelpers.CreateMinimalPng();
+        var bytes = new byte[directoryEnd + count * png.Length];
         WriteUInt16LittleEndian(bytes, 2, type);
         WriteUInt16LittleEndian(bytes, 4, count);
         for (int index = 0; index < count; index++)
@@ -211,8 +212,10 @@ public sealed class SixthReviewRegressionTests
             int entry = 6 + index * 16;
             bytes[entry] = 1;
             bytes[entry + 1] = 1;
-            WriteUInt32LittleEndian(bytes, entry + 8, 1);
-            WriteUInt32LittleEndian(bytes, entry + 12, (uint)(directoryEnd + index));
+            if (type == 1) { WriteUInt16LittleEndian(bytes, entry + 4, 1); WriteUInt16LittleEndian(bytes, entry + 6, 32); }
+            WriteUInt32LittleEndian(bytes, entry + 8, (uint)png.Length);
+            WriteUInt32LittleEndian(bytes, entry + 12, (uint)(directoryEnd + index * png.Length));
+            png.CopyTo(bytes, directoryEnd + index * png.Length);
         }
         return bytes;
     }

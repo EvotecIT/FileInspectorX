@@ -695,7 +695,12 @@ internal static partial class Signatures {
             }
             else if (length32 == 0) boxLength = src.Length - cursor;
             if (boxLength < headerLength || boxLength > src.Length - cursor) return false;
-            if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
+            if (brand == 0x6D6A7032)
+            {
+                if (type == 0x6D6F6F76)
+                    header |= TryValidateMj2MovieBox(src.Slice(cursor + headerLength, (int)boxLength - headerLength));
+                if (type == 0x6D646174) data |= boxLength > headerLength;
+            }
             else
             {
                 if (type == GetJpeg2000HeaderBoxType(brand))
@@ -706,6 +711,52 @@ internal static partial class Signatures {
             cursor += (int)boxLength;
         }
         return cursor == src.Length && header && data;
+    }
+
+    private static bool TryValidateMj2MovieBox(ReadOnlySpan<byte> payload)
+    {
+        bool movieHeader = false, mediaTrack = false;
+        int cursor = 0;
+        while (cursor < payload.Length)
+        {
+            if (!TryReadIsoBox(payload, ref cursor, out uint type, out ReadOnlySpan<byte> child)) return false;
+            if (type == 0x6D766864) movieHeader |= child.Length > 0;
+            else if (type == 0x7472616B) mediaTrack |= TryFindMj2MediaBox(child);
+        }
+        return cursor == payload.Length && movieHeader && mediaTrack;
+    }
+
+    private static bool TryFindMj2MediaBox(ReadOnlySpan<byte> track)
+    {
+        int cursor = 0;
+        while (cursor < track.Length)
+        {
+            if (!TryReadIsoBox(track, ref cursor, out uint type, out ReadOnlySpan<byte> child)) return false;
+            if (type == 0x6D646961 && child.Length > 0) return true;
+        }
+        return false;
+    }
+
+    private static bool TryReadIsoBox(ReadOnlySpan<byte> src, ref int cursor, out uint type, out ReadOnlySpan<byte> payload)
+    {
+        type = 0;
+        payload = default;
+        if (src.Length - cursor < 8) return false;
+        uint length32 = ReadUInt32BigEndian(src, cursor);
+        type = ReadUInt32BigEndian(src, cursor + 4);
+        int headerLength = 8;
+        ulong length = length32;
+        if (length32 == 1)
+        {
+            if (src.Length - cursor < 16) return false;
+            length = ReadUInt64(src, cursor + 8, false);
+            headerLength = 16;
+        }
+        else if (length32 == 0) length = (ulong)(src.Length - cursor);
+        if (length < (ulong)headerLength || length > (ulong)(src.Length - cursor) || length > int.MaxValue) return false;
+        payload = src.Slice(cursor + headerLength, (int)length - headerLength);
+        cursor += (int)length;
+        return true;
     }
 
     internal static bool TryMatchJpeg2000(Stream stream, out ContentTypeDetectionResult? result)
@@ -735,6 +786,7 @@ internal static partial class Signatures {
 
             bool header = false;
             bool data = false;
+            bool sampledMj2 = false;
             long cursor = 12L + fileTypeLength;
             int remainingBoxHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
             while (cursor < stream.Length)
@@ -765,7 +817,18 @@ internal static partial class Signatures {
                 }
                 else boxLength = length32 == 0 ? stream.Length - cursor : length32;
                 if (boxLength < headerLength || boxLength > stream.Length - cursor) return false;
-                if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
+                if (brand == 0x6D6A7032)
+                {
+                    if (type == 0x6D6F6F76)
+                    {
+                        long payloadLength = boxLength - headerLength;
+                        if (payloadLength > Settings.DetectionReadBudgetBytes) sampledMj2 = true;
+                        else if (!TryReadAt(stream, cursor + headerLength, (int)payloadLength, out var movieBytes) ||
+                                 !TryValidateMj2MovieBox(new ReadOnlySpan<byte>(movieBytes))) return false;
+                        else header = true;
+                    }
+                    if (type == 0x6D646174) data |= boxLength > headerLength;
+                }
                 else
                 {
                     if (type == GetJpeg2000HeaderBoxType(brand))
@@ -775,12 +838,12 @@ internal static partial class Signatures {
                 }
                 cursor += boxLength;
             }
-            if (cursor != stream.Length || !header || !data) return false;
+            if (cursor != stream.Length || (!header && !sampledMj2) || !data) return false;
             result = new ContentTypeDetectionResult {
                 Extension = extension,
                 MimeType = mime,
-                Confidence = "High",
-                Reason = "jpeg2000:" + extension
+                Confidence = sampledMj2 ? "Medium" : "High",
+                Reason = "jpeg2000:" + extension + (sampledMj2 ? ";movie-box-budget" : string.Empty)
             };
             return true;
         }
