@@ -184,7 +184,7 @@ internal static partial class Signatures {
         int chunkHeaderLength = partPrefix + (tiled ? (deep ? 40 : 20) : (deep ? 28 : 8));
         ulong offsetBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
         ulong inspectedOffsetCount = Math.Min(chunkCount, offsetBudget);
-        var offsets = new System.Collections.Generic.HashSet<ulong>((int)inspectedOffsetCount);
+        var offsets = new System.Collections.Generic.HashSet<ulong>();
         for (ulong index = 0; index < inspectedOffsetCount; index++) {
             ulong offset = ReadUInt64(src, tableOffset + checked((int)(index * 8)), true);
             if (!offsets.Add(offset) || offset < tableEnd ||
