@@ -105,6 +105,7 @@ internal static partial class Signatures {
         bool rangesFullyValidated = false;
         bool completeHeader = TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong recordCount) &&
             TrySkipNetCdfDimensions(src, ref cursor, isCdf5, out ulong[] dimensionLengths) &&
+            (recordCount == 0 || System.Array.IndexOf(dimensionLengths, 0UL) >= 0) &&
             TrySkipNetCdfAttributes(src, ref cursor, isCdf5) &&
             TrySkipNetCdfVariables(src, ref cursor, isCdf5, src[3] == 1, dimensionLengths, recordCount,
                 completeLength, out rangesFullyValidated);
@@ -132,6 +133,7 @@ internal static partial class Signatures {
         bool isCdf5 = version == 5;
         bool parsed = reader.TryReadNonNegative(isCdf5, out ulong recordCount) &&
                       reader.TrySkipDimensions(isCdf5, out ulong[] dimensionLengths) &&
+                      (recordCount == 0 || System.Array.IndexOf(dimensionLengths, 0UL) >= 0) &&
                       reader.TrySkipAttributes(isCdf5) &&
                       reader.TrySkipVariables(isCdf5, version == 1, dimensionLengths, recordCount, out _);
         if (!parsed && (!reader.Incomplete || reader.StructuralEvidence < 2)) return false;
@@ -157,6 +159,7 @@ internal static partial class Signatures {
             bool rangesFullyValidated = false;
             if (!reader.TryReadNonNegative(isCdf5, out ulong recordCount) ||
                 !reader.TrySkipDimensions(isCdf5, out ulong[] dimensionLengths) ||
+                (recordCount != 0 && System.Array.IndexOf(dimensionLengths, 0UL) < 0) ||
                 !reader.TrySkipAttributes(isCdf5) ||
                 !reader.TrySkipVariables(isCdf5, version == 1, dimensionLengths, recordCount, out rangesFullyValidated))
             {

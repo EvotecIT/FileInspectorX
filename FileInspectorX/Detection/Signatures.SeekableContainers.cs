@@ -54,9 +54,11 @@ internal static partial class Signatures
         uint footerLength = ReadUInt32LittleEndian(src, src.Length - 8);
         if (footerLength == 0 || footerLength > src.Length - 12) return false;
         int footerStart = src.Length - 8 - (int)footerLength;
-        if (!encrypted && !TryValidateParquetMetadata(src.Slice(footerStart, (int)footerLength), footerStart)) return false;
+        bool encryptedColumns = false;
+        if (!encrypted && !TryValidateParquetMetadata(src.Slice(footerStart, (int)footerLength), footerStart,
+                out encryptedColumns)) return false;
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
-        if (encrypted) result.Confidence = "Medium";
+        if (encrypted || encryptedColumns) result.Confidence = "Medium";
         return true;
     }
 
@@ -168,7 +170,13 @@ internal static partial class Signatures
             }
             long footerStart = stream.Length - 8 - footerLength;
             if (!TryReadAt(stream, footerStart, (int)footerLength, out var footer) ||
-                !TryValidateParquetMetadata(new ReadOnlySpan<byte>(footer), footerStart)) return false;
+                !TryValidateParquetMetadata(new ReadOnlySpan<byte>(footer), footerStart, out bool encryptedColumns)) return false;
+            if (encryptedColumns)
+            {
+                result = BinaryResult("parquet", "application/vnd.apache.parquet", "parquet:footer;encrypted-columns");
+                result.Confidence = "Medium";
+                return true;
+            }
         }
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
         if (encrypted) result.Confidence = "Medium";
@@ -615,8 +623,9 @@ internal static partial class Signatures
         return ~sum;
     }
 
-    private static bool TryValidateParquetMetadata(ReadOnlySpan<byte> metadata, long dataEnd)
+    private static bool TryValidateParquetMetadata(ReadOnlySpan<byte> metadata, long dataEnd, out bool encryptedColumns)
     {
+        encryptedColumns = false;
         int cursor = 0;
         short previousField = 0;
         var fields = new System.Collections.Generic.HashSet<short>();
@@ -646,7 +655,7 @@ internal static partial class Signatures
                 if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out declaredRows) || declaredRows < 0) return false;
                 rows = true;
             }
-            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, dataEnd, out rowGroupCount, out rowGroupRows, out rowGroupColumnCount)) return false; rowGroups = true; }
+            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, dataEnd, out rowGroupCount, out rowGroupRows, out rowGroupColumnCount, out encryptedColumns)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
         return stopped && cursor == metadata.Length && version && schema && rows && rowGroups &&

@@ -4,6 +4,13 @@ namespace FileInspectorX;
 /// Archive and disk image signatures (CAB/TAR/ISO/UDF).
 /// </summary>
 internal static partial class Signatures {
+    private readonly struct CabDataRange
+    {
+        internal CabDataRange(long start, long end) { Start = start; End = end; }
+        internal long Start { get; }
+        internal long End { get; }
+    }
+
     internal static bool TryMatch7z(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {
         result = null;
         // 7z signature: 37 7A BC AF 27 1C
@@ -78,6 +85,7 @@ internal static partial class Signatures {
         var dataBlockCounts = new ushort[folderCount];
         var compressionTypes = new byte[folderCount];
         bool payloadIntegrityNotValidated = false;
+        var folderDataRanges = new System.Collections.Generic.List<CabDataRange>(folderCount);
         for (int folder = 0; folder < folderCount; folder++) {
             int record = checked(cursor + (int)(folder * folderRecordSize));
             uint dataOffset = ReadUInt32LittleEndian(src, record);
@@ -143,6 +151,12 @@ internal static partial class Signatures {
                 dataCursor = blockEnd;
             }
             if (uncompressedLength < requiredFolderLengths[folder]) return false;
+            folderDataRanges.Add(new CabDataRange(dataOffsets[folder], dataCursor));
+        }
+        folderDataRanges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        for (int index = 1; index < folderDataRanges.Count; index++)
+        {
+            if (folderDataRanges[index].Start < folderDataRanges[index - 1].End) return false;
         }
 
         bool trailingDataNotValidated = completeLength.HasValue && completeLength.Value > cabinetSize;

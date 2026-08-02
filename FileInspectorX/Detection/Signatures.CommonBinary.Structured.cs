@@ -38,7 +38,9 @@ internal static partial class Signatures
             if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) ||
                 nameLength == 0 || diskStart != 0 || compressedSize == uint.MaxValue ||
                 uncompressedSize == uint.MaxValue || localOffset == uint.MaxValue ||
-                recordEnd > directoryEnd) return StructuredValidationStatus.Invalid;
+                recordEnd > directoryEnd ||
+                !TryValidateZipExtraFields(src.Slice(cursor + 46 + nameLength, extraLength)))
+                return StructuredValidationStatus.Invalid;
             ReadOnlySpan<byte> centralName = src.Slice(cursor + 46, nameLength);
             if (!TryValidateCentralZipLocalHeader(src, localOffset, directoryOffset,
                     method, flags, crc32, compressedSize, uncompressedSize, centralName, out bool payloadVerified))
@@ -87,19 +89,26 @@ internal static partial class Signatures
             if (versionNeeded is < 10 or > 100 || (flags & 0xC000) != 0 || !IsKnownZipMethod(method) ||
                 nameLength == 0 || diskStart != 0 || compressedSize == uint.MaxValue ||
                 uncompressedSize == uint.MaxValue || localOffset == uint.MaxValue ||
-                recordEnd > directoryEnd || remainingBudget < nameLength ||
+                recordEnd > directoryEnd) return StructuredValidationStatus.Invalid;
+            if (remainingBudget < nameLength + (int)extraLength + 30) return StructuredValidationStatus.Sampled;
+            if (
                 !TryReadAt(stream, archiveOffset + cursor + 46, nameLength, out var centralNameBytes) ||
+                !TryReadAt(stream, archiveOffset + cursor + 46 + nameLength, extraLength, out var centralExtraBytes) ||
+                !TryValidateZipExtraFields(new ReadOnlySpan<byte>(centralExtraBytes)) ||
                 !TryReadAt(stream, archiveOffset + localOffset, 30, out var localBytes) ||
                 !TryValidateCentralZipLocalHeaderFields(new ReadOnlySpan<byte>(localBytes), localOffset, directoryOffset,
                     method, flags, crc32, compressedSize, uncompressedSize,
-                    out ushort localNameLength, out long dataOffset)) return StructuredValidationStatus.Invalid;
-            remainingBudget -= nameLength + 30;
-            if (localNameLength != nameLength) return StructuredValidationStatus.Invalid;
-            if (remainingBudget < localNameLength) return StructuredValidationStatus.Sampled;
-            if (!TryReadAt(stream, archiveOffset + localOffset + 30, localNameLength, out var localNameBytes) ||
-                !new ReadOnlySpan<byte>(localNameBytes).SequenceEqual(new ReadOnlySpan<byte>(centralNameBytes)))
+                    out ushort localNameLength, out ushort localExtraLength, out long dataOffset))
                 return StructuredValidationStatus.Invalid;
-            remainingBudget -= localNameLength;
+            remainingBudget -= nameLength + extraLength + 30;
+            if (localNameLength != nameLength) return StructuredValidationStatus.Invalid;
+            if (remainingBudget < localNameLength + (int)localExtraLength) return StructuredValidationStatus.Sampled;
+            if (!TryReadAt(stream, archiveOffset + localOffset + 30, localNameLength, out var localNameBytes) ||
+                !new ReadOnlySpan<byte>(localNameBytes).SequenceEqual(new ReadOnlySpan<byte>(centralNameBytes)) ||
+                !TryReadAt(stream, archiveOffset + localOffset + 30 + localNameLength, localExtraLength, out var localExtraBytes) ||
+                !TryValidateZipExtraFields(new ReadOnlySpan<byte>(localExtraBytes)))
+                return StructuredValidationStatus.Invalid;
+            remainingBudget -= localNameLength + localExtraLength;
             if (method == 0 && (flags & 1) == 0)
             {
                 if (compressedSize != uncompressedSize) return StructuredValidationStatus.Invalid;
@@ -162,9 +171,10 @@ internal static partial class Signatures
         if (localOffset > int.MaxValue || localOffset + 30L > directoryOffset || localOffset + 30L > src.Length) return false;
         if (!TryValidateCentralZipLocalHeaderFields(src.Slice((int)localOffset, 30), localOffset, directoryOffset,
                 method, flags, crc32, compressedSize, uncompressedSize,
-                out ushort localNameLength, out long dataOffset) || localNameLength != centralName.Length ||
-            localOffset + 30L + localNameLength > directoryOffset || localOffset + 30L + localNameLength > src.Length) return false;
+                out ushort localNameLength, out ushort localExtraLength, out long dataOffset) ||
+            localNameLength != centralName.Length || dataOffset > directoryOffset || dataOffset > src.Length) return false;
         if (!src.Slice((int)localOffset + 30, localNameLength).SequenceEqual(centralName)) return false;
+        if (!TryValidateZipExtraFields(src.Slice((int)localOffset + 30 + localNameLength, localExtraLength))) return false;
         if (method == 0 && (flags & 1) == 0)
         {
             if (compressedSize != uncompressedSize || dataOffset > src.Length - compressedSize ||
@@ -181,14 +191,15 @@ internal static partial class Signatures
 
     private static bool TryValidateCentralZipLocalHeaderFields(ReadOnlySpan<byte> local, long localOffset, long directoryOffset,
         ushort method, ushort flags, uint crc32, uint compressedSize, uint uncompressedSize,
-        out ushort nameLength, out long dataOffset)
+        out ushort nameLength, out ushort extraLength, out long dataOffset)
     {
         nameLength = 0;
+        extraLength = 0;
         dataOffset = 0;
         if (local.Length < 30 || ReadUInt32LittleEndian(local, 0) != 0x04034B50 ||
             ReadUInt16LittleEndian(local, 8) != method || ReadUInt16LittleEndian(local, 6) != flags) return false;
         nameLength = ReadUInt16LittleEndian(local, 26);
-        ushort extraLength = ReadUInt16LittleEndian(local, 28);
+        extraLength = ReadUInt16LittleEndian(local, 28);
         dataOffset = localOffset + 30L + nameLength + extraLength;
         long descriptorLength = (flags & 0x0008) != 0 ? 12 : 0;
         if (nameLength == 0 || dataOffset > directoryOffset - descriptorLength ||
@@ -197,6 +208,20 @@ internal static partial class Signatures
                ReadUInt32LittleEndian(local, 14) == crc32 &&
                ReadUInt32LittleEndian(local, 18) == compressedSize &&
                ReadUInt32LittleEndian(local, 22) == uncompressedSize;
+    }
+
+    private static bool TryValidateZipExtraFields(ReadOnlySpan<byte> extra)
+    {
+        int cursor = 0;
+        while (cursor < extra.Length)
+        {
+            if (extra.Length - cursor < 4) return false;
+            ushort dataLength = ReadUInt16LittleEndian(extra, cursor + 2);
+            cursor += 4;
+            if (dataLength > extra.Length - cursor) return false;
+            cursor += dataLength;
+        }
+        return true;
     }
 
     private static bool TryValidateZipDataDescriptor(ReadOnlySpan<byte> descriptor,

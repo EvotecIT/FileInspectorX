@@ -103,6 +103,7 @@ public sealed class ThirtyThirdReviewRegressionTests
             metadata.Add(0x16);
             metadata.Add(encodedFileOffset.Value);
         }
+        AddParquetColumnMetadata(metadata, (byte)'x');
         metadata.Add(0x00);
         metadata.Add(0x16);
         metadata.Add(0x02);
@@ -117,6 +118,23 @@ public sealed class ThirtyThirdReviewRegressionTests
         TestHelpers.WriteUInt32LittleEndian(bytes, bytes.Length - 8, (uint)metadata.Count);
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, bytes.Length - 4);
         return bytes;
+    }
+
+    private static void AddParquetColumnMetadata(List<byte> metadata, byte path)
+    {
+        metadata.AddRange(new byte[]
+        {
+            0x1C,
+            0x15, 0x00,
+            0x19, 0x15, 0x00,
+            0x19, 0x18, 0x01, path,
+            0x15, 0x00,
+            0x16, 0x02,
+            0x16, 0x02,
+            0x16, 0x02,
+            0x26, 0x08,
+            0x00
+        });
     }
 
     private static byte[] RegistryHive(bool twoValidBins)

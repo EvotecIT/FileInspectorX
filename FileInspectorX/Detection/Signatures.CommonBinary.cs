@@ -640,6 +640,27 @@ internal static partial class Signatures
             _ => false
         };
         if (!validEncoding) return false;
+        if (bitsPerPixel is 1 or 4 or 8)
+        {
+            uint maximumColors = 1u << bitsPerPixel;
+            uint paletteEntries;
+            uint entrySize;
+            if (dibSize == 12)
+            {
+                paletteEntries = maximumColors;
+                entrySize = 3;
+            }
+            else
+            {
+                if (src.Length < 50) return false;
+                uint colorsUsed = ReadUInt32LittleEndian(src, 46);
+                if (colorsUsed > maximumColors) return false;
+                paletteEntries = colorsUsed == 0 ? maximumColors : colorsUsed;
+                entrySize = 4;
+            }
+            ulong paletteEnd = 14UL + dibSize + (ulong)paletteEntries * entrySize;
+            if (paletteEnd > pixelOffset) return false;
+        }
         ulong available = fileSize - pixelOffset;
         ulong required;
         if (compression is 0 or 3 or 6)

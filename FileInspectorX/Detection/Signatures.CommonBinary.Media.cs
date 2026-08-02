@@ -51,7 +51,8 @@ internal static partial class Signatures
                 return !sawFrame || !sawScan || frameNeedsDnl && !sawDnl
                     ? CommonBinaryValidation.Invalid
                     : complete && cursor == limit ? CommonBinaryValidation.Complete : CommonBinaryValidation.Sampled;
-            if (marker == 0x01 || marker is >= 0xD0 and <= 0xD7) continue;
+            if (marker == 0x01) continue;
+            if (marker is >= 0xD0 and <= 0xD7) return CommonBinaryValidation.Invalid;
             if (cursor + 2 > limit) return complete ? CommonBinaryValidation.Invalid : CommonBinaryValidation.Sampled;
             ushort segmentLength = ReadUInt16BigEndian(src, cursor);
             if (segmentLength < 2) return CommonBinaryValidation.Invalid;

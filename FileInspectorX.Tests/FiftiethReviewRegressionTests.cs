@@ -101,7 +101,11 @@ public sealed class FiftiethReviewRegressionTests
             metadata.AddRange(new byte[] { 0x15, 0x00, 0x25, 0x00, 0x18, 0x01, (byte)('a' + leaf), 0x00 });
         metadata.AddRange(new byte[] { 0x16, 0x02, 0x19, 0x1C, 0x19, (byte)(columnCount << 4 | 12) });
         for (int column = 0; column < columnCount; column++)
-            metadata.AddRange(new byte[] { 0x18, 0x01, (byte)('a' + column), 0x16, 0x08, 0x00 });
+        {
+            metadata.AddRange(new byte[] { 0x18, 0x01, (byte)('a' + column), 0x16, 0x08 });
+            AddParquetColumnMetadata(metadata, (byte)('a' + column));
+            metadata.Add(0x00);
+        }
         metadata.AddRange(new byte[] { 0x16, 0x02, 0x16, 0x02, 0x00, 0x00 });
         var bytes = new byte[5 + metadata.Count + 8];
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
@@ -110,6 +114,23 @@ public sealed class FiftiethReviewRegressionTests
         TestHelpers.WriteUInt32LittleEndian(bytes, bytes.Length - 8, (uint)metadata.Count);
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, bytes.Length - 4);
         return bytes;
+    }
+
+    private static void AddParquetColumnMetadata(List<byte> metadata, byte path)
+    {
+        metadata.AddRange(new byte[]
+        {
+            0x1C,
+            0x15, 0x00,
+            0x19, 0x15, 0x00,
+            0x19, 0x18, 0x01, path,
+            0x15, 0x00,
+            0x16, 0x02,
+            0x16, 0x02,
+            0x16, 0x02,
+            0x26, 0x08,
+            0x00
+        });
     }
 
     private static byte[] StoredZip(string text)
