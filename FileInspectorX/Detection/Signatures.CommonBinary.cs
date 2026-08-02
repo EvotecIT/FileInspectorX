@@ -57,6 +57,9 @@ internal static partial class Signatures
         bool sawIdat = false;
         bool idatSequenceEnded = false;
         bool sawPlte = false;
+        int idatBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        using var idat = new MemoryStream();
+        bool idatBudgetExceeded = false;
         int cursor = 8;
         while (cursor + 12 <= src.Length)
         {
@@ -79,6 +82,18 @@ internal static partial class Signatures
             {
                 if (idatSequenceEnded || colorType == 3 && !sawPlte) return false;
                 sawIdat = true;
+                if (!idatBudgetExceeded)
+                {
+                    if (idat.Length + chunkLength > idatBudget)
+                    {
+                        idatBudgetExceeded = true;
+                    }
+                    else if (chunkLength > 0)
+                    {
+                        byte[] chunk = src.Slice(cursor + 8, chunkLength).ToArray();
+                        idat.Write(chunk, 0, chunk.Length);
+                    }
+                }
             }
             else if (sawIdat && type != 0x49454E44)
             {
@@ -94,9 +109,78 @@ internal static partial class Signatures
         }
         if (completeLength.HasValue && completeLength.Value <= src.Length && !complete) return false;
         bool fullyBounded = complete && completeLength.HasValue && cursor == completeLength.Value;
-        result = BinaryResult("png", "image/png", fullyBounded ? "png:chunks+iend" : "png:signature+ihdr;sampled-chunks");
-        if (!fullyBounded) result.Confidence = "Medium";
+        PngIdatValidation idatValidation = fullyBounded
+            ? ValidatePngIdat(idat.ToArray(), idatBudgetExceeded, width, height, bitDepth, colorType, src[28], idatBudget)
+            : PngIdatValidation.BudgetOrUnsupported;
+        if (fullyBounded && idatValidation == PngIdatValidation.Invalid) return false;
+        bool fullyValidated = fullyBounded && idatValidation == PngIdatValidation.Valid;
+        result = BinaryResult("png", "image/png", fullyValidated ? "png:chunks+idat+iend" :
+            fullyBounded ? "png:chunks+iend;idat-budget-or-interlace" : "png:signature+ihdr;sampled-chunks");
+        if (!fullyValidated) result.Confidence = "Medium";
         return true;
+    }
+
+    private enum PngIdatValidation
+    {
+        Invalid,
+        BudgetOrUnsupported,
+        Valid
+    }
+
+    private static PngIdatValidation ValidatePngIdat(byte[] idat, bool budgetExceeded, uint width, uint height,
+        byte bitDepth, byte colorType, byte interlace, int budget)
+    {
+        if (budgetExceeded || interlace != 0) return PngIdatValidation.BudgetOrUnsupported;
+        if (idat.Length < 7) return PngIdatValidation.Invalid;
+        int header = idat[0] << 8 | idat[1];
+        if ((idat[0] & 0x0F) != 8 || (idat[0] >> 4) > 7 || header % 31 != 0 || (idat[1] & 0x20) != 0)
+            return PngIdatValidation.Invalid;
+
+        int channels = colorType switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, 6 => 4, _ => 0 };
+        ulong rowBytes = ((ulong)width * (uint)channels * bitDepth + 7) / 8;
+        ulong expectedLength = (rowBytes + 1) * height;
+        if (channels == 0 || expectedLength == 0 || expectedLength > (ulong)budget || expectedLength > int.MaxValue)
+            return PngIdatValidation.BudgetOrUnsupported;
+
+        var decoded = new byte[(int)expectedLength];
+        try
+        {
+            using var compressed = new MemoryStream(idat, 2, idat.Length - 6, writable: false);
+            using var inflater = new System.IO.Compression.DeflateStream(
+                compressed, System.IO.Compression.CompressionMode.Decompress, leaveOpen: false);
+            int read = 0;
+            while (read < decoded.Length)
+            {
+                int count = inflater.Read(decoded, read, decoded.Length - read);
+                if (count == 0) return PngIdatValidation.Invalid;
+                read += count;
+            }
+            if (inflater.ReadByte() != -1) return PngIdatValidation.Invalid;
+        }
+        catch (IOException)
+        {
+            return PngIdatValidation.Invalid;
+        }
+
+        int rowStride = checked((int)rowBytes + 1);
+        for (int row = 0; row < (int)height; row++)
+            if (decoded[row * rowStride] > 4) return PngIdatValidation.Invalid;
+
+        uint storedAdler = (uint)idat[idat.Length - 4] << 24 | (uint)idat[idat.Length - 3] << 16 |
+                           (uint)idat[idat.Length - 2] << 8 | idat[idat.Length - 1];
+        return storedAdler == ComputePngAdler32(decoded) ? PngIdatValidation.Valid : PngIdatValidation.Invalid;
+    }
+
+    private static uint ComputePngAdler32(ReadOnlySpan<byte> data)
+    {
+        const uint modulus = 65521;
+        uint a = 1, b = 0;
+        for (int index = 0; index < data.Length; index++)
+        {
+            a = (a + data[index]) % modulus;
+            b = (b + a) % modulus;
+        }
+        return b << 16 | a;
     }
 
     private static uint ComputePngCrc(ReadOnlySpan<byte> data)

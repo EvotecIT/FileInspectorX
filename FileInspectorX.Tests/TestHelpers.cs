@@ -397,7 +397,7 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalPng()
     {
-        var bytes = new byte[57];
+        var bytes = new byte[68];
         new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, 0);
         bytes[11] = 13;
         System.Text.Encoding.ASCII.GetBytes("IHDR").CopyTo(bytes, 12);
@@ -406,10 +406,12 @@ internal static class TestHelpers
         bytes[24] = 8;
         bytes[25] = 6;
         WriteUInt32BigEndian(bytes, 29, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 12, 17)));
+        WriteUInt32BigEndian(bytes, 33, 11);
         System.Text.Encoding.ASCII.GetBytes("IDAT").CopyTo(bytes, 37);
-        WriteUInt32BigEndian(bytes, 41, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 37, 4)));
-        System.Text.Encoding.ASCII.GetBytes("IEND").CopyTo(bytes, 49);
-        WriteUInt32BigEndian(bytes, 53, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 49, 4)));
+        new byte[] { 0x78, 0x9C, 0x63, 0x60, 0x00, 0x02, 0x00, 0x00, 0x05, 0x00, 0x01 }.CopyTo(bytes, 41);
+        WriteUInt32BigEndian(bytes, 52, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 37, 15)));
+        System.Text.Encoding.ASCII.GetBytes("IEND").CopyTo(bytes, 60);
+        WriteUInt32BigEndian(bytes, 64, ComputeCrc32(new ReadOnlySpan<byte>(bytes, 60, 4)));
         return bytes;
     }
 

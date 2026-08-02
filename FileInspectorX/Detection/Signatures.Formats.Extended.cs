@@ -404,7 +404,9 @@ internal static partial class Signatures
         long cursor = 144;
         while (cursor < metaEnd)
         {
-            if (cursor > int.MaxValue || cursor + 8 > src.Length) return false;
+            if (cursor > int.MaxValue || cursor + 8 > src.Length)
+                return !completeLength.HasValue && TryCreateSampledDicomResult(
+                    fileMetaVersion, sopClass, sopInstance, transferSyntax, implementationClass, out result);
             int element = (int)cursor;
             ushort group = ReadUInt16LittleEndian(src, element);
             ushort tag = ReadUInt16LittleEndian(src, element + 2);
@@ -412,7 +414,9 @@ internal static partial class Signatures
             if (group != 0x0002 || vr1 is < (byte)'A' or > (byte)'Z' || vr2 is < (byte)'A' or > (byte)'Z') return false;
             bool longValue = IsDicomLongValueRepresentation(vr1, vr2);
             int headerLength = longValue ? 12 : 8;
-            if (cursor + headerLength > src.Length) return false;
+            if (cursor + headerLength > src.Length)
+                return !completeLength.HasValue && TryCreateSampledDicomResult(
+                    fileMetaVersion, sopClass, sopInstance, transferSyntax, implementationClass, out result);
             uint valueLength;
             if (longValue)
             {
@@ -427,6 +431,12 @@ internal static partial class Signatures
             long valueEnd = valueOffset + valueLength;
             if (valueEnd < valueOffset || valueEnd > metaEnd || valueLength == uint.MaxValue) return false;
             bool requiredUid = tag is 0x0002 or 0x0003 or 0x0010 or 0x0012;
+            if (valueEnd > src.Length && !completeLength.HasValue)
+            {
+                if (tag == 0x0001 || requiredUid) return false;
+                return TryCreateSampledDicomResult(
+                    fileMetaVersion, sopClass, sopInstance, transferSyntax, implementationClass, out result);
+            }
             if (tag == 0x0001)
             {
                 if (fileMetaVersion || vr1 != (byte)'O' || vr2 != (byte)'B' || valueLength != 2 || valueEnd > src.Length ||
@@ -452,6 +462,16 @@ internal static partial class Signatures
             result.Confidence = "Medium";
             result.Reason += ";sampled-meta-header";
         }
+        return true;
+    }
+
+    private static bool TryCreateSampledDicomResult(bool fileMetaVersion, bool sopClass, bool sopInstance,
+        bool transferSyntax, bool implementationClass, out ContentTypeDetectionResult? result)
+    {
+        result = null;
+        if (!fileMetaVersion || !sopClass || !sopInstance || !transferSyntax || !implementationClass) return false;
+        result = BinaryResult("dcm", "application/dicom", "dicom:preamble+meta-header;sampled-meta-header");
+        result.Confidence = "Medium";
         return true;
     }
 

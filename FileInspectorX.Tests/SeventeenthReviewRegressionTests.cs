@@ -151,7 +151,7 @@ public sealed class SeventeenthReviewRegressionTests
         ihdr[3] = 1; ihdr[7] = 1; ihdr[8] = 1; ihdr[9] = 3;
         WritePngChunk(stream, "IHDR", ihdr);
         if (includePalette && !paletteAfterIdat) WritePngChunk(stream, "PLTE", new byte[] { 0, 0, 0, 255, 255, 255 });
-        WritePngChunk(stream, "IDAT", Array.Empty<byte>());
+        WritePngChunk(stream, "IDAT", new byte[] { 0x78, 0x9C, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01 });
         if (includePalette && paletteAfterIdat) WritePngChunk(stream, "PLTE", new byte[] { 0, 0, 0, 255, 255, 255 });
         WritePngChunk(stream, "IEND", Array.Empty<byte>());
         return stream.ToArray();

@@ -545,8 +545,9 @@ internal static partial class Signatures {
     private static bool TryCreateFtypResult(ReadOnlySpan<byte> majorBrand, FtypBrandKind kinds, bool completeBox, out ContentTypeDetectionResult? result) {
         result = null;
         if (!completeBox) {
-            if (IsSpecificFtypMajor(majorBrand) &&
-                TryCreateFtypResult(majorBrand, GetFtypBrandKind(majorBrand), completeBox: true, out result) &&
+            FtypBrandKind majorKind = GetFtypBrandKind(majorBrand);
+            if (majorKind != FtypBrandKind.None &&
+                TryCreateFtypResult(majorBrand, majorKind, completeBox: true, out result) &&
                 result != null) {
                 result.Confidence = "Medium";
                 result.Reason += ";sampled-compatible-brands";
@@ -591,16 +592,4 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool IsSpecificFtypMajor(ReadOnlySpan<byte> brand)
-        => brand.SequenceEqual("avif"u8) || brand.SequenceEqual("avis"u8) ||
-           brand.SequenceEqual("heic"u8) || brand.SequenceEqual("heix"u8) ||
-           brand.SequenceEqual("hevc"u8) || brand.SequenceEqual("hevx"u8) ||
-           brand.SequenceEqual("heim"u8) || brand.SequenceEqual("heis"u8) ||
-           brand.SequenceEqual("hevm"u8) || brand.SequenceEqual("hevs"u8) ||
-           brand.SequenceEqual("heif"u8) || brand.SequenceEqual("qt  "u8) ||
-           brand.SequenceEqual("M4A "u8) || brand.SequenceEqual("M4B "u8) || brand.SequenceEqual("F4A "u8) ||
-           (brand[0] == (byte)'3' && brand[1] == (byte)'g' && (brand[2] == (byte)'p' || brand[2] == (byte)'2')) ||
-           brand.SequenceEqual("mp41"u8) || brand.SequenceEqual("mp42"u8) ||
-           brand.SequenceEqual("avc1"u8) || brand.SequenceEqual("M4V "u8) ||
-           brand.SequenceEqual("MSNV"u8) || brand.SequenceEqual("dash"u8);
 }

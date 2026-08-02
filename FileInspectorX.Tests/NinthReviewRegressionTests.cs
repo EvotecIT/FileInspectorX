@@ -90,9 +90,9 @@ public sealed class NinthReviewRegressionTests
 
         Assert.True(Signatures.TryMatchFtyp(stream, out var result));
 
-        Assert.Equal("isobmff", result?.Extension);
+        Assert.Equal("mp4", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
-        Assert.Equal("ftyp:sampled-compatible-brands", result?.Reason);
+        Assert.Equal("ftyp:mp4;sampled-compatible-brands", result?.Reason);
         Assert.Equal(7, stream.Position);
         Assert.InRange(stream.BytesRead, 1, 64);
     }

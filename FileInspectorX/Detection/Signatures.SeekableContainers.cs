@@ -98,10 +98,18 @@ internal static partial class Signatures
                 if (name != "debian-binary" || size != 4 || !src.Slice((int)dataOffset, 4).SequenceEqual("2.0\n"u8)) return false;
                 version = true;
             }
-            else if (name.StartsWith("control.tar", StringComparison.Ordinal) && size > 0 &&
-                     TryValidateDebTarMember(name, src.Slice((int)dataOffset, (int)size), out controlTarValidated)) control = true;
-            else if (name.StartsWith("data.tar", StringComparison.Ordinal) && size > 0 &&
-                     TryValidateDebTarMember(name, src.Slice((int)dataOffset, (int)size), out dataTarValidated)) data = true;
+            else if (member == 1)
+            {
+                if (!name.StartsWith("control.tar", StringComparison.Ordinal) || size <= 0 ||
+                    !TryValidateDebTarMember(name, src.Slice((int)dataOffset, (int)size), out controlTarValidated)) return false;
+                control = true;
+            }
+            else if (member == 2)
+            {
+                if (!name.StartsWith("data.tar", StringComparison.Ordinal) || size <= 0 ||
+                    !TryValidateDebTarMember(name, src.Slice((int)dataOffset, (int)size), out dataTarValidated)) return false;
+                data = true;
+            }
             cursor = (int)next;
             member++;
             if (version && control && data) break;
@@ -209,10 +217,18 @@ internal static partial class Signatures
                 if (name != "debian-binary" || size != 4 || !TryReadAt(stream, dataOffset, 4, out var value) || !new ReadOnlySpan<byte>(value).SequenceEqual("2.0\n"u8)) return false;
                 version = true;
             }
-            else if (name.StartsWith("control.tar", StringComparison.Ordinal) && size > 0 &&
-                     TryValidateDebTarMember(stream, name, dataOffset, size, out controlTarValidated)) control = true;
-            else if (name.StartsWith("data.tar", StringComparison.Ordinal) && size > 0 &&
-                     TryValidateDebTarMember(stream, name, dataOffset, size, out dataTarValidated)) data = true;
+            else if (member == 1)
+            {
+                if (!name.StartsWith("control.tar", StringComparison.Ordinal) || size <= 0 ||
+                    !TryValidateDebTarMember(stream, name, dataOffset, size, out controlTarValidated)) return false;
+                control = true;
+            }
+            else if (member == 2)
+            {
+                if (!name.StartsWith("data.tar", StringComparison.Ordinal) || size <= 0 ||
+                    !TryValidateDebTarMember(stream, name, dataOffset, size, out dataTarValidated)) return false;
+                data = true;
+            }
             cursor = next;
             if (version && control && data) break;
         }

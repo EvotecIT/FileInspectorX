@@ -392,7 +392,7 @@ internal static partial class Signatures {
         {
             ulong rowBytes = ((ulong)width * depth + 7) / 8;
             ulong requiredLength = (ulong)dataOffset + rowBytes * height * channels;
-            if (completeLength.HasValue && requiredLength > (ulong)completeLength.Value) return false;
+            if (completeLength.HasValue && requiredLength != (ulong)completeLength.Value) return false;
             fullyValidated = completeLength.HasValue;
             return true;
         }
@@ -498,7 +498,7 @@ internal static partial class Signatures {
         {
             ulong rowBytes = ((ulong)width * depth + 7) / 8;
             ulong requiredLength = (ulong)dataOffset + rowBytes * height * channels;
-            fullyValidated = requiredLength <= (ulong)stream.Length;
+            fullyValidated = requiredLength == (ulong)stream.Length;
             return fullyValidated;
         }
         if (compression is 2 or 3)

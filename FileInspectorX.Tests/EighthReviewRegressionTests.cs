@@ -44,9 +44,9 @@ public sealed class EighthReviewRegressionTests
 
         using var stream = new NonSeekableReadStream(bytes);
         var sampled = FileInspector.Detect(stream);
-        Assert.Equal("isobmff", sampled?.Extension);
+        Assert.Equal("mp4", sampled?.Extension);
         Assert.Equal("Medium", sampled?.Confidence);
-        Assert.Equal("ftyp:sampled-compatible-brands", sampled?.Reason);
+        Assert.Equal("ftyp:mp4;sampled-compatible-brands", sampled?.Reason);
     }
 
     [Fact]
