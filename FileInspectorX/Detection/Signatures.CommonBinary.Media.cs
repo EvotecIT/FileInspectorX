@@ -23,6 +23,8 @@ internal static partial class Signatures
         int limit = complete ? checked((int)completeLength!.Value) : src.Length;
         int cursor = 2;
         bool sawFrame = false, sawScan = false, entropy = false;
+        Span<bool> frameComponents = stackalloc bool[256];
+        Span<bool> scanComponents = stackalloc bool[256];
         while (cursor < limit)
         {
             byte marker;
@@ -54,13 +56,39 @@ internal static partial class Signatures
             if (segmentEnd > limit) return complete ? CommonBinaryValidation.Invalid : CommonBinaryValidation.Sampled;
             if (IsJpegStartOfFrame(marker))
             {
-                if (segmentLength < 8 || src[cursor + 2] is not (8 or 12 or 16) ||
+                byte componentCount = src[cursor + 7];
+                if (componentCount == 0 || segmentLength != 8 + componentCount * 3 ||
+                    src[cursor + 2] is not (8 or 12 or 16) ||
                     ReadUInt16BigEndian(src, cursor + 3) == 0 || ReadUInt16BigEndian(src, cursor + 5) == 0) return CommonBinaryValidation.Invalid;
+                frameComponents.Clear();
+                for (int component = 0; component < componentCount; component++)
+                {
+                    int descriptor = cursor + 8 + component * 3;
+                    byte identifier = src[descriptor];
+                    byte sampling = src[descriptor + 1];
+                    if (frameComponents[identifier] || (sampling >> 4) is 0 or > 4 ||
+                        (sampling & 0x0F) is 0 or > 4 || src[descriptor + 2] > 3)
+                        return CommonBinaryValidation.Invalid;
+                    frameComponents[identifier] = true;
+                }
                 sawFrame = true;
             }
             if (marker == 0xDA)
             {
-                if (!sawFrame || segmentLength < 6) return CommonBinaryValidation.Invalid;
+                byte componentCount = src[cursor + 2];
+                if (!sawFrame || componentCount == 0 || segmentLength != 6 + componentCount * 2)
+                    return CommonBinaryValidation.Invalid;
+                scanComponents.Clear();
+                for (int component = 0; component < componentCount; component++)
+                {
+                    int descriptor = cursor + 3 + component * 2;
+                    byte identifier = src[descriptor];
+                    byte tableSelectors = src[descriptor + 1];
+                    if (!frameComponents[identifier] || scanComponents[identifier] ||
+                        (tableSelectors >> 4) > 3 || (tableSelectors & 0x0F) > 3)
+                        return CommonBinaryValidation.Invalid;
+                    scanComponents[identifier] = true;
+                }
                 sawScan = true;
                 entropy = true;
             }

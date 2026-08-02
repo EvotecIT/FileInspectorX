@@ -299,13 +299,14 @@ internal static partial class Signatures {
             sampledTables |= (ulong)tableOffset + tableLength > (ulong)src.Length;
         }
 
-        FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(src, src);
+        FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(src, src, validateAggregateChecksum: true);
         if (checksumStatus == FontChecksumStatus.Invalid) return false;
         sampledTables |= checksumStatus == FontChecksumStatus.Sampled;
 
         bool hasRequiredTables = HasRequiredSfntTables(flavor, tableTags);
         result = FontResult(extension, mime,
-            !hasRequiredTables ? "mandatory-tables-missing" : sampledTables ? "sampled-table-data" : null);
+            !hasRequiredTables ? "mandatory-tables-missing" : sampledTables ? "sampled-table-data" :
+            checksumStatus == FontChecksumStatus.AggregateMismatch ? "whole-font-checksum-invalid" : null);
         return true;
     }
 
@@ -361,7 +362,7 @@ internal static partial class Signatures {
             if (!TryValidateCollectionFontDirectory(src.Slice((int)directoryOffset, directoryLength), directoryOffset,
                     completeLength, directoryRanges, out bool isCff, out bool hasRequiredTables)) return false;
             FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(
-                src, src.Slice((int)directoryOffset, directoryLength));
+                src, src.Slice((int)directoryOffset, directoryLength), validateAggregateChecksum: false);
             if (checksumStatus == FontChecksumStatus.Invalid) return false;
             sampledChecksums |= checksumStatus == FontChecksumStatus.Sampled;
             anyCff |= isCff;

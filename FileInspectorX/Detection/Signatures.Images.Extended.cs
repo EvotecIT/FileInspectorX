@@ -1105,13 +1105,29 @@ internal static partial class Signatures {
             int descriptor = 42 + component * 3;
             if ((payload[descriptor] & 0x7F) > 37 || payload[descriptor + 1] == 0 || payload[descriptor + 2] == 0) return false;
         }
+        ulong tilesAcross = ((ulong)xSize - tileXOrigin + tileWidth - 1) / tileWidth;
+        ulong tilesDown = ((ulong)ySize - tileYOrigin + tileHeight - 1) / tileHeight;
+        ulong tileCountValue = tilesAcross * tilesDown;
+        if (tileCountValue == 0 || tileCountValue > ushort.MaxValue) return false;
+        int tileCount = (int)tileCountValue;
+        var nextTileParts = new int[tileCount];
+        var declaredTileParts = new int[tileCount];
+        var seenTiles = new bool[tileCount];
         int cursor = 4 + sizLength;
         bool sawTile = false;
         while (cursor + 2 <= payload.Length)
         {
             if (payload[cursor] != 0xFF) return false;
             byte marker = payload[cursor + 1];
-            if (marker == 0xD9) return requireEnd && sawTile && cursor + 2 == payload.Length && declaredLength == payload.Length;
+            if (marker == 0xD9)
+            {
+                if (!requireEnd || !sawTile || cursor + 2 != payload.Length || declaredLength != payload.Length)
+                    return false;
+                for (int tile = 0; tile < tileCount; tile++)
+                    if (!seenTiles[tile] || declaredTileParts[tile] != 0 && nextTileParts[tile] != declaredTileParts[tile])
+                        return false;
+                return true;
+            }
             if (marker != 0x90)
             {
                 if (cursor + 4 > payload.Length) return false;
@@ -1121,7 +1137,16 @@ internal static partial class Signatures {
                 continue;
             }
             if (cursor + 12 > payload.Length || ReadUInt16BigEndian(payload, cursor + 2) != 10) return false;
+            ushort tileIndex = ReadUInt16BigEndian(payload, cursor + 4);
             uint tilePartLength = ReadUInt32BigEndian(payload, cursor + 6);
+            byte tilePartIndex = payload[cursor + 10];
+            byte tilePartCount = payload[cursor + 11];
+            if (tileIndex >= tileCount || tilePartIndex != nextTileParts[tileIndex] ||
+                tilePartCount != 0 && tilePartIndex >= tilePartCount ||
+                declaredTileParts[tileIndex] != 0 && tilePartCount != declaredTileParts[tileIndex]) return false;
+            if (tilePartCount != 0) declaredTileParts[tileIndex] = tilePartCount;
+            seenTiles[tileIndex] = true;
+            nextTileParts[tileIndex]++;
             if (tilePartLength != 0 && (tilePartLength < 15 || cursor + (long)tilePartLength > declaredLength - 2)) return false;
             int tileStart = cursor;
             cursor += 12;

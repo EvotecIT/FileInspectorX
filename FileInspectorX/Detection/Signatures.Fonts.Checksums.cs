@@ -5,10 +5,10 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures
 {
-    private enum FontChecksumStatus { Invalid, Sampled, Complete }
+    private enum FontChecksumStatus { Invalid, Sampled, AggregateMismatch, Complete }
 
     private static FontChecksumStatus ValidateSfntTableChecksums(
-        ReadOnlySpan<byte> file, ReadOnlySpan<byte> directory)
+        ReadOnlySpan<byte> file, ReadOnlySpan<byte> directory, bool validateAggregateChecksum)
     {
         if (directory.Length < 12) return FontChecksumStatus.Invalid;
         ushort tableCount = ReadUInt16BigEndian(directory, 4);
@@ -30,7 +30,10 @@ internal static partial class Signatures
             if (ComputeSfntTableChecksum(file.Slice((int)tableOffset, (int)tableLength), tag) != expectedChecksum)
                 return FontChecksumStatus.Invalid;
         }
-        return sampled ? FontChecksumStatus.Sampled : FontChecksumStatus.Complete;
+        if (sampled) return FontChecksumStatus.Sampled;
+        if (validateAggregateChecksum && ComputeSfntFileChecksum(file) != 0xB1B0AFBAu)
+            return FontChecksumStatus.AggregateMismatch;
+        return FontChecksumStatus.Complete;
     }
 
     private static uint ComputeSfntTableChecksum(ReadOnlySpan<byte> table, uint tag)
@@ -45,6 +48,22 @@ internal static partial class Signatures
                 byte value = position < table.Length ? table[position] : (byte)0;
                 if (tag == 0x68656164u && position is >= 8 and < 12) value = 0;
                 word = (word << 8) | value;
+            }
+            unchecked { sum += word; }
+        }
+        return sum;
+    }
+
+    private static uint ComputeSfntFileChecksum(ReadOnlySpan<byte> file)
+    {
+        uint sum = 0;
+        for (int offset = 0; offset < file.Length; offset += 4)
+        {
+            uint word = 0;
+            for (int index = 0; index < 4; index++)
+            {
+                int position = offset + index;
+                word = word << 8 | (position < file.Length ? file[position] : 0u);
             }
             unchecked { sum += word; }
         }

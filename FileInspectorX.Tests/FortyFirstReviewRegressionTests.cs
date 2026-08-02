@@ -28,7 +28,10 @@ public sealed class FortyFirstReviewRegressionTests
     [Fact]
     public void TrueTypeHighConfidenceRequiresFlavorSpecificMandatoryTables()
     {
-        AssertParity(CompleteTrueType(), "ttf", "High", "sfnt:truetype");
+        byte[] complete = CompleteTrueType();
+        AssertParity(complete, "ttf", "High", "sfnt:truetype");
+        complete[CompleteTrueTypeHeadAdjustmentOffset()] ^= 1;
+        AssertParity(complete, "ttf", "Medium", "whole-font-checksum-invalid");
         byte[] incomplete = CompleteTrueType();
         Encoding.ASCII.GetBytes("zzzz").CopyTo(incomplete, 12);
         AssertParity(incomplete, "ttf", "Medium", "mandatory-tables-missing");
@@ -86,7 +89,30 @@ public sealed class FortyFirstReviewRegressionTests
             TestHelpers.WriteUInt32BigEndian(bytes, record + 12, (uint)length);
             payload += length;
         }
+        int adjustmentOffset = CompleteTrueTypeHeadAdjustmentOffset();
+        TestHelpers.WriteUInt32BigEndian(bytes, adjustmentOffset,
+            unchecked(0xB1B0AFBAu - ComputeSfntChecksum(bytes)));
         return bytes;
+    }
+
+    private static int CompleteTrueTypeHeadAdjustmentOffset()
+    {
+        const int tableCount = 10;
+        int directoryEnd = 12 + tableCount * 16;
+        return directoryEnd + 3 * 4 + 8;
+    }
+
+    private static uint ComputeSfntChecksum(byte[] bytes)
+    {
+        uint sum = 0;
+        for (int offset = 0; offset < bytes.Length; offset += 4)
+        {
+            uint word = 0;
+            for (int index = 0; index < 4; index++)
+                word = word << 8 | (uint)(offset + index < bytes.Length ? bytes[offset + index] : 0);
+            unchecked { sum += word; }
+        }
+        return sum;
     }
 
     private static void AssertParity(byte[] bytes, string extension, string confidence, string reason)
