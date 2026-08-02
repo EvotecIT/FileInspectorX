@@ -283,11 +283,14 @@ internal static partial class Signatures {
         bool sampledTables = false;
         var tableTags = new System.Collections.Generic.HashSet<uint>();
         var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+        uint previousTableTag = 0;
         for (int table = 0; table < tableCount; table++) {
             int record = 12 + table * 16;
             for (int tag = 0; tag < 4; tag++)
                 if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
-            if (!tableTags.Add(ReadUInt32BigEndian(src, record))) return false;
+            uint tableTag = ReadUInt32BigEndian(src, record);
+            if (table > 0 && tableTag <= previousTableTag || !tableTags.Add(tableTag)) return false;
+            previousTableTag = tableTag;
             uint tableOffset = ReadUInt32BigEndian(src, record + 8);
             uint tableLength = ReadUInt32BigEndian(src, record + 12);
             if (tableOffset < directoryEnd || tableLength == 0 || (tableOffset & 3) != 0 ||
@@ -413,11 +416,14 @@ internal static partial class Signatures {
         if (directory.Length < 12L + tableCount * 16L) return false;
         var tableTags = new System.Collections.Generic.HashSet<uint>();
         var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+        uint previousTableTag = 0;
         for (int table = 0; table < tableCount; table++) {
             int record = 12 + table * 16;
             for (int tag = 0; tag < 4; tag++)
                 if (directory[record + tag] < 0x20 || directory[record + tag] > 0x7E) return false;
-            if (!tableTags.Add(ReadUInt32BigEndian(directory, record))) return false;
+            uint tableTag = ReadUInt32BigEndian(directory, record);
+            if (table > 0 && tableTag <= previousTableTag || !tableTags.Add(tableTag)) return false;
+            previousTableTag = tableTag;
             uint tableOffset = ReadUInt32BigEndian(directory, record + 8);
             uint tableLength = ReadUInt32BigEndian(directory, record + 12);
             if (tableLength == 0 || (tableOffset & 3) != 0 ||

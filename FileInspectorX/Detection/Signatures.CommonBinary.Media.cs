@@ -48,8 +48,9 @@ internal static partial class Signatures
             }
             if (marker == 0 || marker == 0xD8) return CommonBinaryValidation.Invalid;
             if (marker == 0xD9)
-                return sawFrame && sawScan && (!frameNeedsDnl || sawDnl)
-                    ? CommonBinaryValidation.Complete : CommonBinaryValidation.Invalid;
+                return !sawFrame || !sawScan || frameNeedsDnl && !sawDnl
+                    ? CommonBinaryValidation.Invalid
+                    : complete && cursor == limit ? CommonBinaryValidation.Complete : CommonBinaryValidation.Sampled;
             if (marker == 0x01 || marker is >= 0xD0 and <= 0xD7) continue;
             if (cursor + 2 > limit) return complete ? CommonBinaryValidation.Invalid : CommonBinaryValidation.Sampled;
             ushort segmentLength = ReadUInt16BigEndian(src, cursor);

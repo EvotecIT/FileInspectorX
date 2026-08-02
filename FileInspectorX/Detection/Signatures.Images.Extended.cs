@@ -809,12 +809,13 @@ internal static partial class Signatures {
     private static bool TryFindMj2MediaBox(ReadOnlySpan<byte> track)
     {
         int cursor = 0;
+        bool media = false;
         while (cursor < track.Length)
         {
             if (!TryReadIsoBox(track, ref cursor, out uint type, out ReadOnlySpan<byte> child)) return false;
-            if (type == 0x6D646961 && child.Length > 0) return true;
+            if (type == 0x6D646961 && child.Length > 0) media = true;
         }
-        return false;
+        return cursor == track.Length && media;
     }
 
     private static bool TryReadIsoBox(ReadOnlySpan<byte> src, ref int cursor, out uint type, out ReadOnlySpan<byte> payload)
@@ -1183,7 +1184,14 @@ internal static partial class Signatures {
             if (cursor + 3 > payload.Length) return false;
             cursor += 2;
             sawTile = true;
-            if (tilePartLength == 0) return !requireEnd;
+            if (tilePartLength == 0)
+            {
+                if (!requireEnd) return true;
+                if (payload.Length < cursor + 2 || payload[payload.Length - 2] != 0xFF || payload[payload.Length - 1] != 0xD9)
+                    return false;
+                cursor = payload.Length - 2;
+                continue;
+            }
             long tileEnd = tileStart + (long)tilePartLength;
             if (tileEnd <= cursor) return false;
             if (tileEnd > payload.Length) return !requireEnd;

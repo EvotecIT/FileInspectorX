@@ -96,6 +96,7 @@ internal static partial class Signatures
             long dataOffset = cursor + 60L;
             long next = dataOffset + size + (size & 1);
             if (size < 0 || next > src.Length) return false;
+            if ((size & 1) != 0 && src[(int)(dataOffset + size)] != (byte)'\n') return false;
             if (member == 0)
             {
                 if (name != "debian-binary" || size != 4 || !src.Slice((int)dataOffset, 4).SequenceEqual("2.0\n"u8)) return false;
@@ -219,6 +220,8 @@ internal static partial class Signatures
             long dataOffset = cursor + 60;
             long next = dataOffset + size + (size & 1);
             if (size < 0 || next > stream.Length) return false;
+            if ((size & 1) != 0 && (!TryReadAt(stream, dataOffset + size, 1, out var padding) ||
+                padding[0] != (byte)'\n')) return false;
             if (member == 0)
             {
                 if (name != "debian-binary" || size != 4 || !TryReadAt(stream, dataOffset, 4, out var value) || !new ReadOnlySpan<byte>(value).SequenceEqual("2.0\n"u8)) return false;
@@ -680,12 +683,14 @@ internal static partial class Signatures
         hasChildren = false;
         children = 0;
         bool name = false;
+        int physicalType = -1;
+        bool hasTypeLength = false;
         short previous = 0;
         var fields = new System.Collections.Generic.HashSet<short>();
         while (cursor < src.Length)
         {
             byte header = src[cursor++];
-            if (header == 0) return name;
+            if (header == 0) return name && (physicalType == 7 ? hasTypeLength : !hasTypeLength);
             int delta = header >> 4;
             int decodedField = delta == 0 ? ReadCompactFieldId(src, ref cursor) : previous + delta;
             if (decodedField is <= 0 or > short.MaxValue) return false;
@@ -694,8 +699,15 @@ internal static partial class Signatures
             if (!fields.Add(field)) return false;
             if (field == 1)
             {
-                if (type != 5 || !TryReadCompactInt32(src, ref cursor, out int physicalType) || physicalType is < 0 or > 7) return false;
+                if (type != 5 || !TryReadCompactInt32(src, ref cursor, out int decodedPhysicalType) ||
+                    decodedPhysicalType is < 0 or > 7) return false;
                 hasType = true;
+                physicalType = decodedPhysicalType;
+            }
+            else if (field == 2)
+            {
+                if (type != 5 || !TryReadCompactInt32(src, ref cursor, out int typeLength) || typeLength <= 0) return false;
+                hasTypeLength = true;
             }
             else if (field == 3)
             {
@@ -784,6 +796,7 @@ internal static partial class Signatures
         for (int shift = 0; shift < 64 && cursor < src.Length; shift += 7)
         {
             byte current = src[cursor++];
+            if (shift == 63 && (current & 0x7F) > 1) return false;
             value |= (ulong)(current & 0x7F) << shift;
             if ((current & 0x80) == 0) return true;
         }
@@ -831,8 +844,12 @@ internal static partial class Signatures
         int schemaTable = (int)schemaTableValue;
         if (!TryValidateArrowSchema(footer, schemaTable)) return false;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
-        return TryValidateArrowBlockVector(footer, table, dictionariesOffset, dataRegionEnd, ranges) &&
-               TryValidateArrowBlockVector(footer, table, recordBatchesOffset, dataRegionEnd, ranges);
+        if (!TryValidateArrowBlockVector(footer, table, dictionariesOffset, dataRegionEnd, ranges) ||
+            !TryValidateArrowBlockVector(footer, table, recordBatchesOffset, dataRegionEnd, ranges)) return false;
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        for (int index = 1; index < ranges.Count; index++)
+            if (ranges[index].Start < ranges[index - 1].End) return false;
+        return true;
     }
 
     private static bool TryValidateArrowSchema(ReadOnlySpan<byte> footer, int schemaTable)
@@ -876,10 +893,7 @@ internal static partial class Signatures
             ulong start = (ulong)offset;
             ulong total = (ulong)metadataLength + (ulong)bodyLength;
             if (total > ulong.MaxValue - start || start + total > (ulong)dataRegionEnd) return false;
-            ulong end = start + total;
-            for (int range = 0; range < ranges.Count; range++)
-                if (start < ranges[range].End && end > ranges[range].Start) return false;
-            ranges.Add((start, end));
+            ranges.Add((start, start + total));
         }
         return true;
     }

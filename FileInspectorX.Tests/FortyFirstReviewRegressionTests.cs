@@ -33,7 +33,7 @@ public sealed class FortyFirstReviewRegressionTests
         complete[CompleteTrueTypeHeadAdjustmentOffset()] ^= 1;
         AssertParity(complete, "ttf", "Medium", "whole-font-checksum-invalid");
         byte[] incomplete = CompleteTrueType();
-        Encoding.ASCII.GetBytes("zzzz").CopyTo(incomplete, 12);
+        Encoding.ASCII.GetBytes("zzzz").CopyTo(incomplete, 12 + 9 * 16);
         AssertParity(incomplete, "ttf", "Medium", "mandatory-tables-missing");
     }
 

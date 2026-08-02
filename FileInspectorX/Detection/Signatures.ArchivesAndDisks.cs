@@ -145,7 +145,9 @@ internal static partial class Signatures {
             if (uncompressedLength < requiredFolderLengths[folder]) return false;
         }
 
-        result = CabResult(complete: true, payloadIntegrityNotValidated: payloadIntegrityNotValidated);
+        bool trailingDataNotValidated = completeLength.HasValue && completeLength.Value > cabinetSize;
+        result = CabResult(complete: true, payloadIntegrityNotValidated: payloadIntegrityNotValidated,
+            trailingDataNotValidated: trailingDataNotValidated);
         return true;
     }
 
@@ -180,12 +182,14 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static ContentTypeDetectionResult CabResult(bool complete, bool payloadIntegrityNotValidated = false) => new() {
+    private static ContentTypeDetectionResult CabResult(bool complete, bool payloadIntegrityNotValidated = false,
+        bool trailingDataNotValidated = false) => new() {
         Extension = "cab",
         MimeType = "application/vnd.ms-cab-compressed",
-        Confidence = complete && !payloadIntegrityNotValidated ? "High" : "Medium",
+        Confidence = complete && !payloadIntegrityNotValidated && !trailingDataNotValidated ? "High" : "Medium",
         Reason = "cab:cfheader" + (complete ? ";folders+files" : ";sampled-structures") +
-                 (payloadIntegrityNotValidated ? ";payload-integrity-not-validated" : string.Empty)
+                 (payloadIntegrityNotValidated ? ";payload-integrity-not-validated" : string.Empty) +
+                 (trailingDataNotValidated ? ";trailing-data-not-validated" : string.Empty)
     };
 
     internal static bool TryMatchTar(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {

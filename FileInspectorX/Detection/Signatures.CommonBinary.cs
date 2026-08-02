@@ -52,7 +52,8 @@ internal static partial class Signatures
             4 or 6 => bitDepth is 8 or 16,
             _ => false
         };
-        if (width == 0 || height == 0 || !validDepth || src[26] != 0 || src[27] != 0 || src[28] > 1) return false;
+        if (width == 0 || width > int.MaxValue || height == 0 || height > int.MaxValue ||
+            !validDepth || src[26] != 0 || src[27] != 0 || src[28] > 1) return false;
         if (ReadUInt32BigEndian(src, 29) != ComputePngCrc(src.Slice(12, 17))) return false;
         bool complete = false;
         bool sawIdat = false;
