@@ -24,7 +24,7 @@ public sealed class ThirtyFourthReviewRegressionTests
     [Fact]
     public void TtcTablePayloadsCannotOverlapCollectionDirectories()
     {
-        AssertParity(FontCollection(tableOffset: 44), "ttc", "High");
+        AssertParity(FontCollection(tableOffset: 44), "ttc", "Medium");
         AssertNotDetectedAs(FontCollection(tableOffset: 0), "ttc");
         AssertNotDetectedAs(FontCollection(tableOffset: 16), "ttc");
     }

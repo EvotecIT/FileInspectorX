@@ -5,7 +5,7 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures
 {
-    private static bool TryValidateParquetRowGroups(ReadOnlySpan<byte> src, ref int cursor,
+    private static bool TryValidateParquetRowGroups(ReadOnlySpan<byte> src, ref int cursor, long dataEnd,
         out int count, out long totalRows)
     {
         count = 0;
@@ -13,14 +13,14 @@ internal static partial class Signatures
         if (!TryReadCompactStructListHeader(src, ref cursor, allowEmpty: true, out count)) return false;
         for (int index = 0; index < count; index++)
         {
-            if (!TryValidateParquetRowGroup(src, ref cursor, out long rows) || rows > long.MaxValue - totalRows)
+            if (!TryValidateParquetRowGroup(src, ref cursor, dataEnd, out long rows) || rows > long.MaxValue - totalRows)
                 return false;
             totalRows += rows;
         }
         return true;
     }
 
-    private static bool TryValidateParquetRowGroup(ReadOnlySpan<byte> src, ref int cursor, out long rows)
+    private static bool TryValidateParquetRowGroup(ReadOnlySpan<byte> src, ref int cursor, long dataEnd, out long rows)
     {
         rows = 0;
         bool columns = false, totalByteSize = false, rowCount = false;
@@ -38,7 +38,7 @@ internal static partial class Signatures
             if (!fields.Add(field)) return false;
             if (field == 1)
             {
-                if (type != 9 || !TryValidateNonEmptyParquetColumnChunks(src, ref cursor)) return false;
+                if (type != 9 || !TryValidateNonEmptyParquetColumnChunks(src, ref cursor, dataEnd)) return false;
                 columns = true;
             }
             else if (field == 2)
@@ -57,12 +57,12 @@ internal static partial class Signatures
         return false;
     }
 
-    private static bool TryValidateNonEmptyParquetColumnChunks(ReadOnlySpan<byte> src, ref int cursor)
+    private static bool TryValidateNonEmptyParquetColumnChunks(ReadOnlySpan<byte> src, ref int cursor, long dataEnd)
     {
         if (!TryReadCompactStructListHeader(src, ref cursor, allowEmpty: false, out int count)) return false;
         for (int index = 0; index < count; index++)
         {
-            bool sawField = false;
+            bool fileOffset = false;
             bool stopped = false;
             short previous = 0;
             var fields = new System.Collections.Generic.HashSet<short>();
@@ -71,7 +71,7 @@ internal static partial class Signatures
                 byte header = src[cursor++];
                 if (header == 0)
                 {
-                    if (!sawField) return false;
+                    if (!fileOffset) return false;
                     stopped = true;
                     break;
                 }
@@ -79,11 +79,18 @@ internal static partial class Signatures
                 int decodedField = delta == 0 ? ReadCompactFieldId(src, ref cursor) : previous + delta;
                 if (decodedField is <= 0 or > short.MaxValue) return false;
                 short field = (short)decodedField;
-                if (!fields.Add(field) || !SkipCompactValue(src, ref cursor, header & 0x0F, 2)) return false;
-                sawField = true;
+                int type = header & 0x0F;
+                if (!fields.Add(field)) return false;
+                if (field == 2)
+                {
+                    if (type != 6 || !TryReadCompactInt64(src, ref cursor, out long offset) ||
+                        offset < 4 || offset >= dataEnd) return false;
+                    fileOffset = true;
+                }
+                else if (!SkipCompactValue(src, ref cursor, type, 2)) return false;
                 previous = field;
             }
-            if (!sawField || !stopped) return false;
+            if (!fileOffset || !stopped) return false;
         }
         return true;
     }

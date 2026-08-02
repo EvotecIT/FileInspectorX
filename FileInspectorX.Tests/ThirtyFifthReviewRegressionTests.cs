@@ -17,10 +17,10 @@ public sealed class ThirtyFifthReviewRegressionTests
     }
 
     [Fact]
-    public void SfntHighConfidenceRequiresEveryTableChecksum()
+    public void SfntChecksumsDoNotSubstituteForMandatoryTables()
     {
         byte[] valid = ChecksummedSfnt();
-        AssertParity(valid, "ttf", "High");
+        AssertParity(valid, "ttf", "Medium");
 
         byte[] corruptName = (byte[])valid.Clone();
         corruptName[56] ^= 0x01;
@@ -28,7 +28,7 @@ public sealed class ThirtyFifthReviewRegressionTests
 
         byte[] changedAdjustment = (byte[])valid.Clone();
         TestHelpers.WriteUInt32BigEndian(changedAdjustment, 52, 0x87654321);
-        AssertParity(changedAdjustment, "ttf", "High");
+        AssertParity(changedAdjustment, "ttf", "Medium");
     }
 
     [Fact]

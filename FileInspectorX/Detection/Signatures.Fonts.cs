@@ -58,6 +58,7 @@ internal static partial class Signatures {
             var header = new ReadOnlySpan<byte>(collectionHeader);
             if (!TryValidateTtcDsigHeader(header, version, fontCount, stream.Length)) return false;
             bool anyCff = false;
+            bool allRequiredTables = true;
             long directoryReadBudget = Math.Max(collectionHeaderLength, Math.Max(256, Settings.DetectionReadBudgetBytes));
             long remainingDirectoryReadBudget = directoryReadBudget - collectionHeaderLength;
             var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
@@ -102,11 +103,14 @@ internal static partial class Signatures {
                 if (!TryReadAt(stream, directoryOffset, (int)directoryLength, out var directoryBytes)) return false;
                 remainingDirectoryReadBudget -= directoryLength;
                 var directory = new ReadOnlySpan<byte>(directoryBytes);
-                if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, directoryRanges, out bool isCff)) return false;
+                if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, directoryRanges,
+                        out bool isCff, out bool hasRequiredTables)) return false;
                 anyCff |= isCff;
+                allRequiredTables &= hasRequiredTables;
             }
 
-            result = FontCollectionResult(version, fontCount, anyCff, "table-checksum-budget");
+            result = FontCollectionResult(version, fontCount, anyCff,
+                allRequiredTables ? "table-checksum-budget" : "mandatory-tables-missing;table-checksum-budget");
             return true;
         } catch {
             result = null;
@@ -299,7 +303,9 @@ internal static partial class Signatures {
         if (checksumStatus == FontChecksumStatus.Invalid) return false;
         sampledTables |= checksumStatus == FontChecksumStatus.Sampled;
 
-        result = FontResult(extension, mime, sampledTables ? "sampled-table-data" : null);
+        bool hasRequiredTables = HasRequiredSfntTables(flavor, tableTags);
+        result = FontResult(extension, mime,
+            !hasRequiredTables ? "mandatory-tables-missing" : sampledTables ? "sampled-table-data" : null);
         return true;
     }
 
@@ -342,6 +348,7 @@ internal static partial class Signatures {
             directories.Add((directoryOffset, (int)directoryLength));
         }
         bool sampledChecksums = false;
+        bool allRequiredTables = true;
         for (int index = 0; index < directories.Count; index++) {
             uint directoryOffset = directories[index].Offset;
             int directoryLength = directories[index].Length;
@@ -352,16 +359,17 @@ internal static partial class Signatures {
             }
             remainingValidationBudget -= directoryLength;
             if (!TryValidateCollectionFontDirectory(src.Slice((int)directoryOffset, directoryLength), directoryOffset,
-                    completeLength, directoryRanges, out bool isCff)) return false;
+                    completeLength, directoryRanges, out bool isCff, out bool hasRequiredTables)) return false;
             FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(
                 src, src.Slice((int)directoryOffset, directoryLength));
             if (checksumStatus == FontChecksumStatus.Invalid) return false;
             sampledChecksums |= checksumStatus == FontChecksumStatus.Sampled;
             anyCff |= isCff;
+            allRequiredTables &= hasRequiredTables;
         }
 
         result = FontCollectionResult(version, fontCount, anyCff,
-            sampledChecksums ? "sampled-table-checksums" : null);
+            !allRequiredTables ? "mandatory-tables-missing" : sampledChecksums ? "sampled-table-checksums" : null);
         return true;
     }
 
@@ -381,8 +389,10 @@ internal static partial class Signatures {
     }
 
     private static bool TryValidateCollectionFontDirectory(ReadOnlySpan<byte> directory, long directoryOffset, long? completeLength,
-        System.Collections.Generic.IReadOnlyList<(ulong Start, ulong End)> protectedRanges, out bool isCff) {
+        System.Collections.Generic.IReadOnlyList<(ulong Start, ulong End)> protectedRanges,
+        out bool isCff, out bool hasRequiredTables) {
         isCff = false;
+        hasRequiredTables = false;
         if (directory.Length < 28 || directoryOffset < 0 || completeLength < 0) return false;
         uint flavor = ReadUInt32BigEndian(directory, 0);
         if (!TryGetSfntFlavor(flavor, out var extension, out _)) return false;
@@ -418,7 +428,33 @@ internal static partial class Signatures {
                 if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
             tableRanges.Add((tableOffset, tableEnd));
         }
+        hasRequiredTables = HasRequiredSfntTables(flavor, tableTags);
         return true;
+    }
+
+    private static bool HasRequiredSfntTables(uint flavor, System.Collections.Generic.HashSet<uint> tags)
+    {
+        // Common tables required by OpenType fonts. Apple legacy TrueType omits OS/2.
+        uint[] common = {
+            0x636D6170, // cmap
+            0x68656164, // head
+            0x68686561, // hhea
+            0x686D7478, // hmtx
+            0x6D617870, // maxp
+            0x6E616D65, // name
+            0x706F7374  // post
+        };
+        for (int index = 0; index < common.Length; index++)
+            if (!tags.Contains(common[index])) return false;
+
+        if (flavor != 0x74727565 && !tags.Contains(0x4F532F32)) return false; // OS/2
+        if (flavor is 0x00010000 or 0x74727565)
+            return tags.Contains(0x676C7966) && tags.Contains(0x6C6F6361); // glyf + loca
+        if (flavor == 0x4F54544F)
+            return tags.Contains(0x43464620) || tags.Contains(0x43464632); // CFF / CFF2
+
+        // The deprecated Apple typ1 flavor has no modern mandatory-table contract.
+        return false;
     }
 
     private static ContentTypeDetectionResult FontResult(string extension, string mime, string? sampledReason) => new() {

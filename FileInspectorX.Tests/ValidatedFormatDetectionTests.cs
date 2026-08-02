@@ -25,7 +25,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("flac", Flac(), 7, "Medium");
         yield return Sample("crx", Crx(), 4, "Medium");
         yield return Sample("ico", Icon(), 2);
-        yield return Sample("ttc", FontCollection(), 4);
+        yield return Sample("ttc", FontCollection(), 4, "Medium");
         yield return Sample("rpm", Rpm(), 96, "Medium");
         yield return Sample("qcow2", Qcow2(), 0, "Medium");
         yield return Sample("mid", Midi(), 4);
@@ -38,7 +38,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("arrow", Arrow(), 6);
         yield return Sample("deb", Deb(), 80);
         yield return Sample("vhd", Vhd(), 512);
-        yield return Sample("vhdx", Vhdx(), 64 * 1024);
+        yield return Sample("vhdx", Vhdx(), 64 * 1024, "Medium");
     }
 
     [Theory]

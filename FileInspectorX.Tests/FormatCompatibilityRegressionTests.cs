@@ -85,16 +85,16 @@ public sealed class FormatCompatibilityRegressionTests
 
     [Fact]
     public void TtcMayShareATableStoredBeforeALaterDirectory()
-        => AssertParity(SharedTableCollection(), "ttc", "High");
+        => AssertParity(SharedTableCollection(), "ttc", "Medium");
 
     [Fact]
     public void TtcDirectoryBeyondDetectionPrefixKeepsApiParity()
-        => AssertParity(LargeDirectoryCollection(), "ttc", "High");
+        => AssertParity(LargeDirectoryCollection(), "ttc", "Medium");
 
     [Fact]
     public void AppleTrueTypeFlavorIsAcceptedStandaloneAndInWoff()
     {
-        AssertParity(AppleTrueType(), "ttf", "High");
+        AssertParity(AppleTrueType(), "ttf", "Medium");
         AssertParity(AppleTrueTypeWoff(), "woff", "Medium");
     }
 

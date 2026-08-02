@@ -53,7 +53,8 @@ internal static partial class Signatures
         if (!src.Slice(src.Length - 4, 4).SequenceEqual(encrypted ? "PARE"u8 : "PAR1"u8)) return false;
         uint footerLength = ReadUInt32LittleEndian(src, src.Length - 8);
         if (footerLength == 0 || footerLength > src.Length - 12) return false;
-        if (!encrypted && !TryValidateParquetMetadata(src.Slice(src.Length - 8 - (int)footerLength, (int)footerLength))) return false;
+        int footerStart = src.Length - 8 - (int)footerLength;
+        if (!encrypted && !TryValidateParquetMetadata(src.Slice(footerStart, (int)footerLength), footerStart)) return false;
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
         if (encrypted) result.Confidence = "Medium";
         return true;
@@ -132,7 +133,8 @@ internal static partial class Signatures
         if (!header || !region) return false;
         bool metadataValidated = TryValidateVhdxMetadata(src, regions);
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");
-        if (!metadataValidated) { result.Confidence = "Medium"; result.Reason += ";metadata-not-validated"; }
+        result.Confidence = "Medium";
+        result.Reason += metadataValidated ? ";bat-entries-not-validated" : ";metadata-not-validated";
         return true;
     }
 
@@ -161,8 +163,9 @@ internal static partial class Signatures
                 result.Confidence = "Medium";
                 return true;
             }
-            if (!TryReadAt(stream, stream.Length - 8 - footerLength, (int)footerLength, out var footer) ||
-                !TryValidateParquetMetadata(new ReadOnlySpan<byte>(footer))) return false;
+            long footerStart = stream.Length - 8 - footerLength;
+            if (!TryReadAt(stream, footerStart, (int)footerLength, out var footer) ||
+                !TryValidateParquetMetadata(new ReadOnlySpan<byte>(footer), footerStart)) return false;
         }
         result = BinaryResult("parquet", "application/vnd.apache.parquet", encrypted ? "parquet:encrypted-footer" : "parquet:footer");
         if (encrypted) result.Confidence = "Medium";
@@ -407,7 +410,8 @@ internal static partial class Signatures
                                  TryReadAt(stream, checked((long)regions.MetadataOffset), checked((int)regions.MetadataLength), out var metadata) &&
                                  TryValidateVhdxMetadata(new ReadOnlySpan<byte>(metadata), regions.BatLength);
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");
-        if (!metadataValidated) { result.Confidence = "Medium"; result.Reason += ";metadata-not-validated"; }
+        result.Confidence = "Medium";
+        result.Reason += metadataValidated ? ";bat-entries-not-validated" : ";metadata-not-validated";
         return true;
     }
 
@@ -566,7 +570,7 @@ internal static partial class Signatures
         return ~sum;
     }
 
-    private static bool TryValidateParquetMetadata(ReadOnlySpan<byte> metadata)
+    private static bool TryValidateParquetMetadata(ReadOnlySpan<byte> metadata, long dataEnd)
     {
         int cursor = 0;
         short previousField = 0;
@@ -597,7 +601,7 @@ internal static partial class Signatures
                 if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out declaredRows) || declaredRows < 0) return false;
                 rows = true;
             }
-            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, out rowGroupCount, out rowGroupRows)) return false; rowGroups = true; }
+            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, dataEnd, out rowGroupCount, out rowGroupRows)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
         return stopped && cursor == metadata.Length && version && schema && rows && rowGroups &&

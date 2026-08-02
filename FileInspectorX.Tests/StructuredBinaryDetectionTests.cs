@@ -37,7 +37,7 @@ public sealed class StructuredBinaryDetectionTests
 
         Assert.NotNull(result);
         Assert.Equal(extension, result!.Extension);
-        Assert.Equal(extension is "class" or "woff" or "woff2" or "exr" or "mj2" or "macho" or "h5" ? "Medium" : "High", result.Confidence);
+        Assert.Equal(extension is "class" or "ttf" or "otf" or "woff" or "woff2" or "exr" or "mj2" or "macho" or "h5" ? "Medium" : "High", result.Confidence);
     }
 
     [Fact]

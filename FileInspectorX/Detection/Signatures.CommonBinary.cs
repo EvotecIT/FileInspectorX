@@ -11,7 +11,8 @@ internal static partial class Signatures
 
     internal static bool TryMatchCommonBinary(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
-        if (TryMatchPe(src, out result)) return true;
+        if (TryMatchPe(src, completeLength, out result)) return true;
+        if (TryMatchLegacyMz(src, completeLength, out result)) return true;
         if (TryMatchPng(src, completeLength, out result)) return true;
         if (TryMatchGif(src, out result)) return true;
         if (TryMatchPdf(src, out result)) return true;

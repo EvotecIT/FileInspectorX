@@ -34,6 +34,13 @@ public sealed class ThirtyThirdReviewRegressionTests
     }
 
     [Fact]
+    public void ParquetColumnChunksRequireAnInRangeFileOffset()
+    {
+        AssertNotDetectedAs(ParquetWithRowGroup(1, encodedFileOffset: null), "parquet");
+        AssertNotDetectedAs(ParquetWithRowGroup(1, encodedFileOffset: 0x7E), "parquet");
+    }
+
+    [Fact]
     public void Jp2RejectsDuplicateHeaderBoxesAcrossByteAndStreamPaths()
     {
         byte[] valid = TestHelpers.CreateMinimalJpeg2000();
@@ -78,25 +85,34 @@ public sealed class ThirtyThirdReviewRegressionTests
         return bytes;
     }
 
-    private static byte[] ParquetWithRowGroup(long rowGroupRows)
+    private static byte[] ParquetWithRowGroup(long rowGroupRows, byte? encodedFileOffset = 0x08)
     {
         byte encodedRows = checked((byte)(rowGroupRows * 2));
-        byte[] metadata =
+        var metadata = new List<byte>
         {
             0x15, 0x02,
             0x19, 0x1C, 0x48, 0x04, (byte)'r', (byte)'o', (byte)'o', (byte)'t', 0x15, 0x00, 0x00,
             0x16, 0x02,
             0x19, 0x1C,
-                0x19, 0x1C, 0x18, 0x01, (byte)'x', 0x00,
-                0x16, 0x02,
-                0x16, encodedRows,
-                0x00,
-            0x00
+                0x19, 0x1C, 0x18, 0x01, (byte)'x'
         };
-        var bytes = new byte[4 + metadata.Length + 8];
+        if (encodedFileOffset.HasValue)
+        {
+            metadata.Add(0x16);
+            metadata.Add(encodedFileOffset.Value);
+        }
+        metadata.Add(0x00);
+        metadata.Add(0x16);
+        metadata.Add(0x02);
+        metadata.Add(0x16);
+        metadata.Add(encodedRows);
+        metadata.Add(0x00);
+        metadata.Add(0x00);
+        var bytes = new byte[5 + metadata.Count + 8];
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
-        metadata.CopyTo(bytes, 4);
-        TestHelpers.WriteUInt32LittleEndian(bytes, bytes.Length - 8, (uint)metadata.Length);
+        bytes[4] = 0x2A;
+        metadata.CopyTo(bytes, 5);
+        TestHelpers.WriteUInt32LittleEndian(bytes, bytes.Length - 8, (uint)metadata.Count);
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, bytes.Length - 4);
         return bytes;
     }
