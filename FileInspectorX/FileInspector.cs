@@ -1242,7 +1242,7 @@ public static partial class FileInspector {
             if (ascii.IndexOf("Media", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
             if (ascii.IndexOf("Component", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
             if (hasSum && cnt >= 2)
-                return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = cnt >= 3 ? "High" : "Medium", Reason = cnt >= 3 ? "ole2:msi-dir-high" : "ole2:msi-hint" };
+                return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = "Medium", Reason = "ole2:msi-hint;sector-chains-not-validated" };
 
             // Try mini CFBF directory parse for higher confidence
             if (TryGetOleDirectoryNames(stream, out var names))
@@ -1252,7 +1252,7 @@ public static partial class FileInspector {
                 string[] msiNames = new [] { "Property", "Directory", "Feature", "Media", "Component", "File", "InstallExecuteSequence" };
                 foreach (var nm in names) foreach (var t in msiNames) { if (nm.Equals(t, StringComparison.OrdinalIgnoreCase)) { hits++; break; } }
                 if (hasSummary && hits >= 2)
-                    return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = hits >= 3 ? "High" : "Medium", Reason = hits >= 3 ? "ole2:msi-cfbf-high" : "ole2:msi-cfbf" };
+                    return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = "Medium", Reason = "ole2:msi-cfbf;sector-chains-partial" };
             }
         } catch { }
         return null;

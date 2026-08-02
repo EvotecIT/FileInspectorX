@@ -9,10 +9,10 @@ public sealed class ValidatedFormatDetectionTests
     {
         yield return Sample("exe", TestHelpers.CreateMinimalPe(), 0x80, "Medium");
         yield return Sample("png", TestHelpers.CreateMinimalPng(), 12);
-        yield return Sample("gif", Gif(), 6);
+        yield return Sample("gif", Gif(), 6, "Medium");
         yield return Sample("zip", TestHelpers.CreateEmptyZip(), 0);
-        yield return Sample("ole2", Ole2(), 28);
-        yield return Sample("pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n"), 6);
+        yield return Sample("ole2", Ole2(), 28, "Medium");
+        yield return Sample("pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n"), 6, "Medium");
         yield return Sample("jpg", TestHelpers.CreateMinimalJpeg(), 0);
         yield return Sample("bmp", Bmp(), 14);
         yield return Sample("gz", Gzip(), 2, "Medium");

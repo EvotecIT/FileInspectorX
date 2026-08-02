@@ -36,7 +36,7 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt16LittleEndian(bytes, 8, 1);
         bytes[10] = 0x88; // Global color table present, sorted, two entries.
 
-        AssertParity(bytes, "gif", "High");
+        AssertParity(bytes, "gif", "Medium");
     }
 
     [Theory]

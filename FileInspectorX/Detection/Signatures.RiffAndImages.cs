@@ -303,6 +303,7 @@ internal static partial class Signatures {
         result = TiffResult(littleEndian, isBigTiff);
         if (status == TiffDirectoryStatus.Sampled) { result.Confidence = "Medium"; result.Reason += ";sampled-ifd-offset;sampled-ifd-chain"; }
         else if (status == TiffDirectoryStatus.Partial) { result.Confidence = "Medium"; result.Reason += ";image-data-not-validated"; }
+        else { result.Confidence = "Medium"; result.Reason += ";image-ranges-not-validated"; }
         return true;
     }
 
@@ -318,6 +319,7 @@ internal static partial class Signatures {
             result = TiffResult(littleEndian, isBigTiff);
             if (status == TiffDirectoryStatus.Sampled) { result.Confidence = "Medium"; result.Reason += ";ifd-budget"; }
             else if (status == TiffDirectoryStatus.Partial) { result.Confidence = "Medium"; result.Reason += ";image-data-not-validated"; }
+            else { result.Confidence = "Medium"; result.Reason += ";image-ranges-not-validated"; }
             return true;
         } catch {
             result = null;

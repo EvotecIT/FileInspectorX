@@ -210,6 +210,8 @@ internal static partial class Signatures
         ushort height = ReadUInt16LittleEndian(src, 8);
         if (width == 0 || height == 0) return false;
         result = BinaryResult("gif", "image/gif", "gif:logical-screen");
+        result.Confidence = "Medium";
+        result.Reason += ";data-stream-not-validated";
         return true;
     }
 
@@ -336,6 +338,8 @@ internal static partial class Signatures
             (major == 3 ? sectorShift != 9 : sectorShift != 12) || miniSectorShift != 6 ||
             (major == 3 && directorySectorCount != 0) || fatSectorCount == 0 || firstDirectorySector >= 0xFFFFFFFA) return false;
         result = BinaryResult("ole2", "application/vnd.ms-office", "ole2:compound-file-header");
+        result.Confidence = "Medium";
+        result.Reason += ";sector-chains-not-validated";
         return true;
     }
 
@@ -538,6 +542,8 @@ internal static partial class Signatures
         if (src.Length < 8 || !src.Slice(0, 5).SequenceEqual("%PDF-"u8)) return false;
         if (src[5] is < (byte)'1' or > (byte)'2' || src[6] != (byte)'.' || src[7] is < (byte)'0' or > (byte)'9') return false;
         result = BinaryResult("pdf", "application/pdf", "pdf:header");
+        result.Confidence = "Medium";
+        result.Reason += ";body-not-validated";
         return true;
     }
 

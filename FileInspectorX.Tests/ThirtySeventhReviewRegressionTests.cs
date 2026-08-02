@@ -37,11 +37,12 @@ public sealed class ThirtySeventhReviewRegressionTests
     }
 
     [Fact]
-    public void TiffRequiresAUsableImageDirectoryForHighConfidence()
+    public void TiffDistinguishesAUsableDirectoryWithoutClaimingImageRangeValidation()
     {
         var partial = AssertParity(EmptyTiff(), "tif", "Medium");
         Assert.Contains("image-data-not-validated", partial.Reason);
-        AssertParity(UsableTiff(), "tif", "High");
+        var structured = AssertParity(UsableTiff(), "tif", "Medium");
+        Assert.Contains("image-ranges-not-validated", structured.Reason);
     }
 
     private static ContentTypeDetectionResult AssertParity(byte[] bytes, string extension, string confidence)
