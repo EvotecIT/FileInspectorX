@@ -48,10 +48,12 @@ internal static partial class Signatures {
 
         int cursor = 36;
         byte folderReserve = 0;
+        byte dataReserve = 0;
         if ((flags & 0x0004) != 0) {
             if (cursor + 4 > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
             ushort headerReserve = ReadUInt16LittleEndian(src, cursor);
             folderReserve = src[cursor + 2];
+            dataReserve = src[cursor + 3];
             cursor += 4;
             if (headerReserve > cabinetSize - cursor) return false;
             if (headerReserve > src.Length - cursor) return TryCreateSampledCab(completeLength, src.Length, out result);
@@ -72,19 +74,35 @@ internal static partial class Signatures {
         long folderTableEnd = cursor + folderCount * folderRecordSize;
         if (folderTableEnd > filesOffset || folderTableEnd > cabinetSize) return false;
         if (folderTableEnd > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+        var dataOffsets = new uint[folderCount];
+        var dataBlockCounts = new ushort[folderCount];
+        var compressionTypes = new byte[folderCount];
         for (int folder = 0; folder < folderCount; folder++) {
             int record = checked(cursor + (int)(folder * folderRecordSize));
             uint dataOffset = ReadUInt32LittleEndian(src, record);
+            ushort dataBlockCount = ReadUInt16LittleEndian(src, record + 4);
+            ushort compressionType = ReadUInt16LittleEndian(src, record + 6);
             if (dataOffset > cabinetSize) return false;
+            if (!IsValidCabCompressionType(compressionType)) return false;
+            dataOffsets[folder] = dataOffset;
+            dataBlockCounts[folder] = dataBlockCount;
+            compressionTypes[folder] = (byte)(compressionType & 0x000F);
         }
 
         if (filesOffset > int.MaxValue) return TryCreateSampledCab(completeLength, src.Length, out result);
         cursor = (int)filesOffset;
+        var requiredFolderLengths = new ulong[folderCount];
         for (int file = 0; file < fileCount; file++) {
             if (cursor + 16L > cabinetSize) return false;
             if (cursor + 16 > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+            uint fileLength = ReadUInt32LittleEndian(src, cursor);
+            uint folderOffset = ReadUInt32LittleEndian(src, cursor + 4);
             ushort folderIndex = ReadUInt16LittleEndian(src, cursor + 8);
             if (folderIndex >= folderCount && folderIndex is not (0xFFFD or 0xFFFE or 0xFFFF)) return false;
+            if (folderIndex < folderCount) {
+                ulong fileEnd = (ulong)folderOffset + fileLength;
+                if (fileEnd > requiredFolderLengths[folderIndex]) requiredFolderLengths[folderIndex] = fileEnd;
+            }
             cursor += 16;
             int nameStart = cursor;
             while (cursor < src.Length && cursor < cabinetSize && src[cursor] != 0) cursor++;
@@ -94,8 +112,46 @@ internal static partial class Signatures {
             cursor++;
         }
 
+        for (int folder = 0; folder < folderCount; folder++) {
+            ushort dataBlockCount = dataBlockCounts[folder];
+            if (dataBlockCount == 0) {
+                if (requiredFolderLengths[folder] != 0) return false;
+                continue;
+            }
+            long dataCursor = dataOffsets[folder];
+            if (dataCursor < cursor || dataCursor >= cabinetSize) return false;
+            ulong uncompressedLength = 0;
+            for (int block = 0; block < dataBlockCount; block++) {
+                long blockHeaderLength = 8L + dataReserve;
+                if (dataCursor > cabinetSize - blockHeaderLength) return false;
+                if (dataCursor + blockHeaderLength > src.Length)
+                    return TryCreateSampledCab(completeLength, src.Length, out result);
+                int blockOffset = checked((int)dataCursor);
+                ushort compressedLength = ReadUInt16LittleEndian(src, blockOffset + 4);
+                ushort expandedLength = ReadUInt16LittleEndian(src, blockOffset + 6);
+                if (compressedLength == 0 || expandedLength > 32768 ||
+                    compressionTypes[folder] == 0 && expandedLength != 0 && compressedLength != expandedLength) return false;
+                long blockEnd = dataCursor + blockHeaderLength + compressedLength;
+                if (blockEnd > cabinetSize) return false;
+                if (blockEnd > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
+                uncompressedLength += expandedLength;
+                dataCursor = blockEnd;
+            }
+            if (uncompressedLength < requiredFolderLengths[folder]) return false;
+        }
+
         result = CabResult(complete: true);
         return true;
+    }
+
+    private static bool IsValidCabCompressionType(ushort value) {
+        int type = value & 0x000F;
+        if (type > 3 || (value & 0xE000) != 0) return false;
+        if (type is 0 or 1) return (value & 0xFFF0) == 0;
+        int level = (value >> 4) & 0x0F;
+        int memory = (value >> 8) & 0x1F;
+        return type == 2 ? level is >= 1 and <= 7 && memory is >= 10 and <= 21
+                         : level == 0 && memory is >= 15 and <= 21;
     }
 
     private static bool TrySkipCabString(ReadOnlySpan<byte> src, ref int cursor, uint cabinetSize, long? completeLength, out bool sampled) {

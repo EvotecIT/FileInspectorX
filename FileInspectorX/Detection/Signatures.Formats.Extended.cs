@@ -144,6 +144,11 @@ internal static partial class Signatures
             completeLength < 0 ||
             l1Size == 0 || l1Offset == 0 || refcountOffset == 0 || refcountClusters == 0) return false;
         ulong clusterSize = 1UL << (int)clusterBits;
+        bool extendedL2 = version == 3 && src.Length >= 80 && (ReadUInt64(src, 72, littleEndian: false) & 0x10UL) != 0;
+        ulong l2Entries = clusterSize / (extendedL2 ? 16UL : 8UL);
+        ulong bytesCoveredPerL1Entry = clusterSize * l2Entries;
+        ulong requiredL1Entries = (virtualSize - 1) / bytesCoveredPerL1Entry + 1;
+        if (requiredL1Entries > l1Size) return false;
         if ((l1Offset & (clusterSize - 1)) != 0 || (refcountOffset & (clusterSize - 1)) != 0) return false;
         if ((backingOffset == 0) != (backingSize == 0)) return false;
         if (completeLength.HasValue)
@@ -270,7 +275,7 @@ internal static partial class Signatures
     }
 
     private static bool IsKnownDdsDxgiFormat(uint format)
-        => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190;
+        => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190 or 191;
 
     private static bool IsKnownNumericDdsFourCc(uint format)
         => format == 36 || format is >= 110 and <= 116;

@@ -180,7 +180,7 @@ public sealed class TwentyThirdReviewRegressionTests
         WriteUInt32BigEndian(bytes, 4, 3);
         WriteUInt32BigEndian(bytes, 20, 9);
         WriteUInt64BigEndian(bytes, 24, 1024 * 1024);
-        WriteUInt32BigEndian(bytes, 36, 1);
+        WriteUInt32BigEndian(bytes, 36, 32);
         WriteUInt64BigEndian(bytes, 40, 512);
         WriteUInt64BigEndian(bytes, 48, 1024);
         WriteUInt32BigEndian(bytes, 56, 1);

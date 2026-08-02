@@ -390,7 +390,12 @@ internal static partial class Signatures
         var headerSpan = new ReadOnlySpan<byte>(header);
         ulong expectedPixels = (ulong)ReadUInt32BigEndian(headerSpan, 4) * ReadUInt32BigEndian(headerSpan, 8);
         long dataEnd = stream.Length - 8;
-        if (dataEnd - 14 > QoiPixelStreamScanBudget) return false;
+        if (dataEnd - 14 > QoiPixelStreamScanBudget)
+        {
+            result = headerResult;
+            result!.Reason = "qoi:header+end-marker;pixel-scan-budget";
+            return true;
+        }
         long cursor = 14;
         ulong pixels = 0;
         stream.Seek(cursor, SeekOrigin.Begin);

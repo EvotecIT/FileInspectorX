@@ -57,6 +57,7 @@ public sealed class TenthReviewRegressionTests
 
         Assert.Equal("qoi", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
+        Assert.Equal("qoi:header+end-marker;pixel-scan-budget", result?.Reason);
         Assert.Equal(5, stream.Position);
         Assert.InRange(stream.BytesRead, 1, 32768);
     }
