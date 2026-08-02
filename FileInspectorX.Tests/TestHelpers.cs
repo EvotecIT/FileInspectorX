@@ -249,18 +249,17 @@ internal static class TestHelpers
 
     internal static byte[] CreateMinimalArrow()
     {
-        var footer = new byte[32];
-        WriteUInt32LittleEndian(footer, 0, 12);
-        WriteUInt16LittleEndian(footer, 4, 8);
+        var footer = new byte[52];
+        WriteUInt32LittleEndian(footer, 0, 16);
+        WriteUInt16LittleEndian(footer, 4, 12);
         WriteUInt16LittleEndian(footer, 6, 12);
         WriteUInt16LittleEndian(footer, 8, 4);
         WriteUInt16LittleEndian(footer, 10, 8);
-        WriteUInt32LittleEndian(footer, 12, 8);
-        WriteUInt16LittleEndian(footer, 16, 4);
-        WriteUInt32LittleEndian(footer, 20, 8);
-        WriteUInt16LittleEndian(footer, 24, 4);
-        WriteUInt16LittleEndian(footer, 26, 4);
-        WriteUInt32LittleEndian(footer, 28, 4);
+        WriteUInt32LittleEndian(footer, 16, 12);
+        WriteUInt32LittleEndian(footer, 24, 24);
+        WriteUInt16LittleEndian(footer, 40, 4);
+        WriteUInt16LittleEndian(footer, 42, 4);
+        WriteUInt32LittleEndian(footer, 48, 8);
 
         var bytes = new byte[8 + footer.Length + 10];
         Encoding.ASCII.GetBytes("ARROW1").CopyTo(bytes, 0);
@@ -306,7 +305,7 @@ internal static class TestHelpers
             for (int index = 0; index < payloadLength; index++) meta.Add(0);
         }
 
-        int requiredLength = 144 + metaLength;
+        int requiredLength = 152 + metaLength;
         if (totalLength == 0) totalLength = requiredLength;
         if (totalLength < requiredLength) throw new ArgumentOutOfRangeException(nameof(totalLength));
         var bytes = new byte[totalLength];
@@ -316,6 +315,10 @@ internal static class TestHelpers
         WriteUInt16LittleEndian(bytes, 138, 4);
         WriteUInt32LittleEndian(bytes, 140, checked((uint)metaLength));
         meta.CopyTo(bytes, 144);
+        int dataSet = 144 + metaLength;
+        WriteUInt16LittleEndian(bytes, dataSet, 0x0008);
+        WriteUInt16LittleEndian(bytes, dataSet + 2, 0x0016);
+        Encoding.ASCII.GetBytes("UI").CopyTo(bytes, dataSet + 4);
         return bytes;
 
         void AddVersion()
@@ -368,7 +371,31 @@ internal static class TestHelpers
         WriteUInt32LittleEndian(bytes, region + 72, 1024 * 1024);
         WriteUInt32LittleEndian(bytes, region + 76, 1);
         WriteUInt32LittleEndian(bytes, region + 4, ComputeCrc32C(bytes, region, 64 * 1024, region + 4, 4));
+
+        int metadata = 2 * 1024 * 1024;
+        Encoding.ASCII.GetBytes("metadata").CopyTo(bytes, metadata);
+        WriteUInt16LittleEndian(bytes, metadata + 10, 5);
+        AddMetadataEntry(0, new byte[] { 0x37, 0x67, 0xA1, 0xCA, 0x36, 0xFA, 0x43, 0x4D, 0xB3, 0xB6, 0x33, 0xF0, 0xAA, 0x44, 0xE7, 0x6B }, 0x10000, 8);
+        AddMetadataEntry(1, new byte[] { 0x24, 0x42, 0xA5, 0x2F, 0x1B, 0xCD, 0x76, 0x48, 0xB2, 0x11, 0x5D, 0xBE, 0xD8, 0x3B, 0xF4, 0xB8 }, 0x10008, 8);
+        AddMetadataEntry(2, new byte[] { 0x1D, 0xBF, 0x41, 0x81, 0x6F, 0xA9, 0x09, 0x47, 0xBA, 0x47, 0xF2, 0x33, 0xA8, 0xFA, 0xAB, 0x5F }, 0x10010, 4);
+        AddMetadataEntry(3, new byte[] { 0xC7, 0x48, 0xA3, 0xCD, 0x5D, 0x44, 0x71, 0x44, 0x9C, 0xC9, 0xE9, 0x88, 0x52, 0x51, 0xC5, 0x56 }, 0x10014, 4);
+        AddMetadataEntry(4, new byte[] { 0xAB, 0x12, 0xCA, 0xBE, 0xE6, 0xB2, 0x23, 0x45, 0x93, 0xEF, 0xC3, 0x09, 0xE0, 0x00, 0xC7, 0x46 }, 0x10018, 16);
+        WriteUInt32LittleEndian(bytes, metadata + 0x10000, 1024 * 1024);
+        WriteUInt64LittleEndian(bytes, metadata + 0x10008, 1024 * 1024);
+        WriteUInt32LittleEndian(bytes, metadata + 0x10010, 512);
+        WriteUInt32LittleEndian(bytes, metadata + 0x10014, 4096);
+        bytes[metadata + 0x10018] = 1;
         return bytes;
+
+        void AddMetadataEntry(int index, byte[] guid, uint offset, uint length)
+        {
+            int entry = metadata + 32 + index * 32;
+            guid.CopyTo(bytes, entry);
+            WriteUInt32LittleEndian(bytes, entry + 16, offset);
+            WriteUInt32LittleEndian(bytes, entry + 20, length);
+            bytes[entry + 25] = 1;
+            bytes[entry + 26] = 1;
+        }
     }
 
     internal static byte[] CreateMinimalVhd()

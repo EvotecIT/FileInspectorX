@@ -24,9 +24,10 @@ internal static partial class Signatures
             if (metaLength < 48 || metaEnd < 144 || metaEnd > stream.Length) return false;
 
             int budget = Math.Max(144, Settings.DetectionReadBudgetBytes);
-            if (metaEnd <= budget && metaEnd <= int.MaxValue)
+            long validationEnd = Math.Min(stream.Length, metaEnd + 12);
+            if (validationEnd <= budget && validationEnd <= int.MaxValue)
             {
-                if (!TryReadAt(stream, 0, (int)metaEnd, out var completeMeta)) return false;
+                if (!TryReadAt(stream, 0, (int)validationEnd, out var completeMeta)) return false;
                 return TryMatchDicom(new ReadOnlySpan<byte>(completeMeta), stream.Length, out result);
             }
 

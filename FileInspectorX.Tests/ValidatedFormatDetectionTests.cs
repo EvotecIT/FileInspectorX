@@ -27,12 +27,12 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("ico", Icon(), 2);
         yield return Sample("ttc", FontCollection(), 4);
         yield return Sample("rpm", Rpm(), 96);
-        yield return Sample("qcow2", Qcow2(), 0);
+        yield return Sample("qcow2", Qcow2(), 0, "Medium");
         yield return Sample("mid", Midi(), 4);
         yield return Sample("dds", Dds(), 4);
         yield return Sample("qoi", Qoi(), 12);
         yield return Sample("dcm", Dicom(), 136);
-        yield return Sample("ndb", OutlookNdb(), 8);
+        yield return Sample("ndb", OutlookNdb(), 8, "Medium");
         yield return Sample("matroska", Matroska(), 6);
         yield return Sample("parquet", Parquet(), 4);
         yield return Sample("arrow", Arrow(), 6);
@@ -43,7 +43,7 @@ public sealed class ValidatedFormatDetectionTests
 
     [Theory]
     [MemberData(nameof(ValidSamples))]
-    public void StructurallyValidatedFormatsHaveParityAcrossBytesStreamAndPath(string extension, byte[] bytes, int _)
+    public void StructurallyValidatedFormatsHaveParityAcrossBytesStreamAndPath(string extension, byte[] bytes, int _, string expectedConfidence)
     {
         var fromBytes = FileInspector.Detect(bytes);
         using var stream = new MemoryStream(bytes, writable: false);
@@ -59,7 +59,7 @@ public sealed class ValidatedFormatDetectionTests
             Assert.Equal(extension, fromBytes?.Extension);
             Assert.Equal(extension, fromStream?.Extension);
             Assert.Equal(extension, fromPath?.Extension);
-            Assert.Equal("High", fromBytes?.Confidence);
+            Assert.Equal(expectedConfidence, fromBytes?.Confidence);
             Assert.Equal(fromBytes?.Confidence, fromStream?.Confidence);
             Assert.Equal(fromBytes?.Confidence, fromPath?.Confidence);
             Assert.Equal(originalPosition, stream.Position);
@@ -72,7 +72,7 @@ public sealed class ValidatedFormatDetectionTests
 
     [Theory]
     [MemberData(nameof(ValidSamples))]
-    public void StructuralNearMissesDoNotRetainTheClaimedFormat(string extension, byte[] bytes, int mutationOffset)
+    public void StructuralNearMissesDoNotRetainTheClaimedFormat(string extension, byte[] bytes, int mutationOffset, string _)
     {
         var mutated = (byte[])bytes.Clone();
         mutated[mutationOffset] ^= 0x01;
@@ -82,7 +82,7 @@ public sealed class ValidatedFormatDetectionTests
 
     [Theory]
     [MemberData(nameof(ValidSamples))]
-    public void TruncationBeforeDecisiveStructureDoesNotRetainTheClaimedFormat(string extension, byte[] bytes, int decisiveOffset)
+    public void TruncationBeforeDecisiveStructureDoesNotRetainTheClaimedFormat(string extension, byte[] bytes, int decisiveOffset, string _)
     {
         var truncated = bytes.Take(decisiveOffset).ToArray();
 
@@ -252,8 +252,8 @@ public sealed class ValidatedFormatDetectionTests
     public void ExecutableAndInstallableFormatsAreMarkedDangerous(string extension)
         => Assert.True(DangerousExtensions.IsDangerous(extension));
 
-    private static object[] Sample(string extension, byte[] bytes, int mutationOffset)
-        => new object[] { extension, bytes, mutationOffset };
+    private static object[] Sample(string extension, byte[] bytes, int mutationOffset, string confidence = "High")
+        => new object[] { extension, bytes, mutationOffset, confidence };
 
     private static byte[] Bmp()
     {

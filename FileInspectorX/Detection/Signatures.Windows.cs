@@ -66,6 +66,7 @@ internal static partial class Signatures {
                 return ShellLinkParseStatus.Invalid;
             status = EnsureShellLinkRange(cursor, linkInfoSize, src.Length, completeLength);
             if (status != ShellLinkParseStatus.Complete) return status;
+            if (!TryValidateShellLinkLinkInfo(src.Slice(cursor, checked((int)linkInfoSize)))) return ShellLinkParseStatus.Invalid;
             cursor += checked((int)linkInfoSize);
         }
 
@@ -109,6 +110,89 @@ internal static partial class Signatures {
             if (itemSize < 2 || itemSize > idList.Length - cursor) return false;
             cursor += itemSize;
         }
+        return false;
+    }
+
+    private static bool TryValidateShellLinkLinkInfo(ReadOnlySpan<byte> block)
+    {
+        if (block.Length < 28 || ReadUInt32LittleEndian(block, 0) != block.Length) return false;
+        uint headerSize = ReadUInt32LittleEndian(block, 4);
+        uint flags = ReadUInt32LittleEndian(block, 8);
+        uint volumeOffset = ReadUInt32LittleEndian(block, 12);
+        uint localPathOffset = ReadUInt32LittleEndian(block, 16);
+        uint networkOffset = ReadUInt32LittleEndian(block, 20);
+        uint suffixOffset = ReadUInt32LittleEndian(block, 24);
+        if (headerSize is not (0x1Cu or >= 0x24u) || headerSize > block.Length || flags is < 1 or > 3 ||
+            !TryValidateShellLinkAnsiString(block, suffixOffset, headerSize)) return false;
+        if ((flags & 1) != 0)
+        {
+            if (!TryValidateShellLinkVolume(block, volumeOffset, headerSize) ||
+                !TryValidateShellLinkAnsiString(block, localPathOffset, headerSize)) return false;
+        }
+        else if (volumeOffset != 0 || localPathOffset != 0) return false;
+        if ((flags & 2) != 0)
+        {
+            if (!TryValidateShellLinkNetwork(block, networkOffset, headerSize)) return false;
+        }
+        else if (networkOffset != 0) return false;
+        if (headerSize >= 0x24)
+        {
+            uint localUnicode = ReadUInt32LittleEndian(block, 28);
+            uint suffixUnicode = ReadUInt32LittleEndian(block, 32);
+            if (localUnicode != 0 && !TryValidateShellLinkUnicodeString(block, localUnicode, headerSize) ||
+                suffixUnicode != 0 && !TryValidateShellLinkUnicodeString(block, suffixUnicode, headerSize)) return false;
+        }
+        return true;
+    }
+
+    private static bool TryValidateShellLinkVolume(ReadOnlySpan<byte> linkInfo, uint offset, uint minimumOffset)
+    {
+        if (offset < minimumOffset || offset > linkInfo.Length - 16) return false;
+        int start = (int)offset;
+        uint size = ReadUInt32LittleEndian(linkInfo, start);
+        if (size < 16 || size > linkInfo.Length - start || ReadUInt32LittleEndian(linkInfo, start + 4) > 6) return false;
+        var volume = linkInfo.Slice(start, (int)size);
+        uint labelOffset = ReadUInt32LittleEndian(volume, 12);
+        if (labelOffset == 0x14)
+            return volume.Length >= 20 && TryValidateShellLinkUnicodeString(volume, ReadUInt32LittleEndian(volume, 16), 20);
+        return TryValidateShellLinkAnsiString(volume, labelOffset, 16);
+    }
+
+    private static bool TryValidateShellLinkNetwork(ReadOnlySpan<byte> linkInfo, uint offset, uint minimumOffset)
+    {
+        if (offset < minimumOffset || offset > linkInfo.Length - 20) return false;
+        int start = (int)offset;
+        uint size = ReadUInt32LittleEndian(linkInfo, start);
+        if (size < 20 || size > linkInfo.Length - start) return false;
+        var network = linkInfo.Slice(start, (int)size);
+        uint flags = ReadUInt32LittleEndian(network, 4);
+        uint netNameOffset = ReadUInt32LittleEndian(network, 8);
+        uint deviceNameOffset = ReadUInt32LittleEndian(network, 12);
+        if ((flags & ~3u) != 0 || !TryValidateShellLinkAnsiString(network, netNameOffset, 20) ||
+            (flags & 1) != 0 && !TryValidateShellLinkAnsiString(network, deviceNameOffset, 20) ||
+            (flags & 1) == 0 && deviceNameOffset != 0) return false;
+        if (netNameOffset > 20)
+        {
+            if (network.Length < 28 || !TryValidateShellLinkUnicodeString(network, ReadUInt32LittleEndian(network, 20), 28)) return false;
+            uint deviceUnicode = ReadUInt32LittleEndian(network, 24);
+            if ((flags & 1) != 0 && !TryValidateShellLinkUnicodeString(network, deviceUnicode, 28) ||
+                (flags & 1) == 0 && deviceUnicode != 0) return false;
+        }
+        return true;
+    }
+
+    private static bool TryValidateShellLinkAnsiString(ReadOnlySpan<byte> block, uint offset, uint minimumOffset)
+    {
+        if (offset < minimumOffset || offset >= block.Length) return false;
+        for (int index = (int)offset; index < block.Length; index++) if (block[index] == 0) return true;
+        return false;
+    }
+
+    private static bool TryValidateShellLinkUnicodeString(ReadOnlySpan<byte> block, uint offset, uint minimumOffset)
+    {
+        if (offset < minimumOffset || offset > block.Length - 2 || (offset & 1) != 0) return false;
+        for (int index = (int)offset; index + 1 < block.Length; index += 2)
+            if (block[index] == 0 && block[index + 1] == 0) return true;
         return false;
     }
 

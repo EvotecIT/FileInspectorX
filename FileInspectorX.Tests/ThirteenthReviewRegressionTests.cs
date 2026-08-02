@@ -79,7 +79,7 @@ public sealed class ThirteenthReviewRegressionTests
         Assert.Equal("arrow", FileInspector.Detect(valid)?.Extension);
 
         var invalid = (byte[])valid.Clone();
-        invalid[8 + 12] = 0;
+        invalid[8 + 16] = 0;
         Assert.NotEqual("arrow", FileInspector.Detect(invalid)?.Extension);
     }
 

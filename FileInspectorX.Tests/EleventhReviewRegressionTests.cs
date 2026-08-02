@@ -320,13 +320,24 @@ public sealed class EleventhReviewRegressionTests
 
     private static byte[] ShellLinkWithAllStructures()
     {
-        var bytes = ShellLink(132, 0x000000FF);
+        var bytes = ShellLink(161, 0x000000FF);
         int cursor = 76;
         WriteUInt16LittleEndian(bytes, cursor, 2);
         cursor += 4;
-        WriteUInt32LittleEndian(bytes, cursor, 28);
+        WriteUInt32LittleEndian(bytes, cursor, 57);
         WriteUInt32LittleEndian(bytes, cursor + 4, 28);
-        cursor += 28;
+        WriteUInt32LittleEndian(bytes, cursor + 8, 1);
+        WriteUInt32LittleEndian(bytes, cursor + 12, 28);
+        WriteUInt32LittleEndian(bytes, cursor + 16, 46);
+        WriteUInt32LittleEndian(bytes, cursor + 24, 50);
+        WriteUInt32LittleEndian(bytes, cursor + 28, 18);
+        WriteUInt32LittleEndian(bytes, cursor + 32, 3);
+        WriteUInt32LittleEndian(bytes, cursor + 36, 1);
+        WriteUInt32LittleEndian(bytes, cursor + 40, 16);
+        bytes[cursor + 44] = (byte)'V';
+        bytes[cursor + 46] = (byte)'C'; bytes[cursor + 47] = (byte)':'; bytes[cursor + 48] = (byte)'\\';
+        Encoding.ASCII.GetBytes("file").CopyTo(bytes, cursor + 50);
+        cursor += 57;
         for (int index = 0; index < 5; index++) {
             WriteUInt16LittleEndian(bytes, cursor, 1);
             bytes[cursor + 2] = (byte)'A';

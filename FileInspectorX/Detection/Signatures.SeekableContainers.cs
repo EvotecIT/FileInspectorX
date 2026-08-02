@@ -69,7 +69,7 @@ internal static partial class Signatures
         int footerStart = checked(src.Length - 10 - (int)footerLength);
         uint rootOffset = ReadUInt32LittleEndian(src, footerStart);
         if (footerStart < 8 || rootOffset < 4 || (ulong)rootOffset + 4 > footerLength ||
-            !TryValidateArrowFooter(src.Slice(footerStart, (int)footerLength))) return false;
+            !TryValidateArrowFooter(src.Slice(footerStart, (int)footerLength), footerStart)) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;
     }
@@ -129,10 +129,11 @@ internal static partial class Signatures
         result = null;
         if (src.Length < 1024 * 1024 || !src.Slice(0, 8).SequenceEqual("vhdxfile"u8)) return false;
         bool header = TryValidateVhdxHeader(src.Slice(64 * 1024, 4096)) || TryValidateVhdxHeader(src.Slice(128 * 1024, 4096));
-        bool region = TryValidateVhdxRegionTable(src.Slice(192 * 1024, 64 * 1024), src.Length) ||
-                      TryValidateVhdxRegionTable(src.Slice(256 * 1024, 64 * 1024), src.Length);
+        bool region = TryFindVhdxRegions(src, out VhdxRegions regions);
         if (!header || !region) return false;
+        bool metadataValidated = TryValidateVhdxMetadata(src, regions);
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");
+        if (!metadataValidated) { result.Confidence = "Medium"; result.Reason += ";metadata-not-validated"; }
         return true;
     }
 
@@ -188,7 +189,7 @@ internal static partial class Signatures
             return true;
         }
         if (!TryReadAt(stream, footerStart, (int)footerLength, out var footerBytes) ||
-            !TryValidateArrowFooter(new ReadOnlySpan<byte>(footerBytes))) return false;
+            !TryValidateArrowFooter(new ReadOnlySpan<byte>(footerBytes), footerStart)) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
         return true;
     }
@@ -383,10 +384,17 @@ internal static partial class Signatures
         if (stream.Length < 1024 * 1024 || !TryReadAt(stream, 0, 8, out var signature) || !new ReadOnlySpan<byte>(signature).SequenceEqual("vhdxfile"u8)) return false;
         bool header = TryReadAt(stream, 64 * 1024, 4096, out var header1) && TryValidateVhdxHeader(new ReadOnlySpan<byte>(header1)) ||
                       TryReadAt(stream, 128 * 1024, 4096, out var header2) && TryValidateVhdxHeader(new ReadOnlySpan<byte>(header2));
-        bool region = TryReadAt(stream, 192 * 1024, 64 * 1024, out var region1) && TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region1), stream.Length) ||
-                      TryReadAt(stream, 256 * 1024, 64 * 1024, out var region2) && TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region2), stream.Length);
+        VhdxRegions regions = default;
+        bool region = TryReadAt(stream, 192 * 1024, 64 * 1024, out var region1) &&
+                          TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region1), stream.Length, out regions) ||
+                      TryReadAt(stream, 256 * 1024, 64 * 1024, out var region2) &&
+                          TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region2), stream.Length, out regions);
         if (!header || !region) return false;
+        bool metadataValidated = regions.MetadataLength <= Math.Max(1024 * 1024, Settings.DetectionReadBudgetBytes) &&
+                                 TryReadAt(stream, checked((long)regions.MetadataOffset), checked((int)regions.MetadataLength), out var metadata) &&
+                                 TryValidateVhdxMetadata(new ReadOnlySpan<byte>(metadata), regions.BatLength);
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");
+        if (!metadataValidated) { result.Confidence = "Medium"; result.Reason += ";metadata-not-validated"; }
         return true;
     }
 
@@ -645,24 +653,60 @@ internal static partial class Signatures
         return true;
     }
 
-    private static bool TryValidateArrowFooter(ReadOnlySpan<byte> footer)
+    private static bool TryValidateArrowFooter(ReadOnlySpan<byte> footer, long dataRegionEnd)
     {
         if (footer.Length < 16) return false;
         uint root = ReadUInt32LittleEndian(footer, 0);
         if (root > int.MaxValue || root + 8 > footer.Length) return false;
         int table = (int)root;
         if (!TryGetArrowVtable(footer, table, 8, out int vtable, out ushort objectLength)) return false;
+        ushort vtableLength = ReadUInt16LittleEndian(footer, vtable);
         ushort versionOffset = ReadUInt16LittleEndian(footer, vtable + 4);
         ushort schemaOffset = ReadUInt16LittleEndian(footer, vtable + 6);
+        ushort dictionariesOffset = vtableLength >= 10 ? ReadUInt16LittleEndian(footer, vtable + 8) : (ushort)0;
+        ushort recordBatchesOffset = vtableLength >= 12 ? ReadUInt16LittleEndian(footer, vtable + 10) : (ushort)0;
         if (objectLength < 8 || schemaOffset == 0 ||
-            versionOffset != 0 && versionOffset + 2 > objectLength || schemaOffset + 4 > objectLength) return false;
+            versionOffset != 0 && versionOffset + 2 > objectLength || schemaOffset + 4 > objectLength ||
+            dictionariesOffset != 0 && dictionariesOffset + 4 > objectLength ||
+            recordBatchesOffset != 0 && recordBatchesOffset + 4 > objectLength) return false;
         ushort version = versionOffset == 0 ? (ushort)0 : ReadUInt16LittleEndian(footer, table + versionOffset);
         if (version > 4) return false;
         uint schemaRelative = ReadUInt32LittleEndian(footer, table + schemaOffset);
         ulong schemaTableValue = (ulong)table + schemaOffset + schemaRelative;
         if (schemaRelative < 4 || schemaTableValue + 4 > (ulong)footer.Length) return false;
         int schemaTable = (int)schemaTableValue;
-        return TryGetArrowVtable(footer, schemaTable, 4, out _, out _);
+        if (!TryGetArrowVtable(footer, schemaTable, 4, out _, out _)) return false;
+        var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+        return TryValidateArrowBlockVector(footer, table, dictionariesOffset, dataRegionEnd, ranges) &&
+               TryValidateArrowBlockVector(footer, table, recordBatchesOffset, dataRegionEnd, ranges);
+    }
+
+    private static bool TryValidateArrowBlockVector(ReadOnlySpan<byte> footer, int table, ushort fieldOffset,
+        long dataRegionEnd, System.Collections.Generic.List<(ulong Start, ulong End)> ranges)
+    {
+        if (fieldOffset == 0) return true;
+        int field = table + fieldOffset;
+        uint relative = ReadUInt32LittleEndian(footer, field);
+        if (relative < 4 || (ulong)field + relative + 4 > (ulong)footer.Length) return false;
+        int vector = checked(field + (int)relative);
+        uint count = ReadUInt32LittleEndian(footer, vector);
+        if (count > 1_000_000 || (ulong)vector + 4UL + (ulong)count * 24UL > (ulong)footer.Length) return false;
+        for (uint index = 0; index < count; index++)
+        {
+            int block = checked(vector + 4 + (int)index * 24);
+            long offset = unchecked((long)ReadUInt64(footer, block, true));
+            int metadataLength = unchecked((int)ReadUInt32LittleEndian(footer, block + 8));
+            long bodyLength = unchecked((long)ReadUInt64(footer, block + 16, true));
+            if (offset < 8 || (offset & 7) != 0 || metadataLength <= 0 || (metadataLength & 7) != 0 || bodyLength < 0) return false;
+            ulong start = (ulong)offset;
+            ulong total = (ulong)metadataLength + (ulong)bodyLength;
+            if (total > ulong.MaxValue - start || start + total > (ulong)dataRegionEnd) return false;
+            ulong end = start + total;
+            for (int range = 0; range < ranges.Count; range++)
+                if (start < ranges[range].End && end > ranges[range].Start) return false;
+            ranges.Add((start, end));
+        }
+        return true;
     }
 
     private static bool TryGetArrowVtable(ReadOnlySpan<byte> footer, int table, int minimumVtableLength,
@@ -691,8 +735,25 @@ internal static partial class Signatures
         return stored != 0 && ComputeCrc32C(header, 4, 4) == stored;
     }
 
-    private static bool TryValidateVhdxRegionTable(ReadOnlySpan<byte> table, long fileLength)
+    private readonly struct VhdxRegions
     {
+        internal VhdxRegions(ulong batOffset, uint batLength, ulong metadataOffset, uint metadataLength)
+        { BatOffset = batOffset; BatLength = batLength; MetadataOffset = metadataOffset; MetadataLength = metadataLength; }
+        internal ulong BatOffset { get; }
+        internal uint BatLength { get; }
+        internal ulong MetadataOffset { get; }
+        internal uint MetadataLength { get; }
+    }
+
+    private static bool TryFindVhdxRegions(ReadOnlySpan<byte> file, out VhdxRegions regions)
+    {
+        if (TryValidateVhdxRegionTable(file.Slice(192 * 1024, 64 * 1024), file.Length, out regions)) return true;
+        return TryValidateVhdxRegionTable(file.Slice(256 * 1024, 64 * 1024), file.Length, out regions);
+    }
+
+    private static bool TryValidateVhdxRegionTable(ReadOnlySpan<byte> table, long fileLength, out VhdxRegions regions)
+    {
+        regions = default;
         if (table.Length != 64 * 1024 || !table.Slice(0, 4).SequenceEqual("regi"u8)) return false;
         uint entries = ReadUInt32LittleEndian(table, 8);
         if (entries is < 1 or > 2047 || ReadUInt32LittleEndian(table, 12) != 0 ||
@@ -728,7 +789,73 @@ internal static partial class Signatures
             }
             else if (flags == 1) return false;
         }
-        return bat && metadata && (batEnd <= metadataOffset || metadataEnd <= batOffset);
+        if (!bat || !metadata || !(batEnd <= metadataOffset || metadataEnd <= batOffset)) return false;
+        regions = new VhdxRegions(batOffset, checked((uint)(batEnd - batOffset)), metadataOffset, checked((uint)(metadataEnd - metadataOffset)));
+        return true;
+    }
+
+    private static bool TryValidateVhdxMetadata(ReadOnlySpan<byte> file, VhdxRegions regions)
+    {
+        if (regions.MetadataOffset > int.MaxValue || regions.MetadataLength > int.MaxValue ||
+            regions.MetadataOffset + regions.MetadataLength > (ulong)file.Length) return false;
+        return TryValidateVhdxMetadata(file.Slice((int)regions.MetadataOffset, (int)regions.MetadataLength), regions.BatLength);
+    }
+
+    private static bool TryValidateVhdxMetadata(ReadOnlySpan<byte> metadata, uint batLength)
+    {
+        if (metadata.Length < 64 * 1024 || !metadata.Slice(0, 8).SequenceEqual("metadata"u8) ||
+            ReadUInt16LittleEndian(metadata, 8) != 0) return false;
+        ushort entryCount = ReadUInt16LittleEndian(metadata, 10);
+        if (entryCount is < 5 or > 2047 || 32L + entryCount * 32L > metadata.Length) return false;
+        var fileParametersGuid = new byte[] { 0x37, 0x67, 0xA1, 0xCA, 0x36, 0xFA, 0x43, 0x4D, 0xB3, 0xB6, 0x33, 0xF0, 0xAA, 0x44, 0xE7, 0x6B };
+        var virtualSizeGuid = new byte[] { 0x24, 0x42, 0xA5, 0x2F, 0x1B, 0xCD, 0x76, 0x48, 0xB2, 0x11, 0x5D, 0xBE, 0xD8, 0x3B, 0xF4, 0xB8 };
+        var logicalSectorGuid = new byte[] { 0x1D, 0xBF, 0x41, 0x81, 0x6F, 0xA9, 0x09, 0x47, 0xBA, 0x47, 0xF2, 0x33, 0xA8, 0xFA, 0xAB, 0x5F };
+        var physicalSectorGuid = new byte[] { 0xC7, 0x48, 0xA3, 0xCD, 0x5D, 0x44, 0x71, 0x44, 0x9C, 0xC9, 0xE9, 0x88, 0x52, 0x51, 0xC5, 0x56 };
+        var diskIdGuid = new byte[] { 0xAB, 0x12, 0xCA, 0xBE, 0xE6, 0xB2, 0x23, 0x45, 0x93, 0xEF, 0xC3, 0x09, 0xE0, 0x00, 0xC7, 0x46 };
+        uint blockSize = 0, logicalSector = 0, physicalSector = 0;
+        ulong virtualSize = 0;
+        bool fileParameters = false, size = false, logical = false, physical = false, diskId = false;
+        for (int index = 0; index < entryCount; index++)
+        {
+            int entry = 32 + index * 32;
+            uint offset = ReadUInt32LittleEndian(metadata, entry + 16);
+            uint length = ReadUInt32LittleEndian(metadata, entry + 20);
+            if (offset < 64 * 1024 || length == 0 || (ulong)offset + length > (ulong)metadata.Length ||
+                metadata[entry + 27] != 0 || ReadUInt32LittleEndian(metadata, entry + 28) != 0) return false;
+            var guid = metadata.Slice(entry, 16);
+            if (guid.SequenceEqual(fileParametersGuid))
+            {
+                if (fileParameters || length != 8) return false;
+                blockSize = ReadUInt32LittleEndian(metadata, (int)offset);
+                if (blockSize < 1024 * 1024 || blockSize > 256 * 1024 * 1024 || (blockSize & (blockSize - 1)) != 0 ||
+                    (ReadUInt32LittleEndian(metadata, (int)offset + 4) & ~3u) != 0) return false;
+                fileParameters = true;
+            }
+            else if (guid.SequenceEqual(virtualSizeGuid))
+            {
+                if (size || length != 8) return false;
+                virtualSize = ReadUInt64(metadata, (int)offset, true); size = virtualSize != 0;
+            }
+            else if (guid.SequenceEqual(logicalSectorGuid))
+            {
+                if (logical || length != 4) return false;
+                logicalSector = ReadUInt32LittleEndian(metadata, (int)offset); logical = logicalSector is 512 or 4096;
+            }
+            else if (guid.SequenceEqual(physicalSectorGuid))
+            {
+                if (physical || length != 4) return false;
+                physicalSector = ReadUInt32LittleEndian(metadata, (int)offset); physical = physicalSector is 512 or 4096;
+            }
+            else if (guid.SequenceEqual(diskIdGuid))
+            {
+                if (diskId || length != 16 || IsAllZero(metadata.Slice((int)offset, 16))) return false;
+                diskId = true;
+            }
+        }
+        if (!fileParameters || !size || !logical || !physical || !diskId || physicalSector < logicalSector ||
+            virtualSize % logicalSector != 0) return false;
+        ulong requiredBatEntries = (virtualSize - 1) / blockSize + 1;
+        return requiredBatEntries <= batLength / 8UL;
     }
 
     private static uint ComputeCrc32C(ReadOnlySpan<byte> data, int zeroOffset, int zeroLength)

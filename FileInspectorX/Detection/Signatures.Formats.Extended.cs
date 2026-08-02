@@ -266,9 +266,10 @@ internal static partial class Signatures
             for (int j = i + 1; j < ranges.Count; j++)
                 if (Qcow2RangesOverlap(ranges[i], ranges[j])) return false;
         result = BinaryResult("qcow2", "application/x-qemu-disk", $"qcow2:version={version}");
+        result.Confidence = "Medium";
+        result.Reason += ";refcount-contents-not-validated";
         if (!completeLength.HasValue)
         {
-            result.Confidence = "Medium";
             result.Reason += ";sampled-length-unknown";
         }
         return true;
@@ -643,12 +644,37 @@ internal static partial class Signatures
         }
         if (cursor != metaEnd || !fileMetaVersion || !sopClass || !sopInstance || !transferSyntax || !implementationClass) return false;
         result = BinaryResult("dcm", "application/dicom", "dicom:preamble+meta-header");
+        if (completeLength.HasValue && (metaEnd >= completeLength.Value || metaEnd + 8 > src.Length))
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";data-set-not-validated";
+        }
+        else if (completeLength.HasValue && !TryValidateDicomFirstDataSetElement(src, checked((int)metaEnd), completeLength.Value))
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";data-set-not-validated";
+        }
         if (!completeLength.HasValue && sampled)
         {
             result.Confidence = "Medium";
             result.Reason += ";sampled-meta-header";
         }
         return true;
+    }
+
+    private static bool TryValidateDicomFirstDataSetElement(ReadOnlySpan<byte> src, int offset, long completeLength)
+    {
+        if (offset < 0 || offset + 8 > src.Length || offset + 8 > completeLength) return false;
+        ushort group = ReadUInt16LittleEndian(src, offset);
+        ushort tag = ReadUInt16LittleEndian(src, offset + 2);
+        byte vr1 = src[offset + 4], vr2 = src[offset + 5];
+        if (group == 0x0002 || group == 0xFFFF || tag == 0xFFFF || vr1 is < (byte)'A' or > (byte)'Z' || vr2 is < (byte)'A' or > (byte)'Z') return false;
+        bool longValue = IsDicomLongValueRepresentation(vr1, vr2);
+        int headerLength = longValue ? 12 : 8;
+        if (offset + headerLength > src.Length || offset + headerLength > completeLength) return false;
+        uint valueLength = longValue ? ReadUInt32LittleEndian(src, offset + 8) : ReadUInt16LittleEndian(src, offset + 6);
+        if (longValue && (src[offset + 6] != 0 || src[offset + 7] != 0) || valueLength == uint.MaxValue) return false;
+        return (ulong)offset + (uint)headerLength + valueLength <= (ulong)completeLength;
     }
 
     private static bool TryCreateSampledDicomResult(bool fileMetaVersion, bool sopClass, bool sopInstance,
@@ -711,6 +737,8 @@ internal static partial class Signatures
         if (ReadUInt32LittleEndian(src, 4) != ComputeNdbCrc32(src.Slice(8, 464))) return false;
         if (unicode && ReadUInt32LittleEndian(src, 524) != ComputeNdbCrc32(src.Slice(8, 516))) return false;
         result = BinaryResult("ndb", "application/vnd.ms-outlook", unicode ? "outlook-ndb:unicode" : "outlook-ndb:ansi");
+        result.Confidence = "Medium";
+        result.Reason += ";root-pages-not-validated";
         return true;
     }
 

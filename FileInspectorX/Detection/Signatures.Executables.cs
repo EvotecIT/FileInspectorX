@@ -215,6 +215,7 @@ internal static partial class Signatures {
             var constantPoolReference1 = new ushort[constantPoolCount];
             var constantPoolReference2 = new ushort[constantPoolCount];
             var constantPoolReferenceKinds = new byte[constantPoolCount];
+            var constantPoolUtf8 = new string?[constantPoolCount];
             for (int index = 1; index < constantPoolCount; index++) {
                 int tagValue = stream.ReadByte();
                 if (tagValue < 0 || !IsJavaConstantPoolTag((byte)tagValue)) return false;
@@ -222,7 +223,7 @@ internal static partial class Signatures {
                 constantPoolTags[index] = tag;
                 switch (tag) {
                     case 1:
-                        if (!TryReadJavaU2(stream, out ushort utf8Length) || !TrySkipJavaBytes(stream, utf8Length)) return false;
+                        if (!TryReadJavaU2(stream, out ushort utf8Length) || !TryReadJavaUtf8(stream, utf8Length, out constantPoolUtf8[index])) return false;
                         break;
                     case 3:
                     case 4:
@@ -263,12 +264,14 @@ internal static partial class Signatures {
             if (!AreJavaConstantPoolReferencesValid(constantPoolTags, constantPoolReference1,
                     constantPoolReference2, constantPoolReferenceKinds, major)) return false;
 
-            if (!TryReadJavaU2(stream, out _) ||
+            if (!TryReadJavaU2(stream, out ushort accessFlags) ||
                 !TryReadJavaU2(stream, out ushort thisClass) ||
                 !TryReadJavaU2(stream, out ushort superClass) ||
                 !TryReadJavaU2(stream, out ushort interfaceCount) ||
                 !IsJavaConstantPoolReference(constantPoolTags, thisClass, 7) ||
-                (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7))) return false;
+                (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7)) ||
+                superClass == 0 && !IsJavaZeroSuperClassValid(constantPoolTags, constantPoolReference1,
+                    constantPoolUtf8, thisClass, accessFlags, major)) return false;
             for (int index = 0; index < interfaceCount; index++) {
                 if (!TryReadJavaU2(stream, out ushort interfaceClass) ||
                     !IsJavaConstantPoolReference(constantPoolTags, interfaceClass, 7)) return false;
@@ -645,6 +648,7 @@ internal static partial class Signatures {
         var constantPoolReference1 = new ushort[constantPoolCount];
         var constantPoolReference2 = new ushort[constantPoolCount];
         var constantPoolReferenceKinds = new byte[constantPoolCount];
+        var constantPoolUtf8 = new string?[constantPoolCount];
         int cursor = 10;
         for (int index = 1; index < constantPoolCount; index++) {
             if (cursor >= src.Length) return JavaSampleStatus.NeedMore;
@@ -654,7 +658,8 @@ internal static partial class Signatures {
             int payloadLength;
             if (tag == 1) {
                 if (cursor + 2 > src.Length) return JavaSampleStatus.NeedMore;
-                payloadLength = 2 + ReadUInt16BigEndian(src, cursor);
+                int utf8Length = ReadUInt16BigEndian(src, cursor);
+                payloadLength = 2 + utf8Length;
             } else {
                 payloadLength = tag switch {
                     3 or 4 or 9 or 10 or 11 or 12 or 17 or 18 => 4,
@@ -666,6 +671,8 @@ internal static partial class Signatures {
             }
             if (payloadLength == 0) return JavaSampleStatus.Invalid;
             if (payloadLength > src.Length - cursor) return JavaSampleStatus.NeedMore;
+            if (tag == 1)
+                constantPoolUtf8[index] = System.Text.Encoding.UTF8.GetString(src.Slice(cursor + 2, payloadLength - 2).ToArray());
             switch (tag) {
                 case 7:
                 case 8:
@@ -697,12 +704,15 @@ internal static partial class Signatures {
                 constantPoolReference2, constantPoolReferenceKinds, major)) return JavaSampleStatus.Invalid;
 
         if (cursor + 8 > src.Length) return JavaSampleStatus.NeedMore;
+        ushort accessFlags = ReadUInt16BigEndian(src, cursor);
         ushort thisClass = ReadUInt16BigEndian(src, cursor + 2);
         ushort superClass = ReadUInt16BigEndian(src, cursor + 4);
         ushort interfaceCount = ReadUInt16BigEndian(src, cursor + 6);
         cursor += 8;
         if (!IsJavaConstantPoolReference(constantPoolTags, thisClass, 7) ||
-            (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7))) return JavaSampleStatus.Invalid;
+            (superClass != 0 && !IsJavaConstantPoolReference(constantPoolTags, superClass, 7)) ||
+            superClass == 0 && !IsJavaZeroSuperClassValid(constantPoolTags, constantPoolReference1,
+                constantPoolUtf8, thisClass, accessFlags, major)) return JavaSampleStatus.Invalid;
         for (int index = 0; index < interfaceCount; index++) {
             if (cursor + 2 > src.Length) return JavaSampleStatus.NeedMore;
             ushort interfaceClass = ReadUInt16BigEndian(src, cursor);
@@ -864,6 +874,30 @@ internal static partial class Signatures {
         if (b0 < 0 || b1 < 0 || b2 < 0 || b3 < 0) return false;
         value = ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | (uint)b3;
         return true;
+    }
+
+    private static bool TryReadJavaUtf8(Stream stream, ushort length, out string? value) {
+        value = null;
+        if (length > stream.Length - stream.Position) return false;
+        var bytes = new byte[length];
+        int read = 0;
+        while (read < bytes.Length) {
+            int current = stream.Read(bytes, read, bytes.Length - read);
+            if (current <= 0) return false;
+            read += current;
+        }
+        value = System.Text.Encoding.UTF8.GetString(bytes);
+        return true;
+    }
+
+    private static bool IsJavaZeroSuperClassValid(byte[] tags, ushort[] classNameReferences, string?[] utf8,
+        ushort thisClass, ushort accessFlags, ushort major) {
+        if (!IsJavaConstantPoolReference(tags, thisClass, 7)) return false;
+        ushort nameIndex = classNameReferences[thisClass];
+        if (!IsJavaConstantPoolReference(tags, nameIndex, 1)) return false;
+        string? name = utf8[nameIndex];
+        if (name == "java/lang/Object") return (accessFlags & 0x8000) == 0;
+        return major >= 53 && (accessFlags & 0x8000) != 0 && name == "module-info";
     }
 
     private static bool TrySkipJavaBytes(Stream stream, ulong count) {

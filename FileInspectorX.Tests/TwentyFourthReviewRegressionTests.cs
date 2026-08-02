@@ -9,10 +9,10 @@ public sealed class TwentyFourthReviewRegressionTests
     public void Qcow2L1TableMustCoverTheVirtualDisk()
     {
         byte[] valid = Qcow2(l1Size: 32, extendedL2: false);
-        AssertParity(valid, "qcow2");
+        AssertParity(valid, "qcow2", "Medium");
 
         AssertNotDetectedAs(Qcow2(l1Size: 31, extendedL2: false), "qcow2");
-        AssertParity(Qcow2(l1Size: 64, extendedL2: true), "qcow2");
+        AssertParity(Qcow2(l1Size: 64, extendedL2: true), "qcow2", "Medium");
         AssertNotDetectedAs(Qcow2(l1Size: 63, extendedL2: true), "qcow2");
     }
 
@@ -36,16 +36,16 @@ public sealed class TwentyFourthReviewRegressionTests
         AssertNotDetectedAs(DdsDx10(dxgiFormat: 191), "dds");
     }
 
-    private static void AssertParity(byte[] bytes, string extension)
+    private static void AssertParity(byte[] bytes, string extension, string confidence = "High")
     {
         var fromBytes = FileInspector.Detect(bytes);
         Assert.Equal(extension, fromBytes?.Extension);
-        Assert.Equal("High", fromBytes?.Confidence);
+        Assert.Equal(confidence, fromBytes?.Confidence);
 
         using var stream = new MemoryStream(bytes, writable: false) { Position = Math.Min(3, bytes.Length) };
         var fromStream = FileInspector.Detect(stream);
         Assert.Equal(extension, fromStream?.Extension);
-        Assert.Equal("High", fromStream?.Confidence);
+        Assert.Equal(confidence, fromStream?.Confidence);
         Assert.Equal(Math.Min(3, bytes.Length), stream.Position);
     }
 
