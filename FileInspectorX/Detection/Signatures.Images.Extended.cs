@@ -168,8 +168,10 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = "exr",
             MimeType = "image/x-exr",
-            Confidence = chunkFramingValidated ? "High" : "Medium",
-            Reason = "openexr:v2" + (chunkFramingValidated ? ";chunk-framing" : ";sampled-chunk-framing")
+            Confidence = "Medium",
+            Reason = "openexr:v2" + (chunkFramingValidated
+                ? ";chunk-framing;chunk-payloads-not-validated"
+                : ";sampled-chunk-framing")
         };
         return true;
     }
@@ -420,12 +422,14 @@ internal static partial class Signatures {
         uint width = ReadUInt32BigEndian(src, 18);
         ushort depth = ReadUInt16BigEndian(src, 22);
         ushort colorMode = ReadUInt16BigEndian(src, 24);
+        ulong? colorModeDataLength = src.Length >= 30 ? ReadUInt32BigEndian(src, 26) : null;
         uint maximumDimension = version == 1 ? 30000u : 300000u;
         if (channels < 1 || channels > 56 || height < 1 || height > maximumDimension ||
             width < 1 || width > maximumDimension ||
             (depth != 1 && depth != 8 && depth != 16 && depth != 32) ||
             (colorMode != 0 && colorMode != 1 && colorMode != 2 && colorMode != 3 && colorMode != 4 &&
-             colorMode != 7 && colorMode != 8 && colorMode != 9))
+             colorMode != 7 && colorMode != 8 && colorMode != 9) ||
+            !IsValidPhotoshopColorMode(channels, depth, colorMode, colorModeDataLength))
             return false;
 
         int cursor = 26;
@@ -532,12 +536,16 @@ internal static partial class Signatures {
             if (!TryReadAt(stream, 0, 26, out var header) ||
                 !TryMatchPhotoshop(new ReadOnlySpan<byte>(header), completeLength: null, out var sampled)) return false;
             ushort version = ReadUInt16BigEndian(new ReadOnlySpan<byte>(header), 4);
+            var headerSpan = new ReadOnlySpan<byte>(header);
             long cursor = 26;
+            if (!TryReadAt(stream, cursor, 4, out var colorModeLengthBytes)) return false;
+            ulong colorModeLength = ReadUInt32BigEndian(new ReadOnlySpan<byte>(colorModeLengthBytes), 0);
+            if (!IsValidPhotoshopColorMode(ReadUInt16BigEndian(headerSpan, 12), ReadUInt16BigEndian(headerSpan, 22),
+                    ReadUInt16BigEndian(headerSpan, 24), colorModeLength)) return false;
             if (!TrySkipPhotoshopSection(stream, ref cursor, 4) ||
                 !TrySkipPhotoshopSection(stream, ref cursor, 4) ||
                 !TrySkipPhotoshopSection(stream, ref cursor, version == 1 ? 4 : 8) ||
                 cursor > stream.Length - 2 || !TryReadAt(stream, cursor, 2, out var compression)) return false;
-            var headerSpan = new ReadOnlySpan<byte>(header);
             ushort compressionValue = ReadUInt16BigEndian(new ReadOnlySpan<byte>(compression), 0);
             if (compressionValue > 3 || !TryValidatePhotoshopImageData(stream, cursor + 2, version,
                     ReadUInt16BigEndian(headerSpan, 12), ReadUInt32BigEndian(headerSpan, 14),
@@ -558,6 +566,23 @@ internal static partial class Signatures {
         {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
+
+    private static bool IsValidPhotoshopColorMode(ushort channels, ushort depth, ushort colorMode, ulong? dataLength)
+    {
+        bool lengthIs(ulong expected) => !dataLength.HasValue || dataLength.Value == expected;
+        return colorMode switch
+        {
+            0 => channels == 1 && depth == 1 && lengthIs(0),
+            1 => channels is 1 or 2 && depth is 8 or 16 or 32 && lengthIs(0),
+            2 => channels == 1 && depth == 8 && lengthIs(768),
+            3 => channels >= 3 && depth is 8 or 16 or 32 && lengthIs(0),
+            4 => channels >= 4 && depth is 8 or 16 or 32 && lengthIs(0),
+            7 => depth is 8 or 16 or 32 && lengthIs(0),
+            8 => channels is 1 or 2 && depth == 8 && (!dataLength.HasValue || dataLength.Value > 0),
+            9 => channels >= 3 && depth is 8 or 16 or 32 && lengthIs(0),
+            _ => false
+        };
     }
 
     private static bool TrySkipPhotoshopSection(Stream stream, ref long cursor, int lengthSize)
@@ -939,6 +964,7 @@ internal static partial class Signatures {
         if (brand == 0x6A706D20) return payload.Length >= 8 && ReadUInt32BigEndian(payload, 0) >= 8 && ReadUInt32BigEndian(payload, 0) <= payload.Length;
         if (!TryValidateJpeg2000ImageHeader(payload, out ushort components, out byte bits)) return false;
         bool sawBitsPerComponent = false;
+        bool sawColourSpecification = false;
         int cursor = 22;
         while (cursor < payload.Length)
         {
@@ -965,9 +991,14 @@ internal static partial class Signatures {
                     if ((componentDepths[component] & 0x7F) > 37) return false;
                 sawBitsPerComponent = true;
             }
+            else if (type == 0x636F6C72)
+            {
+                if (!TryValidateJpeg2000ColourSpecification(payload.Slice(cursor + headerLength, (int)boxLength - headerLength))) return false;
+                sawColourSpecification = true;
+            }
             cursor += (int)boxLength;
         }
-        return (bits == 0xFF) == sawBitsPerComponent;
+        return (bits == 0xFF) == sawBitsPerComponent && (brand != 0x6A703220 || sawColourSpecification);
     }
 
     private static bool TryValidateJpeg2000HeaderPayload(Stream stream, long offset, long length, uint brand)
@@ -977,6 +1008,7 @@ internal static partial class Signatures {
         if (brand == 0x6A706D20) return TryValidateJpeg2000HeaderPayload(new ReadOnlySpan<byte>(bytes), brand);
         if (!TryValidateJpeg2000ImageHeader(new ReadOnlySpan<byte>(bytes), out ushort components, out byte bits)) return false;
         bool sawBitsPerComponent = false;
+        bool sawColourSpecification = false;
         long cursor = 22;
         int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
         while (cursor < length)
@@ -1005,9 +1037,27 @@ internal static partial class Signatures {
                     if ((depths[component] & 0x7F) > 37) return false;
                 sawBitsPerComponent = true;
             }
+            else if (type == 0x636F6C72)
+            {
+                long colourLength = boxLength - headerLength;
+                int prefixLength = (int)Math.Min(7, colourLength);
+                if (prefixLength < 3 || !TryReadAt(stream, offset + cursor + headerLength, prefixLength, out var colour) ||
+                    !TryValidateJpeg2000ColourSpecification(new ReadOnlySpan<byte>(colour), colourLength)) return false;
+                sawColourSpecification = true;
+            }
             cursor += boxLength;
         }
-        return (bits == 0xFF) == sawBitsPerComponent;
+        return (bits == 0xFF) == sawBitsPerComponent && (brand != 0x6A703220 || sawColourSpecification);
+    }
+
+    private static bool TryValidateJpeg2000ColourSpecification(ReadOnlySpan<byte> payload, long? declaredLength = null)
+    {
+        long length = declaredLength ?? payload.Length;
+        if (length < 3 || payload.Length < Math.Min(3, length)) return false;
+        byte method = payload[0];
+        if (method == 1)
+            return length == 7 && payload.Length >= 7 && ReadUInt32BigEndian(payload, 3) is 16 or 17 or 18;
+        return method is 2 or 3 && length > 3;
     }
 
     private static bool TryValidateJpeg2000ImageHeader(ReadOnlySpan<byte> payload, out ushort components, out byte bits)

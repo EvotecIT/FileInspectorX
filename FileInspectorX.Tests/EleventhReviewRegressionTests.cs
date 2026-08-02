@@ -109,7 +109,7 @@ public sealed class EleventhReviewRegressionTests
     public void DicomMetaLengthUsesTheKnownOrSampledBoundary()
     {
         var bytes = TestHelpers.CreateMinimalDicom(metaLength: 5000, totalLength: 6000);
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
 
         using (var stream = new NonSeekableReadStream(bytes)) {
             var sampled = FileInspector.Detect(stream);

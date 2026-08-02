@@ -44,7 +44,7 @@ public sealed class TwentyFirstReviewRegressionTests
         var result = FileInspector.Detect(stream);
 
         Assert.Equal("dcm", result?.Extension);
-        Assert.Equal("High", result?.Confidence);
+        Assert.Equal("Medium", result?.Confidence);
         Assert.Equal(7, stream.Position);
     }
 
@@ -56,10 +56,11 @@ public sealed class TwentyFirstReviewRegressionTests
     }
 
     [Fact]
-    public void OpenExrRequiresChunkFramingBeforeHighConfidence()
+    public void OpenExrRequiresChunkFramingBeforeCompleteIdentity()
     {
         byte[] valid = TestHelpers.CreateMinimalOpenExr();
-        Assert.Equal("High", FileInspector.Detect(valid)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(valid)?.Confidence);
+        Assert.Contains("chunk-payloads-not-validated", FileInspector.Detect(valid)?.Reason);
         byte[] headerOnly = valid.Take(valid.Length - 20).ToArray();
         Assert.NotEqual("High", FileInspector.Detect(headerOnly)?.Confidence);
     }

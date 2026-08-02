@@ -287,7 +287,7 @@ internal static partial class Signatures {
         if ((version & 0xFFFF) != 0xA793 || streams > 65535 || completeLength < 0 ||
             (streams == 0 ? directoryRva != 0 : directoryRva < 32) ||
             (streams != 0 && completeLength.HasValue && directoryRva + streams * 12L > completeLength.Value)) return false;
-        bool complete = streams == 0;
+        bool complete = streams == 0 && completeLength == 32;
         if (streams != 0 && directoryRva + streams * 12L <= src.Length)
         {
             if (!completeLength.HasValue || !TryValidateMinidumpDirectory(
@@ -299,7 +299,8 @@ internal static partial class Signatures {
             Extension = "dmp",
             MimeType = "application/x-ms-minidump",
             Confidence = complete ? "High" : "Medium",
-            Reason = streams == 0 ? "dmp:minidump-header;empty-directory" :
+            Reason = streams == 0 ? "dmp:minidump-header;empty-directory" +
+                (complete ? string.Empty : completeLength.HasValue ? ";unreferenced-trailing-bytes" : ";sampled-length-unknown") :
                 complete ? "dmp:minidump-header+stream-ranges" : "dmp:minidump-header;sampled-directory"
         };
         return true;

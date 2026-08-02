@@ -15,8 +15,8 @@ public sealed class TenthReviewRegressionTests
 
         Assert.Equal("class", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
-        Assert.Equal("java-class:52.0;sampled-length-unknown", result?.Reason);
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("java-class:52.0;method-semantics-not-validated;sampled-length-unknown", result?.Reason);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
     }
 
     [Fact]

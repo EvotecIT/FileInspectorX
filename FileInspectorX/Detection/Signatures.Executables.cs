@@ -777,8 +777,8 @@ internal static partial class Signatures {
     private static ContentTypeDetectionResult JavaClassResult(ushort major, ushort minor) => new() {
         Extension = "class",
         MimeType = "application/java-vm",
-        Confidence = "High",
-        Reason = $"java-class:{major}.{minor}"
+        Confidence = "Medium",
+        Reason = $"java-class:{major}.{minor};method-semantics-not-validated"
     };
 
     private static bool IsDefinedJavaClassVersion(ushort major, ushort minor)

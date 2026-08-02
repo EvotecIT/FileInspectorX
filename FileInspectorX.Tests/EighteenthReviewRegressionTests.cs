@@ -32,7 +32,7 @@ public sealed class EighteenthReviewRegressionTests
     public void OpenExrRetainsOversizedSeekableHeaderIdentityAtMediumConfidence()
     {
         var bytes = OpenExrWithLargeCustomAttribute();
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
         using var stream = new MemoryStream(bytes, writable: false) { Position = 5 };
 
         var result = FileInspector.Detect(stream);

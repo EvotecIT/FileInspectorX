@@ -92,11 +92,11 @@ public sealed class TwentyEighthReviewRegressionTests
     private static byte[] Jpeg2000WithBpcc(string brand, byte componentDepth)
     {
         byte[] original = TestHelpers.CreateMinimalJpeg2000(brand);
-        const int insertion = 62;
+        int insertion = brand == "jp2 " ? 77 : 62;
         var bytes = new byte[original.Length + 9];
         Array.Copy(original, 0, bytes, 0, insertion);
         Array.Copy(original, insertion, bytes, insertion + 9, original.Length - insertion);
-        TestHelpers.WriteUInt32BigEndian(bytes, 32, 39);
+        TestHelpers.WriteUInt32BigEndian(bytes, 32, brand == "jp2 " ? 54u : 39u);
         bytes[58] = 0xFF;
         TestHelpers.WriteUInt32BigEndian(bytes, insertion, 9);
         Encoding.ASCII.GetBytes("bpcc").CopyTo(bytes, insertion + 4);

@@ -543,7 +543,7 @@ internal static partial class Signatures {
 
         bool nonCanonicalReserved = isWoff2 && reserved != 0;
         result = WoffResult(isWoff2, nonCanonicalReserved,
-            sampledReason: isWoff2 ? "brotli-payload-not-validated" : null);
+            sampledReason: isWoff2 ? "brotli-payload-not-validated" : "table-payloads-not-validated");
         return true;
     }
 

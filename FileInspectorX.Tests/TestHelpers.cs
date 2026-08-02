@@ -192,7 +192,7 @@ internal static class TestHelpers
     {
         string firstRequired = brand == "jpx " ? "jpxh" : brand == "jpm " ? "jpmh" : brand == "mjp2" ? "moov" : "jp2h";
         string secondRequired = brand == "mjp2" ? "mdat" : "jp2c";
-        int headerLength = brand == "mjp2" ? 34 : brand == "jpm " ? 16 : 30;
+        int headerLength = brand == "mjp2" ? 34 : brand == "jpm " ? 16 : brand == "jp2 " ? 45 : 30;
         byte[] codestream = brand == "mjp2" ? Array.Empty<byte>() : CreateMinimalJpeg2000Codestream();
         int dataLength = brand == "mjp2" ? 9 : 8 + codestream.Length;
         var bytes = new byte[32 + headerLength + dataLength];
@@ -223,6 +223,13 @@ internal static class TestHelpers
             WriteUInt16BigEndian(bytes, 56, 1);
             bytes[58] = 7;
             bytes[59] = 7;
+            if (brand == "jp2 ")
+            {
+                WriteUInt32BigEndian(bytes, 62, 15);
+                Encoding.ASCII.GetBytes("colr").CopyTo(bytes, 66);
+                bytes[70] = 1;
+                WriteUInt32BigEndian(bytes, 73, 16);
+            }
         }
         int dataOffset = 32 + headerLength;
         WriteUInt32BigEndian(bytes, dataOffset, (uint)dataLength);

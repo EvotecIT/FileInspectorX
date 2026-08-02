@@ -294,7 +294,7 @@ internal static partial class Signatures
             if (zeroBlock)
             {
                 if (!sawHeader || cursor > archive.Length - 1024 ||
-                    !IsAllZero(archive.Slice((int)cursor + 512, 512))) return false;
+                    !IsAllZero(archive.Slice((int)cursor))) return false;
                 complete = true;
                 return true;
             }
@@ -322,7 +322,8 @@ internal static partial class Signatures
             {
                 if (!sawHeader || cursor > length - 1024 ||
                     !TryReadAt(stream, offset + cursor + 512, 512, out var secondZero) ||
-                    !IsAllZero(new ReadOnlySpan<byte>(secondZero))) return false;
+                    !IsAllZero(new ReadOnlySpan<byte>(secondZero)) ||
+                    !TryValidateZeroRange(stream, offset + cursor + 1024, length - cursor - 1024)) return false;
                 complete = true;
                 return true;
             }
@@ -331,6 +332,20 @@ internal static partial class Signatures
             cursor += 512 + (long)paddedDataLength;
         }
         return false;
+    }
+
+    private static bool TryValidateZeroRange(Stream stream, long offset, long length)
+    {
+        if (offset < 0 || length < 0 || offset > stream.Length - length) return false;
+        var buffer = new byte[4096];
+        long cursor = 0;
+        while (cursor < length)
+        {
+            int wanted = (int)Math.Min(buffer.Length, length - cursor);
+            if (!TryReadAt(stream, offset + cursor, wanted, out var bytes) || !IsAllZero(new ReadOnlySpan<byte>(bytes))) return false;
+            cursor += wanted;
+        }
+        return true;
     }
 
     private static bool TryReadTarHeader(ReadOnlySpan<byte> header, out ulong paddedDataLength, out bool zeroBlock)

@@ -95,7 +95,7 @@ public sealed class FormatCompatibilityRegressionTests
     public void AppleTrueTypeFlavorIsAcceptedStandaloneAndInWoff()
     {
         AssertParity(AppleTrueType(), "ttf", "High");
-        AssertParity(AppleTrueTypeWoff(), "woff", "High");
+        AssertParity(AppleTrueTypeWoff(), "woff", "Medium");
     }
 
     [Fact]

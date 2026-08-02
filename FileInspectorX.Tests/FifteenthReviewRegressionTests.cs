@@ -51,7 +51,7 @@ public sealed class FifteenthReviewRegressionTests
         valid[5] = 0xFF;
         valid[6] = 0;
         valid[7] = 56;
-        AssertParity(valid, "class", "High");
+        AssertParity(valid, "class", "Medium");
 
         valid[4] = 0;
         valid[5] = 1;

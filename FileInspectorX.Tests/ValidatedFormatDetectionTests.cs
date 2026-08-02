@@ -31,7 +31,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("mid", Midi(), 4);
         yield return Sample("dds", Dds(), 4);
         yield return Sample("qoi", Qoi(), 12);
-        yield return Sample("dcm", Dicom(), 136);
+        yield return Sample("dcm", Dicom(), 136, "Medium");
         yield return Sample("ndb", OutlookNdb(), 8, "Medium");
         yield return Sample("matroska", Matroska(), 6);
         yield return Sample("parquet", Parquet(), 4);

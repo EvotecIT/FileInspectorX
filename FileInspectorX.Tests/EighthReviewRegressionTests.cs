@@ -11,7 +11,7 @@ public sealed class EighthReviewRegressionTests
         var bytes = LargeJavaClass();
 
         Assert.True(bytes.Length > Settings.HeaderReadBytes);
-        AssertParity(bytes, "class", "High");
+        AssertParity(bytes, "class", "Medium");
 
         var truncated = bytes.Take(bytes.Length - 1).ToArray();
         Assert.NotEqual("class", FileInspector.Detect(truncated)?.Extension);

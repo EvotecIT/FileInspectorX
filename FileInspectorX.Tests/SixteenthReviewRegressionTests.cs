@@ -161,14 +161,14 @@ public sealed class SixteenthReviewRegressionTests
     private static byte[] LargePhotoshop()
     {
         const int colorModeDataLength = 5000;
-        var bytes = new byte[26 + 4 + colorModeDataLength + 4 + 4 + 2 + 3];
+        var bytes = new byte[26 + 4 + colorModeDataLength + 4 + 4 + 2 + 1];
         Encoding.ASCII.GetBytes("8BPS").CopyTo(bytes, 0);
         WriteUInt16BigEndian(bytes, 4, 1);
-        WriteUInt16BigEndian(bytes, 12, 3);
+        WriteUInt16BigEndian(bytes, 12, 1);
         WriteUInt32BigEndian(bytes, 14, 1);
         WriteUInt32BigEndian(bytes, 18, 1);
         WriteUInt16BigEndian(bytes, 22, 8);
-        WriteUInt16BigEndian(bytes, 24, 3);
+        WriteUInt16BigEndian(bytes, 24, 8);
         WriteUInt32BigEndian(bytes, 26, colorModeDataLength);
         return bytes;
     }

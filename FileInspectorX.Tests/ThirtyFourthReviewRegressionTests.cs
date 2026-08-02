@@ -16,7 +16,7 @@ public sealed class ThirtyFourthReviewRegressionTests
     [Fact]
     public void JavaConstantPoolStringsUseModifiedUtf8()
     {
-        AssertParity(JavaClassWithUnusedUtf8(new byte[] { 0xC0, 0x80 }), "class", "High");
+        AssertParity(JavaClassWithUnusedUtf8(new byte[] { 0xC0, 0x80 }), "class", "Medium");
         AssertNotDetectedAs(JavaClassWithUnusedUtf8(new byte[] { 0xFF }), "class");
         AssertNotDetectedAs(JavaClassWithUnusedUtf8(new byte[] { 0x00 }), "class");
     }

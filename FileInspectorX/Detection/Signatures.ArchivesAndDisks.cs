@@ -77,6 +77,7 @@ internal static partial class Signatures {
         var dataOffsets = new uint[folderCount];
         var dataBlockCounts = new ushort[folderCount];
         var compressionTypes = new byte[folderCount];
+        bool payloadIntegrityNotValidated = false;
         for (int folder = 0; folder < folderCount; folder++) {
             int record = checked(cursor + (int)(folder * folderRecordSize));
             uint dataOffset = ReadUInt32LittleEndian(src, record);
@@ -134,6 +135,7 @@ internal static partial class Signatures {
                 ushort expandedLength = ReadUInt16LittleEndian(src, blockOffset + 6);
                 if (compressedLength == 0 || expandedLength > 32768 ||
                     compressionTypes[folder] == 0 && expandedLength != 0 && compressedLength != expandedLength) return false;
+                payloadIntegrityNotValidated |= compressionTypes[folder] != 0 || ReadUInt32LittleEndian(src, blockOffset) != 0;
                 long blockEnd = dataCursor + blockHeaderLength + compressedLength;
                 if (blockEnd > cabinetSize) return false;
                 if (blockEnd > src.Length) return TryCreateSampledCab(completeLength, src.Length, out result);
@@ -143,7 +145,7 @@ internal static partial class Signatures {
             if (uncompressedLength < requiredFolderLengths[folder]) return false;
         }
 
-        result = CabResult(complete: true);
+        result = CabResult(complete: true, payloadIntegrityNotValidated: payloadIntegrityNotValidated);
         return true;
     }
 
@@ -178,11 +180,12 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static ContentTypeDetectionResult CabResult(bool complete) => new() {
+    private static ContentTypeDetectionResult CabResult(bool complete, bool payloadIntegrityNotValidated = false) => new() {
         Extension = "cab",
         MimeType = "application/vnd.ms-cab-compressed",
-        Confidence = complete ? "High" : "Medium",
-        Reason = "cab:cfheader" + (complete ? ";folders+files" : ";sampled-structures")
+        Confidence = complete && !payloadIntegrityNotValidated ? "High" : "Medium",
+        Reason = "cab:cfheader" + (complete ? ";folders+files" : ";sampled-structures") +
+                 (payloadIntegrityNotValidated ? ";payload-integrity-not-validated" : string.Empty)
     };
 
     internal static bool TryMatchTar(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {

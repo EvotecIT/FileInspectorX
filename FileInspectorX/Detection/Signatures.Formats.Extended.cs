@@ -398,6 +398,7 @@ internal static partial class Signatures
                 (resourceDimension == 4 && (arraySize != 1 || (miscFlag & 0x4) != 0 || depth == 0 ||
                     (flags & 0x800000) == 0 || (caps2 & 0x200000) == 0))) return false;
             dx10Cube = (miscFlag & 0x4) != 0;
+            if (dx10Cube && (resourceDimension != 3 || width != height)) return false;
         }
         int headerLength = hasFourCc && fourCc == 0x30315844 ? 148 : 128;
         if (!TryGetDdsMinimumPayloadLength(width, height, depth, mipMapCount, flags, caps2,
@@ -677,6 +678,11 @@ internal static partial class Signatures
         {
             result.Confidence = "Medium";
             result.Reason += ";data-set-not-validated";
+        }
+        else if (completeLength.HasValue)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";data-set-not-fully-validated";
         }
         if (!completeLength.HasValue && sampled)
         {
