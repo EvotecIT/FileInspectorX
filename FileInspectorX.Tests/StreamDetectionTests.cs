@@ -39,7 +39,7 @@ public sealed class StreamDetectionTests
         var result = FileInspector.Detect(stream);
 
         Assert.Equal("zip", result?.Extension);
-        Assert.InRange(stream.BytesRead, 1, Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20)) + 1);
+        Assert.InRange(stream.BytesRead, 1, Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20)));
     }
 
     private sealed class ShortReadStream : Stream

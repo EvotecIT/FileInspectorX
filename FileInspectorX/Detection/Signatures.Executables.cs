@@ -195,7 +195,7 @@ internal static partial class Signatures {
     }
 
     /// <summary>
-    /// Validates a complete JVM ClassFile without limiting seekable inputs to the detector's prefix sample.
+    /// Validates a JVM ClassFile within the configured read budget and reports larger structurally sampled files conservatively.
     /// Attribute payloads are skipped in place so large classes do not require whole-file allocation.
     /// </summary>
     internal static bool TryMatchJavaClass(Stream stream, out ContentTypeDetectionResult? result) {
@@ -211,19 +211,38 @@ internal static partial class Signatures {
                 !TryReadJavaU2(stream, out ushort constantPoolCount) ||
                 !IsDefinedJavaClassVersion(major, minor) || constantPoolCount < 2) return false;
 
+            long readBudget = Math.Max(10, Settings.DetectionReadBudgetBytes);
+            if (constantPoolCount * 20L > readBudget)
+            {
+                if (!TryInspectJavaConstantPoolPrefix(stream, constantPoolCount, readBudget)) return false;
+                result = SampledJavaClassResult(major, minor);
+                return true;
+            }
             var constantPoolTags = new byte[constantPoolCount];
             var constantPoolReference1 = new ushort[constantPoolCount];
             var constantPoolReference2 = new ushort[constantPoolCount];
             var constantPoolReferenceKinds = new byte[constantPoolCount];
             var constantPoolUtf8 = new string?[constantPoolCount];
             for (int index = 1; index < constantPoolCount; index++) {
+                if (stream.Position >= readBudget)
+                {
+                    result = SampledJavaClassResult(major, minor);
+                    return true;
+                }
                 int tagValue = stream.ReadByte();
                 if (tagValue < 0 || !IsJavaConstantPoolTag((byte)tagValue)) return false;
                 byte tag = (byte)tagValue;
                 constantPoolTags[index] = tag;
                 switch (tag) {
                     case 1:
-                        if (!TryReadJavaU2(stream, out ushort utf8Length) || !TryReadJavaUtf8(stream, utf8Length, out constantPoolUtf8[index])) return false;
+                        if (!TryReadJavaU2(stream, out ushort utf8Length) ||
+                            utf8Length > stream.Length - stream.Position) return false;
+                        if (stream.Position + utf8Length > readBudget)
+                        {
+                            result = SampledJavaClassResult(major, minor);
+                            return true;
+                        }
+                        if (!TryReadJavaUtf8(stream, utf8Length, out constantPoolUtf8[index])) return false;
                         break;
                     case 3:
                     case 4:
@@ -259,10 +278,20 @@ internal static partial class Signatures {
                     default:
                         return false;
                 }
+                if (stream.Position > readBudget)
+                {
+                    result = SampledJavaClassResult(major, minor);
+                    return true;
+                }
                 if (tag is 5 or 6 && ++index >= constantPoolCount) return false;
             }
             if (!AreJavaConstantPoolReferencesValid(constantPoolTags, constantPoolReference1,
                     constantPoolReference2, constantPoolReferenceKinds, major)) return false;
+            if (stream.Length > readBudget)
+            {
+                result = SampledJavaClassResult(major, minor);
+                return true;
+            }
 
             if (!TryReadJavaU2(stream, out ushort accessFlags) ||
                 !TryReadJavaU2(stream, out ushort thisClass) ||
@@ -782,6 +811,12 @@ internal static partial class Signatures {
         Reason = $"java-class:{major}.{minor};method-semantics-not-validated"
     };
 
+    private static ContentTypeDetectionResult SampledJavaClassResult(ushort major, ushort minor) {
+        ContentTypeDetectionResult result = JavaClassResult(major, minor);
+        result.Reason += ";sampled-read-budget";
+        return result;
+    }
+
     private static bool IsDefinedJavaClassVersion(ushort major, ushort minor)
         => major == 45 ? minor <= 3 :
            major is >= 46 and <= 55 ? minor == 0 :
@@ -910,6 +945,57 @@ internal static partial class Signatures {
     private static bool TrySkipJavaBytes(Stream stream, ulong count) {
         if (count > (ulong)(stream.Length - stream.Position)) return false;
         stream.Seek((long)count, SeekOrigin.Current);
+        return true;
+    }
+
+    private static bool TryInspectJavaConstantPoolPrefix(Stream stream, ushort constantPoolCount, long readBudget) {
+        for (int index = 1; index < constantPoolCount && stream.Position < readBudget; index++) {
+            int tagValue = stream.ReadByte();
+            if (tagValue < 0 || !IsJavaConstantPoolTag((byte)tagValue)) return false;
+            byte tag = (byte)tagValue;
+            ulong payloadLength;
+            switch (tag) {
+                case 1:
+                    if (!TryReadJavaU2(stream, out ushort utf8Length) || utf8Length > stream.Length - stream.Position)
+                        return false;
+                    if (stream.Position + utf8Length > readBudget) return true;
+                    if (!TryReadJavaUtf8(stream, utf8Length, out _)) return false;
+                    continue;
+                case 3:
+                case 4:
+                    payloadLength = 4;
+                    break;
+                case 5:
+                case 6:
+                    payloadLength = 8;
+                    index++;
+                    if (index >= constantPoolCount) return false;
+                    break;
+                case 7:
+                case 8:
+                case 16:
+                case 19:
+                case 20:
+                    payloadLength = 2;
+                    break;
+                case 9:
+                case 10:
+                case 11:
+                case 12:
+                case 17:
+                case 18:
+                    payloadLength = 4;
+                    break;
+                case 15:
+                    payloadLength = 3;
+                    break;
+                default:
+                    return false;
+            }
+            if (payloadLength > (ulong)(stream.Length - stream.Position)) return false;
+            if (stream.Position + (long)payloadLength > readBudget) return true;
+            if (!TrySkipJavaBytes(stream, payloadLength)) return false;
+        }
         return true;
     }
 

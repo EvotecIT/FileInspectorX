@@ -5,6 +5,10 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class SecurityHeuristics
 {
+#if !NET8_0_OR_GREATER
+    private static readonly System.Threading.SemaphoreSlim LegacyDnsResolverSlots = new(2, 2);
+#endif
+
     // ACTIVE (default): Base64-encoded indicators decoded at runtime to avoid static signatures
     internal static readonly string[] SensitiveIndicators = DecodeB64(new[]
     {
@@ -359,6 +363,11 @@ internal static partial class SecurityHeuristics
     }
 
     internal static bool TryResolveHostForTest(string host, int timeoutMs) => TryResolveHost(host, timeoutMs);
+
+#if !NET8_0_OR_GREATER
+    internal static bool TryRunBoundedLegacyResolverForTest(Func<System.Net.IPAddress[]> resolver, int timeoutMs)
+        => TryRunBoundedLegacyResolver(resolver, timeoutMs);
+#endif
 
     internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)
     {
@@ -745,19 +754,7 @@ internal static partial class SecurityHeuristics
             var addresses = System.Net.Dns.GetHostAddressesAsync(host, cts.Token).GetAwaiter().GetResult();
             return addresses is { Length: > 0 };
 #else
-            // BeginGetHostEntry can perform blocking resolver work before it returns an
-            // IAsyncResult on .NET Framework. A dedicated background thread keeps both
-            // the caller and the process lifecycle independent of a stalled resolver.
-            System.Net.IPAddress[]? addresses = null;
-            Exception? resolutionError = null;
-            var resolver = new System.Threading.Thread(() =>
-            {
-                try { addresses = System.Net.Dns.GetHostAddresses(host); }
-                catch (Exception ex) { resolutionError = ex; }
-            }) { IsBackground = true, Name = "FileInspectorX DNS resolver" };
-            resolver.Start();
-            if (!resolver.Join(timeoutMs)) return false;
-            return resolutionError == null && addresses is { Length: > 0 };
+            return TryRunBoundedLegacyResolver(() => System.Net.Dns.GetHostAddresses(host), timeoutMs);
 #endif
         }
         catch
@@ -765,6 +762,34 @@ internal static partial class SecurityHeuristics
             return false;
         }
     }
+#if !NET8_0_OR_GREATER
+    private static bool TryRunBoundedLegacyResolver(Func<System.Net.IPAddress[]> resolver, int timeoutMs)
+    {
+        if (!LegacyDnsResolverSlots.Wait(0)) return false;
+        System.Threading.Tasks.Task<System.Net.IPAddress[]?> task;
+        try
+        {
+            task = System.Threading.Tasks.Task.Run(() =>
+            {
+                try { return resolver(); }
+                catch { return null; }
+                finally { LegacyDnsResolverSlots.Release(); }
+            });
+        }
+        catch
+        {
+            LegacyDnsResolverSlots.Release();
+            return false;
+        }
+
+        try
+        {
+            if (!task.Wait(Math.Max(1, timeoutMs))) return false;
+            return task.GetAwaiter().GetResult() is { Length: > 0 };
+        }
+        catch { return false; }
+    }
+#endif
     private static bool TryPingHost(string host, int timeoutMs)
     { try { using var ping = new System.Net.NetworkInformation.Ping(); var reply = ping.Send(host, timeoutMs); return reply?.Status == System.Net.NetworkInformation.IPStatus.Success; } catch { return false; } }
 

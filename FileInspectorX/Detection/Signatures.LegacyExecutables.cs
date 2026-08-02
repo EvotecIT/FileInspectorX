@@ -9,8 +9,10 @@ internal static partial class Signatures
         out ContentTypeDetectionResult? result)
     {
         result = null;
-        if (!completeLength.HasValue || src.Length < 64 ||
-            !TryValidateDosExecutableHeader(src.Slice(0, 64), completeLength.Value, out uint secondaryOffset))
+        if (!completeLength.HasValue || completeLength.Value < 28) return false;
+        int headerReadLength = (int)Math.Min(64, completeLength.Value);
+        if (src.Length < headerReadLength ||
+            !TryValidateDosExecutableHeader(src.Slice(0, headerReadLength), completeLength.Value, out uint secondaryOffset))
             return false;
 
         string family = "dos-executable";
@@ -42,7 +44,9 @@ internal static partial class Signatures
         long originalPosition = stream.Position;
         try
         {
-            if (stream.Length < 64 || !TryReadAt(stream, 0, 64, out byte[] dosBytes)) return false;
+            if (stream.Length < 28) return false;
+            int headerReadLength = (int)Math.Min(64, stream.Length);
+            if (!TryReadAt(stream, 0, headerReadLength, out byte[] dosBytes)) return false;
             ReadOnlySpan<byte> dos = new(dosBytes);
             if (!TryValidateDosExecutableHeader(dos, stream.Length, out uint secondaryOffset)) return false;
 
@@ -83,7 +87,7 @@ internal static partial class Signatures
         out uint secondaryOffset)
     {
         secondaryOffset = 0;
-        if (header.Length < 64 || completeLength < 64 || header[0] != (byte)'M' || header[1] != (byte)'Z')
+        if (header.Length < 28 || completeLength < 28 || header[0] != (byte)'M' || header[1] != (byte)'Z')
             return false;
 
         ushort bytesInLastPage = ReadUInt16LittleEndian(header, 2);
@@ -102,7 +106,7 @@ internal static partial class Signatures
         if (declaredLength < headerLength || declaredLength > completeLength || relocationEnd > headerLength)
             return false;
 
-        secondaryOffset = ReadUInt32LittleEndian(header, 0x3C);
+        if (header.Length >= 64) secondaryOffset = ReadUInt32LittleEndian(header, 0x3C);
         return true;
     }
 

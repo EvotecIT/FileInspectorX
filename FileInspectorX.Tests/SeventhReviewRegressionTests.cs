@@ -7,7 +7,7 @@ namespace FileInspectorX.Tests;
 public sealed class SeventhReviewRegressionTests
 {
     [Fact]
-    public void ExactSampleLengthNonSeekableContainerProbesEof()
+    public void ExactSampleLengthNonSeekableContainerDoesNotAssumeEof()
     {
         int sampleLength = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
         var bytes = Parquet(sampleLength);
@@ -15,8 +15,7 @@ public sealed class SeventhReviewRegressionTests
 
         var result = FileInspector.Detect(stream);
 
-        Assert.Equal("parquet", result?.Extension);
-        Assert.Equal("High", result?.Confidence);
+        Assert.Null(result);
         Assert.Equal(sampleLength, stream.BytesRead);
     }
 

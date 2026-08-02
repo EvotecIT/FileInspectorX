@@ -266,8 +266,15 @@ internal static partial class Signatures
             result.Confidence = "Medium";
             return true;
         }
-        if (!TryGetMp3FrameLength(src.Slice((int)tagEnd, 4), out int frameLength) ||
+        if (!TryGetMp3FrameLength(src.Slice((int)tagEnd, 4), out int frameLength, out bool freeFormat) ||
             completeLength.HasValue && tagEnd + frameLength > completeLength.Value) return false;
+        if (freeFormat)
+        {
+            result = BinaryResult("mp3", "audio/mpeg", $"mp3:id3v2.{src[3]}+free-format-frame");
+            result.Confidence = "Medium";
+            result.Reason += ";frame-length-not-declared";
+            return true;
+        }
         if (!completeLength.HasValue && tagEnd + frameLength > src.Length)
         {
             result = BinaryResult("mp3", "audio/mpeg", $"mp3:id3v2.{src[3]}+sampled-audio-frame");
@@ -280,9 +287,10 @@ internal static partial class Signatures
         return true;
     }
 
-    private static bool TryGetMp3FrameLength(ReadOnlySpan<byte> header, out int length)
+    private static bool TryGetMp3FrameLength(ReadOnlySpan<byte> header, out int length, out bool freeFormat)
     {
         length = 0;
+        freeFormat = false;
         uint value = ReadUInt32BigEndian(header, 0);
         if ((value & 0xFFE00000) != 0xFFE00000) return false;
         int version = (int)(value >> 19) & 3;
@@ -290,7 +298,12 @@ internal static partial class Signatures
         int bitrateIndex = (int)(value >> 12) & 15;
         int rateIndex = (int)(value >> 10) & 3;
         int padding = (int)(value >> 9) & 1;
-        if (version == 1 || layer == 0 || bitrateIndex is 0 or 15 || rateIndex == 3) return false;
+        if (version == 1 || layer == 0 || bitrateIndex == 15 || rateIndex == 3) return false;
+        if (bitrateIndex == 0)
+        {
+            freeFormat = true;
+            return true;
+        }
         int[] rates = { 44100, 48000, 32000 };
         int sampleRate = rates[rateIndex] / (version == 3 ? 1 : version == 2 ? 2 : 4);
         int[][] mpeg1 = {

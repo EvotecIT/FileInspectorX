@@ -477,17 +477,10 @@ public static partial class FileInspector {
             return AttachLearnedFailure(deterministic, unsupported);
         }
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
-        // Keep one byte for an EOF probe when a non-seekable stream exactly fills the sample.
-        var header = new byte[headLen + 1];
+        var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = ReadAvailable(stream, header, 0, headLen);
         bool nonSeekableEof = !stream.CanSeek && read < headLen;
-        if (!stream.CanSeek && read == headLen)
-        {
-            int probe = stream.ReadByte();
-            if (probe < 0) nonSeekableEof = true;
-            else header[read++] = (byte)probe;
-        }
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
         // A short non-seekable read reached EOF and therefore has a known complete length.
