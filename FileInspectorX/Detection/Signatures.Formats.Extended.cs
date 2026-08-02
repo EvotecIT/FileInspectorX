@@ -14,7 +14,7 @@ internal static partial class Signatures
         if (TryMatchQcow2(src, completeLength, out result)) return true;
         if (TryMatchMidi(src, completeLength, out result)) return true;
         if (TryMatchDds(src, completeLength, out result)) return true;
-        if (TryMatchQoi(src, out result)) return true;
+        if (TryMatchQoi(src, completeLength, out result)) return true;
         if (TryMatchDicom(src, completeLength, out result)) return true;
         if (TryMatchOutlookNdb(src, completeLength, out result)) return true;
         if (TryMatchMatroska(src, completeLength, out result)) return true;
@@ -579,6 +579,9 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchQoi(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchQoi(src, src.Length, out result);
+
+    internal static bool TryMatchQoi(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result)
     {
         result = null;
         if (src.Length < 14 || !src.Slice(0, 4).SequenceEqual("qoif"u8)) return false;
@@ -586,11 +589,13 @@ internal static partial class Signatures
         uint height = ReadUInt32BigEndian(src, 8);
         byte channels = src[12];
         byte colorSpace = src[13];
-        if (width == 0 || height == 0 || channels is not (3 or 4) || colorSpace > 1) return false;
+        if (width == 0 || height == 0 || channels is not (3 or 4) || colorSpace > 1 ||
+            completeLength < 0 || completeLength.HasValue && completeLength.Value < src.Length) return false;
         string confidence = "Medium";
         string reason = "qoi:header";
         ulong pixelCount = (ulong)width * height;
-        if (src.Length >= 23 && src.Slice(src.Length - 8, 8).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0, 1 }) &&
+        if (completeLength == src.Length && src.Length >= 23 &&
+            src.Slice(src.Length - 8, 8).SequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 0, 1 }) &&
             TryValidateQoiChunks(src.Slice(14, src.Length - 22), pixelCount))
         {
             confidence = "High";

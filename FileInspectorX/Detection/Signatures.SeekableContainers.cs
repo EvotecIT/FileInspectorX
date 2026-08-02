@@ -298,7 +298,7 @@ internal static partial class Signatures
         int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
         while (cursor <= archive.Length - 512)
         {
-            if (remainingHeaders-- == 0) return sawHeader;
+            if (remainingHeaders-- == 0) return sawHeader && sawRequiredMember;
             var header = archive.Slice((int)cursor, 512);
             if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
@@ -327,7 +327,7 @@ internal static partial class Signatures
         int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
         while (cursor <= length - 512)
         {
-            if (remainingHeaders-- == 0) return sawHeader;
+            if (remainingHeaders-- == 0) return sawHeader && sawRequiredMember;
             if (!TryReadAt(stream, offset + cursor, 512, out var headerBytes)) return false;
             var header = new ReadOnlySpan<byte>(headerBytes);
             if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;

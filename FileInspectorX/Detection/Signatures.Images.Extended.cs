@@ -781,8 +781,12 @@ internal static partial class Signatures {
                     header = TryValidateJpeg2000HeaderPayload(src.Slice(cursor + headerLength, (int)boxLength - headerLength), brand);
                     if (!header) return false;
                 }
-                if (header && type == 0x6A703263)
-                    data |= TryValidateJpeg2000Codestream(src.Slice(cursor + headerLength, (int)boxLength - headerLength));
+                if (type == 0x6A703263)
+                {
+                    if (!header || !TryValidateJpeg2000Codestream(
+                            src.Slice(cursor + headerLength, (int)boxLength - headerLength))) return false;
+                    data = true;
+                }
             }
             cursor += (int)boxLength;
         }
@@ -919,8 +923,13 @@ internal static partial class Signatures {
                         header = TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand);
                         if (!header) return false;
                     }
-                    if (header && type == 0x6A703263)
-                        data |= TryValidateJpeg2000Codestream(stream, cursor + headerLength, boxLength - headerLength, out sampledCodestream);
+                    if (type == 0x6A703263)
+                    {
+                        if (!header || !TryValidateJpeg2000Codestream(stream, cursor + headerLength,
+                                boxLength - headerLength, out bool currentCodestreamSampled)) return false;
+                        data = true;
+                        sampledCodestream |= currentCodestreamSampled;
+                    }
                 }
                 cursor += boxLength;
             }

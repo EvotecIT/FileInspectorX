@@ -74,7 +74,7 @@ internal static class TestHelpers
                 }
             }
             if (payloadLength < 0) throw new ArgumentOutOfRangeException(nameof(signedHeaderLength));
-            header.Add(0x1A);
+            header.Add(0x22);
             AddProtobufVarint(header, (uint)payloadLength);
             for (int index = 0; index < payloadLength; index++) header.Add(0xA5);
         }

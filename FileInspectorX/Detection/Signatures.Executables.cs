@@ -304,7 +304,8 @@ internal static partial class Signatures {
             if (stream.Length <= Math.Max(0x78, Settings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
                 TryReadAt(stream, 0, (int)stream.Length, out var complete))
                 return TryMatchDex(new ReadOnlySpan<byte>(complete), stream.Length, out result);
-            if (!TryReadAt(stream, 0, 0x78, out var header) || !TryMatchDex(new ReadOnlySpan<byte>(header), null, out result)) return false;
+            if (!TryReadAt(stream, 0, 0x78, out var header) ||
+                !TryMatchDex(new ReadOnlySpan<byte>(header), stream.Length, out result)) return false;
             result!.Confidence = "Medium";
             result.Reason += ";integrity-budget-exceeded";
             return true;

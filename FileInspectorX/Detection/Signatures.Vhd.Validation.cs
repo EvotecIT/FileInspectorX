@@ -30,10 +30,11 @@ internal static partial class Signatures
             ulong length = bitmapLength + bat.BlockSize;
             if (start < tableEnd || length > dataEnd - Math.Min(start, dataEnd)) return false;
             ulong end = start + length;
-            for (int range = 0; range < ranges.Count; range++)
-                if (start < ranges[range].End && end > ranges[range].Start) return false;
             ranges.Add((start, end));
         }
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        for (int index = 1; index < ranges.Count; index++)
+            if (ranges[index].Start < ranges[index - 1].End) return false;
         return true;
     }
 }
