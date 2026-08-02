@@ -402,12 +402,14 @@ internal static partial class Signatures
         uint fileAlignment = ReadUInt32LittleEndian(peHeader, 60);
         uint sizeOfImage = ReadUInt32LittleEndian(peHeader, 80);
         uint sizeOfHeaders = ReadUInt32LittleEndian(peHeader, 84);
-        if (sectionAlignment == 0 || fileAlignment == 0 || (fileAlignment & (fileAlignment - 1)) != 0 ||
+        if (sectionAlignment == 0 || fileAlignment == 0 || (fileAlignment & (fileAlignment - 1)) != 0) return false;
+        ulong alignedSectionTableEnd = ((ulong)sectionTableEnd + fileAlignment - 1) & ~((ulong)fileAlignment - 1);
+        if (
             sectionAlignment < fileAlignment ||
             (sectionAlignment < 0x1000 ? fileAlignment != sectionAlignment : fileAlignment < 512) ||
             sizeOfImage == 0 || sizeOfImage % sectionAlignment != 0 ||
             sizeOfHeaders == 0 || sizeOfHeaders % fileAlignment != 0 ||
-            sizeOfImage < sizeOfHeaders || sizeOfHeaders > totalLength) return false;
+            sizeOfImage < sizeOfHeaders || sizeOfHeaders > totalLength || sizeOfHeaders < alignedSectionTableEnd) return false;
         string extension = (characteristics & 0x2000) != 0 ? "dll" : "exe";
         result = new ContentTypeDetectionResult
         {
@@ -469,6 +471,7 @@ internal static partial class Signatures
         if (fileSize < 26 || pixelOffset < 14 + dibSize || pixelOffset > fileSize ||
             (completeLength.HasValue && (fileSize > completeLength.Value || pixelOffset > completeLength.Value))) return false;
         if (dibSize is not (12u or 16u or 40u or 52u or 56u or 64u or 108u or 124u)) return false;
+        if (!TryValidateBmpDib(src, dibSize, pixelOffset, fileSize)) return false;
         result = BinaryResult("bmp", "image/bmp", "bmp:file+dib-header");
         if (!completeLength.HasValue && fileSize > src.Length)
         {
@@ -476,6 +479,67 @@ internal static partial class Signatures
             result.Reason += ";sampled-file-size";
         }
         return true;
+    }
+
+    private static bool TryValidateBmpDib(ReadOnlySpan<byte> src, uint dibSize, uint pixelOffset, uint fileSize)
+    {
+        long width;
+        long height;
+        ushort planes;
+        ushort bitsPerPixel;
+        uint compression = 0;
+        uint imageSize = 0;
+        if (dibSize == 12)
+        {
+            width = ReadUInt16LittleEndian(src, 18);
+            height = ReadUInt16LittleEndian(src, 20);
+            planes = ReadUInt16LittleEndian(src, 22);
+            bitsPerPixel = ReadUInt16LittleEndian(src, 24);
+            if (bitsPerPixel is not (1 or 4 or 8 or 24)) return false;
+        }
+        else
+        {
+            if (src.Length < 30) return false;
+            width = unchecked((int)ReadUInt32LittleEndian(src, 18));
+            height = unchecked((int)ReadUInt32LittleEndian(src, 22));
+            planes = ReadUInt16LittleEndian(src, 26);
+            bitsPerPixel = ReadUInt16LittleEndian(src, 28);
+            if (dibSize >= 40)
+            {
+                if (src.Length < 38) return false;
+                compression = ReadUInt32LittleEndian(src, 30);
+                imageSize = ReadUInt32LittleEndian(src, 34);
+            }
+            else if (bitsPerPixel is not (1 or 4 or 8 or 24)) return false;
+        }
+        if (width <= 0 || height == 0 || planes != 1 || height == int.MinValue) return false;
+        bool validEncoding = compression switch
+        {
+            0 => bitsPerPixel is 1 or 4 or 8 or 16 or 24 or 32,
+            1 => bitsPerPixel == 8 && height > 0,
+            2 => bitsPerPixel == 4 && height > 0,
+            3 or 6 => bitsPerPixel is 16 or 32,
+            4 or 5 => height > 0,
+            _ => false
+        };
+        if (!validEncoding) return false;
+        ulong available = fileSize - pixelOffset;
+        ulong required;
+        if (compression is 0 or 3 or 6)
+        {
+            ulong rowBits = checked((ulong)width * bitsPerPixel);
+            ulong stride = ((rowBits + 31) / 32) * 4;
+            ulong rows = (ulong)Math.Abs(height);
+            if (stride != 0 && rows > ulong.MaxValue / stride) return false;
+            required = stride * rows;
+            if (imageSize != 0 && imageSize < required) return false;
+        }
+        else
+        {
+            required = imageSize == 0 ? available : imageSize;
+            if (required == 0) return false;
+        }
+        return required <= available;
     }
 
     internal static bool TryMatchGzip(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
@@ -561,8 +625,10 @@ internal static partial class Signatures
         uint blockLength = ReadUInt32(src, 4, littleEndian);
         ushort major = ReadUInt16(src, 12, littleEndian);
         ushort minor = ReadUInt16(src, 14, littleEndian);
+        long sectionLength = unchecked((long)ReadUInt64(src, 16, littleEndian));
         if (blockLength < 28 || (blockLength & 3) != 0 || major != 1 || minor != 0 ||
-            (completeLength.HasValue && blockLength > completeLength.Value)) return false;
+            sectionLength < -1 || (completeLength.HasValue && (blockLength > completeLength.Value ||
+                (sectionLength >= 0 && (ulong)sectionLength > (ulong)(completeLength.Value - blockLength))))) return false;
         if (blockLength > src.Length)
         {
             if (completeLength.HasValue) return false;
@@ -586,7 +652,7 @@ internal static partial class Signatures
         long originalPosition = stream.Position;
         try
         {
-            if (stream.Length < 28 || !TryReadAt(stream, 0, 16, out var headerBytes)) return false;
+            if (stream.Length < 28 || !TryReadAt(stream, 0, 24, out var headerBytes)) return false;
             var header = new ReadOnlySpan<byte>(headerBytes);
             if (ReadUInt32BigEndian(header, 0) != 0x0A0D0D0A) return false;
             uint byteOrder = ReadUInt32BigEndian(header, 8);
@@ -597,8 +663,10 @@ internal static partial class Signatures
             uint blockLength = ReadUInt32(header, 4, littleEndian);
             ushort major = ReadUInt16(header, 12, littleEndian);
             ushort minor = ReadUInt16(header, 14, littleEndian);
+            long sectionLength = unchecked((long)ReadUInt64(header, 16, littleEndian));
             if (blockLength < 28 || (blockLength & 3) != 0 || blockLength > stream.Length ||
-                major != 1 || minor != 0 ||
+                major != 1 || minor != 0 || sectionLength < -1 ||
+                (sectionLength >= 0 && (ulong)sectionLength > (ulong)(stream.Length - blockLength)) ||
                 !TryReadAt(stream, blockLength - 4L, 4, out var trailerBytes) ||
                 ReadUInt32(new ReadOnlySpan<byte>(trailerBytes), 0, littleEndian) != blockLength) return false;
             result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");

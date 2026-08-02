@@ -241,10 +241,12 @@ internal static partial class Signatures {
             return true;
         }
         bool sampledTables = false;
+        var tableTags = new System.Collections.Generic.HashSet<uint>();
         for (int table = 0; table < tableCount; table++) {
             int record = 12 + table * 16;
             for (int tag = 0; tag < 4; tag++)
                 if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
+            if (!tableTags.Add(ReadUInt32BigEndian(src, record))) return false;
             uint tableOffset = ReadUInt32BigEndian(src, record + 8);
             uint tableLength = ReadUInt32BigEndian(src, record + 12);
             if (tableOffset < directoryEnd || tableLength == 0 || (tableOffset & 3) != 0 ||
@@ -325,10 +327,12 @@ internal static partial class Signatures {
             ReadUInt16BigEndian(directory, 8) != expectedSelector ||
             ReadUInt16BigEndian(directory, 10) != tableCount * 16 - maximumPowerOfTwo * 16) return false;
         if (directory.Length < 12L + tableCount * 16L) return false;
+        var tableTags = new System.Collections.Generic.HashSet<uint>();
         for (int table = 0; table < tableCount; table++) {
             int record = 12 + table * 16;
             for (int tag = 0; tag < 4; tag++)
                 if (directory[record + tag] < 0x20 || directory[record + tag] > 0x7E) return false;
+            if (!tableTags.Add(ReadUInt32BigEndian(directory, record))) return false;
             uint tableOffset = ReadUInt32BigEndian(directory, record + 8);
             uint tableLength = ReadUInt32BigEndian(directory, record + 12);
             if (tableLength == 0 || (tableOffset & 3) != 0 ||
@@ -418,20 +422,18 @@ internal static partial class Signatures {
 
             if (isCollection && !TryValidateWoff2CollectionDirectory(src, ref cursor, tableCount)) return false;
             if (compressedSize == 0 || (ulong)cursor + compressedSize > declaredLength) return false;
-            if (!IsMetadataBlockValid(declaredLength, ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32),
-                    ReadUInt32BigEndian(src, 36))) return false;
-            if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 40), ReadUInt32BigEndian(src, 44))) return false;
+            if (!TryValidateWoffOptionalLayout(declaredLength, (ulong)cursor + compressedSize,
+                    ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32), ReadUInt32BigEndian(src, 36),
+                    ReadUInt32BigEndian(src, 40), ReadUInt32BigEndian(src, 44))) return false;
         } else {
             long minimumLength = 44L + tableCount * 20L;
             if (declaredLength < minimumLength || (declaredLength & 3) != 0 || (totalSfntSize & 3) != 0) return false;
-            if (!IsMetadataBlockValid(declaredLength, ReadUInt32BigEndian(src, 24), ReadUInt32BigEndian(src, 28),
-                    ReadUInt32BigEndian(src, 32))) return false;
-            if (!IsOptionalBlockValid(declaredLength, ReadUInt32BigEndian(src, 36), ReadUInt32BigEndian(src, 40))) return false;
             if (minimumLength > src.Length) {
                 if (completeLength.HasValue) return false;
                 result = WoffResult(isWoff2: false, nonCanonicalReserved: false, sampledReason: "sampled-directory");
                 return true;
             }
+            ulong fontDataEnd = (ulong)minimumLength;
             for (int table = 0; table < tableCount; table++) {
                 int record = 44 + table * 20;
                 for (int tag = 0; tag < 4; tag++)
@@ -441,7 +443,11 @@ internal static partial class Signatures {
                 uint originalLength = ReadUInt32BigEndian(src, record + 12);
                 if ((tableOffset & 3) != 0 || tableOffset < minimumLength || compressedLength == 0 ||
                     originalLength < compressedLength || (ulong)tableOffset + compressedLength > declaredLength) return false;
+                fontDataEnd = Math.Max(fontDataEnd, (ulong)tableOffset + compressedLength);
             }
+            if (!TryValidateWoffOptionalLayout(declaredLength, fontDataEnd,
+                    ReadUInt32BigEndian(src, 24), ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32),
+                    ReadUInt32BigEndian(src, 36), ReadUInt32BigEndian(src, 40))) return false;
         }
 
         bool nonCanonicalReserved = isWoff2 && reserved != 0;
@@ -523,14 +529,18 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool IsOptionalBlockValid(uint fileLength, uint offset, uint length) {
-        if (offset == 0) return length == 0;
-        return length > 0 && (ulong)offset + length <= fileLength;
-    }
-
-    private static bool IsMetadataBlockValid(uint fileLength, uint offset, uint length, uint originalLength) {
-        if (offset == 0) return length == 0 && originalLength == 0;
-        return length > 0 && originalLength > 0 && (ulong)offset + length <= fileLength;
+    private static bool TryValidateWoffOptionalLayout(uint fileLength, ulong fontDataEnd, uint metadataOffset,
+        uint metadataLength, uint metadataOriginalLength, uint privateOffset, uint privateLength) {
+        if (metadataOffset == 0 && (metadataLength != 0 || metadataOriginalLength != 0) ||
+            metadataOffset != 0 && (metadataLength == 0 || metadataOriginalLength == 0 || (metadataOffset & 3) != 0)) return false;
+        if (privateOffset == 0 && privateLength != 0 ||
+            privateOffset != 0 && (privateLength == 0 || (privateOffset & 3) != 0)) return false;
+        ulong nextOffset = (fontDataEnd + 3) & ~3UL;
+        if (metadataOffset != 0) {
+            if (metadataOffset < nextOffset || (ulong)metadataOffset + metadataLength > fileLength) return false;
+            nextOffset = ((ulong)metadataOffset + metadataLength + 3) & ~3UL;
+        }
+        return privateOffset == 0 || privateOffset >= nextOffset && (ulong)privateOffset + privateLength <= fileLength;
     }
 
     private static bool TryReadUIntBase128(ReadOnlySpan<byte> src, ref int cursor, out uint value) {

@@ -179,40 +179,42 @@ internal static partial class Signatures {
         if (tableEnd > (ulong)src.Length)
             return !completeLength.HasValue || completeLength.Value > src.Length;
 
-        ulong firstChunkOffset = ReadUInt64(src, tableOffset, true);
         int partPrefix = multipart ? 4 : 0;
         int sizeOffset = partPrefix + (tiled ? 16 : 4);
         int chunkHeaderLength = partPrefix + (tiled ? (deep ? 40 : 20) : (deep ? 28 : 8));
-        if (firstChunkOffset < tableEnd || firstChunkOffset > int.MaxValue ||
-            completeLength.HasValue && firstChunkOffset + (ulong)chunkHeaderLength > (ulong)completeLength.Value) return false;
-        if (firstChunkOffset + (ulong)chunkHeaderLength > (ulong)src.Length)
-            return !completeLength.HasValue || completeLength.Value > src.Length;
-
-        int chunk = (int)firstChunkOffset;
-        ulong payloadLength;
-        if (deep)
-        {
-            ulong offsetTableLength = ReadUInt64(src, chunk + sizeOffset, true);
-            ulong sampleDataLength = ReadUInt64(src, chunk + sizeOffset + 8, true);
-            if (offsetTableLength > ulong.MaxValue - sampleDataLength) return false;
-            payloadLength = offsetTableLength + sampleDataLength;
-        }
-        else
-        {
-            payloadLength = ReadUInt32(src, chunk + sizeOffset, true);
-        }
-        ulong payloadEnd = firstChunkOffset + (ulong)chunkHeaderLength + payloadLength;
-        if (payloadLength == 0 || payloadEnd < firstChunkOffset ||
-            completeLength.HasValue && payloadEnd > (ulong)completeLength.Value) return false;
-        if (payloadEnd > (ulong)src.Length)
-            return !completeLength.HasValue || completeLength.Value > src.Length;
-
-        for (ulong index = 1; index < chunkCount; index++)
-        {
+        ulong offsetBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
+        ulong inspectedOffsetCount = Math.Min(chunkCount, offsetBudget);
+        var offsets = new System.Collections.Generic.HashSet<ulong>((int)inspectedOffsetCount);
+        for (ulong index = 0; index < inspectedOffsetCount; index++) {
             ulong offset = ReadUInt64(src, tableOffset + checked((int)(index * 8)), true);
-            if (offset < tableEnd || completeLength.HasValue && offset + (ulong)chunkHeaderLength > (ulong)completeLength.Value)
-                return false;
+            if (!offsets.Add(offset) || offset < tableEnd ||
+                completeLength.HasValue && (offset > (ulong)completeLength.Value ||
+                    (ulong)chunkHeaderLength > (ulong)completeLength.Value - offset)) return false;
         }
+        if (inspectedOffsetCount != chunkCount) return true;
+        ulong chunkBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / Math.Max(8, chunkHeaderLength));
+        if (chunkCount > chunkBudget) return true;
+        var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>((int)chunkCount);
+        foreach (ulong offset in offsets) {
+            if (offset > int.MaxValue || offset + (ulong)chunkHeaderLength > (ulong)src.Length)
+                return !completeLength.HasValue || completeLength.Value > src.Length;
+            int chunk = (int)offset;
+            ulong payloadLength;
+            if (deep) {
+                ulong offsetTableLength = ReadUInt64(src, chunk + sizeOffset, true);
+                ulong sampleDataLength = ReadUInt64(src, chunk + sizeOffset + 8, true);
+                if (offsetTableLength > ulong.MaxValue - sampleDataLength) return false;
+                payloadLength = offsetTableLength + sampleDataLength;
+            } else payloadLength = ReadUInt32(src, chunk + sizeOffset, true);
+            if (payloadLength == 0 || offset > ulong.MaxValue - (ulong)chunkHeaderLength - payloadLength) return false;
+            ulong payloadEnd = offset + (ulong)chunkHeaderLength + payloadLength;
+            if (completeLength.HasValue && payloadEnd > (ulong)completeLength.Value) return false;
+            if (payloadEnd > (ulong)src.Length) return !completeLength.HasValue || completeLength.Value > src.Length;
+            ranges.Add((offset, payloadEnd));
+        }
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        for (int index = 1; index < ranges.Count; index++)
+            if (ranges[index].Start < ranges[index - 1].End) return false;
         fullyValidated = true;
         return true;
     }
@@ -613,8 +615,10 @@ internal static partial class Signatures {
             if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
             else
             {
-                header |= type == GetJpeg2000HeaderBoxType(brand);
-                data |= header && type == 0x6A703263;
+                if (type == GetJpeg2000HeaderBoxType(brand))
+                    header |= TryValidateJpeg2000HeaderPayload(src.Slice(cursor + headerLength, (int)boxLength - headerLength), brand);
+                if (header && type == 0x6A703263)
+                    data |= TryValidateJpeg2000Codestream(src.Slice(cursor + headerLength, (int)boxLength - headerLength));
             }
             cursor += (int)boxLength;
         }
@@ -681,8 +685,10 @@ internal static partial class Signatures {
                 if (brand == 0x6D6A7032) { header |= type == 0x6D6F6F76; data |= type == 0x6D646174; }
                 else
                 {
-                    header |= type == GetJpeg2000HeaderBoxType(brand);
-                    data |= header && type == 0x6A703263;
+                    if (type == GetJpeg2000HeaderBoxType(brand))
+                        header |= TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand);
+                    if (header && type == 0x6A703263)
+                        data |= TryValidateJpeg2000Codestream(stream, cursor + headerLength, boxLength - headerLength);
                 }
                 cursor += boxLength;
             }
@@ -719,4 +725,31 @@ internal static partial class Signatures {
 
     private static uint GetJpeg2000HeaderBoxType(uint brand)
         => brand == 0x6A707820 ? 0x6A707868u : brand == 0x6A706D20 ? 0x6A706D68u : 0x6A703268u;
+
+    private static bool TryValidateJpeg2000HeaderPayload(ReadOnlySpan<byte> payload, uint brand)
+    {
+        if (brand == 0x6A706D20) return payload.Length >= 8 && ReadUInt32BigEndian(payload, 0) >= 8 && ReadUInt32BigEndian(payload, 0) <= payload.Length;
+        if (payload.Length < 22 || ReadUInt32BigEndian(payload, 0) != 22 || ReadUInt32BigEndian(payload, 4) != 0x69686472) return false;
+        uint height = ReadUInt32BigEndian(payload, 8);
+        uint width = ReadUInt32BigEndian(payload, 12);
+        ushort components = ReadUInt16BigEndian(payload, 16);
+        byte bits = payload[18];
+        return height != 0 && width != 0 && components != 0 && (bits & 0x7F) <= 37 && payload[19] == 7 &&
+               payload[20] <= 1 && payload[21] <= 1;
+    }
+
+    private static bool TryValidateJpeg2000HeaderPayload(Stream stream, long offset, long length, uint brand)
+    {
+        int required = brand == 0x6A706D20 ? 8 : 22;
+        return length >= required && TryReadAt(stream, offset, required, out var bytes) &&
+               TryValidateJpeg2000HeaderPayload(new ReadOnlySpan<byte>(bytes), brand);
+    }
+
+    private static bool TryValidateJpeg2000Codestream(ReadOnlySpan<byte> payload)
+        => payload.Length >= 4 && payload[0] == 0xFF && payload[1] == 0x4F &&
+           payload[payload.Length - 2] == 0xFF && payload[payload.Length - 1] == 0xD9;
+
+    private static bool TryValidateJpeg2000Codestream(Stream stream, long offset, long length)
+        => length >= 4 && TryReadAt(stream, offset, 2, out var start) && TryReadAt(stream, offset + length - 2, 2, out var end) &&
+           start[0] == 0xFF && start[1] == 0x4F && end[0] == 0xFF && end[1] == 0xD9;
 }

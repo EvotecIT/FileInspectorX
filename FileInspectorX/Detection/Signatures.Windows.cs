@@ -20,6 +20,10 @@ internal static partial class Signatures {
         for (int i = 0; i < ShellLinkClassId.Length; i++)
             if (src[4 + i] != ShellLinkClassId[i]) return false;
 
+        uint showCommand = ReadUInt32LittleEndian(src, 60);
+        if (showCommand is not (1u or 3u or 7u) || ReadUInt16LittleEndian(src, 66) != 0 ||
+            ReadUInt32LittleEndian(src, 68) != 0 || ReadUInt32LittleEndian(src, 72) != 0) return false;
+
         ShellLinkParseStatus status = InspectShellLinkStructures(src, completeLength);
         if (status == ShellLinkParseStatus.Invalid) return false;
         result = new ContentTypeDetectionResult {

@@ -400,7 +400,7 @@ internal static partial class Signatures {
             kinds |= GetFtypBrandKind(comp.Slice(offset, 4)) & ~FtypBrandKind.LegacyHeif;
         bool completeBox = boxLength <= (ulong)src.Length;
         if (!TryCreateFtypResult(brand, kinds, completeBox, out result)) return false;
-        DowngradeFtypOnlyFile(result, completeLength, boxLength);
+        DowngradeUnframedFtyp(result, HasFollowingIsoBox(src, completeLength, boxLength));
         return true;
     }
 
@@ -454,7 +454,7 @@ internal static partial class Signatures {
                 remaining -= batch;
             }
             if (!TryCreateFtypResult(brand, kinds, completeBox: true, out result)) return false;
-            DowngradeFtypOnlyFile(result, stream.Length, boxLength);
+            DowngradeUnframedFtyp(result, HasFollowingIsoBox(stream, boxLength));
             return true;
         } catch {
             result = null;
@@ -464,12 +464,47 @@ internal static partial class Signatures {
         }
     }
 
-    private static void DowngradeFtypOnlyFile(ContentTypeDetectionResult? result, long? completeLength, ulong boxLength)
+    private static void DowngradeUnframedFtyp(ContentTypeDetectionResult? result, bool hasFollowingBox)
     {
-        if (result == null || result.Confidence != "High" || !completeLength.HasValue ||
-            completeLength.Value < 0 || boxLength != (ulong)completeLength.Value) return;
+        if (result == null || result.Confidence != "High" || hasFollowingBox) return;
         result.Confidence = "Medium";
-        result.Reason += ";ftyp-only";
+        result.Reason += ";ftyp-only-or-unframed";
+    }
+
+    private static bool HasFollowingIsoBox(ReadOnlySpan<byte> src, long? completeLength, ulong boxLength)
+    {
+        if (!completeLength.HasValue || completeLength.Value < 0 || boxLength > (ulong)completeLength.Value ||
+            boxLength > int.MaxValue || (ulong)completeLength.Value - boxLength < 8 || boxLength + 8 > (ulong)src.Length) return false;
+        return IsValidFollowingIsoBox(src.Slice((int)boxLength), (ulong)completeLength.Value - boxLength);
+    }
+
+    private static bool HasFollowingIsoBox(Stream stream, ulong boxLength)
+    {
+        if (boxLength > long.MaxValue || boxLength > (ulong)stream.Length || (ulong)stream.Length - boxLength < 8 ||
+            !TryReadAt(stream, (long)boxLength, (int)Math.Min(16, stream.Length - (long)boxLength), out var bytes)) return false;
+        return IsValidFollowingIsoBox(new ReadOnlySpan<byte>(bytes), (ulong)stream.Length - boxLength);
+    }
+
+    private static bool IsValidFollowingIsoBox(ReadOnlySpan<byte> src, ulong remaining)
+    {
+        if (src.Length < 8) return false;
+        for (int index = 4; index < 8; index++)
+            if (src[index] < 0x20 || src[index] > 0x7E) return false;
+        uint size32 = ReadUInt32BigEndian(src, 0);
+        ulong size;
+        int headerSize;
+        if (size32 == 1)
+        {
+            if (src.Length < 16) return false;
+            size = ReadUInt64(src, 8, littleEndian: false);
+            headerSize = 16;
+        }
+        else
+        {
+            size = size32 == 0 ? remaining : size32;
+            headerSize = 8;
+        }
+        return size >= (ulong)headerSize && size <= remaining;
     }
 
     [Flags]

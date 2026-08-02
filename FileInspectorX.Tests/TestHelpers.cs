@@ -154,16 +154,32 @@ internal static class TestHelpers
     {
         string firstRequired = brand == "jpx " ? "jpxh" : brand == "jpm " ? "jpmh" : brand == "mjp2" ? "moov" : "jp2h";
         string secondRequired = brand == "mjp2" ? "mdat" : "jp2c";
-        var bytes = new byte[48];
+        int headerLength = brand == "mjp2" ? 8 : brand == "jpm " ? 16 : 30;
+        int dataLength = brand == "mjp2" ? 8 : 12;
+        var bytes = new byte[32 + headerLength + dataLength];
         new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
         WriteUInt32BigEndian(bytes, 12, 20);
         Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 16);
         Encoding.ASCII.GetBytes(brand).CopyTo(bytes, 20);
         Encoding.ASCII.GetBytes(brand).CopyTo(bytes, 28);
-        WriteUInt32BigEndian(bytes, 32, 8);
+        WriteUInt32BigEndian(bytes, 32, (uint)headerLength);
         Encoding.ASCII.GetBytes(firstRequired).CopyTo(bytes, 36);
-        WriteUInt32BigEndian(bytes, 40, 8);
-        Encoding.ASCII.GetBytes(secondRequired).CopyTo(bytes, 44);
+        if (brand == "jpm ") {
+            WriteUInt32BigEndian(bytes, 40, 8);
+            Encoding.ASCII.GetBytes("free").CopyTo(bytes, 44);
+        } else if (brand != "mjp2") {
+            WriteUInt32BigEndian(bytes, 40, 22);
+            Encoding.ASCII.GetBytes("ihdr").CopyTo(bytes, 44);
+            WriteUInt32BigEndian(bytes, 48, 1);
+            WriteUInt32BigEndian(bytes, 52, 1);
+            WriteUInt16BigEndian(bytes, 56, 1);
+            bytes[58] = 7;
+            bytes[59] = 7;
+        }
+        int dataOffset = 32 + headerLength;
+        WriteUInt32BigEndian(bytes, dataOffset, (uint)dataLength);
+        Encoding.ASCII.GetBytes(secondRequired).CopyTo(bytes, dataOffset + 4);
+        if (brand != "mjp2") new byte[] { 0xFF, 0x4F, 0xFF, 0xD9 }.CopyTo(bytes, dataOffset + 8);
         return bytes;
     }
 
@@ -571,13 +587,13 @@ internal static class TestHelpers
         bytes[offset + 3] = (byte)(value >> 24);
     }
 
-    private static void WriteUInt16BigEndian(byte[] bytes, int offset, ushort value)
+    internal static void WriteUInt16BigEndian(byte[] bytes, int offset, ushort value)
     {
         bytes[offset] = (byte)(value >> 8);
         bytes[offset + 1] = (byte)value;
     }
 
-    private static void WriteUInt32BigEndian(byte[] bytes, int offset, uint value)
+    internal static void WriteUInt32BigEndian(byte[] bytes, int offset, uint value)
     {
         bytes[offset] = (byte)(value >> 24);
         bytes[offset + 1] = (byte)(value >> 16);
@@ -590,7 +606,7 @@ internal static class TestHelpers
         for (int index = 0; index < 8; index++) bytes[offset + index] = (byte)(value >> (8 * index));
     }
 
-    private static void WriteUInt64BigEndian(byte[] bytes, int offset, ulong value)
+    internal static void WriteUInt64BigEndian(byte[] bytes, int offset, ulong value)
     {
         for (int index = 0; index < 8; index++) bytes[offset + index] = (byte)(value >> (8 * (7 - index)));
     }

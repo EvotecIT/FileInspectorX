@@ -144,6 +144,14 @@ internal static partial class Signatures
             completeLength < 0 ||
             l1Size == 0 || l1Offset == 0 || refcountOffset == 0 || refcountClusters == 0) return false;
         ulong clusterSize = 1UL << (int)clusterBits;
+        uint headerLength = 72;
+        if (version == 3)
+        {
+            if (src.Length < 104) return false;
+            headerLength = ReadUInt32BigEndian(src, 100);
+            if (headerLength < 104 || (headerLength & 7) != 0 || headerLength > clusterSize ||
+                (completeLength.HasValue && headerLength > completeLength.Value)) return false;
+        }
         bool extendedL2 = version == 3 && src.Length >= 80 && (ReadUInt64(src, 72, littleEndian: false) & 0x10UL) != 0;
         ulong l2Entries = clusterSize / (extendedL2 ? 16UL : 8UL);
         ulong bytesCoveredPerL1Entry = clusterSize * l2Entries;
@@ -151,23 +159,27 @@ internal static partial class Signatures
         if (requiredL1Entries > l1Size) return false;
         if ((l1Offset & (clusterSize - 1)) != 0 || (refcountOffset & (clusterSize - 1)) != 0) return false;
         if ((backingOffset == 0) != (backingSize == 0)) return false;
+        ulong encryptionOffset = 0;
+        ulong encryptionLength = 0;
+        if (version == 3 && cryptMethod == 2 &&
+            !TryValidateQcow2LuksExtension(src, headerLength, clusterSize, completeLength, out encryptionOffset, out encryptionLength)) return false;
+        if (version == 2 && cryptMethod == 2) return false;
         if (completeLength.HasValue)
         {
             ulong fileLength = (ulong)completeLength.Value;
             if (!IsQcow2RangeWithin(backingOffset, backingSize, fileLength) ||
                 !IsQcow2RangeWithin(l1Offset, (ulong)l1Size * 8UL, fileLength) ||
-                !IsQcow2RangeWithin(refcountOffset, (ulong)refcountClusters * clusterSize, fileLength)) return false;
+                 !IsQcow2RangeWithin(refcountOffset, (ulong)refcountClusters * clusterSize, fileLength)) return false;
         }
-        if (version == 3)
-        {
-            if (src.Length < 104) return false;
-            uint headerLength = ReadUInt32BigEndian(src, 100);
-            if (headerLength < 104 || (headerLength & 7) != 0 ||
-                headerLength > clusterSize ||
-                (completeLength.HasValue && headerLength > completeLength.Value)) return false;
-            if (cryptMethod == 2 && !TryValidateQcow2LuksExtension(src, headerLength, clusterSize, completeLength)) return false;
-        }
-        else if (cryptMethod == 2) return false;
+        var ranges = new System.Collections.Generic.List<(ulong Offset, ulong Length)> {
+            (0, headerLength), (l1Offset, (ulong)l1Size * 8UL),
+            (refcountOffset, (ulong)refcountClusters * clusterSize)
+        };
+        if (backingSize != 0) ranges.Add((backingOffset, backingSize));
+        if (encryptionLength != 0) ranges.Add((encryptionOffset, encryptionLength));
+        for (int i = 0; i < ranges.Count; i++)
+            for (int j = i + 1; j < ranges.Count; j++)
+                if (Qcow2RangesOverlap(ranges[i], ranges[j])) return false;
         result = BinaryResult("qcow2", "application/x-qemu-disk", $"qcow2:version={version}");
         if (!completeLength.HasValue)
         {
@@ -180,8 +192,19 @@ internal static partial class Signatures
     private static bool IsQcow2RangeWithin(ulong offset, ulong length, ulong fileLength)
         => offset <= fileLength && length <= fileLength - offset;
 
-    private static bool TryValidateQcow2LuksExtension(ReadOnlySpan<byte> src, uint headerLength, ulong clusterSize, long? completeLength)
+    private static bool Qcow2RangesOverlap((ulong Offset, ulong Length) first, (ulong Offset, ulong Length) second)
     {
+        if (first.Length == 0 || second.Length == 0) return false;
+        return first.Offset <= second.Offset
+            ? second.Offset - first.Offset < first.Length
+            : first.Offset - second.Offset < second.Length;
+    }
+
+    private static bool TryValidateQcow2LuksExtension(ReadOnlySpan<byte> src, uint headerLength, ulong clusterSize,
+        long? completeLength, out ulong encryptionOffset, out ulong encryptionLength)
+    {
+        encryptionOffset = 0;
+        encryptionLength = 0;
         int cursor = (int)headerLength;
         bool found = false;
         while (cursor + 8 <= src.Length && (ulong)cursor < clusterSize)
@@ -196,11 +219,11 @@ internal static partial class Signatures
             if (type == 0x0537BE77)
             {
                 if (found || length != 16) return false;
-                ulong offset = ReadUInt64(src, cursor, littleEndian: false);
-                ulong encryptionLength = ReadUInt64(src, cursor + 8, littleEndian: false);
-                if (offset == 0 || encryptionLength < 592 || (offset & (clusterSize - 1)) != 0 ||
-                    (completeLength.HasValue && (offset > (ulong)completeLength.Value ||
-                                                 encryptionLength > (ulong)completeLength.Value - offset))) return false;
+                encryptionOffset = ReadUInt64(src, cursor, littleEndian: false);
+                encryptionLength = ReadUInt64(src, cursor + 8, littleEndian: false);
+                if (encryptionOffset == 0 || encryptionLength < 592 || (encryptionOffset & (clusterSize - 1)) != 0 ||
+                    (completeLength.HasValue && (encryptionOffset > (ulong)completeLength.Value ||
+                                                 encryptionLength > (ulong)completeLength.Value - encryptionOffset))) return false;
                 found = true;
             }
             cursor += (int)paddedLength;
@@ -224,6 +247,8 @@ internal static partial class Signatures
         uint blueMask = ReadUInt32LittleEndian(src, 100);
         uint alphaMask = ReadUInt32LittleEndian(src, 104);
         uint caps = ReadUInt32LittleEndian(src, 108);
+        uint depth = ReadUInt32LittleEndian(src, 24);
+        uint caps2 = ReadUInt32LittleEndian(src, 112);
         if ((flags & 0x1007) != 0x1007 || height == 0 || width == 0 || pixelFormatSize != 32 || (caps & 0x1000) == 0) return false;
         const uint fourCcFlag = 0x4;
         const uint rgbFlag = 0x40;
@@ -268,7 +293,10 @@ internal static partial class Signatures
             uint miscFlag = ReadUInt32LittleEndian(src, 136);
             uint arraySize = ReadUInt32LittleEndian(src, 140);
             if (!IsKnownDdsDxgiFormat(dxgiFormat) || resourceDimension is < 2 or > 4 || arraySize == 0 ||
-                (resourceDimension == 4 && (arraySize != 1 || (miscFlag & 0x4) != 0))) return false;
+                (resourceDimension == 2 && (height != 1 || depth != 0 || (flags & 0x800000) != 0 || (caps2 & 0x200000) != 0)) ||
+                (resourceDimension == 3 && (depth != 0 || (flags & 0x800000) != 0 || (caps2 & 0x200000) != 0)) ||
+                (resourceDimension == 4 && (arraySize != 1 || (miscFlag & 0x4) != 0 || depth == 0 ||
+                    (flags & 0x800000) == 0 || (caps2 & 0x200000) == 0))) return false;
         }
         result = BinaryResult("dds", "image/vnd-ms.dds", "dds:header+pixel-format");
         return true;
@@ -512,18 +540,44 @@ internal static partial class Signatures
         int cursor = 4;
         if (!TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong headerLength) || headerLength > 4096 || headerLength > (ulong)(src.Length - cursor)) return false;
         headerEnd = cursor + (int)headerLength;
+        ulong ebmlVersion = 1, ebmlReadVersion = 1, maxIdLength = 4, maxSizeLength = 8;
+        ulong docTypeVersion = 1, docTypeReadVersion = 1;
+        var seen = new System.Collections.Generic.HashSet<ulong>();
         while (cursor < headerEnd)
         {
             if (!TryReadEbmlVInt(src.Slice(0, headerEnd), ref cursor, stripMarker: false, out ulong id)) return false;
             if (!TryReadEbmlVInt(src.Slice(0, headerEnd), ref cursor, stripMarker: true, out ulong length) || length > (ulong)(headerEnd - cursor)) return false;
+            bool standardField = id is 0x4282 or 0x4286 or 0x42F7 or 0x42F2 or 0x42F3 or 0x4287 or 0x4285;
+            if (standardField && !seen.Add(id)) return false;
             if (id == 0x4282)
             {
                 if (length is < 4 or > 8) return false;
                 docType = System.Text.Encoding.ASCII.GetString(src.Slice(cursor, (int)length).ToArray());
             }
+            else if (id is 0x4286 or 0x42F7 or 0x42F2 or 0x42F3 or 0x4287 or 0x4285)
+            {
+                if (!TryReadEbmlUnsigned(src.Slice(cursor, (int)length), out ulong value)) return false;
+                if (id == 0x4286) ebmlVersion = value;
+                else if (id == 0x42F7) ebmlReadVersion = value;
+                else if (id == 0x42F2) maxIdLength = value;
+                else if (id == 0x42F3) maxSizeLength = value;
+                else if (id == 0x4287) docTypeVersion = value;
+                else docTypeReadVersion = value;
+            }
             cursor += (int)length;
         }
-        return docType is "matroska" or "webm";
+        return docType is "matroska" or "webm" && ebmlVersion == 1 && ebmlReadVersion == 1 &&
+               maxIdLength == 4 && maxSizeLength is >= 1 and <= 8 && docTypeVersion >= 1 &&
+               docTypeReadVersion >= 1 && docTypeReadVersion <= docTypeVersion &&
+               (docType != "webm" || docTypeReadVersion <= 2);
+    }
+
+    private static bool TryReadEbmlUnsigned(ReadOnlySpan<byte> valueBytes, out ulong value)
+    {
+        value = 0;
+        if (valueBytes.Length is < 1 or > 8) return false;
+        for (int i = 0; i < valueBytes.Length; i++) value = (value << 8) | valueBytes[i];
+        return true;
     }
 
     private static bool TryFindMatroskaSegment(ReadOnlySpan<byte> src, int cursor, long? completeLength,

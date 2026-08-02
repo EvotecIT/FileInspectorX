@@ -525,9 +525,9 @@ internal static partial class Signatures
             if (!fields.Add(field)) return false;
             previousField = field;
             if (field == 1) { if (type != 5 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; version = true; }
-            else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0)) return false; schema = true; }
+            else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0, requiredElementType: 12)) return false; schema = true; }
             else if (field == 3) { if (type != 6 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; rows = true; }
-            else if (field == 4) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: false, 0)) return false; rowGroups = true; }
+            else if (field == 4) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: false, 0, requiredElementType: 12)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
         return cursor == metadata.Length && version && schema && rows && rowGroups;
@@ -539,12 +539,13 @@ internal static partial class Signatures
             ? (short)((long)(value >> 1) ^ -(long)(value & 1)) : (short)-1;
     }
 
-    private static bool SkipCompactList(ReadOnlySpan<byte> src, ref int cursor, bool requireNonEmpty, int depth)
+    private static bool SkipCompactList(ReadOnlySpan<byte> src, ref int cursor, bool requireNonEmpty, int depth, int? requiredElementType = null)
     {
         if (cursor >= src.Length || depth > 8) return false;
         byte header = src[cursor++];
         int count = header >> 4;
         int elementType = header & 0x0F;
+        if (requiredElementType.HasValue && elementType != requiredElementType.Value) return false;
         if (count == 15)
         {
             if (!TryReadCompactVarint(src, ref cursor, out ulong longCount) || longCount > int.MaxValue) return false;

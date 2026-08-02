@@ -176,17 +176,12 @@ public sealed class SixteenthReviewRegressionTests
     private static byte[] LargeJpeg2000()
     {
         const int freeLength = 5000;
-        var bytes = new byte[32 + freeLength + 16];
-        new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
-        WriteUInt32BigEndian(bytes, 12, 20);
-        Encoding.ASCII.GetBytes("ftypjp2 ").CopyTo(bytes, 16);
-        Encoding.ASCII.GetBytes("jp2 ").CopyTo(bytes, 28);
+        byte[] minimal = TestHelpers.CreateMinimalJpeg2000();
+        var bytes = new byte[minimal.Length + freeLength];
+        Array.Copy(minimal, 0, bytes, 0, 32);
         WriteUInt32BigEndian(bytes, 32, freeLength);
         Encoding.ASCII.GetBytes("free").CopyTo(bytes, 36);
-        WriteUInt32BigEndian(bytes, 32 + freeLength, 8);
-        Encoding.ASCII.GetBytes("jp2h").CopyTo(bytes, 36 + freeLength);
-        WriteUInt32BigEndian(bytes, 40 + freeLength, 8);
-        Encoding.ASCII.GetBytes("jp2c").CopyTo(bytes, 44 + freeLength);
+        Array.Copy(minimal, 32, bytes, 32 + freeLength, minimal.Length - 32);
         return bytes;
     }
 
@@ -218,6 +213,7 @@ public sealed class SixteenthReviewRegressionTests
         var bytes = new byte[80];
         bytes[0] = 0x4C;
         new byte[] { 0x01, 0x14, 0x02, 0, 0, 0, 0, 0, 0xC0, 0, 0, 0, 0, 0, 0, 0x46 }.CopyTo(bytes, 4);
+        WriteUInt32LittleEndian(bytes, 60, 1);
         return bytes;
     }
 
@@ -232,6 +228,7 @@ public sealed class SixteenthReviewRegressionTests
         WriteUInt32BigEndian(bytes, 32, 6);
         new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, 64);
         WriteUInt32LittleEndian(bytes, 68, 0x01000007);
+        WriteUInt32LittleEndian(bytes, 72, 0);
         return bytes;
     }
 

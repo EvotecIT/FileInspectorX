@@ -65,11 +65,15 @@ public sealed class SecondReviewRegressionTests
     [Fact]
     public void Os2BitmapWithSixteenByteHeaderIsAccepted()
     {
-        var bytes = new byte[30];
+        var bytes = new byte[34];
         Encoding.ASCII.GetBytes("BM").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 2, (uint)bytes.Length);
-        WriteUInt32LittleEndian(bytes, 10, (uint)bytes.Length);
+        WriteUInt32LittleEndian(bytes, 10, 30);
         WriteUInt32LittleEndian(bytes, 14, 16);
+        WriteUInt32LittleEndian(bytes, 18, 1);
+        WriteUInt32LittleEndian(bytes, 22, 1);
+        WriteUInt16LittleEndian(bytes, 26, 1);
+        WriteUInt16LittleEndian(bytes, 28, 24);
 
         AssertParity(bytes, "bmp");
     }

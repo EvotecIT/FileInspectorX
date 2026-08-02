@@ -117,6 +117,7 @@ public sealed class FourteenthReviewRegressionTests
         WriteUInt32BigEndian(bytes, 32, 6);
         new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, 64);
         WriteUInt32LittleEndian(bytes, 68, 0x01000007);
+        WriteUInt32LittleEndian(bytes, 72, 3);
         return bytes;
     }
 
@@ -186,11 +187,15 @@ public sealed class FourteenthReviewRegressionTests
 
     private static byte[] MinimalBmp()
     {
-        var bytes = new byte[26];
+        var bytes = new byte[30];
         Encoding.ASCII.GetBytes("BM").CopyTo(bytes, 0);
-        WriteUInt32LittleEndian(bytes, 2, 26);
+        WriteUInt32LittleEndian(bytes, 2, 30);
         WriteUInt32LittleEndian(bytes, 10, 26);
         WriteUInt32LittleEndian(bytes, 14, 12);
+        WriteUInt16LittleEndian(bytes, 18, 1);
+        WriteUInt16LittleEndian(bytes, 20, 1);
+        WriteUInt16LittleEndian(bytes, 22, 1);
+        WriteUInt16LittleEndian(bytes, 24, 24);
         return bytes;
     }
 

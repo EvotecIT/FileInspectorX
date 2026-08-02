@@ -9,7 +9,7 @@ public sealed class FormatCompatibilityRegressionTests
     public void PeHeaderBeyondDetectionPrefixKeepsApiParity()
     {
         const int peOffset = 5000;
-        var bytes = new byte[peOffset + 24 + 0xE0 + 40];
+        var bytes = new byte[0x1600];
         bytes[0] = (byte)'M';
         bytes[1] = (byte)'Z';
         WriteUInt32LittleEndian(bytes, 0x3C, peOffset);
@@ -22,7 +22,7 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt32LittleEndian(bytes, peOffset + 56, 0x1000);
         WriteUInt32LittleEndian(bytes, peOffset + 60, 0x0200);
         WriteUInt32LittleEndian(bytes, peOffset + 80, 0x2000);
-        WriteUInt32LittleEndian(bytes, peOffset + 84, 0x0200);
+        WriteUInt32LittleEndian(bytes, peOffset + 84, 0x1600);
 
         AssertParity(bytes, "exe", "High");
     }

@@ -257,11 +257,15 @@ public sealed class ValidatedFormatDetectionTests
 
     private static byte[] Bmp()
     {
-        var bytes = new byte[26];
+        var bytes = new byte[30];
         bytes[0] = (byte)'B'; bytes[1] = (byte)'M';
-        WriteUInt32LittleEndian(bytes, 2, 26);
+        WriteUInt32LittleEndian(bytes, 2, 30);
         WriteUInt32LittleEndian(bytes, 10, 26);
         WriteUInt32LittleEndian(bytes, 14, 12);
+        WriteUInt16LittleEndian(bytes, 18, 1);
+        WriteUInt16LittleEndian(bytes, 20, 1);
+        WriteUInt16LittleEndian(bytes, 22, 1);
+        WriteUInt16LittleEndian(bytes, 24, 24);
         return bytes;
     }
 

@@ -314,6 +314,7 @@ public sealed class EleventhReviewRegressionTests
             0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
         }.CopyTo(bytes, 4);
         WriteUInt32LittleEndian(bytes, 20, flags);
+        WriteUInt32LittleEndian(bytes, 60, 1);
         return bytes;
     }
 

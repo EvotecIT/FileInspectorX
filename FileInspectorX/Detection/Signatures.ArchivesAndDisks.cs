@@ -99,6 +99,9 @@ internal static partial class Signatures {
             uint folderOffset = ReadUInt32LittleEndian(src, cursor + 4);
             ushort folderIndex = ReadUInt16LittleEndian(src, cursor + 8);
             if (folderIndex >= folderCount && folderIndex is not (0xFFFD or 0xFFFE or 0xFFFF)) return false;
+            if (folderIndex == 0xFFFD && (flags & 0x0001) == 0 ||
+                folderIndex == 0xFFFE && (flags & 0x0003) != 0x0003 ||
+                folderIndex == 0xFFFF && (flags & 0x0002) == 0) return false;
             if (folderIndex < folderCount) {
                 ulong fileEnd = (ulong)folderOffset + fileLength;
                 if (fileEnd > requiredFolderLengths[folderIndex]) requiredFolderLengths[folderIndex] = fileEnd;

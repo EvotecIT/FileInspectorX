@@ -392,6 +392,7 @@ internal static partial class Signatures {
         for (uint i = 0; i < architectureCount; i++) {
             int entryOffset = checked(8 + (int)i * entrySize);
             uint cpuType = ReadUInt32(src, entryOffset, littleEndian);
+            uint cpuSubtype = ReadUInt32(src, entryOffset + 4, littleEndian);
             ulong offset = is64Bit ? ReadUInt64(src, entryOffset + 8, littleEndian) : ReadUInt32(src, entryOffset + 8, littleEndian);
             ulong size = is64Bit ? ReadUInt64(src, entryOffset + 16, littleEndian) : ReadUInt32(src, entryOffset + 12, littleEndian);
             uint alignmentPower = ReadUInt32(src, entryOffset + (is64Bit ? 24 : 16), littleEndian);
@@ -400,9 +401,9 @@ internal static partial class Signatures {
                 (totalLength.HasValue && (offset > (ulong)totalLength.Value || size > (ulong)totalLength.Value - offset))) return false;
             ulong alignment = 1UL << (int)alignmentPower;
             if ((offset & (alignment - 1)) != 0) return false;
-            if (offset + 8 <= (ulong)src.Length)
+            if (offset + 12 <= (ulong)src.Length)
             {
-                if (!TryValidateMachSliceHeader(src.Slice((int)offset, 8), cpuType)) return false;
+                if (!TryValidateMachSliceHeader(src.Slice((int)offset, 12), cpuType, cpuSubtype)) return false;
             }
             else allSlicesSampled = false;
         }
@@ -460,9 +461,10 @@ internal static partial class Signatures {
             {
                 int entry = 8 + index * entrySize;
                 uint cpuType = ReadUInt32(entries, entry, littleEndian);
+                uint cpuSubtype = ReadUInt32(entries, entry + 4, littleEndian);
                 ulong offset = is64Bit ? ReadUInt64(entries, entry + 8, littleEndian) : ReadUInt32(entries, entry + 8, littleEndian);
-                if (offset > long.MaxValue || !TryReadAt(stream, (long)offset, 8, out var slice) ||
-                    !TryValidateMachSliceHeader(new ReadOnlySpan<byte>(slice), cpuType)) return false;
+                if (offset > long.MaxValue || !TryReadAt(stream, (long)offset, 12, out var slice) ||
+                    !TryValidateMachSliceHeader(new ReadOnlySpan<byte>(slice), cpuType, cpuSubtype)) return false;
             }
             result!.Confidence = "High";
             result.Reason = result.Reason.Replace(";sampled-slices", string.Empty);
@@ -479,13 +481,14 @@ internal static partial class Signatures {
         }
     }
 
-    private static bool TryValidateMachSliceHeader(ReadOnlySpan<byte> src, uint expectedCpuType)
+    private static bool TryValidateMachSliceHeader(ReadOnlySpan<byte> src, uint expectedCpuType, uint expectedCpuSubtype)
     {
-        if (src.Length < 8) return false;
+        if (src.Length < 12) return false;
         uint magic = ReadUInt32BigEndian(src, 0);
         bool littleEndian = magic is 0xCEFAEDFE or 0xCFFAEDFE;
         if (magic is not (0xFEEDFACE or 0xCEFAEDFE or 0xFEEDFACF or 0xCFFAEDFE)) return false;
-        return ReadUInt32(src, 4, littleEndian) == expectedCpuType;
+        return ReadUInt32(src, 4, littleEndian) == expectedCpuType &&
+               ReadUInt32(src, 8, littleEndian) == expectedCpuSubtype;
     }
 
     private static bool TryValidateMachLoadCommands(Stream stream, int headerSize, uint commandCount,

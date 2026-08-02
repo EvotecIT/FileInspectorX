@@ -157,21 +157,7 @@ public sealed class TwentyThirdReviewRegressionTests
     }
 
     private static byte[] Jpm()
-    {
-        var bytes = new byte[48];
-        WriteUInt32BigEndian(bytes, 0, 12);
-        Encoding.ASCII.GetBytes("jP  ").CopyTo(bytes, 4);
-        new byte[] { 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 8);
-        WriteUInt32BigEndian(bytes, 12, 20);
-        Encoding.ASCII.GetBytes("ftypjpm ").CopyTo(bytes, 16);
-        WriteUInt32BigEndian(bytes, 24, 0);
-        Encoding.ASCII.GetBytes("jpm ").CopyTo(bytes, 28);
-        WriteUInt32BigEndian(bytes, 32, 8);
-        Encoding.ASCII.GetBytes("jpmh").CopyTo(bytes, 36);
-        WriteUInt32BigEndian(bytes, 40, 8);
-        Encoding.ASCII.GetBytes("jp2c").CopyTo(bytes, 44);
-        return bytes;
-    }
+        => TestHelpers.CreateMinimalJpeg2000("jpm ");
 
     private static byte[] Qcow2V3(uint headerLength)
     {
@@ -197,6 +183,7 @@ public sealed class TwentyThirdReviewRegressionTests
             0x01, 0x14, 0x02, 0, 0, 0, 0, 0,
             0xC0, 0, 0, 0, 0, 0, 0, 0x46
         }.CopyTo(bytes, 4);
+        WriteUInt32LittleEndian(bytes, 60, 1);
         WriteUInt32LittleEndian(bytes, 76, blockSize);
         return bytes;
     }

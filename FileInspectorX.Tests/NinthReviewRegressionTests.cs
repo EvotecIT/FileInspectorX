@@ -126,7 +126,7 @@ public sealed class NinthReviewRegressionTests
     private static byte[] LargePe()
     {
         const int peOffset = 5000;
-        var bytes = new byte[peOffset + 160];
+        var bytes = new byte[0x1600];
         bytes[0] = (byte)'M';
         bytes[1] = (byte)'Z';
         WriteUInt32LittleEndian(bytes, 0x3C, peOffset);
@@ -138,8 +138,8 @@ public sealed class NinthReviewRegressionTests
         WriteUInt16LittleEndian(bytes, peOffset + 24, 0x10B);
         WriteUInt32LittleEndian(bytes, peOffset + 56, 0x1000);
         WriteUInt32LittleEndian(bytes, peOffset + 60, 0x0200);
-        WriteUInt32LittleEndian(bytes, peOffset + 80, 0x1000);
-        WriteUInt32LittleEndian(bytes, peOffset + 84, 0x0200);
+        WriteUInt32LittleEndian(bytes, peOffset + 80, 0x2000);
+        WriteUInt32LittleEndian(bytes, peOffset + 84, 0x1600);
         return bytes;
     }
 
