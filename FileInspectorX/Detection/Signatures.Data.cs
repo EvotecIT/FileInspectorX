@@ -295,6 +295,11 @@ internal static partial class Signatures {
         internal bool TrySkipDimensions(bool isCdf5, out ulong[] lengths) {
             lengths = Array.Empty<ulong>();
             if (!TryReadListHeader(isCdf5, 10, out ulong count) || count > int.MaxValue) return false;
+            ulong minimumRecordLength = isCdf5 ? 20UL : 12UL;
+            ulong available = (ulong)Math.Max(0, _length - _stream.Position);
+            ulong budget = (ulong)Math.Max(0, _remainingBudget);
+            if (count > available / minimumRecordLength) return false;
+            if (count > budget / minimumRecordLength) { BudgetExceeded = true; return false; }
             lengths = new ulong[(int)count];
             bool unlimited = false;
             var names = new System.Collections.Generic.HashSet<string>();
@@ -379,6 +384,8 @@ internal static partial class Signatures {
     {
         lengths = Array.Empty<ulong>();
         if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 10, out ulong count) || count > int.MaxValue) return false;
+        ulong minimumRecordLength = isCdf5 ? 20UL : 12UL;
+        if (count > (ulong)(src.Length - cursor) / minimumRecordLength) return false;
         lengths = new ulong[(int)count];
         bool unlimited = false;
         var names = new System.Collections.Generic.HashSet<string>();
@@ -467,7 +474,7 @@ internal static partial class Signatures {
         ulong expectedSize = (rawSize + 3) & ~3UL;
         bool largeSizeSentinel = hasNarrowVSize && declaredSize == uint.MaxValue && expectedSize > uint.MaxValue - 3UL;
         if ((!largeSizeSentinel && (!record || declaredSize != rawSize) && declaredSize != expectedSize) ||
-            begin > long.MaxValue) return false;
+            begin > long.MaxValue || (begin & 3) != 0) return false;
         range = new NetCdfVariableRange(begin, largeSizeSentinel ? expectedSize : declaredSize, rawSize, record,
             largeSizeSentinel);
         return true;

@@ -1116,13 +1116,15 @@ internal static partial class Signatures {
         var seenTiles = new bool[tileCount];
         int cursor = 4 + sizLength;
         bool sawTile = false;
+        bool sawCod = false;
+        bool sawQcd = false;
         while (cursor + 2 <= payload.Length)
         {
             if (payload[cursor] != 0xFF) return false;
             byte marker = payload[cursor + 1];
             if (marker == 0xD9)
             {
-                if (!requireEnd || !sawTile || cursor + 2 != payload.Length || declaredLength != payload.Length)
+                if (!requireEnd || !sawCod || !sawQcd || !sawTile || cursor + 2 != payload.Length || declaredLength != payload.Length)
                     return false;
                 for (int tile = 0; tile < tileCount; tile++)
                     if (!seenTiles[tile] || declaredTileParts[tile] != 0 && nextTileParts[tile] != declaredTileParts[tile])
@@ -1134,9 +1136,20 @@ internal static partial class Signatures {
                 if (cursor + 4 > payload.Length) return false;
                 ushort segmentLength = ReadUInt16BigEndian(payload, cursor + 2);
                 if (segmentLength < 2 || cursor + 2 + segmentLength > payload.Length) return false;
+                if (marker == 0x52)
+                {
+                    if (sawTile || sawCod || segmentLength < 12) return false;
+                    sawCod = true;
+                }
+                else if (marker == 0x5C)
+                {
+                    if (sawTile || sawQcd || segmentLength < 4) return false;
+                    sawQcd = true;
+                }
                 cursor += 2 + segmentLength;
                 continue;
             }
+            if (!sawCod || !sawQcd) return false;
             if (cursor + 12 > payload.Length || ReadUInt16BigEndian(payload, cursor + 2) != 10) return false;
             ushort tileIndex = ReadUInt16BigEndian(payload, cursor + 4);
             uint tilePartLength = ReadUInt32BigEndian(payload, cursor + 6);
@@ -1167,6 +1180,6 @@ internal static partial class Signatures {
             if (tileEnd > payload.Length) return !requireEnd;
             cursor = (int)tileEnd;
         }
-        return !requireEnd && sawTile;
+        return !requireEnd && sawCod && sawQcd && sawTile;
     }
 }

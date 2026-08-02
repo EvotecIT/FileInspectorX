@@ -403,11 +403,18 @@ internal static partial class Signatures
             if (dx10Cube && (resourceDimension != 3 || width != height)) return false;
         }
         int headerLength = hasFourCc && fourCc == 0x30315844 ? 148 : 128;
+        bool encodingSizeKnown = !hasFourCc || fourCc == 0x30315844 || IsKnownNumericDdsFourCc(fourCc) ||
+                                 GetDdsBlockBytes(fourCc, 0) != 0;
         if (!TryGetDdsMinimumPayloadLength(width, height, depth, mipMapCount, flags, caps2,
                 hasFourCc, fourCc, dxgiFormat, rgbBitCount, pitchOrLinearSize, arraySize, dx10Cube,
                 out ulong minimumPayload) || completeLength < headerLength ||
-            (completeLength.HasValue && minimumPayload > (ulong)(completeLength.Value - headerLength))) return false;
+            completeLength.HasValue && minimumPayload > (ulong)(completeLength.Value - headerLength)) return false;
         result = BinaryResult("dds", "image/vnd-ms.dds", "dds:header+pixel-format");
+        if (!encodingSizeKnown)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";encoding-size-not-validated";
+        }
         if (!completeLength.HasValue) { result.Confidence = "Medium"; result.Reason += ";sampled-length-unknown"; }
         return true;
     }
@@ -471,6 +478,16 @@ internal static partial class Signatures
                 }
                 mipLength = rowBytes * currentHeight * currentDepth;
             }
+            else if (hasFourCc && TryGetLegacyDdsBitsPerPixel(fourCc, out uint legacyBits))
+            {
+                ulong rowBytes = (currentWidth * (ulong)legacyBits + 7UL) / 8UL;
+                if (mip == 0 && pitchOrLinearSize != 0)
+                {
+                    if (pitchOrLinearSize < rowBytes) return false;
+                    rowBytes = pitchOrLinearSize;
+                }
+                mipLength = rowBytes * currentHeight * currentDepth;
+            }
             else if (!hasFourCc && bitCount != 0)
             {
                 ulong rowBytes = (currentWidth * (ulong)bitCount + 7UL) / 8UL;
@@ -524,6 +541,19 @@ internal static partial class Signatures
 
     private static bool IsKnownNumericDdsFourCc(uint format)
         => format == 36 || format is >= 110 and <= 116;
+
+    private static bool TryGetLegacyDdsBitsPerPixel(uint format, out uint bits)
+    {
+        bits = format switch
+        {
+            36 or 110 or 113 or 115 => 64,
+            111 => 16,
+            112 or 114 => 32,
+            116 => 128,
+            _ => 0
+        };
+        return bits != 0;
+    }
 
     private static bool TryValidateDdsMasks(uint flags, uint bitCount, uint red, uint green, uint blue, uint alpha,
         bool rgb, bool yuv, bool luminance, bool bumpLuminance, bool bumpDuDv, bool alphaOnly)

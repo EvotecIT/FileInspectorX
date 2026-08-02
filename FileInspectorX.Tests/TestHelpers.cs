@@ -240,7 +240,7 @@ internal static class TestHelpers
 
     private static byte[] CreateMinimalJpeg2000Codestream()
     {
-        var bytes = new byte[62];
+        var bytes = new byte[82];
         bytes[0] = 0xFF; bytes[1] = 0x4F;
         bytes[2] = 0xFF; bytes[3] = 0x51;
         WriteUInt16BigEndian(bytes, 4, 41);
@@ -248,11 +248,16 @@ internal static class TestHelpers
         WriteUInt32BigEndian(bytes, 24, 1); WriteUInt32BigEndian(bytes, 28, 1);
         WriteUInt16BigEndian(bytes, 40, 1);
         bytes[42] = 7; bytes[43] = 1; bytes[44] = 1;
-        bytes[45] = 0xFF; bytes[46] = 0x90;
-        WriteUInt16BigEndian(bytes, 47, 10);
-        WriteUInt32BigEndian(bytes, 51, 15);
-        bytes[57] = 0xFF; bytes[58] = 0x93; bytes[59] = 0;
-        bytes[60] = 0xFF; bytes[61] = 0xD9;
+        bytes[45] = 0xFF; bytes[46] = 0x52;
+        WriteUInt16BigEndian(bytes, 47, 12);
+        bytes[52] = 1;
+        bytes[59] = 0xFF; bytes[60] = 0x5C;
+        WriteUInt16BigEndian(bytes, 61, 4);
+        bytes[65] = 0xFF; bytes[66] = 0x90;
+        WriteUInt16BigEndian(bytes, 67, 10);
+        WriteUInt32BigEndian(bytes, 71, 15);
+        bytes[77] = 0xFF; bytes[78] = 0x93; bytes[79] = 0;
+        bytes[80] = 0xFF; bytes[81] = 0xD9;
         return bytes;
     }
 

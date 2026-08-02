@@ -104,7 +104,15 @@ public sealed class EighteenthReviewRegressionTests
 
     private static byte[] NumericDds(uint format)
     {
-        var bytes = new byte[132];
+        int payloadLength = format switch
+        {
+            36 or 110 or 113 or 115 => 8,
+            111 => 2,
+            112 or 114 => 4,
+            116 => 16,
+            _ => throw new ArgumentOutOfRangeException(nameof(format))
+        };
+        var bytes = new byte[128 + payloadLength];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         TestHelpers.WriteUInt32LittleEndian(bytes, 4, 124);
         TestHelpers.WriteUInt32LittleEndian(bytes, 8, 0x1007);

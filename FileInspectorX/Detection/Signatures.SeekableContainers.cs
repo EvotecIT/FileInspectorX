@@ -503,6 +503,11 @@ internal static partial class Signatures
                 !TryValidateVhdBat(file.Slice((int)bat.TableOffset, (int)bat.TableLength), file.Length, bat)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
+        if (diskType == 4)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";parent-locators-not-validated";
+        }
         if (diskType is 3 or 4 && (file.Length < 512 || !file.Slice(0, 512).SequenceEqual(footer)))
         {
             result.Confidence = "Medium";
@@ -529,6 +534,11 @@ internal static partial class Signatures
                 !TryValidateVhdBat(new ReadOnlySpan<byte>(table), stream.Length, bat)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
+        if (diskType == 4)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";parent-locators-not-validated";
+        }
         if (diskType is 3 or 4)
         {
             if (!TryReadAt(stream, 0, 512, out var leadingFooter) ||
@@ -650,12 +660,12 @@ internal static partial class Signatures
         for (int index = 0; index < count; index++)
         {
             if (openSlots-- <= 0 || !TryReadParquetSchemaElement(src, ref cursor,
-                    out bool hasType, out bool hasChildren, out int children)) return false;
+                    out bool hasType, out bool hasRepetition, out bool hasChildren, out int children)) return false;
             if (index == 0)
             {
-                if (hasType || !hasChildren) return false;
+                if (hasType || hasRepetition || !hasChildren) return false;
             }
-            else if (children > 0 ? hasType : !hasType) return false;
+            else if (!hasRepetition || (children > 0 ? hasType : !hasType)) return false;
             if (children > count - index - 1 || openSlots > int.MaxValue - children) return false;
             openSlots += children;
         }
@@ -663,9 +673,10 @@ internal static partial class Signatures
     }
 
     private static bool TryReadParquetSchemaElement(ReadOnlySpan<byte> src, ref int cursor,
-        out bool hasType, out bool hasChildren, out int children)
+        out bool hasType, out bool hasRepetition, out bool hasChildren, out int children)
     {
         hasType = false;
+        hasRepetition = false;
         hasChildren = false;
         children = 0;
         bool name = false;
@@ -685,6 +696,11 @@ internal static partial class Signatures
             {
                 if (type != 5 || !TryReadCompactInt32(src, ref cursor, out int physicalType) || physicalType is < 0 or > 7) return false;
                 hasType = true;
+            }
+            else if (field == 3)
+            {
+                if (type != 5 || !TryReadCompactInt32(src, ref cursor, out int repetition) || repetition is < 0 or > 2) return false;
+                hasRepetition = true;
             }
             else if (field == 4)
             {

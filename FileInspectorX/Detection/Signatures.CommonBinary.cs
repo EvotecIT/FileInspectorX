@@ -569,6 +569,11 @@ internal static partial class Signatures
             result.Confidence = "Medium";
             result.Reason += ";embedded-payload-not-validated";
         }
+        if (completeLength.HasValue && fileSize != completeLength.Value)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";trailing-data-not-validated";
+        }
         if (!completeLength.HasValue && fileSize > src.Length)
         {
             result.Confidence = "Medium";
@@ -894,7 +899,9 @@ internal static partial class Signatures
         ushort bitCount = ReadUInt16LittleEndian(payload, 14);
         uint compression = ReadUInt32LittleEndian(payload, 16);
         if (dibWidth != width || dibHeight != height * 2 || planes != 1 || bitCount is not (1 or 4 or 8 or 16 or 24 or 32) ||
-            type == 1 && directoryBitCount != 0 && directoryBitCount != bitCount || compression > 6 || compression == 4 || compression == 5) return false;
+            type == 1 && directoryBitCount != 0 && directoryBitCount != bitCount || compression > 6 || compression == 4 || compression == 5 ||
+            compression == 1 && bitCount != 8 || compression == 2 && bitCount != 4 ||
+            compression is 3 or 6 && bitCount is not (16 or 32)) return false;
         if (!requireBitmapData) return true;
 
         uint imageSize = ReadUInt32LittleEndian(payload, 20);

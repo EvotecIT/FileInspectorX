@@ -133,7 +133,7 @@ public sealed class TwentiethReviewRegressionTests
         AddVarint(metadata, checked((uint)(schemaElements - 1) * 2));
         metadata.Add(0);
         for (int index = 1; index < schemaElements; index++)
-            metadata.AddRange(new byte[] { 0x15, 0x00, 0x38, 0x01, (byte)'x', 0x00 });
+            metadata.AddRange(new byte[] { 0x15, 0x00, 0x25, 0x00, 0x18, 0x01, (byte)'x', 0x00 });
         metadata.AddRange(new byte[] { 0x16, 0x00, 0x19, 0x0C, 0x00 });
         var bytes = new byte[4 + metadata.Count + 8];
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
