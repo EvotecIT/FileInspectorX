@@ -15,12 +15,12 @@ internal static partial class Signatures
         if (TryMatchPng(src, completeLength, out result)) return true;
         if (TryMatchGif(src, out result)) return true;
         if (TryMatchPdf(src, out result)) return true;
-        if (TryMatchJpeg(src, out result)) return true;
+        if (TryMatchJpeg(src, completeLength, out result)) return true;
         if (TryMatchBmp(src, completeLength, out result)) return true;
-        if (TryMatchGzip(src, out result)) return true;
-        if (TryMatchBzip2(src, out result)) return true;
-        if (TryMatchOgg(src, out result)) return true;
-        if (TryMatchMp3(src, out result)) return true;
+        if (TryMatchGzip(src, completeLength, out result)) return true;
+        if (TryMatchBzip2(src, completeLength, out result)) return true;
+        if (TryMatchOgg(src, completeLength, out result)) return true;
+        if (TryMatchMp3(src, completeLength, out result)) return true;
         if (TryMatchWasm(src, out result)) return true;
         if (TryMatchPcapNg(src, out result)) return true;
         if (TryMatchPcap(src, completeLength, out result)) return true;
@@ -523,25 +523,6 @@ internal static partial class Signatures
         return true;
     }
 
-    internal static bool TryMatchJpeg(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 6 || src[0] != 0xFF || src[1] != 0xD8 || src[2] != 0xFF) return false;
-        int markerOffset = 2;
-        while (markerOffset < src.Length && src[markerOffset] == 0xFF) markerOffset++;
-        if (markerOffset >= src.Length) return false;
-        byte marker = src[markerOffset];
-        if (marker == 0 || marker == 0xD8 || marker == 0xD9) return false;
-        if (marker != 0x01 && marker is not (>= 0xD0 and <= 0xD7))
-        {
-            if (markerOffset + 3 > src.Length) return false;
-            ushort segmentLength = ReadUInt16BigEndian(src, markerOffset + 1);
-            if (segmentLength < 2) return false;
-        }
-        result = BinaryResult("jpg", "image/jpeg", "jpeg:soi+marker");
-        return true;
-    }
-
     internal static bool TryMatchBmp(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchBmp(src, src.Length, out result);
 
@@ -624,46 +605,6 @@ internal static partial class Signatures
             if (required == 0) return false;
         }
         return required <= available;
-    }
-
-    internal static bool TryMatchGzip(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 10 || src[0] != 0x1F || src[1] != 0x8B || src[2] != 8 || (src[3] & 0xE0) != 0) return false;
-        result = BinaryResult("gz", "application/gzip", "gzip:member-header");
-        return true;
-    }
-
-    internal static bool TryMatchBzip2(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 10 || src[0] != (byte)'B' || src[1] != (byte)'Z' || src[2] != (byte)'h' || src[3] is < (byte)'1' or > (byte)'9') return false;
-        bool block = src.Slice(4, 6).SequenceEqual(new byte[] { 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 });
-        bool end = src.Slice(4, 6).SequenceEqual(new byte[] { 0x17, 0x72, 0x45, 0x38, 0x50, 0x90 });
-        if (!block && !end) return false;
-        result = BinaryResult("bz2", "application/x-bzip2", "bzip2:stream-header");
-        return true;
-    }
-
-    internal static bool TryMatchOgg(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 27 || !src.Slice(0, 4).SequenceEqual("OggS"u8) || src[4] != 0 || (src[5] & 0xF8) != 0) return false;
-        int segmentCount = src[26];
-        if (27 + segmentCount > src.Length) return false;
-        result = BinaryResult("ogg", "application/ogg", "ogg:page-header");
-        return true;
-    }
-
-    internal static bool TryMatchMp3(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-    {
-        result = null;
-        if (src.Length < 10 || !src.Slice(0, 3).SequenceEqual("ID3"u8)) return false;
-        if (src[3] is < 2 or > 4 || src[4] == 0xFF || (src[6] & 0x80) != 0 || (src[7] & 0x80) != 0 || (src[8] & 0x80) != 0 || (src[9] & 0x80) != 0) return false;
-        byte allowedFlags = src[3] switch { 2 => 0xC0, 3 => 0xE0, _ => 0xF0 };
-        if ((src[5] & ~allowedFlags) != 0) return false;
-        result = BinaryResult("mp3", "audio/mpeg", $"mp3:id3v2.{src[3]}");
-        return true;
     }
 
     internal static bool TryMatchWasm(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

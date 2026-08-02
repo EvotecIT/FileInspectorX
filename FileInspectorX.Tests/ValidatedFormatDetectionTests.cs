@@ -13,10 +13,10 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("zip", TestHelpers.CreateEmptyZip(), 0);
         yield return Sample("ole2", Ole2(), 28);
         yield return Sample("pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n"), 6);
-        yield return Sample("jpg", new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 2 }, 0);
+        yield return Sample("jpg", TestHelpers.CreateMinimalJpeg(), 0);
         yield return Sample("bmp", Bmp(), 14);
-        yield return Sample("gz", Gzip(), 2);
-        yield return Sample("bz2", new byte[] { 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 }, 4);
+        yield return Sample("gz", Gzip(), 2, "Medium");
+        yield return Sample("bz2", new byte[] { 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 }, 4, "Medium");
         yield return Sample("ogg", Ogg(), 4);
         yield return Sample("mp3", Mp3(), 3);
         yield return Sample("wasm", Wasm(), 4);
@@ -303,21 +303,16 @@ public sealed class ValidatedFormatDetectionTests
         return bytes;
     }
 
-    private static byte[] Gzip() => new byte[] { 0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 255 };
+    private static byte[] Gzip() => TestHelpers.CreateMinimalGzip();
 
     private static byte[] Ogg()
     {
-        var bytes = new byte[27];
-        Encoding.ASCII.GetBytes("OggS").CopyTo(bytes, 0);
-        return bytes;
+        return TestHelpers.CreateMinimalOgg();
     }
 
     private static byte[] Mp3()
     {
-        var bytes = new byte[10];
-        Encoding.ASCII.GetBytes("ID3").CopyTo(bytes, 0);
-        bytes[3] = 4;
-        return bytes;
+        return TestHelpers.CreateMinimalMp3();
     }
 
     private static byte[] Wasm()

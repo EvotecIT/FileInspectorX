@@ -234,7 +234,7 @@ internal static class TestHelpers
     {
         byte[] metadata = {
             0x15, 0x02,
-            0x19, 0x1C, 0x48, 0x04, (byte)'r', (byte)'o', (byte)'o', (byte)'t', 0x00,
+            0x19, 0x1C, 0x48, 0x04, (byte)'r', (byte)'o', (byte)'o', (byte)'t', 0x15, 0x00, 0x00,
             0x16, 0x00,
             0x19, 0x0C,
             0x00
@@ -244,6 +244,39 @@ internal static class TestHelpers
         metadata.CopyTo(bytes, 4);
         WriteUInt32LittleEndian(bytes, bytes.Length - 8, (uint)metadata.Length);
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, bytes.Length - 4);
+        return bytes;
+    }
+
+    internal static byte[] CreateMinimalJpeg()
+    {
+        return new byte[]
+        {
+            0xFF, 0xD8,
+            0xFF, 0xC0, 0x00, 0x0B, 8, 0, 1, 0, 1, 1, 1, 0x11, 0,
+            0xFF, 0xDA, 0x00, 0x08, 1, 1, 0, 0, 63, 0,
+            0, 0xFF, 0xD9
+        };
+    }
+
+    internal static byte[] CreateMinimalGzip()
+        => new byte[] { 0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 255, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    internal static byte[] CreateMinimalOgg()
+    {
+        var bytes = new byte[27];
+        Encoding.ASCII.GetBytes("OggS").CopyTo(bytes, 0);
+        bytes[5] = 4;
+        WriteUInt32LittleEndian(bytes, 22, ComputeOggCrc(bytes));
+        return bytes;
+    }
+
+    internal static byte[] CreateMinimalMp3()
+    {
+        const int frameLength = 417;
+        var bytes = new byte[10 + frameLength];
+        Encoding.ASCII.GetBytes("ID3").CopyTo(bytes, 0);
+        bytes[3] = 4;
+        new byte[] { 0xFF, 0xFB, 0x90, 0x64 }.CopyTo(bytes, 10);
         return bytes;
     }
 
@@ -727,6 +760,18 @@ internal static class TestHelpers
             for (int bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
         }
         return ~crc;
+    }
+
+    private static uint ComputeOggCrc(byte[] bytes)
+    {
+        uint crc = 0;
+        for (int index = 0; index < bytes.Length; index++)
+        {
+            byte value = index is >= 22 and < 26 ? (byte)0 : bytes[index];
+            crc ^= (uint)value << 24;
+            for (int bit = 0; bit < 8; bit++) crc = (crc & 0x80000000) != 0 ? crc << 1 ^ 0x04C11DB7u : crc << 1;
+        }
+        return crc;
     }
 
     private static uint ComputeCrc32C(byte[] bytes, int offset, int count, int zeroOffset, int zeroCount)

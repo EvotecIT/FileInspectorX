@@ -64,7 +64,14 @@ public sealed class FormatCompatibilityRegressionTests
 
     [Fact]
     public void JpegFillBytesBeforeFirstMarkerAreAccepted()
-        => AssertParity(new byte[] { 0xFF, 0xD8, 0xFF, 0xFF, 0xE0, 0, 2 }, "jpg", "High");
+    {
+        byte[] original = TestHelpers.CreateMinimalJpeg();
+        var bytes = new byte[original.Length + 1];
+        original.AsSpan(0, 2).CopyTo(bytes);
+        bytes[2] = 0xFF;
+        original.AsSpan(2).CopyTo(bytes.AsSpan(3));
+        AssertParity(bytes, "jpg", "High");
+    }
 
     [Fact]
     public void DirtyRegistryHiveRemainsRecognizableWithRecoveryMetadata()

@@ -129,8 +129,11 @@ public sealed class TwentiethReviewRegressionTests
     {
         var metadata = new List<byte> { 0x15, 0x02, 0x19, 0xFC };
         AddVarint(metadata, (uint)schemaElements);
-        for (int index = 0; index < schemaElements; index++)
-            metadata.AddRange(new byte[] { 0x48, 0x01, (byte)'x', 0x00 });
+        metadata.AddRange(new byte[] { 0x48, 0x01, (byte)'x', 0x15 });
+        AddVarint(metadata, checked((uint)(schemaElements - 1) * 2));
+        metadata.Add(0);
+        for (int index = 1; index < schemaElements; index++)
+            metadata.AddRange(new byte[] { 0x15, 0x00, 0x38, 0x01, (byte)'x', 0x00 });
         metadata.AddRange(new byte[] { 0x16, 0x00, 0x19, 0x0C, 0x00 });
         var bytes = new byte[4 + metadata.Count + 8];
         Encoding.ASCII.GetBytes("PAR1").CopyTo(bytes, 0);
@@ -151,6 +154,7 @@ public sealed class TwentiethReviewRegressionTests
         WriteUInt32BigEndian(bytes, header + 28, entries);
         WriteUInt32BigEndian(bytes, header + 32, 2 * 1024 * 1024);
         FinalizeChecksum(bytes, header, 1024, header + 36);
+        WriteUInt32BigEndian(bytes, 1536, uint.MaxValue);
 
         int footer = bytes.Length - 512;
         Encoding.ASCII.GetBytes("conectix").CopyTo(bytes, footer);

@@ -112,9 +112,8 @@ internal static partial class Signatures
             }
             cursor = (int)next;
             member++;
-            if (version && control && data) break;
         }
-        if (!version || !control || !data) return false;
+        if (!version || !control || !data || cursor != src.Length) return false;
         result = BinaryResult("deb", "application/vnd.debian.binary-package", "deb:ar-members");
         if (!controlTarValidated || !dataTarValidated)
         {
@@ -231,9 +230,8 @@ internal static partial class Signatures
                 data = true;
             }
             cursor = next;
-            if (version && control && data) break;
         }
-        if (!version || !control || !data) return false;
+        if (!version || !control || !data || cursor != stream.Length) return false;
         result = BinaryResult("deb", "application/vnd.debian.binary-package", "deb:ar-members");
         if (!controlTarValidated || !dataTarValidated)
         {
@@ -455,7 +453,9 @@ internal static partial class Signatures
         else
         {
             if (dataOffset > int.MaxValue || dataOffset + 1024UL > (ulong)file.Length ||
-                !TryValidateVhdDynamicHeader(file.Slice((int)dataOffset, 1024), file.Length, diskType, currentSize)) return false;
+                !TryValidateVhdDynamicHeader(file.Slice((int)dataOffset, 1024), file.Length, diskType, currentSize, out VhdBatInfo bat) ||
+                bat.TableOffset > int.MaxValue || bat.TableLength > int.MaxValue ||
+                !TryValidateVhdBat(file.Slice((int)bat.TableOffset, (int)bat.TableLength), file.Length, bat)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
         return true;
@@ -473,7 +473,10 @@ internal static partial class Signatures
         {
             if (dataOffset > long.MaxValue || dataOffset + 1024UL > (ulong)stream.Length ||
                 !TryReadAt(stream, (long)dataOffset, 1024, out var dynamicHeader) ||
-                !TryValidateVhdDynamicHeader(new ReadOnlySpan<byte>(dynamicHeader), stream.Length, diskType, currentSize)) return false;
+                !TryValidateVhdDynamicHeader(new ReadOnlySpan<byte>(dynamicHeader), stream.Length, diskType, currentSize, out VhdBatInfo bat) ||
+                bat.TableOffset > long.MaxValue || bat.TableLength > int.MaxValue ||
+                !TryReadAt(stream, (long)bat.TableOffset, (int)bat.TableLength, out var table) ||
+                !TryValidateVhdBat(new ReadOnlySpan<byte>(table), stream.Length, bat)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
         return true;
@@ -500,8 +503,10 @@ internal static partial class Signatures
         return ComputeVhdChecksum(footer, 64) == ReadUInt32BigEndian(footer, 64);
     }
 
-    private static bool TryValidateVhdDynamicHeader(ReadOnlySpan<byte> header, long fileLength, uint diskType, ulong currentSize)
+    private static bool TryValidateVhdDynamicHeader(ReadOnlySpan<byte> header, long fileLength, uint diskType,
+        ulong currentSize, out VhdBatInfo bat)
     {
+        bat = default;
         if (header.Length != 1024 || !header.Slice(0, 8).SequenceEqual("cxsparse"u8) ||
             ReadUInt64(header, 8, littleEndian: false) != ulong.MaxValue || ReadUInt32BigEndian(header, 24) != 0x00010000 ||
             ComputeVhdChecksum(header, 36) != ReadUInt32BigEndian(header, 36)) return false;
@@ -520,6 +525,7 @@ internal static partial class Signatures
             for (int index = 40; index < 56; index++) parentId |= header[index] != 0;
             if (!parentId) return false;
         }
+        bat = new VhdBatInfo(tableOffset, tableLength, entries, blockSize);
         return true;
     }
 
@@ -554,7 +560,7 @@ internal static partial class Signatures
                 if (type != 5 || !TryReadCompactInt32(metadata, ref cursor, out int fileVersion) || fileVersion is not (1 or 2)) return false;
                 version = true;
             }
-            else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0, requiredElementType: 12)) return false; schema = true; }
+            else if (field == 2) { if (type != 9 || !TryValidateParquetSchemaList(metadata, ref cursor)) return false; schema = true; }
             else if (field == 3)
             {
                 if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out long rowCount) || rowCount < 0) return false;
@@ -564,6 +570,76 @@ internal static partial class Signatures
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
         return stopped && cursor == metadata.Length && version && schema && rows && rowGroups;
+    }
+
+    private static bool TryValidateParquetSchemaList(ReadOnlySpan<byte> src, ref int cursor)
+    {
+        if (cursor >= src.Length) return false;
+        byte listHeader = src[cursor++];
+        int count = listHeader >> 4;
+        if ((listHeader & 0x0F) != 12) return false;
+        if (count == 15)
+        {
+            if (!TryReadCompactVarint(src, ref cursor, out ulong longCount) || longCount > int.MaxValue) return false;
+            count = (int)longCount;
+        }
+        if (count == 0 || count > src.Length - cursor) return false;
+        int openSlots = 1;
+        for (int index = 0; index < count; index++)
+        {
+            if (openSlots-- <= 0 || !TryReadParquetSchemaElement(src, ref cursor,
+                    out bool hasType, out bool hasChildren, out int children)) return false;
+            if (index == 0)
+            {
+                if (hasType || !hasChildren) return false;
+            }
+            else if (children > 0 ? hasType : !hasType) return false;
+            if (children > count - index - 1 || openSlots > int.MaxValue - children) return false;
+            openSlots += children;
+        }
+        return openSlots == 0;
+    }
+
+    private static bool TryReadParquetSchemaElement(ReadOnlySpan<byte> src, ref int cursor,
+        out bool hasType, out bool hasChildren, out int children)
+    {
+        hasType = false;
+        hasChildren = false;
+        children = 0;
+        bool name = false;
+        short previous = 0;
+        var fields = new System.Collections.Generic.HashSet<short>();
+        while (cursor < src.Length)
+        {
+            byte header = src[cursor++];
+            if (header == 0) return name;
+            int delta = header >> 4;
+            int decodedField = delta == 0 ? ReadCompactFieldId(src, ref cursor) : previous + delta;
+            if (decodedField is <= 0 or > short.MaxValue) return false;
+            short field = (short)decodedField;
+            int type = header & 0x0F;
+            if (!fields.Add(field)) return false;
+            if (field == 1)
+            {
+                if (type != 5 || !TryReadCompactInt32(src, ref cursor, out int physicalType) || physicalType is < 0 or > 7) return false;
+                hasType = true;
+            }
+            else if (field == 4)
+            {
+                if (type != 8 || !TryReadCompactVarint(src, ref cursor, out ulong length) ||
+                    length == 0 || length > (ulong)(src.Length - cursor)) return false;
+                cursor += (int)length;
+                name = true;
+            }
+            else if (field == 5)
+            {
+                if (type != 5 || !TryReadCompactInt32(src, ref cursor, out children) || children < 0) return false;
+                hasChildren = true;
+            }
+            else if (!SkipCompactValue(src, ref cursor, type, 1)) return false;
+            previous = field;
+        }
+        return false;
     }
 
     private static short ReadCompactFieldId(ReadOnlySpan<byte> src, ref int cursor)
