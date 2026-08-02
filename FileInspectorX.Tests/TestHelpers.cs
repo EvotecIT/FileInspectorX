@@ -492,13 +492,14 @@ internal static class TestHelpers
         return stream.ToArray();
     }
 
-    internal static byte[] CreateMinimalMultipartOpenExr(int partCount = 2)
+    internal static byte[] CreateMinimalMultipartOpenExr(int partCount = 2, bool secondPartTiled = false)
     {
         using var stream = new MemoryStream();
         stream.Write(new byte[] { 0x76, 0x2F, 0x31, 0x01 }, 0, 4);
         WriteUInt32LittleEndian(stream, 2u | 0x00001000u);
         for (int part = 0; part < partCount; part++)
         {
+            bool tiled = secondPartTiled && part == 1;
             var channelList = new byte[19];
             channelList[0] = (byte)'R';
             WriteUInt32LittleEndian(channelList, 2, 2);
@@ -513,7 +514,14 @@ internal static class TestHelpers
             WriteOpenExrAttribute(stream, "screenWindowCenter", "v2f", new byte[8]);
             WriteOpenExrAttribute(stream, "screenWindowWidth", "float", new byte[] { 0, 0, 0x80, 0x3F });
             WriteOpenExrAttribute(stream, "name", "string", Encoding.ASCII.GetBytes("part" + part));
-            WriteOpenExrAttribute(stream, "type", "string", Encoding.ASCII.GetBytes("scanlineimage"));
+            WriteOpenExrAttribute(stream, "type", "string", Encoding.ASCII.GetBytes(tiled ? "tiledimage" : "scanlineimage"));
+            if (tiled)
+            {
+                var tileDescription = new byte[9];
+                WriteUInt32LittleEndian(tileDescription, 0, 1);
+                WriteUInt32LittleEndian(tileDescription, 4, 1);
+                WriteOpenExrAttribute(stream, "tiles", "tiledesc", tileDescription);
+            }
             WriteOpenExrAttribute(stream, "chunkCount", "int", new byte[] { 1, 0, 0, 0 });
             stream.WriteByte(0);
         }
@@ -522,10 +530,10 @@ internal static class TestHelpers
         for (int part = 0; part < partCount; part++)
         {
             WriteUInt64LittleEndian(stream, checked((ulong)chunkOffset));
-            chunkOffset += 16;
+            chunkOffset += secondPartTiled && part == 1 ? 28 : 16;
         }
         for (int part = 0; part < partCount; part++)
-            WriteOpenExrChunk(stream, tiled: false, deep: false, multipartPart: part);
+            WriteOpenExrChunk(stream, tiled: secondPartTiled && part == 1, deep: false, multipartPart: part);
         return stream.ToArray();
     }
 

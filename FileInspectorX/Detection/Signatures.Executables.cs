@@ -411,7 +411,10 @@ internal static partial class Signatures {
             if ((offset & (alignment - 1)) != 0) return false;
             if (offset + 12 <= (ulong)src.Length)
             {
-                if (!TryValidateMachSliceHeader(src.Slice((int)offset, 12), cpuType, cpuSubtype)) return false;
+                int available = (int)Math.Min(size, (ulong)src.Length - offset);
+                if (!TryValidateMachSlice(src.Slice((int)offset, available), size, cpuType, cpuSubtype,
+                        out bool sliceFullyValidated)) return false;
+                allSlicesSampled &= sliceFullyValidated;
             }
             else allSlicesSampled = false;
         }
@@ -447,7 +450,8 @@ internal static partial class Signatures {
                 uint commandCount = ReadUInt32(new ReadOnlySpan<byte>(prefix), 16, thinLittleEndian);
                 uint commandBytes = ReadUInt32(new ReadOnlySpan<byte>(prefix), 20, thinLittleEndian);
                 uint alignment = thin64Bit ? 8u : 4u;
-                if (!TryValidateMachLoadCommands(stream, headerSize, commandCount, commandBytes, alignment, thinLittleEndian,
+                if (!TryValidateMachLoadCommands(stream, 0, (ulong)stream.Length, headerSize, commandCount, commandBytes,
+                        alignment, thinLittleEndian,
                         out bool budgetExceeded)) return false;
                 if (budgetExceeded)
                 {
@@ -471,8 +475,29 @@ internal static partial class Signatures {
                 uint cpuType = ReadUInt32(entries, entry, littleEndian);
                 uint cpuSubtype = ReadUInt32(entries, entry + 4, littleEndian);
                 ulong offset = is64Bit ? ReadUInt64(entries, entry + 8, littleEndian) : ReadUInt32(entries, entry + 8, littleEndian);
-                if (offset > long.MaxValue || !TryReadAt(stream, (long)offset, 12, out var slice) ||
-                    !TryValidateMachSliceHeader(new ReadOnlySpan<byte>(slice), cpuType, cpuSubtype)) return false;
+                ulong size = is64Bit ? ReadUInt64(entries, entry + 16, littleEndian) : ReadUInt32(entries, entry + 12, littleEndian);
+                if (offset > long.MaxValue ||
+                    !TryReadAt(stream, (long)offset, (int)Math.Min(size, 32UL), out var sliceHeader) ||
+                    !TryValidateMachSlice(new ReadOnlySpan<byte>(sliceHeader), size, cpuType, cpuSubtype,
+                        out bool sliceFullyValidated)) return false;
+                if (!sliceFullyValidated)
+                {
+                    var slice = new ReadOnlySpan<byte>(sliceHeader);
+                    uint sliceMagic = ReadUInt32BigEndian(slice, 0);
+                    bool sliceLittleEndian = sliceMagic is 0xCEFAEDFE or 0xCFFAEDFE;
+                    bool slice64Bit = sliceMagic is 0xFEEDFACF or 0xCFFAEDFE;
+                    int headerSize = slice64Bit ? 32 : 28;
+                    uint commandCount = ReadUInt32(slice, 16, sliceLittleEndian);
+                    uint commandBytes = ReadUInt32(slice, 20, sliceLittleEndian);
+                    if (!TryValidateMachLoadCommands(stream, (long)offset, size, headerSize, commandCount, commandBytes,
+                            slice64Bit ? 8u : 4u, sliceLittleEndian, out bool budgetExceeded)) return false;
+                    if (budgetExceeded)
+                    {
+                        result!.Confidence = "Medium";
+                        result.Reason = result.Reason.Replace(";sampled-slices", string.Empty) + ";slice-validation-budget-exceeded";
+                        return true;
+                    }
+                }
             }
             result!.Confidence = "High";
             result.Reason = result.Reason.Replace(";sampled-slices", string.Empty);
@@ -489,22 +514,39 @@ internal static partial class Signatures {
         }
     }
 
-    private static bool TryValidateMachSliceHeader(ReadOnlySpan<byte> src, uint expectedCpuType, uint expectedCpuSubtype)
+    private static bool TryValidateMachSlice(ReadOnlySpan<byte> src, ulong declaredSize, uint expectedCpuType,
+        uint expectedCpuSubtype, out bool fullyValidated)
     {
+        fullyValidated = false;
         if (src.Length < 12) return false;
         uint magic = ReadUInt32BigEndian(src, 0);
         bool littleEndian = magic is 0xCEFAEDFE or 0xCFFAEDFE;
         if (magic is not (0xFEEDFACE or 0xCEFAEDFE or 0xFEEDFACF or 0xCFFAEDFE)) return false;
-        return ReadUInt32(src, 4, littleEndian) == expectedCpuType &&
-               ReadUInt32(src, 8, littleEndian) == expectedCpuSubtype;
+        bool is64Bit = magic is 0xFEEDFACF or 0xCFFAEDFE;
+        int headerSize = is64Bit ? 32 : 28;
+        if (ReadUInt32(src, 4, littleEndian) != expectedCpuType ||
+            ReadUInt32(src, 8, littleEndian) != expectedCpuSubtype || declaredSize < (ulong)headerSize) return false;
+        if (src.Length < headerSize) return true;
+        uint fileType = ReadUInt32(src, 12, littleEndian);
+        uint commandCount = ReadUInt32(src, 16, littleEndian);
+        uint commandBytes = ReadUInt32(src, 20, littleEndian);
+        uint alignment = is64Bit ? 8u : 4u;
+        if (fileType < 1 || fileType > 14 || commandBytes % alignment != 0 ||
+            (commandCount == 0 ? commandBytes != 0 : commandBytes / 8 < commandCount) ||
+            (ulong)headerSize + commandBytes > declaredSize) return false;
+        if ((ulong)headerSize + commandBytes > (ulong)src.Length) return true;
+        if (!TryValidateMachLoadCommands(src.Slice(headerSize, (int)commandBytes), commandCount, alignment, littleEndian)) return false;
+        fullyValidated = true;
+        return true;
     }
 
-    private static bool TryValidateMachLoadCommands(Stream stream, int headerSize, uint commandCount,
+    private static bool TryValidateMachLoadCommands(Stream stream, long baseOffset, ulong declaredSize, int headerSize, uint commandCount,
         uint commandBytes, uint alignment, bool littleEndian, out bool budgetExceeded)
     {
         budgetExceeded = false;
         long cursor = headerSize;
         long commandEnd = headerSize + (long)commandBytes;
+        if ((ulong)commandEnd > declaredSize || baseOffset < 0 || baseOffset > stream.Length - commandEnd) return false;
         int commandBudget = Math.Max(32, Math.Min(4096, Math.Max(256, Settings.DetectionReadBudgetBytes) / 8));
         for (uint index = 0; index < commandCount; index++)
         {
@@ -513,7 +555,7 @@ internal static partial class Signatures {
                 budgetExceeded = true;
                 return true;
             }
-            if (cursor > commandEnd - 8 || !TryReadAt(stream, cursor, 8, out var commandHeader)) return false;
+            if (cursor > commandEnd - 8 || !TryReadAt(stream, baseOffset + cursor, 8, out var commandHeader)) return false;
             var header = new ReadOnlySpan<byte>(commandHeader);
             uint command = ReadUInt32(header, 0, littleEndian);
             uint size = ReadUInt32(header, 4, littleEndian);

@@ -543,7 +543,11 @@ internal static partial class Signatures
             previousField = field;
             if (field == 1) { if (type != 5 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; version = true; }
             else if (field == 2) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: true, 0, requiredElementType: 12)) return false; schema = true; }
-            else if (field == 3) { if (type != 6 || !SkipCompactValue(metadata, ref cursor, type, 0)) return false; rows = true; }
+            else if (field == 3)
+            {
+                if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out long rowCount) || rowCount < 0) return false;
+                rows = true;
+            }
             else if (field == 4) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: false, 0, requiredElementType: 12)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
@@ -618,6 +622,14 @@ internal static partial class Signatures
             if ((current & 0x80) == 0) return true;
         }
         return false;
+    }
+
+    private static bool TryReadCompactInt64(ReadOnlySpan<byte> src, ref int cursor, out long value)
+    {
+        value = 0;
+        if (!TryReadCompactVarint(src, ref cursor, out ulong encoded)) return false;
+        value = (long)(encoded >> 1) ^ -((long)encoded & 1L);
+        return true;
     }
 
     private static bool TryValidateArrowFooter(ReadOnlySpan<byte> footer)

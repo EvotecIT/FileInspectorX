@@ -148,8 +148,9 @@ internal static partial class Signatures
         if (version == 3)
         {
             if (src.Length < 104) return false;
+            uint refcountOrder = ReadUInt32BigEndian(src, 96);
             headerLength = ReadUInt32BigEndian(src, 100);
-            if (headerLength < 104 || (headerLength & 7) != 0 || headerLength > clusterSize ||
+            if (refcountOrder > 6 || headerLength < 104 || (headerLength & 7) != 0 || headerLength > clusterSize ||
                 (completeLength.HasValue && headerLength > completeLength.Value)) return false;
         }
         bool extendedL2 = version == 3 && src.Length >= 80 && (ReadUInt64(src, 72, littleEndian: false) & 0x10UL) != 0;
@@ -305,7 +306,7 @@ internal static partial class Signatures
     }
 
     private static bool IsKnownDdsDxgiFormat(uint format)
-        => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190 or 191;
+        => format is >= 1 and <= 115 or >= 130 and <= 132 or 189 or 190;
 
     private static bool IsKnownNumericDdsFourCc(uint format)
         => format == 36 || format is >= 110 and <= 116;

@@ -30,8 +30,11 @@ public sealed class TwentyFourthReviewRegressionTests
     }
 
     [Fact]
-    public void DdsAcceptsDxgiA4B4G4R4()
-        => AssertParity(DdsDx10(dxgiFormat: 191), "dds");
+    public void DdsRejectsReservedDxgiFormat191()
+    {
+        AssertParity(DdsDx10(dxgiFormat: 190), "dds");
+        AssertNotDetectedAs(DdsDx10(dxgiFormat: 191), "dds");
+    }
 
     private static void AssertParity(byte[] bytes, string extension)
     {

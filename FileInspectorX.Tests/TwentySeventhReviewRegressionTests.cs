@@ -247,6 +247,7 @@ public sealed class TwentySeventhReviewRegressionTests
         new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, offset);
         TestHelpers.WriteUInt32LittleEndian(bytes, offset + 4, 0x01000007);
         TestHelpers.WriteUInt32LittleEndian(bytes, offset + 8, 3);
+        TestHelpers.WriteUInt32LittleEndian(bytes, offset + 12, 1);
     }
 
     private static byte[] DdsDx10()

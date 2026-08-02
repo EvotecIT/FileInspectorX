@@ -23,7 +23,7 @@ internal static partial class Signatures {
         int cursor = 8;
         bool sawAnyPart = false;
         ulong totalChunkCount = 0;
-        bool firstPartTiled = tiled;
+        var partLayouts = new System.Collections.Generic.List<OpenExrPartLayout>();
         var multipartPartNames = new System.Collections.Generic.HashSet<string>();
         while (true)
         {
@@ -40,6 +40,7 @@ internal static partial class Signatures {
             bool typeAttribute = false;
             bool chunkCount = false;
             bool partRequiresTiles = tiled;
+            bool partIsDeep = deep;
             bool sawAttribute = false;
             byte compressionValue = 0;
             int dataMinX = 0, dataMinY = 0, dataMaxX = -1, dataMaxY = -1;
@@ -114,6 +115,7 @@ internal static partial class Signatures {
                         string partType = System.Text.Encoding.ASCII.GetString(value.ToArray());
                         if (partType is not ("scanlineimage" or "tiledimage" or "deepscanline" or "deeptile")) return false;
                         partRequiresTiles = partType is "tiledimage" or "deeptile";
+                        partIsDeep = partType is "deepscanline" or "deeptile";
                     }
                 }
                 if (multipart && name == "chunkCount")
@@ -145,7 +147,7 @@ internal static partial class Signatures {
                 partChunks = DivideRoundUp(height, GetOpenExrScanLinesPerChunk(compressionValue));
             }
             if (partChunks == 0 || totalChunkCount > ulong.MaxValue - partChunks) return false;
-            if (totalChunkCount == 0) firstPartTiled = partRequiresTiles;
+            partLayouts.Add(new OpenExrPartLayout(partRequiresTiles, partIsDeep, partChunks));
             totalChunkCount += partChunks;
 
             if (!multipart) break;
@@ -158,7 +160,7 @@ internal static partial class Signatures {
         }
 
         if (!TryValidateOpenExrChunkFraming(src, cursor, completeLength, totalChunkCount,
-                multipart, firstPartTiled, deep, out bool chunkFramingValidated))
+                multipart, partLayouts, out bool chunkFramingValidated))
             return false;
 
         result = new ContentTypeDetectionResult {
@@ -176,19 +178,26 @@ internal static partial class Signatures {
     private static uint GetOpenExrScanLinesPerChunk(byte compression)
         => compression switch { 3 or 5 => 16, 4 or 6 or 7 or 8 or 11 => 32, 9 or 10 => 256, _ => 1 };
 
+    private readonly struct OpenExrPartLayout
+    {
+        internal OpenExrPartLayout(bool tiled, bool deep, ulong chunkCount) { Tiled = tiled; Deep = deep; ChunkCount = chunkCount; }
+        internal bool Tiled { get; }
+        internal bool Deep { get; }
+        internal ulong ChunkCount { get; }
+    }
+
     private static bool TryValidateOpenExrChunkFraming(ReadOnlySpan<byte> src, int tableOffset, long? completeLength,
-        ulong chunkCount, bool multipart, bool tiled, bool deep, out bool fullyValidated)
+        ulong chunkCount, bool multipart, System.Collections.Generic.List<OpenExrPartLayout> partLayouts,
+        out bool fullyValidated)
     {
         fullyValidated = false;
-        if (chunkCount == 0 || chunkCount > (ulong)int.MaxValue / 8) return false;
+        if (chunkCount == 0 || chunkCount > (ulong)int.MaxValue / 8 || partLayouts.Count == 0 ||
+            (!multipart && partLayouts.Count != 1)) return false;
         ulong tableEnd = (ulong)tableOffset + chunkCount * 8;
         if (completeLength.HasValue && tableEnd > (ulong)completeLength.Value) return false;
         if (tableEnd > (ulong)src.Length)
             return !completeLength.HasValue || completeLength.Value > src.Length;
 
-        int partPrefix = multipart ? 4 : 0;
-        int sizeOffset = partPrefix + (tiled ? 16 : 4);
-        int chunkHeaderLength = partPrefix + (tiled ? (deep ? 40 : 20) : (deep ? 28 : 8));
         ulong offsetBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
         ulong inspectedOffsetCount = Math.Min(chunkCount, offsetBudget);
         var offsets = new System.Collections.Generic.HashSet<ulong>();
@@ -196,18 +205,29 @@ internal static partial class Signatures {
             ulong offset = ReadUInt64(src, tableOffset + checked((int)(index * 8)), true);
             if (!offsets.Add(offset) || offset < tableEnd ||
                 completeLength.HasValue && (offset > (ulong)completeLength.Value ||
-                    (ulong)chunkHeaderLength > (ulong)completeLength.Value - offset)) return false;
+                    (ulong)(multipart ? 4 : 8) > (ulong)completeLength.Value - offset)) return false;
         }
         if (inspectedOffsetCount != chunkCount) return true;
-        ulong chunkBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / Math.Max(8, chunkHeaderLength));
+        ulong chunkBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
         if (chunkCount > chunkBudget) return true;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>((int)chunkCount);
+        var partChunkCounts = new ulong[partLayouts.Count];
         foreach (ulong offset in offsets) {
-            if (offset > int.MaxValue || offset + (ulong)chunkHeaderLength > (ulong)src.Length)
+            if (offset > int.MaxValue || offset + (ulong)(multipart ? 4 : 8) > (ulong)src.Length)
                 return !completeLength.HasValue || completeLength.Value > src.Length;
             int chunk = (int)offset;
+            int partNumber = multipart ? unchecked((int)ReadUInt32(src, chunk, true)) : 0;
+            if (partNumber < 0 || partNumber >= partLayouts.Count) return false;
+            partChunkCounts[partNumber]++;
+            OpenExrPartLayout layout = partLayouts[partNumber];
+            int partPrefix = multipart ? 4 : 0;
+            int sizeOffset = partPrefix + (layout.Tiled ? 16 : 4);
+            int chunkHeaderLength = partPrefix + (layout.Tiled ? (layout.Deep ? 40 : 20) : (layout.Deep ? 28 : 8));
+            if (completeLength.HasValue && (ulong)chunkHeaderLength > (ulong)completeLength.Value - offset) return false;
+            if (offset + (ulong)chunkHeaderLength > (ulong)src.Length)
+                return !completeLength.HasValue || completeLength.Value > src.Length;
             ulong payloadLength;
-            if (deep) {
+            if (layout.Deep) {
                 ulong offsetTableLength = ReadUInt64(src, chunk + sizeOffset, true);
                 ulong sampleDataLength = ReadUInt64(src, chunk + sizeOffset + 8, true);
                 if (offsetTableLength > ulong.MaxValue - sampleDataLength) return false;
@@ -219,6 +239,8 @@ internal static partial class Signatures {
             if (payloadEnd > (ulong)src.Length) return !completeLength.HasValue || completeLength.Value > src.Length;
             ranges.Add((offset, payloadEnd));
         }
+        for (int part = 0; part < partLayouts.Count; part++)
+            if (partChunkCounts[part] != partLayouts[part].ChunkCount) return false;
         ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
         for (int index = 1; index < ranges.Count; index++)
             if (ranges[index].Start < ranges[index - 1].End) return false;
@@ -790,20 +812,90 @@ internal static partial class Signatures {
     private static bool TryValidateJpeg2000HeaderPayload(ReadOnlySpan<byte> payload, uint brand)
     {
         if (brand == 0x6A706D20) return payload.Length >= 8 && ReadUInt32BigEndian(payload, 0) >= 8 && ReadUInt32BigEndian(payload, 0) <= payload.Length;
-        if (payload.Length < 22 || ReadUInt32BigEndian(payload, 0) != 22 || ReadUInt32BigEndian(payload, 4) != 0x69686472) return false;
-        uint height = ReadUInt32BigEndian(payload, 8);
-        uint width = ReadUInt32BigEndian(payload, 12);
-        ushort components = ReadUInt16BigEndian(payload, 16);
-        byte bits = payload[18];
-        return height != 0 && width != 0 && components != 0 && (bits & 0x7F) <= 37 && payload[19] == 7 &&
-               payload[20] <= 1 && payload[21] <= 1;
+        if (!TryValidateJpeg2000ImageHeader(payload, out ushort components, out byte bits)) return false;
+        bool sawBitsPerComponent = false;
+        int cursor = 22;
+        while (cursor < payload.Length)
+        {
+            if (cursor + 8 > payload.Length) return false;
+            uint length32 = ReadUInt32BigEndian(payload, cursor);
+            uint type = ReadUInt32BigEndian(payload, cursor + 4);
+            long boxLength = length32;
+            int headerLength = 8;
+            if (length32 == 1)
+            {
+                if (cursor + 16 > payload.Length) return false;
+                ulong large = ReadUInt64(payload, cursor + 8, false);
+                if (large > long.MaxValue) return false;
+                boxLength = (long)large;
+                headerLength = 16;
+            }
+            else if (length32 == 0) boxLength = payload.Length - cursor;
+            if (boxLength < headerLength || boxLength > payload.Length - cursor) return false;
+            if (type == 0x62706363)
+            {
+                if (sawBitsPerComponent || boxLength != headerLength + components) return false;
+                var componentDepths = payload.Slice(cursor + headerLength, components);
+                for (int component = 0; component < componentDepths.Length; component++)
+                    if ((componentDepths[component] & 0x7F) > 37) return false;
+                sawBitsPerComponent = true;
+            }
+            cursor += (int)boxLength;
+        }
+        return (bits == 0xFF) == sawBitsPerComponent;
     }
 
     private static bool TryValidateJpeg2000HeaderPayload(Stream stream, long offset, long length, uint brand)
     {
         int required = brand == 0x6A706D20 ? 8 : 22;
-        return length >= required && TryReadAt(stream, offset, required, out var bytes) &&
-               TryValidateJpeg2000HeaderPayload(new ReadOnlySpan<byte>(bytes), brand);
+        if (length < required || !TryReadAt(stream, offset, required, out var bytes)) return false;
+        if (brand == 0x6A706D20) return TryValidateJpeg2000HeaderPayload(new ReadOnlySpan<byte>(bytes), brand);
+        if (!TryValidateJpeg2000ImageHeader(new ReadOnlySpan<byte>(bytes), out ushort components, out byte bits)) return false;
+        bool sawBitsPerComponent = false;
+        long cursor = 22;
+        int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
+        while (cursor < length)
+        {
+            if (remainingHeaders-- == 0 || cursor > length - 8 || !TryReadAt(stream, offset + cursor, 8, out var childHeader)) return false;
+            var child = new ReadOnlySpan<byte>(childHeader);
+            uint length32 = ReadUInt32BigEndian(child, 0);
+            uint type = ReadUInt32BigEndian(child, 4);
+            long boxLength = length32;
+            int headerLength = 8;
+            if (length32 == 1)
+            {
+                if (cursor > length - 16 || !TryReadAt(stream, offset + cursor + 8, 8, out var extended)) return false;
+                ulong large = ReadUInt64(new ReadOnlySpan<byte>(extended), 0, false);
+                if (large > long.MaxValue) return false;
+                boxLength = (long)large;
+                headerLength = 16;
+            }
+            else if (length32 == 0) boxLength = length - cursor;
+            if (boxLength < headerLength || boxLength > length - cursor) return false;
+            if (type == 0x62706363)
+            {
+                if (sawBitsPerComponent || boxLength != headerLength + components ||
+                    !TryReadAt(stream, offset + cursor + headerLength, components, out var depths)) return false;
+                for (int component = 0; component < depths.Length; component++)
+                    if ((depths[component] & 0x7F) > 37) return false;
+                sawBitsPerComponent = true;
+            }
+            cursor += boxLength;
+        }
+        return (bits == 0xFF) == sawBitsPerComponent;
+    }
+
+    private static bool TryValidateJpeg2000ImageHeader(ReadOnlySpan<byte> payload, out ushort components, out byte bits)
+    {
+        components = 0;
+        bits = 0;
+        if (payload.Length < 22 || ReadUInt32BigEndian(payload, 0) != 22 || ReadUInt32BigEndian(payload, 4) != 0x69686472) return false;
+        uint height = ReadUInt32BigEndian(payload, 8);
+        uint width = ReadUInt32BigEndian(payload, 12);
+        components = ReadUInt16BigEndian(payload, 16);
+        bits = payload[18];
+        return height != 0 && width != 0 && components != 0 && (bits == 0xFF || (bits & 0x7F) <= 37) &&
+               payload[19] == 7 && payload[20] <= 1 && payload[21] <= 1;
     }
 
     private static bool TryValidateJpeg2000Codestream(ReadOnlySpan<byte> payload)

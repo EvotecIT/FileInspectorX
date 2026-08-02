@@ -242,7 +242,7 @@ internal static partial class Signatures {
             for (ulong index = 0; index < count; index++) {
                 int entry = checked(offset + countSize + (int)index * entrySize);
                 ushort type = ReadUInt16(src, entry + 2, littleEndian);
-                int typeSize = GetTiffTypeSize(type);
+                int typeSize = GetTiffTypeSize(type, isBigTiff);
                 ulong valueCount = isBigTiff ? ReadUInt64(src, entry + 4, littleEndian) : ReadUInt32(src, entry + 4, littleEndian);
                 if (typeSize == 0 || valueCount > ulong.MaxValue / (uint)typeSize) return TiffDirectoryStatus.Invalid;
                 ulong valueLength = valueCount * (uint)typeSize;
@@ -280,7 +280,7 @@ internal static partial class Signatures {
             var payload = new ReadOnlySpan<byte>(payloadBytes);
             for (ulong index = 0; index < count; index++) {
                 int entry = checked((int)index * entrySize);
-                int typeSize = GetTiffTypeSize(ReadUInt16(payload, entry + 2, littleEndian));
+                int typeSize = GetTiffTypeSize(ReadUInt16(payload, entry + 2, littleEndian), isBigTiff);
                 ulong valueCount = isBigTiff ? ReadUInt64(payload, entry + 4, littleEndian) : ReadUInt32(payload, entry + 4, littleEndian);
                 if (typeSize == 0 || valueCount > ulong.MaxValue / (uint)typeSize) return TiffDirectoryStatus.Invalid;
                 ulong valueLength = valueCount * (uint)typeSize;
@@ -299,11 +299,12 @@ internal static partial class Signatures {
         return TiffDirectoryStatus.Complete;
     }
 
-    private static int GetTiffTypeSize(ushort type) => type switch {
+    private static int GetTiffTypeSize(ushort type, bool isBigTiff) => type switch {
         1 or 2 or 6 or 7 => 1,
         3 or 8 => 2,
         4 or 9 or 11 or 13 => 4,
-        5 or 10 or 12 or 16 or 17 or 18 => 8,
+        5 or 10 or 12 => 8,
+        16 or 17 or 18 when isBigTiff => 8,
         _ => 0
     };
 

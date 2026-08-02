@@ -118,6 +118,7 @@ public sealed class FourteenthReviewRegressionTests
         new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, 64);
         WriteUInt32LittleEndian(bytes, 68, 0x01000007);
         WriteUInt32LittleEndian(bytes, 72, 3);
+        WriteUInt32LittleEndian(bytes, 76, 1);
         return bytes;
     }
 

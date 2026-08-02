@@ -241,9 +241,10 @@ internal static partial class Signatures {
             return true;
         }
 
-        private bool TrySkipName(bool isCdf5) {
-            if (!TryReadNonNegative(isCdf5, out ulong length) || length == 0 ||
-                !TryScanName(length, out byte last)) return false;
+        private bool TryReadName(bool isCdf5, out string name) {
+            name = string.Empty;
+            if (!TryReadNonNegative(isCdf5, out ulong length) || length == 0 || length > int.MaxValue ||
+                !TryScanName(length, out name, out byte last)) return false;
             if (last == (byte)' ') return false;
             int padding = (int)((4 - (length & 3)) & 3);
             for (int i = 0; i < padding; i++)
@@ -251,13 +252,21 @@ internal static partial class Signatures {
             return true;
         }
 
-        private bool TryScanName(ulong length, out byte last)
+        private bool TryScanName(ulong length, out string name, out byte last)
         {
+            name = string.Empty;
             last = 0;
             long available = Math.Max(0, _length - _stream.Position);
             ulong scanLength = Math.Min(length, (ulong)available);
             if ((ulong)Math.Max(0, _remainingBudget) < scanLength) scanLength = (ulong)Math.Max(0, _remainingBudget);
+            if (scanLength < length)
+            {
+                if (_remainingBudget <= 0 || scanLength == (ulong)Math.Max(0, _remainingBudget)) BudgetExceeded = true;
+                else Incomplete = _sampleMayContinue;
+                return false;
+            }
             var buffer = new byte[4096];
+            var characters = new char[(int)length];
             ulong scanned = 0;
             while (scanned < scanLength)
             {
@@ -269,17 +278,13 @@ internal static partial class Signatures {
                 {
                     byte current = buffer[i];
                     if (current < 0x20 || current == (byte)'/' || current == 0x7F) return false;
+                    characters[(int)scanned + i] = (char)current;
                     last = current;
                 }
                 scanned += (uint)read;
             }
-            if (scanned < length)
-            {
-                if (_remainingBudget <= 0) BudgetExceeded = true;
-                else Incomplete = _sampleMayContinue;
-                return false;
-            }
             StructuralEvidence++;
+            name = new string(characters);
             return true;
         }
 
@@ -288,9 +293,11 @@ internal static partial class Signatures {
             if (!TryReadListHeader(isCdf5, 10, out ulong count) || count > int.MaxValue) return false;
             lengths = new ulong[(int)count];
             bool unlimited = false;
+            var names = new System.Collections.Generic.HashSet<string>();
             for (int i = 0; i < lengths.Length; i++)
             {
-                if (!TrySkipName(isCdf5) || !TryReadNonNegative(isCdf5, out ulong dimensionLength) ||
+                if (!TryReadName(isCdf5, out string name) || !names.Add(name) ||
+                    !TryReadNonNegative(isCdf5, out ulong dimensionLength) ||
                     dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue) || (dimensionLength == 0 && unlimited)) return false;
                 unlimited |= dimensionLength == 0;
                 lengths[i] = dimensionLength;
@@ -300,8 +307,9 @@ internal static partial class Signatures {
 
         internal bool TrySkipAttributes(bool isCdf5) {
             if (!TryReadListHeader(isCdf5, 12, out ulong count)) return false;
+            var names = new System.Collections.Generic.HashSet<string>();
             for (ulong i = 0; i < count; i++) {
-                if (!TrySkipName(isCdf5) || !TryReadUInt32(out uint type) ||
+                if (!TryReadName(isCdf5, out string name) || !names.Add(name) || !TryReadUInt32(out uint type) ||
                     !TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) ||
                     !TryReadNonNegative(isCdf5, out ulong valueCount) || valueCount > ulong.MaxValue / (uint)typeSize)
                     return false;
@@ -329,8 +337,10 @@ internal static partial class Signatures {
             rangesFullyValidated = false;
             if (!TryReadListHeader(isCdf5, 11, out ulong count)) return false;
             var ranges = new System.Collections.Generic.List<NetCdfVariableRange>();
+            var names = new System.Collections.Generic.HashSet<string>();
             for (ulong i = 0; i < count; i++) {
-                if (!TrySkipName(isCdf5) || !TryReadNonNegative(isCdf5, out ulong dimensions) || dimensions > 4095) return false;
+                if (!TryReadName(isCdf5, out string name) || !names.Add(name) ||
+                    !TryReadNonNegative(isCdf5, out ulong dimensions) || dimensions > 4095) return false;
                 var dimensionIds = new ulong[(int)dimensions];
                 for (int dimension = 0; dimension < dimensionIds.Length; dimension++)
                     if (!TryReadNonNegative(isCdf5, out dimensionIds[dimension]) || dimensionIds[dimension] >= (ulong)dimensionLengths.Length) return false;
@@ -367,9 +377,10 @@ internal static partial class Signatures {
         if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 10, out ulong count) || count > int.MaxValue) return false;
         lengths = new ulong[(int)count];
         bool unlimited = false;
+        var names = new System.Collections.Generic.HashSet<string>();
         for (int i = 0; i < lengths.Length; i++)
         {
-            if (!TrySkipNetCdfName(src, ref cursor, isCdf5) ||
+            if (!TryReadNetCdfName(src, ref cursor, isCdf5, out string name) || !names.Add(name) ||
                 !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong dimensionLength) ||
                 dimensionLength == (isCdf5 ? ulong.MaxValue : uint.MaxValue) || (dimensionLength == 0 && unlimited)) return false;
             unlimited |= dimensionLength == 0;
@@ -381,9 +392,10 @@ internal static partial class Signatures {
     private static bool TrySkipNetCdfAttributes(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5)
     {
         if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 12, out ulong count)) return false;
+        var names = new System.Collections.Generic.HashSet<string>();
         for (ulong i = 0; i < count; i++)
         {
-            if (!TrySkipNetCdfName(src, ref cursor, isCdf5) || cursor + 4 > src.Length) return false;
+            if (!TryReadNetCdfName(src, ref cursor, isCdf5, out string name) || !names.Add(name) || cursor + 4 > src.Length) return false;
             uint type = ReadUInt32BigEndian(src, cursor);
             cursor += 4;
             if (!TryGetNetCdfTypeSize(type, isCdf5, out int typeSize) ||
@@ -405,9 +417,10 @@ internal static partial class Signatures {
         rangesFullyValidated = false;
         if (!TryReadNetCdfListHeader(src, ref cursor, isCdf5, 11, out ulong count)) return false;
         var ranges = new System.Collections.Generic.List<NetCdfVariableRange>();
+        var names = new System.Collections.Generic.HashSet<string>();
         for (ulong i = 0; i < count; i++)
         {
-            if (!TrySkipNetCdfName(src, ref cursor, isCdf5) ||
+            if (!TryReadNetCdfName(src, ref cursor, isCdf5, out string name) || !names.Add(name) ||
                 !TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong dimensions) || dimensions > 4095) return false;
             var dimensionIds = new ulong[(int)dimensions];
             for (int dimension = 0; dimension < dimensionIds.Length; dimension++)
@@ -553,10 +566,11 @@ internal static partial class Signatures {
         return tag == expectedTag && count is > 0 and <= 1000000;
     }
 
-    private static bool TrySkipNetCdfName(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5)
+    private static bool TryReadNetCdfName(ReadOnlySpan<byte> src, ref int cursor, bool isCdf5, out string name)
     {
+        name = string.Empty;
         if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong length) ||
-            length == 0 || length > (ulong)(src.Length - cursor)) return false;
+            length == 0 || length > int.MaxValue || length > (ulong)(src.Length - cursor)) return false;
         ulong padded = (length + 3) & ~3UL;
         if (padded > (ulong)(src.Length - cursor) || src[cursor] <= 0x20 || src[cursor] == (byte)'/' || src[cursor] == 0x7F) return false;
         for (ulong character = 0; character < length; character++)
@@ -565,6 +579,9 @@ internal static partial class Signatures {
         if (src[cursor + (int)length - 1] == (byte)' ') return false;
         for (ulong padding = length; padding < padded; padding++)
             if (src[cursor + (int)padding] != 0) return false;
+        var characters = new char[(int)length];
+        for (int character = 0; character < characters.Length; character++) characters[character] = (char)src[cursor + character];
+        name = new string(characters);
         cursor += (int)padded;
         return true;
     }

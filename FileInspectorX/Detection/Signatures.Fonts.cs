@@ -4,6 +4,18 @@ namespace FileInspectorX;
 /// OpenType and Web Open Font Format detection.
 /// </summary>
 internal static partial class Signatures {
+    private static readonly uint[] Woff2KnownTableTags = {
+        0x636D6170, 0x68656164, 0x68686561, 0x686D7478, 0x6D617870, 0x6E616D65, 0x4F532F32,
+        0x706F7374, 0x63767420, 0x6670676D, 0x676C7966, 0x6C6F6361, 0x70726570, 0x43464620,
+        0x564F5247, 0x45424454, 0x45424C43, 0x67617370, 0x68646D78, 0x6B65726E, 0x4C545348,
+        0x50434C54, 0x56444D58, 0x76686561, 0x766D7478, 0x42415345, 0x47444546, 0x47504F53,
+        0x47535542, 0x45425343, 0x4A535446, 0x4D415448, 0x43424454, 0x43424C43, 0x434F4C52,
+        0x4350414C, 0x53564720, 0x73626978, 0x61636E74, 0x61766172, 0x62646174, 0x626C6F63,
+        0x62736C6E, 0x63766172, 0x66647363, 0x66656174, 0x666D7478, 0x66766172, 0x67766172,
+        0x68737479, 0x6A757374, 0x6C636172, 0x6D6F7274, 0x6D6F7278, 0x6F706264, 0x70726F70,
+        0x7472616B, 0x5A617066, 0x53696C66, 0x476C6174, 0x476C6F63, 0x46656174, 0x53696C6C
+    };
+
     internal static bool TryMatchFont(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchFont(src, src.Length, out result);
 
@@ -384,6 +396,7 @@ internal static partial class Signatures {
             bool sawHhea = false;
             bool sawMaxp = false;
             bool sawHmtxTransform = false;
+            var tableTags = new System.Collections.Generic.HashSet<uint>();
             for (int table = 0; table < tableCount; table++)
             {
                 if (cursor >= src.Length) return false;
@@ -395,17 +408,20 @@ internal static partial class Signatures {
                 bool isHmtx = tagIndex == 3;
                 bool isHhea = tagIndex == 2;
                 bool isMaxp = tagIndex == 4;
+                uint tableTag;
                 if (tagIndex == 0x3F) {
                     if (src.Length < cursor + 4) return false;
                     for (int i = 0; i < 4; i++)
                         if (src[cursor + i] < 0x20 || src[cursor + i] > 0x7E) return false;
+                    tableTag = ReadUInt32BigEndian(src, cursor);
                     isGlyf = src.Slice(cursor, 4).SequenceEqual("glyf"u8);
                     isLoca = src.Slice(cursor, 4).SequenceEqual("loca"u8);
                     isHmtx = src.Slice(cursor, 4).SequenceEqual("hmtx"u8);
                     isHhea = src.Slice(cursor, 4).SequenceEqual("hhea"u8);
                     isMaxp = src.Slice(cursor, 4).SequenceEqual("maxp"u8);
                     cursor += 4;
-                }
+                } else tableTag = Woff2KnownTableTags[tagIndex];
+                if (!tableTags.Add(tableTag)) return false;
                 if (!TryReadUIntBase128(src, ref cursor, out uint originalLength) || originalLength == 0) return false;
                 if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
                 if (transformed && (!TryReadUIntBase128(src, ref cursor, out uint transformedLength) ||
@@ -434,10 +450,12 @@ internal static partial class Signatures {
                 return true;
             }
             ulong fontDataEnd = (ulong)minimumLength;
+            var tableTags = new System.Collections.Generic.HashSet<uint>();
             for (int table = 0; table < tableCount; table++) {
                 int record = 44 + table * 20;
                 for (int tag = 0; tag < 4; tag++)
                     if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
+                if (!tableTags.Add(ReadUInt32BigEndian(src, record))) return false;
                 uint tableOffset = ReadUInt32BigEndian(src, record + 4);
                 uint compressedLength = ReadUInt32BigEndian(src, record + 8);
                 uint originalLength = ReadUInt32BigEndian(src, record + 12);

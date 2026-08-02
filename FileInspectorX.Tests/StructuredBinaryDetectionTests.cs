@@ -328,6 +328,7 @@ public sealed class StructuredBinaryDetectionTests
         new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(bytes, 4096);
         WriteUInt32LittleEndian(bytes, 4100, 0x01000007);
         WriteUInt32LittleEndian(bytes, 4104, 3);
+        WriteUInt32LittleEndian(bytes, 4108, 1);
         return bytes;
     }
 
