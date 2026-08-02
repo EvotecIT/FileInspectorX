@@ -416,6 +416,11 @@ internal static partial class Signatures
             result.Reason += ";encoding-size-not-validated";
         }
         if (!completeLength.HasValue) { result.Confidence = "Medium"; result.Reason += ";sampled-length-unknown"; }
+        else if (encodingSizeKnown && (ulong)completeLength.Value > (ulong)headerLength + minimumPayload)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";trailing-data-not-validated";
+        }
         return true;
     }
 

@@ -102,7 +102,7 @@ public sealed class TwentyFourthReviewRegressionTests
 
     private static byte[] DdsDx10(uint dxgiFormat)
     {
-        var bytes = new byte[152];
+        var bytes = new byte[dxgiFormat == 190 ? 150 : 152];
         Encoding.ASCII.GetBytes("DDS ").CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, 4, 124);
         WriteUInt32LittleEndian(bytes, 8, 0x1007);

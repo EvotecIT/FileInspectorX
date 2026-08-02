@@ -24,6 +24,7 @@ internal static partial class Signatures
         int cursor = 2;
         bool sawFrame = false, sawScan = false, entropy = false;
         bool frameNeedsDnl = false, sawDnl = false;
+        byte frameMarker = 0;
         Span<bool> frameComponents = stackalloc bool[256];
         Span<bool> scanComponents = stackalloc bool[256];
         while (cursor < limit)
@@ -78,6 +79,7 @@ internal static partial class Signatures
                         return CommonBinaryValidation.Invalid;
                     frameComponents[identifier] = true;
                 }
+                frameMarker = marker;
                 sawFrame = true;
             }
             if (marker == 0xDA)
@@ -97,6 +99,9 @@ internal static partial class Signatures
                         return CommonBinaryValidation.Invalid;
                     scanComponents[identifier] = true;
                 }
+                int scanParameters = cursor + 3 + componentCount * 2;
+                if (!IsValidJpegScanParameters(frameMarker, src[scanParameters], src[scanParameters + 1],
+                        src[scanParameters + 2])) return CommonBinaryValidation.Invalid;
                 sawScan = true;
                 entropy = true;
             }
@@ -118,6 +123,20 @@ internal static partial class Signatures
     {
         if (marker is 0xC3 or 0xC7 or 0xCB or 0xCF) return precision is >= 2 and <= 16;
         return marker == 0xC0 ? precision == 8 : precision is 8 or 12;
+    }
+
+    private static bool IsValidJpegScanParameters(byte frameMarker, byte spectralStart, byte spectralEnd,
+        byte approximation)
+    {
+        byte successiveHigh = (byte)(approximation >> 4);
+        byte successiveLow = (byte)(approximation & 0x0F);
+        if (frameMarker is 0xC3 or 0xC7 or 0xCB or 0xCF)
+            return spectralStart is >= 1 and <= 7 && spectralEnd == 0 && successiveHigh == 0 && successiveLow <= 15;
+        if (frameMarker is 0xC2 or 0xC6 or 0xCA or 0xCE)
+            return spectralStart <= spectralEnd && spectralEnd <= 63 &&
+                   (spectralStart != 0 || spectralEnd == 0) && successiveHigh <= 13 && successiveLow <= 13 &&
+                   (successiveHigh == 0 || successiveHigh == successiveLow + 1);
+        return spectralStart == 0 && spectralEnd == 63 && approximation == 0;
     }
 
     internal static bool TryMatchGzip(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

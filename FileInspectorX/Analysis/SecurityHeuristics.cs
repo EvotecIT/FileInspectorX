@@ -736,25 +736,28 @@ internal static partial class SecurityHeuristics
         try
         {
             if (string.IsNullOrWhiteSpace(host)) return false;
+            string normalizedHost = host.TrimEnd('.');
+            if (normalizedHost.Equals("invalid", StringComparison.OrdinalIgnoreCase) ||
+                normalizedHost.EndsWith(".invalid", StringComparison.OrdinalIgnoreCase)) return false;
             timeoutMs = Math.Max(1, timeoutMs);
 #if NET8_0_OR_GREATER
             using var cts = new System.Threading.CancellationTokenSource(timeoutMs);
             var addresses = System.Net.Dns.GetHostAddressesAsync(host, cts.Token).GetAwaiter().GetResult();
             return addresses is { Length: > 0 };
 #else
-            var ar = System.Net.Dns.BeginGetHostEntry(host, null, null);
-            var waitHandle = ar.AsyncWaitHandle;
-            try
+            // BeginGetHostEntry can perform blocking resolver work before it returns an
+            // IAsyncResult on .NET Framework. A dedicated background thread keeps both
+            // the caller and the process lifecycle independent of a stalled resolver.
+            System.Net.IPAddress[]? addresses = null;
+            Exception? resolutionError = null;
+            var resolver = new System.Threading.Thread(() =>
             {
-                if (!waitHandle.WaitOne(timeoutMs)) return false;
-            }
-            finally
-            {
-                waitHandle.Close();
-            }
-
-            var entry = System.Net.Dns.EndGetHostEntry(ar);
-            return entry?.AddressList is { Length: > 0 };
+                try { addresses = System.Net.Dns.GetHostAddresses(host); }
+                catch (Exception ex) { resolutionError = ex; }
+            }) { IsBackground = true, Name = "FileInspectorX DNS resolver" };
+            resolver.Start();
+            if (!resolver.Join(timeoutMs)) return false;
+            return resolutionError == null && addresses is { Length: > 0 };
 #endif
         }
         catch

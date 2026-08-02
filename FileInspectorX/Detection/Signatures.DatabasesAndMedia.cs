@@ -36,10 +36,12 @@ internal static partial class Signatures {
         ulong requiredLength = 4096UL + hiveBinsSize;
         if (completeLength < 0 || (completeLength.HasValue && requiredLength > (ulong)completeLength.Value)) return false;
         bool completeBins = completeLength.HasValue && requiredLength <= (ulong)src.Length;
+        bool allBinsValidated = false;
         bool hasHiveBinHeader = src.Length >= 4108;
         if (completeBins)
         {
-            if (!TryValidateRegistryHiveBins(src.Slice(4096, checked((int)hiveBinsSize)), hiveBinsSize, rootCellOffset))
+            if (!TryValidateRegistryHiveBins(src.Slice(4096, checked((int)hiveBinsSize)), hiveBinsSize,
+                    rootCellOffset, out allBinsValidated))
                 return false;
         }
         else if (hasHiveBinHeader)
@@ -59,7 +61,8 @@ internal static partial class Signatures {
             MimeType = "application/x-windows-registry-hive",
             Confidence = "Medium",
             Reason = dirty ? "registry-hive:base-block:dirty" :
-                completeBins ? "registry-hive:base-block+all-hbins+root-cell;cell-chain-not-validated" : "registry-hive:base-block;sampled-hbin",
+                allBinsValidated ? "registry-hive:base-block+all-hbins+root-cell;cell-chain-not-validated" :
+                completeBins ? "registry-hive:base-block+budgeted-hbins;remaining-bins-not-validated" : "registry-hive:base-block;sampled-hbin",
             ReasonDetails = dirty ? $"registry-hive:sequence-mismatch={primarySequence}/{secondarySequence};recovery-may-be-required" : null
         };
         return true;
@@ -78,10 +81,12 @@ internal static partial class Signatures {
             uint rootCellOffset = ReadUInt32LittleEndian(baseBlock, 36);
             uint hiveBinsSize = ReadUInt32LittleEndian(baseBlock, 40);
             if (4096UL + hiveBinsSize > (ulong)stream.Length ||
-                !TryValidateRegistryHiveBins(stream, hiveBinsSize, rootCellOffset)) return false;
+                !TryValidateRegistryHiveBins(stream, hiveBinsSize, rootCellOffset, out bool allBinsValidated)) return false;
             bool dirty = ReadUInt32LittleEndian(baseBlock, 4) != ReadUInt32LittleEndian(baseBlock, 8);
             result!.Confidence = "Medium";
-            result.Reason = dirty ? "registry-hive:base-block:dirty" : "registry-hive:base-block+all-hbins+root-cell;cell-chain-not-validated";
+            result.Reason = dirty ? "registry-hive:base-block:dirty" : allBinsValidated
+                ? "registry-hive:base-block+all-hbins+root-cell;cell-chain-not-validated"
+                : "registry-hive:base-block+budgeted-hbins;remaining-bins-not-validated";
             return true;
         }
         catch
@@ -95,13 +100,18 @@ internal static partial class Signatures {
         }
     }
 
-    private static bool TryValidateRegistryHiveBins(ReadOnlySpan<byte> bins, uint hiveBinsSize, uint rootCellOffset)
+    private static bool TryValidateRegistryHiveBins(ReadOnlySpan<byte> bins, uint hiveBinsSize, uint rootCellOffset,
+        out bool complete)
     {
+        complete = false;
         if (hiveBinsSize > int.MaxValue || bins.Length != (int)hiveBinsSize) return false;
         uint cursor = 0;
         bool rootFound = false;
+        int remainingBudget = Math.Max(112, Settings.DetectionReadBudgetBytes);
         while (cursor < hiveBinsSize)
         {
+            if (remainingBudget < 32) return cursor > 0;
+            remainingBudget -= 32;
             if (hiveBinsSize - cursor < 32 || !bins.Slice((int)cursor, 4).SequenceEqual("hbin"u8)) return false;
             uint binOffset = ReadUInt32LittleEndian(bins, (int)cursor + 4);
             uint binSize = ReadUInt32LittleEndian(bins, (int)cursor + 8);
@@ -109,20 +119,29 @@ internal static partial class Signatures {
                 return false;
             if (rootCellOffset >= cursor + 32 && rootCellOffset < cursor + binSize)
             {
+                int probeLength = (int)Math.Min(80u, binSize - (rootCellOffset - cursor));
+                if (remainingBudget < probeLength) return true;
+                remainingBudget -= probeLength;
                 if (!TryValidateRegistryRootCell(bins.Slice((int)cursor, (int)binSize), rootCellOffset - cursor)) return false;
                 rootFound = true;
             }
             cursor += binSize;
         }
-        return cursor == hiveBinsSize && rootFound;
+        complete = cursor == hiveBinsSize && rootFound;
+        return complete;
     }
 
-    private static bool TryValidateRegistryHiveBins(Stream stream, uint hiveBinsSize, uint rootCellOffset)
+    private static bool TryValidateRegistryHiveBins(Stream stream, uint hiveBinsSize, uint rootCellOffset,
+        out bool complete)
     {
+        complete = false;
         uint cursor = 0;
         bool rootFound = false;
+        int remainingBudget = Math.Max(112, Settings.DetectionReadBudgetBytes);
         while (cursor < hiveBinsSize)
         {
+            if (remainingBudget < 32) return cursor > 0;
+            remainingBudget -= 32;
             if (hiveBinsSize - cursor < 32 || !TryReadAt(stream, 4096L + cursor, 32, out var header)) return false;
             var binHeader = new ReadOnlySpan<byte>(header);
             uint binOffset = ReadUInt32LittleEndian(binHeader, 4);
@@ -133,13 +152,16 @@ internal static partial class Signatures {
             {
                 uint relative = rootCellOffset - cursor;
                 int probeLength = (int)Math.Min(80u, binSize - relative);
+                if (remainingBudget < probeLength) return true;
+                remainingBudget -= probeLength;
                 if (!TryReadAt(stream, 4096L + rootCellOffset, probeLength, out var root) ||
                     !TryValidateRegistryRootCell(new ReadOnlySpan<byte>(root), 0, binSize - relative)) return false;
                 rootFound = true;
             }
             cursor += binSize;
         }
-        return cursor == hiveBinsSize && rootFound;
+        complete = cursor == hiveBinsSize && rootFound;
+        return complete;
     }
 
     private static bool TryValidateRegistryRootCell(ReadOnlySpan<byte> bin, uint relativeOffset)

@@ -124,7 +124,7 @@ internal static partial class Signatures
         if (!controlTarValidated || !dataTarValidated)
         {
             result.Confidence = "Medium";
-            result.Reason += ";compressed-member-signatures";
+            result.Reason += ";member-payloads-partially-validated";
         }
         return true;
     }
@@ -254,7 +254,7 @@ internal static partial class Signatures
         if (!controlTarValidated || !dataTarValidated)
         {
             result.Confidence = "Medium";
-            result.Reason += ";compressed-member-signatures";
+            result.Reason += ";member-payloads-partially-validated";
         }
         return true;
     }
@@ -306,17 +306,22 @@ internal static partial class Signatures
         long cursor = 0;
         bool sawHeader = false;
         bool sawRequiredMember = requiredMember == null;
-        int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
+        int remainingBudget = Math.Max(1536, Settings.DetectionReadBudgetBytes);
         while (cursor <= archive.Length - 512)
         {
-            if (remainingHeaders-- == 0) return sawHeader && sawRequiredMember;
+            if (remainingBudget < 512) return sawHeader && sawRequiredMember;
+            remainingBudget -= 512;
             var header = archive.Slice((int)cursor, 512);
             if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
             {
-                if (!sawHeader || !sawRequiredMember || cursor > archive.Length - 1024 ||
-                    !IsAllZero(archive.Slice((int)cursor))) return false;
-                complete = true;
+                if (!sawHeader || !sawRequiredMember || cursor > archive.Length - 1024 || remainingBudget < 512 ||
+                    !IsAllZero(archive.Slice((int)cursor, 1024))) return false;
+                remainingBudget -= 512;
+                int tailLength = archive.Length - (int)cursor - 1024;
+                int inspectedTail = Math.Min(tailLength, remainingBudget);
+                if (!IsAllZero(archive.Slice((int)cursor + 1024, inspectedTail))) return false;
+                complete = inspectedTail == tailLength;
                 return true;
             }
             sawHeader = true;
@@ -335,20 +340,23 @@ internal static partial class Signatures
         long cursor = 0;
         bool sawHeader = false;
         bool sawRequiredMember = requiredMember == null;
-        int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
+        int remainingBudget = Math.Max(1536, Settings.DetectionReadBudgetBytes);
         while (cursor <= length - 512)
         {
-            if (remainingHeaders-- == 0) return sawHeader && sawRequiredMember;
+            if (remainingBudget < 512) return sawHeader && sawRequiredMember;
+            remainingBudget -= 512;
             if (!TryReadAt(stream, offset + cursor, 512, out var headerBytes)) return false;
             var header = new ReadOnlySpan<byte>(headerBytes);
             if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
             {
                 if (!sawHeader || !sawRequiredMember || cursor > length - 1024 ||
+                    remainingBudget < 512 ||
                     !TryReadAt(stream, offset + cursor + 512, 512, out var secondZero) ||
-                    !IsAllZero(new ReadOnlySpan<byte>(secondZero)) ||
-                    !TryValidateZeroRange(stream, offset + cursor + 1024, length - cursor - 1024)) return false;
-                complete = true;
+                    !IsAllZero(new ReadOnlySpan<byte>(secondZero))) return false;
+                remainingBudget -= 512;
+                if (!TryValidateZeroRange(stream, offset + cursor + 1024, length - cursor - 1024,
+                        remainingBudget, out complete)) return false;
                 return true;
             }
             sawHeader = true;
@@ -374,17 +382,20 @@ internal static partial class Signatures
         return true;
     }
 
-    private static bool TryValidateZeroRange(Stream stream, long offset, long length)
+    private static bool TryValidateZeroRange(Stream stream, long offset, long length, int budget, out bool complete)
     {
+        complete = false;
         if (offset < 0 || length < 0 || offset > stream.Length - length) return false;
         var buffer = new byte[4096];
         long cursor = 0;
-        while (cursor < length)
+        long inspectionLength = Math.Min(length, Math.Max(0, budget));
+        while (cursor < inspectionLength)
         {
-            int wanted = (int)Math.Min(buffer.Length, length - cursor);
+            int wanted = (int)Math.Min(buffer.Length, inspectionLength - cursor);
             if (!TryReadAt(stream, offset + cursor, wanted, out var bytes) || !IsAllZero(new ReadOnlySpan<byte>(bytes))) return false;
             cursor += wanted;
         }
+        complete = cursor == length;
         return true;
     }
 

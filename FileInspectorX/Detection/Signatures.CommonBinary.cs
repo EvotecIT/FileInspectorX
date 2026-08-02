@@ -165,8 +165,9 @@ internal static partial class Signatures
         try
         {
             using var compressed = new MemoryStream(idat, 2, idat.Length - 6, writable: false);
+            using var exactCompressed = new SingleByteReadStream(compressed);
             using var inflater = new System.IO.Compression.DeflateStream(
-                compressed, System.IO.Compression.CompressionMode.Decompress, leaveOpen: false);
+                exactCompressed, System.IO.Compression.CompressionMode.Decompress, leaveOpen: true);
             int read = 0;
             while (read < decoded.Length)
             {
@@ -175,6 +176,7 @@ internal static partial class Signatures
                 read += count;
             }
             if (inflater.ReadByte() != -1) return PngIdatValidation.Invalid;
+            if (compressed.Position != compressed.Length) return PngIdatValidation.Invalid;
         }
         catch (IOException)
         {
