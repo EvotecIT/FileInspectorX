@@ -62,7 +62,7 @@ public sealed class FifteenthReviewRegressionTests
     public void MinidumpBoundsEveryStreamPayload()
     {
         byte[] valid = Minidump();
-        AssertParity(valid, "dmp", "High");
+        AssertParity(valid, "dmp", "Medium");
         WriteUInt32LittleEndian(valid, 40, 60);
         AssertNotDetectedAs(valid, "dmp");
     }

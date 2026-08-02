@@ -134,7 +134,7 @@ public sealed class FormatCompatibilityRegressionTests
     [Fact]
     public void ReferencedStructuresUseCompleteLengthAcrossDetectionApis()
     {
-        AssertParity(LargeMinidump(), "dmp", "High");
+        AssertParity(LargeMinidump(), "dmp", "Medium");
         AssertParity(LargeRpmSignatureHeader(), "rpm", "Medium");
         AssertParity(LargeFtypBox(), "mp4", "Medium");
     }

@@ -35,7 +35,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("ndb", OutlookNdb(), 8, "Medium");
         yield return Sample("matroska", Matroska(), 6, "Medium");
         yield return Sample("parquet", Parquet(), 4);
-        yield return Sample("arrow", Arrow(), 6);
+        yield return Sample("arrow", Arrow(), 6, "Medium");
         yield return Sample("deb", Deb(), 80);
         yield return Sample("vhd", Vhd(), 512);
         yield return Sample("vhdx", Vhdx(), 64 * 1024, "Medium");

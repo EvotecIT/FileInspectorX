@@ -371,9 +371,9 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = "dex",
             MimeType = "application/vnd.android.dex",
-            Confidence = integrityValidated ? "High" : "Medium",
+            Confidence = "Medium",
             Reason = $"dex:{version:000}" + (fieldsAreLittleEndian ? string.Empty : ":reverse-endian") +
-                     (integrityValidated ? string.Empty : ";integrity-not-sampled")
+                     (integrityValidated ? ";table-references-not-validated" : ";integrity-not-sampled")
         };
         return true;
     }

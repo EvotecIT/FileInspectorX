@@ -9,7 +9,7 @@ public sealed class ThirtyFifthReviewRegressionTests
     public void Dex041ValidatesEveryContainerMember()
     {
         byte[] valid = TestHelpers.CreateDex041Container();
-        AssertParity(valid, "dex", "High");
+        AssertParity(valid, "dex", "Medium");
 
         byte[] corruptSecondMember = (byte[])valid.Clone();
         corruptSecondMember[148 + 12] ^= 0x01;

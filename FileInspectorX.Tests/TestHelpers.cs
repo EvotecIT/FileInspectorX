@@ -481,11 +481,12 @@ internal static class TestHelpers
     internal static byte[] CreateMinimalDeb()
     {
         using var stream = new MemoryStream();
-        byte[] archive = CreateMinimalTar();
+        byte[] controlArchive = CreateMinimalTar("control");
+        byte[] dataArchive = CreateMinimalTar("payload");
         stream.Write(Encoding.ASCII.GetBytes("!<arch>\n"), 0, 8);
         WriteArMember(stream, "debian-binary", Encoding.ASCII.GetBytes("2.0\n"));
-        WriteArMember(stream, "control.tar", archive);
-        WriteArMember(stream, "data.tar", archive);
+        WriteArMember(stream, "control.tar", controlArchive);
+        WriteArMember(stream, "data.tar", dataArchive);
         return stream.ToArray();
     }
 
@@ -506,10 +507,10 @@ internal static class TestHelpers
         return bytes;
     }
 
-    private static byte[] CreateMinimalTar()
+    private static byte[] CreateMinimalTar(string memberName)
     {
         var bytes = new byte[1536];
-        Encoding.ASCII.GetBytes("payload").CopyTo(bytes, 0);
+        Encoding.ASCII.GetBytes(memberName).CopyTo(bytes, 0);
         Encoding.ASCII.GetBytes("0000644\0").CopyTo(bytes, 100);
         Encoding.ASCII.GetBytes("0000000\0").CopyTo(bytes, 108);
         Encoding.ASCII.GetBytes("0000000\0").CopyTo(bytes, 116);

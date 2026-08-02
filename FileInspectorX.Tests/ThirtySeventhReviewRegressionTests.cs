@@ -29,7 +29,7 @@ public sealed class ThirtySeventhReviewRegressionTests
     [Fact]
     public void ArrowSchemaRequiresItsFieldsVector()
     {
-        AssertParity(TestHelpers.CreateMinimalArrow(), "arrow", "High");
+        AssertParity(TestHelpers.CreateMinimalArrow(), "arrow", "Medium");
         byte[] missingFields = TestHelpers.CreateMinimalArrow();
         missingFields[8 + 46] = 0;
         missingFields[8 + 47] = 0;

@@ -380,7 +380,7 @@ public class DetectorTests {
             Assert.NotNull(res);
             Assert.Equal("dmp", res!.Extension);
             Assert.Equal("application/x-ms-minidump", res.MimeType);
-            Assert.Equal("High", res.Confidence);
+            Assert.Equal("Medium", res.Confidence);
         }
         finally
         {

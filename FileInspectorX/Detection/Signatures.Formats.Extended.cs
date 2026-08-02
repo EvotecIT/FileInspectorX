@@ -470,7 +470,15 @@ internal static partial class Signatures
                 mipLength = rowBytes * currentHeight * currentDepth;
             }
             else if (!hasFourCc && bitCount != 0)
-                mipLength = ((currentWidth * (ulong)bitCount + 7UL) / 8UL) * currentHeight * currentDepth;
+            {
+                ulong rowBytes = (currentWidth * (ulong)bitCount + 7UL) / 8UL;
+                if (mip == 0 && (flags & 0x8) != 0)
+                {
+                    if (pitchOrLinearSize < rowBytes) return false;
+                    rowBytes = pitchOrLinearSize;
+                }
+                mipLength = rowBytes * currentHeight * currentDepth;
+            }
             else if (mip == 0 && pitchOrLinearSize != 0)
                 mipLength = pitchOrLinearSize * (ulong)currentDepth;
             else

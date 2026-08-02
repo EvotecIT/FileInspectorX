@@ -72,6 +72,8 @@ internal static partial class Signatures
         if (footerStart < 8 || rootOffset < 4 || (ulong)rootOffset + 4 > footerLength ||
             !TryValidateArrowFooter(src.Slice(footerStart, (int)footerLength), footerStart)) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
+        result.Confidence = "Medium";
+        result.Reason += ";field-semantics-not-validated";
         return true;
     }
 
@@ -193,6 +195,8 @@ internal static partial class Signatures
         if (!TryReadAt(stream, footerStart, (int)footerLength, out var footerBytes) ||
             !TryValidateArrowFooter(new ReadOnlySpan<byte>(footerBytes), footerStart)) return false;
         result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:file-footer");
+        result.Confidence = "Medium";
+        result.Reason += ";field-semantics-not-validated";
         return true;
     }
 
@@ -248,7 +252,8 @@ internal static partial class Signatures
     {
         tarValidated = false;
         if (name is "control.tar" or "data.tar")
-            return TryValidateCompleteTarArchive(stream, offset, length, out tarValidated);
+            return TryValidateCompleteTarArchive(stream, offset, length,
+                name == "control.tar" ? "control" : null, out tarValidated);
         int prefixLength = (int)Math.Min(length, 512);
         return prefixLength > 0 && TryReadAt(stream, offset, prefixLength, out var prefix) &&
                TryValidateDebTarMember(name, new ReadOnlySpan<byte>(prefix), out tarValidated, length);
@@ -259,7 +264,8 @@ internal static partial class Signatures
         tarValidated = false;
         long length = completeLength ?? payload.Length;
         if (name is "control.tar" or "data.tar")
-            return length == payload.Length && TryValidateCompleteTarArchive(payload, out tarValidated);
+            return length == payload.Length && TryValidateCompleteTarArchive(payload,
+                name == "control.tar" ? "control" : null, out tarValidated);
         if (name.EndsWith(".tar.gz", StringComparison.Ordinal)) return length >= 10 && payload.Length >= 10 && TryMatchGzip(payload, out _);
         if (name.EndsWith(".tar.bz2", StringComparison.Ordinal)) return length >= 10 && payload.Length >= 10 && TryMatchBzip2(payload, out _);
         if (name.EndsWith(".tar.xz", StringComparison.Ordinal))
@@ -282,12 +288,13 @@ internal static partial class Signatures
         return dictionarySize == highestBit || dictionarySize - highestBit == highestBit / 2;
     }
 
-    private static bool TryValidateCompleteTarArchive(ReadOnlySpan<byte> archive, out bool complete)
+    private static bool TryValidateCompleteTarArchive(ReadOnlySpan<byte> archive, string? requiredMember, out bool complete)
     {
         complete = false;
         if (archive.Length < 1536 || (archive.Length & 511) != 0) return false;
         long cursor = 0;
         bool sawHeader = false;
+        bool sawRequiredMember = requiredMember == null;
         int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
         while (cursor <= archive.Length - 512)
         {
@@ -296,24 +303,27 @@ internal static partial class Signatures
             if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
             {
-                if (!sawHeader || cursor > archive.Length - 1024 ||
+                if (!sawHeader || !sawRequiredMember || cursor > archive.Length - 1024 ||
                     !IsAllZero(archive.Slice((int)cursor))) return false;
                 complete = true;
                 return true;
             }
             sawHeader = true;
+            sawRequiredMember |= TarHeaderNameMatches(header, requiredMember);
             if (paddedDataLength > (ulong)(archive.Length - cursor - 512)) return false;
             cursor += 512 + (long)paddedDataLength;
         }
         return false;
     }
 
-    private static bool TryValidateCompleteTarArchive(Stream stream, long offset, long length, out bool complete)
+    private static bool TryValidateCompleteTarArchive(Stream stream, long offset, long length,
+        string? requiredMember, out bool complete)
     {
         complete = false;
         if (offset < 0 || length < 1536 || (length & 511) != 0 || offset > stream.Length - length) return false;
         long cursor = 0;
         bool sawHeader = false;
+        bool sawRequiredMember = requiredMember == null;
         int remainingHeaders = Math.Max(2, Settings.DetectionReadBudgetBytes / 512);
         while (cursor <= length - 512)
         {
@@ -323,7 +333,7 @@ internal static partial class Signatures
             if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
             {
-                if (!sawHeader || cursor > length - 1024 ||
+                if (!sawHeader || !sawRequiredMember || cursor > length - 1024 ||
                     !TryReadAt(stream, offset + cursor + 512, 512, out var secondZero) ||
                     !IsAllZero(new ReadOnlySpan<byte>(secondZero)) ||
                     !TryValidateZeroRange(stream, offset + cursor + 1024, length - cursor - 1024)) return false;
@@ -331,10 +341,26 @@ internal static partial class Signatures
                 return true;
             }
             sawHeader = true;
+            sawRequiredMember |= TarHeaderNameMatches(header, requiredMember);
             if (paddedDataLength > (ulong)(length - cursor - 512)) return false;
             cursor += 512 + (long)paddedDataLength;
         }
         return false;
+    }
+
+    private static bool TarHeaderNameMatches(ReadOnlySpan<byte> header, string? requiredMember)
+    {
+        if (requiredMember == null) return true;
+        int length = 0;
+        while (length < 100 && header[length] != 0) length++;
+        ReadOnlySpan<byte> name = header.Slice(0, length);
+        if (name.Length >= 2 && name[0] == (byte)'.' && name[1] == (byte)'/') name = name.Slice(2);
+        if (name.Length == requiredMember.Length + 1 && name[name.Length - 1] == (byte)'/')
+            name = name.Slice(0, name.Length - 1);
+        if (name.Length != requiredMember.Length) return false;
+        for (int index = 0; index < name.Length; index++)
+            if (name[index] != (byte)requiredMember[index]) return false;
+        return true;
     }
 
     private static bool TryValidateZeroRange(Stream stream, long offset, long length)

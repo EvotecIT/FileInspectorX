@@ -35,7 +35,7 @@ public sealed class FifthReviewRegressionTests
 
     [Fact]
     public void Dex041UsesTheWholeContainerSize()
-        => AssertParity(Dex041Container(), "dex", "High");
+        => AssertParity(Dex041Container(), "dex", "Medium");
 
     [Fact]
     public void Dex041RejectsInvalidContainerMetadata()

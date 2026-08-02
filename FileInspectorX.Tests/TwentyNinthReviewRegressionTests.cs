@@ -81,7 +81,7 @@ public sealed class TwentyNinthReviewRegressionTests
         byte[] valid = Icon(TestHelpers.CreateMinimalPng());
         AssertParity(valid, "ico");
         AssertNotDetectedAs(Icon(new byte[68]), "ico");
-        valid[10] = 0;
+        valid[10] = 2;
         valid[11] = 0;
         AssertNotDetectedAs(valid, "ico");
     }

@@ -298,10 +298,10 @@ internal static partial class Signatures {
         {
             Extension = "dmp",
             MimeType = "application/x-ms-minidump",
-            Confidence = complete ? "High" : "Medium",
+            Confidence = complete && streams == 0 ? "High" : "Medium",
             Reason = streams == 0 ? "dmp:minidump-header;empty-directory" +
                 (complete ? string.Empty : completeLength.HasValue ? ";unreferenced-trailing-bytes" : ";sampled-length-unknown") :
-                complete ? "dmp:minidump-header+stream-ranges" : "dmp:minidump-header;sampled-directory"
+                complete ? "dmp:minidump-header+stream-ranges;stream-layouts-not-validated" : "dmp:minidump-header;sampled-directory"
         };
         return true;
     }
@@ -329,7 +329,7 @@ internal static partial class Signatures {
             }
             if (!TryReadAt(stream, directoryRva, (int)directoryLength, out var directory) ||
                 !TryValidateMinidumpDirectory(new ReadOnlySpan<byte>(directory), stream.Length)) return false;
-            result = new ContentTypeDetectionResult { Extension = "dmp", MimeType = "application/x-ms-minidump", Confidence = "High", Reason = "dmp:minidump-header+stream-ranges" };
+            result = new ContentTypeDetectionResult { Extension = "dmp", MimeType = "application/x-ms-minidump", Confidence = "Medium", Reason = "dmp:minidump-header+stream-ranges;stream-layouts-not-validated" };
             return true;
         }
         catch

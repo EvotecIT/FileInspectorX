@@ -7,22 +7,22 @@ public sealed class SixthReviewRegressionTests
 {
     public static IEnumerable<object[]> CompleteContainers()
     {
-        yield return new object[] { "parquet", Parquet() };
-        yield return new object[] { "arrow", Arrow() };
-        yield return new object[] { "deb", Deb() };
-        yield return new object[] { "vhd", Vhd() };
-        yield return new object[] { "qoi", Qoi() };
+        yield return new object[] { "parquet", Parquet(), "High" };
+        yield return new object[] { "arrow", Arrow(), "Medium" };
+        yield return new object[] { "deb", Deb(), "High" };
+        yield return new object[] { "vhd", Vhd(), "High" };
+        yield return new object[] { "qoi", Qoi(), "High" };
     }
 
     [Theory]
     [MemberData(nameof(CompleteContainers))]
-    public void CompleteShortNonSeekableContainersUseWholeFileValidators(string extension, byte[] bytes)
+    public void CompleteShortNonSeekableContainersUseWholeFileValidators(string extension, byte[] bytes, string confidence)
     {
         using var stream = new NonSeekableReadStream(bytes);
         var result = FileInspector.Detect(stream);
 
         Assert.Equal(extension, result?.Extension);
-        Assert.Equal("High", result?.Confidence);
+        Assert.Equal(confidence, result?.Confidence);
     }
 
     [Fact]

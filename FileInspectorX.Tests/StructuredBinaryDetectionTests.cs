@@ -37,7 +37,7 @@ public sealed class StructuredBinaryDetectionTests
 
         Assert.NotNull(result);
         Assert.Equal(extension, result!.Extension);
-        Assert.Equal(extension is "class" or "ttf" or "otf" or "woff" or "woff2" or "exr" or "mj2" or "macho" or "h5" ? "Medium" : "High", result.Confidence);
+        Assert.Equal(extension is "class" or "dex" or "ttf" or "otf" or "woff" or "woff2" or "exr" or "mj2" or "macho" or "h5" ? "Medium" : "High", result.Confidence);
     }
 
     [Fact]
@@ -231,7 +231,7 @@ public sealed class StructuredBinaryDetectionTests
         var result = FileInspector.Detect(ReverseEndianDex());
 
         Assert.Equal("dex", result?.Extension);
-        Assert.Equal("dex:035:reverse-endian", result?.Reason);
+        Assert.Equal("dex:035:reverse-endian;table-references-not-validated", result?.Reason);
     }
 
     [Fact]

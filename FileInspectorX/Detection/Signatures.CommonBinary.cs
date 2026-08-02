@@ -846,7 +846,7 @@ internal static partial class Signatures
             int height = src[entryOffset + 1] == 0 ? 256 : src[entryOffset + 1];
             ushort firstField = ReadUInt16LittleEndian(src, entryOffset + 4);
             ushort secondField = ReadUInt16LittleEndian(src, entryOffset + 6);
-            if (type == 1 && (firstField != 1 || secondField is not (1 or 4 or 8 or 16 or 24 or 32)) ||
+            if (type == 1 && (firstField is not (0 or 1) || secondField is not (0 or 1 or 4 or 8 or 16 or 24 or 32)) ||
                 type == 2 && (firstField >= width || secondField >= height)) return false;
             uint imageSize = ReadUInt32LittleEndian(src, entryOffset + 8);
             uint imageOffset = ReadUInt32LittleEndian(src, entryOffset + 12);
@@ -888,7 +888,7 @@ internal static partial class Signatures
         ushort bitCount = ReadUInt16LittleEndian(payload, 14);
         uint compression = ReadUInt32LittleEndian(payload, 16);
         if (dibWidth != width || dibHeight != height * 2 || planes != 1 || bitCount is not (1 or 4 or 8 or 16 or 24 or 32) ||
-            type == 1 && directoryBitCount != bitCount || compression > 6 || compression == 4 || compression == 5) return false;
+            type == 1 && directoryBitCount != 0 && directoryBitCount != bitCount || compression > 6 || compression == 4 || compression == 5) return false;
         if (!requireBitmapData) return true;
 
         uint imageSize = ReadUInt32LittleEndian(payload, 20);
