@@ -41,6 +41,8 @@ internal static partial class Signatures {
     private static ShellLinkParseStatus InspectShellLinkStructures(ReadOnlySpan<byte> src, long? completeLength) {
         if (completeLength < 0) return ShellLinkParseStatus.Invalid;
         uint flags = ReadUInt32LittleEndian(src, 20);
+        const uint DefinedLinkFlags = 0x07FEF7FF;
+        if ((flags & ~DefinedLinkFlags) != 0) return ShellLinkParseStatus.Invalid;
         int cursor = 76;
 
         if ((flags & 0x00000001) != 0) {

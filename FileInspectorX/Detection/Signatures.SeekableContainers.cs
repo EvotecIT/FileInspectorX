@@ -529,10 +529,11 @@ internal static partial class Signatures
         short previousField = 0;
         var fields = new System.Collections.Generic.HashSet<short>();
         bool version = false, schema = false, rows = false, rowGroups = false;
+        bool stopped = false;
         while (cursor < metadata.Length)
         {
             byte header = metadata[cursor++];
-            if (header == 0) break;
+            if (header == 0) { stopped = true; break; }
             int type = header & 0x0F;
             int delta = header >> 4;
             int decodedField = delta == 0 ? ReadCompactFieldId(metadata, ref cursor) : previousField + delta;
@@ -546,7 +547,7 @@ internal static partial class Signatures
             else if (field == 4) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: false, 0, requiredElementType: 12)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
-        return cursor == metadata.Length && version && schema && rows && rowGroups;
+        return stopped && cursor == metadata.Length && version && schema && rows && rowGroups;
     }
 
     private static short ReadCompactFieldId(ReadOnlySpan<byte> src, ref int cursor)
@@ -628,9 +629,9 @@ internal static partial class Signatures
         if (!TryGetArrowVtable(footer, table, 8, out int vtable, out ushort objectLength)) return false;
         ushort versionOffset = ReadUInt16LittleEndian(footer, vtable + 4);
         ushort schemaOffset = ReadUInt16LittleEndian(footer, vtable + 6);
-        if (objectLength < 8 || versionOffset == 0 || schemaOffset == 0 ||
-            versionOffset + 2 > objectLength || schemaOffset + 4 > objectLength) return false;
-        ushort version = ReadUInt16LittleEndian(footer, table + versionOffset);
+        if (objectLength < 8 || schemaOffset == 0 ||
+            versionOffset != 0 && versionOffset + 2 > objectLength || schemaOffset + 4 > objectLength) return false;
+        ushort version = versionOffset == 0 ? (ushort)0 : ReadUInt16LittleEndian(footer, table + versionOffset);
         if (version > 4) return false;
         uint schemaRelative = ReadUInt32LittleEndian(footer, table + schemaOffset);
         ulong schemaTableValue = (ulong)table + schemaOffset + schemaRelative;

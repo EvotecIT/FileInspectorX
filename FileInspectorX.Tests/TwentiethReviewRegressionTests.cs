@@ -211,7 +211,7 @@ public sealed class TwentiethReviewRegressionTests
         byte[] payload = compression switch
         {
             0 => new byte[3],
-            1 => new byte[] { 0, 2, 0, 2, 0, 2, 0xFF, 0, 0xFF, 0, 0xFF, 0 },
+            1 => new byte[] { 0, 2, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0 },
             2 or 3 => new byte[] { 0x78, 0x9C },
             _ => throw new ArgumentOutOfRangeException(nameof(compression))
         };

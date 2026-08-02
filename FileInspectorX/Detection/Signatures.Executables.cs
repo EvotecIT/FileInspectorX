@@ -389,6 +389,8 @@ internal static partial class Signatures {
         if (directoryEnd > src.Length) return false;
 
         bool allSlicesSampled = true;
+        var sliceOffsets = new ulong[(int)architectureCount];
+        var sliceEnds = new ulong[(int)architectureCount];
         for (uint i = 0; i < architectureCount; i++) {
             int entryOffset = checked(8 + (int)i * entrySize);
             uint cpuType = ReadUInt32(src, entryOffset, littleEndian);
@@ -397,8 +399,14 @@ internal static partial class Signatures {
             ulong size = is64Bit ? ReadUInt64(src, entryOffset + 16, littleEndian) : ReadUInt32(src, entryOffset + 12, littleEndian);
             uint alignmentPower = ReadUInt32(src, entryOffset + (is64Bit ? 24 : 16), littleEndian);
             if (!IsKnownMachCpuType(cpuType) || offset < (ulong)directoryEnd || size == 0 || alignmentPower > 31 ||
+                size > ulong.MaxValue - offset ||
                 (is64Bit && ReadUInt32(src, entryOffset + 28, littleEndian) != 0) ||
                 (totalLength.HasValue && (offset > (ulong)totalLength.Value || size > (ulong)totalLength.Value - offset))) return false;
+            ulong sliceEnd = offset + size;
+            for (uint previous = 0; previous < i; previous++)
+                if (offset < sliceEnds[(int)previous] && sliceOffsets[(int)previous] < sliceEnd) return false;
+            sliceOffsets[(int)i] = offset;
+            sliceEnds[(int)i] = sliceEnd;
             ulong alignment = 1UL << (int)alignmentPower;
             if ((offset & (alignment - 1)) != 0) return false;
             if (offset + 12 <= (ulong)src.Length)

@@ -292,7 +292,9 @@ internal static partial class Signatures
             uint resourceDimension = ReadUInt32LittleEndian(src, 132);
             uint miscFlag = ReadUInt32LittleEndian(src, 136);
             uint arraySize = ReadUInt32LittleEndian(src, 140);
+            uint alphaMode = ReadUInt32LittleEndian(src, 144);
             if (!IsKnownDdsDxgiFormat(dxgiFormat) || resourceDimension is < 2 or > 4 || arraySize == 0 ||
+                alphaMode > 4 ||
                 (resourceDimension == 2 && (height != 1 || depth != 0 || (flags & 0x800000) != 0 || (caps2 & 0x200000) != 0)) ||
                 (resourceDimension == 3 && (depth != 0 || (flags & 0x800000) != 0 || (caps2 & 0x200000) != 0)) ||
                 (resourceDimension == 4 && (arraySize != 1 || (miscFlag & 0x4) != 0 || depth == 0 ||
@@ -481,26 +483,25 @@ internal static partial class Signatures
 
     private static bool IsValidDicomUid(ReadOnlySpan<byte> value)
     {
-        if (value.Length is < 2 or > 64) return false;
+        if (value.Length is < 2 or > 64 || (value.Length & 1) != 0) return false;
         int length = value.Length;
-        if (value[length - 1] is 0 or (byte)' ') length--;
+        if (value[length - 1] == 0) length--;
         if (length == 0 || value[0] == (byte)'.' || value[length - 1] == (byte)'.') return false;
-        bool previousDot = false;
+        int componentStart = 0;
         for (int index = 0; index < length; index++)
         {
             byte current = value[index];
             if (current == (byte)'.')
             {
-                if (previousDot) return false;
-                previousDot = true;
+                if (index == componentStart || index - componentStart > 1 && value[componentStart] == (byte)'0') return false;
+                componentStart = index + 1;
             }
             else
             {
                 if (current is < (byte)'0' or > (byte)'9') return false;
-                previousDot = false;
             }
         }
-        return true;
+        return length > componentStart && (length - componentStart == 1 || value[componentStart] != (byte)'0');
     }
 
     internal static bool TryMatchOutlookNdb(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)

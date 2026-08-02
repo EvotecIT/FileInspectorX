@@ -24,6 +24,7 @@ internal static partial class Signatures {
         bool sawAnyPart = false;
         ulong totalChunkCount = 0;
         bool firstPartTiled = tiled;
+        var multipartPartNames = new System.Collections.Generic.HashSet<string>();
         while (true)
         {
             bool channels = false;
@@ -45,6 +46,7 @@ internal static partial class Signatures {
             uint tileWidth = 0, tileHeight = 0;
             byte tileMode = 0;
             uint declaredChunkCount = 0;
+            var attributeNames = new System.Collections.Generic.HashSet<string>();
 
             while (true)
             {
@@ -65,6 +67,7 @@ internal static partial class Signatures {
                 if (!TryReadOpenExrString(src, ref cursor, out string name) ||
                     !TryReadOpenExrString(src, ref cursor, out string type) || cursor + 4 > src.Length)
                     return TryReturnSampledOpenExr(completeLength, src.Length, sawAttribute || sawAnyPart, out result);
+                if (!attributeNames.Add(name)) return false;
                 uint valueLength = ReadUInt32(src, cursor, littleEndian: true);
                 cursor += 4;
                 if (valueLength == 0 || valueLength > int.MaxValue) return false;
@@ -98,7 +101,11 @@ internal static partial class Signatures {
                     tileHeight = ReadUInt32(value, 4, true);
                     tileMode = (byte)(value[8] & 3);
                 }
-                if (multipart && name == "name") nameAttribute = TryValidateOpenExrTextAttribute(type, value);
+                if (multipart && name == "name")
+                {
+                    nameAttribute = TryValidateOpenExrTextAttribute(type, value);
+                    if (nameAttribute && !multipartPartNames.Add(System.Text.Encoding.ASCII.GetString(value.ToArray()))) return false;
+                }
                 if (multipart && name == "type")
                 {
                     typeAttribute = TryValidateOpenExrTextAttribute(type, value);
@@ -261,11 +268,14 @@ internal static partial class Signatures {
     {
         int cursor = 0;
         int channels = 0;
+        var channelNames = new System.Collections.Generic.HashSet<string>();
         while (cursor < value.Length && value[cursor] != 0)
         {
             int nameStart = cursor;
             while (cursor < value.Length && value[cursor] != 0 && cursor - nameStart < 255) cursor++;
             if (cursor >= value.Length || cursor == nameStart || cursor + 17 > value.Length) return false;
+            string channelName = System.Text.Encoding.ASCII.GetString(value.Slice(nameStart, cursor - nameStart).ToArray());
+            if (!channelNames.Add(channelName)) return false;
             cursor++;
             uint pixelType = ReadUInt32(value, cursor, true);
             if (pixelType > 2 || value[cursor + 4] > 1 || value[cursor + 5] != 0 || value[cursor + 6] != 0 || value[cursor + 7] != 0 ||
@@ -388,9 +398,9 @@ internal static partial class Signatures {
         out bool fullyValidated)
     {
         fullyValidated = false;
+        ulong rowBytes = ((ulong)width * depth + 7) / 8;
         if (compression == 0)
         {
-            ulong rowBytes = ((ulong)width * depth + 7) / 8;
             ulong requiredLength = (ulong)dataOffset + rowBytes * height * channels;
             if (completeLength.HasValue && requiredLength != (ulong)completeLength.Value) return false;
             fullyValidated = completeLength.HasValue;
@@ -424,8 +434,19 @@ internal static partial class Signatures {
             compressedLength += rowLength;
         }
         ulong requiredEnd = tableEnd + compressedLength;
-        if (requiredEnd < tableEnd || completeLength.HasValue && requiredEnd > (ulong)completeLength.Value) return false;
-        fullyValidated = completeLength.HasValue;
+        if (requiredEnd < tableEnd || completeLength.HasValue && requiredEnd != (ulong)completeLength.Value) return false;
+        if (requiredEnd <= (ulong)src.Length)
+        {
+            int compressedOffset = checked((int)tableEnd);
+            for (ulong row = 0; row < rowCount; row++)
+            {
+                int lengthOffset = dataOffset + checked((int)(row * (uint)rowLengthSize));
+                uint rowLength = rowLengthSize == 2 ? ReadUInt16BigEndian(src, lengthOffset) : ReadUInt32BigEndian(src, lengthOffset);
+                if (!TryValidatePhotoshopRleRow(src.Slice(compressedOffset, checked((int)rowLength)), rowBytes)) return false;
+                compressedOffset += checked((int)rowLength);
+            }
+            fullyValidated = completeLength.HasValue;
+        }
         return true;
     }
 
@@ -494,9 +515,9 @@ internal static partial class Signatures {
         ushort channels, uint height, uint width, ushort depth, ushort compression, out bool fullyValidated)
     {
         fullyValidated = false;
+        ulong rowBytes = ((ulong)width * depth + 7) / 8;
         if (compression == 0)
         {
-            ulong rowBytes = ((ulong)width * depth + 7) / 8;
             ulong requiredLength = (ulong)dataOffset + rowBytes * height * channels;
             fullyValidated = requiredLength == (ulong)stream.Length;
             return fullyValidated;
@@ -518,16 +539,56 @@ internal static partial class Signatures {
 
         ulong compressedLength = 0;
         var tableSpan = new ReadOnlySpan<byte>(table);
+        var rowLengths = new uint[(int)rowCount];
         for (int row = 0; row < (int)rowCount; row++)
         {
             int offset = row * rowLengthSize;
             uint rowLength = rowLengthSize == 2 ? ReadUInt16BigEndian(tableSpan, offset) : ReadUInt32BigEndian(tableSpan, offset);
             if (rowLength == 0 || compressedLength > ulong.MaxValue - rowLength) return false;
+            rowLengths[row] = rowLength;
             compressedLength += rowLength;
         }
         ulong requiredEnd = tableEnd + compressedLength;
-        fullyValidated = requiredEnd >= tableEnd && requiredEnd <= (ulong)stream.Length;
-        return fullyValidated;
+        if (requiredEnd < tableEnd || requiredEnd != (ulong)stream.Length) return false;
+        int budget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        if (compressedLength > (ulong)budget) return true;
+        if (!TryReadAt(stream, (long)tableEnd, checked((int)compressedLength), out var compressedRows)) return false;
+        int compressedOffset = 0;
+        var compressedSpan = new ReadOnlySpan<byte>(compressedRows);
+        for (int row = 0; row < rowLengths.Length; row++)
+        {
+            int rowLength = checked((int)rowLengths[row]);
+            if (!TryValidatePhotoshopRleRow(compressedSpan.Slice(compressedOffset, rowLength), rowBytes)) return false;
+            compressedOffset += rowLength;
+        }
+        fullyValidated = true;
+        return true;
+    }
+
+    private static bool TryValidatePhotoshopRleRow(ReadOnlySpan<byte> compressed, ulong expectedLength)
+    {
+        int cursor = 0;
+        ulong decodedLength = 0;
+        while (cursor < compressed.Length)
+        {
+            byte control = compressed[cursor++];
+            if (control <= 127)
+            {
+                int literalLength = control + 1;
+                if (literalLength > compressed.Length - cursor || decodedLength > ulong.MaxValue - (uint)literalLength) return false;
+                decodedLength += (uint)literalLength;
+                cursor += literalLength;
+            }
+            else if (control >= 129)
+            {
+                int repeatedLength = 257 - control;
+                if (cursor >= compressed.Length || decodedLength > ulong.MaxValue - (uint)repeatedLength) return false;
+                decodedLength += (uint)repeatedLength;
+                cursor++;
+            }
+            if (decodedLength > expectedLength) return false;
+        }
+        return decodedLength == expectedLength;
     }
 
     private static bool IsPhotoshopZlibHeader(ReadOnlySpan<byte> header)

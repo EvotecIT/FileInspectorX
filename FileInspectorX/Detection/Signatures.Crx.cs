@@ -121,7 +121,9 @@ internal static partial class Signatures
         while (cursor < header.Length)
         {
             if (!TryReadProtobufVarint(header, ref cursor, out ulong key)) return false;
-            int field = (int)(key >> 3);
+            ulong fieldNumber = key >> 3;
+            if (fieldNumber is 0 or > 0x1FFFFFFF) return false;
+            int field = (int)fieldNumber;
             int wire = (int)(key & 7);
             if (wire != 2 || !TryReadProtobufVarint(header, ref cursor, out ulong length) ||
                 length > (ulong)(header.Length - cursor)) return false;
@@ -142,7 +144,9 @@ internal static partial class Signatures
         {
             if (!TryReadProtobufVarint(proof, ref cursor, out ulong tag) || (tag & 7) != 2 ||
                 !TryReadProtobufVarint(proof, ref cursor, out ulong length) || length == 0 || length > (ulong)(proof.Length - cursor)) return false;
-            int field = (int)(tag >> 3);
+            ulong fieldNumber = tag >> 3;
+            if (fieldNumber is 0 or > 0x1FFFFFFF) return false;
+            int field = (int)fieldNumber;
             key |= field == 1;
             signature |= field == 2;
             cursor += (int)length;
