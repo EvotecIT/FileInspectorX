@@ -32,7 +32,7 @@ public sealed class FifteenthReviewRegressionTests
     [InlineData(13u)]
     [InlineData(14u)]
     public void MachOAcceptsDefinedGpuFileTypes(uint fileType)
-        => AssertParity(ThinMachO(fileType), "macho", "High");
+        => AssertParity(ThinMachO(fileType), "macho", "Medium");
 
     [Fact]
     public void EvtxValidatesEveryDeclaredChunkHeader()
@@ -82,7 +82,7 @@ public sealed class FifteenthReviewRegressionTests
     public void RegistryHiveRequiresItsDeclaredHiveBinArea()
     {
         byte[] valid = RegistryHive();
-        AssertParity(valid, "hive", "High");
+        AssertParity(valid, "hive", "Medium");
 
         Array.Resize(ref valid, 4096);
         AssertNotDetectedAs(valid, "hive");

@@ -47,7 +47,7 @@ public sealed class EighteenthReviewRegressionTests
     public void SeekableMachOLoadCommandWalkHonorsTheReadBudget()
     {
         var bytes = MachOWithManyLoadCommands(1000);
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
         int originalBudget = Settings.DetectionReadBudgetBytes;
         try
         {

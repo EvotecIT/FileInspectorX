@@ -29,14 +29,14 @@ public sealed class SixthReviewRegressionTests
     public void SampledPcapNgBlockRetainsContainerIdentityAtReducedConfidence()
     {
         var bytes = LargePcapNg();
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
 
         using var stream = new NonSeekableReadStream(bytes);
         var sampled = FileInspector.Detect(stream);
 
         Assert.Equal("pcapng", sampled?.Extension);
         Assert.Equal("Medium", sampled?.Confidence);
-        Assert.Equal("pcapng:section-header;sampled-block", sampled?.Reason);
+        Assert.Equal("pcapng:section-header;block-layouts-not-fully-validated;sampled-block", sampled?.Reason);
     }
 
     [Fact]

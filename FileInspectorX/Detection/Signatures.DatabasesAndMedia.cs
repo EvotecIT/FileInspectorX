@@ -57,9 +57,9 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = "hive",
             MimeType = "application/x-windows-registry-hive",
-            Confidence = dirty || !completeBins ? "Medium" : "High",
+            Confidence = "Medium",
             Reason = dirty ? "registry-hive:base-block:dirty" :
-                completeBins ? "registry-hive:base-block+all-hbins+root-cell" : "registry-hive:base-block;sampled-hbin",
+                completeBins ? "registry-hive:base-block+all-hbins+root-cell;cell-chain-not-validated" : "registry-hive:base-block;sampled-hbin",
             ReasonDetails = dirty ? $"registry-hive:sequence-mismatch={primarySequence}/{secondarySequence};recovery-may-be-required" : null
         };
         return true;
@@ -80,8 +80,8 @@ internal static partial class Signatures {
             if (4096UL + hiveBinsSize > (ulong)stream.Length ||
                 !TryValidateRegistryHiveBins(stream, hiveBinsSize, rootCellOffset)) return false;
             bool dirty = ReadUInt32LittleEndian(baseBlock, 4) != ReadUInt32LittleEndian(baseBlock, 8);
-            result!.Confidence = dirty ? "Medium" : "High";
-            result.Reason = dirty ? "registry-hive:base-block:dirty" : "registry-hive:base-block+all-hbins+root-cell";
+            result!.Confidence = "Medium";
+            result.Reason = dirty ? "registry-hive:base-block:dirty" : "registry-hive:base-block+all-hbins+root-cell;cell-chain-not-validated";
             return true;
         }
         catch

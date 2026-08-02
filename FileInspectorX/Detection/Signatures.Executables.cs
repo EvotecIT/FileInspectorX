@@ -97,7 +97,7 @@ internal static partial class Signatures {
             0 => "unspecified", 3 => "x86", 62 => "x86_64", 40 => "arm", 183 => "aarch64", 8 => "mips", 50 => "ia64", 243 => "riscv", _ => emach.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
         var r = $"elf:{c}-{e}" + (et == "" ? "" : $":{et}") + (mach == "" ? "" : $":{mach}");
-        result = new ContentTypeDetectionResult { Extension = "elf", MimeType = "application/x-elf", Confidence = "High", Reason = r };
+        result = new ContentTypeDetectionResult { Extension = "elf", MimeType = "application/x-elf", Confidence = "Medium", Reason = r + ";table-entries-not-validated" };
         return true;
     }
 
@@ -156,8 +156,8 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = "macho",
             MimeType = "application/x-mach-binary",
-            Confidence = commandsSampled ? "High" : "Medium",
-            Reason = reason + (commandsSampled ? string.Empty : ";sampled-load-commands")
+            Confidence = "Medium",
+            Reason = reason + (commandsSampled ? ";command-layouts-not-fully-validated" : ";sampled-load-commands")
         };
         return true;
     }
@@ -483,9 +483,9 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = "macho",
             MimeType = "application/x-mach-binary",
-            Confidence = allSlicesSampled ? "High" : "Medium",
+            Confidence = "Medium",
             Reason = "macho:fat" + (is64Bit ? "64" : string.Empty) + (littleEndian ? "-le" : string.Empty) +
-                     (allSlicesSampled ? string.Empty : ";sampled-slices")
+                     (allSlicesSampled ? ";slice-command-layouts-not-fully-validated" : ";sampled-slices")
         };
         return true;
     }
@@ -519,8 +519,8 @@ internal static partial class Signatures {
                     result.Reason = result.Reason.Replace(";sampled-load-commands", ";validation-budget-exceeded");
                     return true;
                 }
-                result.Confidence = "High";
-                result.Reason = result.Reason.Replace(";sampled-load-commands", string.Empty);
+                result.Confidence = "Medium";
+                result.Reason = result.Reason.Replace(";sampled-load-commands", ";command-layouts-not-fully-validated");
                 return true;
             }
             bool littleEndian = magic is 0xBEBAFECA or 0xBFBAFECA;
@@ -560,8 +560,8 @@ internal static partial class Signatures {
                     }
                 }
             }
-            result!.Confidence = "High";
-            result.Reason = result.Reason.Replace(";sampled-slices", string.Empty);
+            result!.Confidence = "Medium";
+            result.Reason = result.Reason.Replace(";sampled-slices", ";slice-command-layouts-not-fully-validated");
             return true;
         }
         catch

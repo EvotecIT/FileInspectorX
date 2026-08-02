@@ -32,7 +32,7 @@ public sealed class ThirtyFourthReviewRegressionTests
     [Fact]
     public void WebAssemblyWalksOrderedCanonicalSections()
     {
-        AssertParity(Wasm(1, 1, 0), "wasm", "High");
+        AssertParity(Wasm(1, 1, 0), "wasm", "Medium");
         AssertNotDetectedAs(Wasm(0xFF), "wasm");
         AssertNotDetectedAs(Wasm(1, 0x80, 0), "wasm");
         AssertNotDetectedAs(Wasm(2, 0, 1, 0), "wasm");
@@ -42,7 +42,7 @@ public sealed class ThirtyFourthReviewRegressionTests
     public void PcapNgConsumesEveryFramedBlock()
     {
         byte[] valid = PcapNgWithTrailingBlock();
-        AssertParity(valid, "pcapng", "High");
+        AssertParity(valid, "pcapng", "Medium");
 
         var garbage = new byte[valid.Length + 1];
         valid.CopyTo(garbage, 0);

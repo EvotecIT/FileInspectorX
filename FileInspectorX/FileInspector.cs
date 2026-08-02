@@ -334,8 +334,8 @@ public static partial class FileInspector {
             var det = DetectStreamCore(fs, deterministicOptions, extDeclared, hdfProbeComplete: true);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
-                    // A successful PE parse is stronger evidence than the 2-byte MZ prefix alone.
-                    det.Confidence = "High";
+                    // A successful PE parse refines family details, but does not validate every section entry.
+                    det.Confidence = "Medium";
                     det.Reason = AppendReason(det.Reason, "pe:header");
                     const ushort IMAGE_FILE_DLL = 0x2000;
                     if ((pe.Characteristics & IMAGE_FILE_DLL) != 0) { det.Extension = "dll"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }

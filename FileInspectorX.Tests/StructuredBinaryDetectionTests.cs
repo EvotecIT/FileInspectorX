@@ -37,7 +37,7 @@ public sealed class StructuredBinaryDetectionTests
 
         Assert.NotNull(result);
         Assert.Equal(extension, result!.Extension);
-        Assert.Equal(extension is "class" or "woff" or "woff2" or "exr" or "mj2" ? "Medium" : "High", result.Confidence);
+        Assert.Equal(extension is "class" or "woff" or "woff2" or "exr" or "mj2" or "macho" or "h5" ? "Medium" : "High", result.Confidence);
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class StructuredBinaryDetectionTests
         var result = FileInspector.Detect(stream);
 
         Assert.Equal("h5", result?.Extension);
-        Assert.Equal("hdf5:signature@4096", result?.Reason);
+        Assert.Equal("hdf5:signature@4096;modern-root-not-fully-validated", result?.Reason);
         Assert.Equal(37, stream.Position);
     }
 

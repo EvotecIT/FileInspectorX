@@ -68,7 +68,13 @@ internal static partial class Signatures
             int chunkLength = (int)length;
             var typeAndData = src.Slice(cursor + 4, 4 + chunkLength);
             if (ReadUInt32BigEndian(src, cursor + 8 + chunkLength) != ComputePngCrc(typeAndData)) return false;
+            var chunkType = src.Slice(cursor + 4, 4);
+            for (int index = 0; index < chunkType.Length; index++)
+                if (chunkType[index] is not (>= (byte)'A' and <= (byte)'Z') and not (>= (byte)'a' and <= (byte)'z')) return false;
+            if (chunkType[2] is not (>= (byte)'A' and <= (byte)'Z')) return false;
             uint type = ReadUInt32BigEndian(src, cursor + 4);
+            bool critical = chunkType[0] is >= (byte)'A' and <= (byte)'Z';
+            if (critical && type is not (0x49484452 or 0x504C5445 or 0x49444154 or 0x49454E44)) return false;
             if (cursor == 8 && type != 0x49484452) return false;
             if (cursor != 8 && type == 0x49484452) return false;
             if (type == 0x504C5445)
@@ -510,8 +516,8 @@ internal static partial class Signatures
         {
             Extension = extension,
             MimeType = "application/x-msdownload",
-            Confidence = "High",
-            Reason = optionalMagic == 0x20B ? "pe:pe32+" : "pe:pe32"
+            Confidence = "Medium",
+            Reason = (optionalMagic == 0x20B ? "pe:pe32+" : "pe:pe32") + ";section-entries-not-validated"
         };
         return true;
     }
@@ -635,9 +641,10 @@ internal static partial class Signatures
         StructuredValidationStatus status = TryValidateWasmSections(src, completeLength);
         if (status == StructuredValidationStatus.Invalid) return false;
         result = BinaryResult("wasm", "application/wasm", "wasm:version=1");
+        result.Confidence = "Medium";
+        result.Reason += ";section-payloads-not-validated";
         if (status == StructuredValidationStatus.Sampled)
         {
-            result.Confidence = "Medium";
             result.Reason += ";sampled-sections";
         }
         return true;
@@ -757,9 +764,10 @@ internal static partial class Signatures
         StructuredValidationStatus status = TryValidatePcapNgBlocks(src, completeLength);
         if (status == StructuredValidationStatus.Invalid) return false;
         result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
+        result.Confidence = "Medium";
+        result.Reason += ";block-layouts-not-fully-validated";
         if (status == StructuredValidationStatus.Sampled)
         {
-            result.Confidence = "Medium";
             result.Reason += ";sampled-block";
         }
         return true;
@@ -775,9 +783,10 @@ internal static partial class Signatures
             StructuredValidationStatus status = TryValidatePcapNgBlocks(stream);
             if (status == StructuredValidationStatus.Invalid) return false;
             result = BinaryResult("pcapng", "application/x-pcapng", "pcapng:section-header");
+            result.Confidence = "Medium";
+            result.Reason += ";block-layouts-not-fully-validated";
             if (status == StructuredValidationStatus.Sampled)
             {
-                result.Confidence = "Medium";
                 result.Reason += ";block-scan-budget";
             }
             return true;

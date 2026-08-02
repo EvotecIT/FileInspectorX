@@ -807,8 +807,8 @@ internal static partial class Signatures {
     private static ContentTypeDetectionResult Hdf5Result(long offset, bool completeLength = true, bool rootValidated = true) => new() {
         Extension = "h5",
         MimeType = "application/x-hdf5",
-        Confidence = completeLength && rootValidated ? "High" : "Medium",
+        Confidence = "Medium",
         Reason = "hdf5:signature@" + offset +
-                 (!completeLength ? ";sampled-length-unknown" : !rootValidated ? ";legacy-root-not-validated" : string.Empty)
+                 (!completeLength ? ";sampled-length-unknown" : !rootValidated ? ";legacy-root-not-validated" : ";modern-root-not-fully-validated")
     };
 }

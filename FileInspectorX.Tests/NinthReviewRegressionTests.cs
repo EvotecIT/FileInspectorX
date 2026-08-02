@@ -16,7 +16,7 @@ public sealed class NinthReviewRegressionTests
         Assert.Equal("exe", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
         Assert.Equal("pe:dos-header;sampled-pe-offset", result?.Reason);
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
     }
 
     [Theory]

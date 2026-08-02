@@ -389,7 +389,7 @@ public class DetectorTests {
     }
 
     [Fact]
-    public void Detect_ValidPe_UpgradesConfidence_FromParsedHeader()
+    public void Detect_ValidPe_RefinesFamilyWithoutOverstatingSectionValidation()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -406,7 +406,7 @@ public class DetectorTests {
 
         Assert.NotNull(res);
         Assert.True(res!.Extension is "exe" or "dll" or "sys");
-        Assert.Equal("High", res.Confidence);
+        Assert.Equal("Medium", res.Confidence);
         Assert.Contains("pe:header", res.Reason ?? string.Empty);
     }
 

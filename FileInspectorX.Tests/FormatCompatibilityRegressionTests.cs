@@ -24,7 +24,7 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt32LittleEndian(bytes, peOffset + 80, 0x2000);
         WriteUInt32LittleEndian(bytes, peOffset + 84, 0x1600);
 
-        AssertParity(bytes, "exe", "High");
+        AssertParity(bytes, "exe", "Medium");
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class FormatCompatibilityRegressionTests
 
         Assert.Equal("registry-hive:base-block:dirty", result.Reason);
         Assert.Contains("recovery-may-be-required", result.ReasonDetails);
-        Assert.Equal("High", FileInspector.Detect(RegistryHive(primarySequence: 2, secondarySequence: 2))?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(RegistryHive(primarySequence: 2, secondarySequence: 2))?.Confidence);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class FormatCompatibilityRegressionTests
             .CopyTo(bytes, 0);
         WriteUInt32LittleEndian(bytes, blockLength - 4, blockLength);
 
-        AssertParity(bytes, "pcapng", "High");
+        AssertParity(bytes, "pcapng", "Medium");
     }
 
     [Fact]

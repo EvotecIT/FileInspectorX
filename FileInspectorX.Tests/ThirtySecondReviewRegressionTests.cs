@@ -26,7 +26,7 @@ public sealed class ThirtySecondReviewRegressionTests
     [Fact]
     public void OggPageLacingPayloadAndChecksumMustBeComplete()
     {
-        AssertParity(TestHelpers.CreateMinimalOgg(), "ogg", "High");
+        AssertParity(TestHelpers.CreateMinimalOgg(), "ogg", "Medium");
         var missingPayload = new byte[28];
         Encoding.ASCII.GetBytes("OggS").CopyTo(missingPayload, 0);
         missingPayload[26] = 1;

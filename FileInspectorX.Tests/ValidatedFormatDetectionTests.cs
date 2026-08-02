@@ -7,7 +7,7 @@ public sealed class ValidatedFormatDetectionTests
 {
     public static IEnumerable<object[]> ValidSamples()
     {
-        yield return Sample("exe", TestHelpers.CreateMinimalPe(), 0x80);
+        yield return Sample("exe", TestHelpers.CreateMinimalPe(), 0x80, "Medium");
         yield return Sample("png", TestHelpers.CreateMinimalPng(), 12);
         yield return Sample("gif", Gif(), 6);
         yield return Sample("zip", TestHelpers.CreateEmptyZip(), 0);
@@ -17,11 +17,11 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("bmp", Bmp(), 14);
         yield return Sample("gz", Gzip(), 2, "Medium");
         yield return Sample("bz2", new byte[] { 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 }, 4, "Medium");
-        yield return Sample("ogg", Ogg(), 4);
+        yield return Sample("ogg", Ogg(), 4, "Medium");
         yield return Sample("mp3", Mp3(), 3, "Medium");
-        yield return Sample("wasm", Wasm(), 4);
+        yield return Sample("wasm", Wasm(), 4, "Medium");
         yield return Sample("pcap", Pcap(), 4);
-        yield return Sample("pcapng", PcapNg(), 8);
+        yield return Sample("pcapng", PcapNg(), 8, "Medium");
         yield return Sample("flac", Flac(), 7, "Medium");
         yield return Sample("crx", Crx(), 4, "Medium");
         yield return Sample("ico", Icon(), 2);

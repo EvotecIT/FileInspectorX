@@ -49,7 +49,7 @@ public sealed class ThirtyThirdReviewRegressionTests
     public void RegistryHiveWalksEveryDeclaredBinAndValidatesTheRootCell()
     {
         byte[] valid = RegistryHive(twoValidBins: true);
-        AssertParity(valid, "hive", "High");
+        AssertParity(valid, "hive", "Medium");
         AssertNotDetectedAs(RegistryHive(twoValidBins: false), "hive");
         valid[4096 + 0x24] = (byte)'x';
         AssertNotDetectedAs(valid, "hive");

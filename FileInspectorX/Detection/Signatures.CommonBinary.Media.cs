@@ -142,7 +142,8 @@ internal static partial class Signatures
         if (status == CommonBinaryValidation.Invalid) return false;
         result = BinaryResult("ogg", "application/ogg", status == CommonBinaryValidation.Complete
             ? "ogg:pages+checksums" : "ogg:sampled-page-header");
-        if (status == CommonBinaryValidation.Sampled) result.Confidence = "Medium";
+        result.Confidence = "Medium";
+        result.Reason += ";logical-stream-sequencing-not-validated";
         return true;
     }
 
