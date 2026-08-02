@@ -71,6 +71,7 @@ public sealed class NineteenthReviewRegressionTests
         WriteUInt16BigEndian(bytes, directoryOffset + 4, 1);
         WriteUInt16BigEndian(bytes, directoryOffset + 6, 16);
         Encoding.ASCII.GetBytes("head").CopyTo(bytes, directoryOffset + 12);
+        WriteUInt32BigEndian(bytes, directoryOffset + 16, 0x64617461);
         WriteUInt32BigEndian(bytes, directoryOffset + 20, (uint)(directoryOffset + 28));
         WriteUInt32BigEndian(bytes, directoryOffset + 24, 4);
         Encoding.ASCII.GetBytes("data").CopyTo(bytes, directoryOffset + 28);

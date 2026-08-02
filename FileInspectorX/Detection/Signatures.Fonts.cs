@@ -25,6 +25,9 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try {
             if (stream.Length < 4 || !TryReadAt(stream, 0, (int)Math.Min(64, stream.Length), out var prefix)) return false;
+            if (stream.Length <= Math.Max(64, Settings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
+                TryReadAt(stream, 0, (int)stream.Length, out var completeFont))
+                return TryMatchFont(new ReadOnlySpan<byte>(completeFont), stream.Length, out result);
             var src = new ReadOnlySpan<byte>(prefix);
             if (src.Length >= 4 && src.Slice(0, 4).SequenceEqual("wOF2"u8))
                 return TryMatchWoff2(stream, src, out result);
@@ -103,7 +106,7 @@ internal static partial class Signatures {
                 anyCff |= isCff;
             }
 
-            result = FontCollectionResult(version, fontCount, anyCff);
+            result = FontCollectionResult(version, fontCount, anyCff, "table-checksum-budget");
             return true;
         } catch {
             result = null;
@@ -289,8 +292,12 @@ internal static partial class Signatures {
             for (int range = 0; range < tableRanges.Count; range++)
                 if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
             tableRanges.Add((tableOffset, tableEnd));
-            sampledTables |= !completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)src.Length;
+            sampledTables |= (ulong)tableOffset + tableLength > (ulong)src.Length;
         }
+
+        FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(src, src);
+        if (checksumStatus == FontChecksumStatus.Invalid) return false;
+        sampledTables |= checksumStatus == FontChecksumStatus.Sampled;
 
         result = FontResult(extension, mime, sampledTables ? "sampled-table-data" : null);
         return true;
@@ -334,6 +341,7 @@ internal static partial class Signatures {
             if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
             directories.Add((directoryOffset, (int)directoryLength));
         }
+        bool sampledChecksums = false;
         for (int index = 0; index < directories.Count; index++) {
             uint directoryOffset = directories[index].Offset;
             int directoryLength = directories[index].Length;
@@ -345,10 +353,15 @@ internal static partial class Signatures {
             remainingValidationBudget -= directoryLength;
             if (!TryValidateCollectionFontDirectory(src.Slice((int)directoryOffset, directoryLength), directoryOffset,
                     completeLength, directoryRanges, out bool isCff)) return false;
+            FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(
+                src, src.Slice((int)directoryOffset, directoryLength));
+            if (checksumStatus == FontChecksumStatus.Invalid) return false;
+            sampledChecksums |= checksumStatus == FontChecksumStatus.Sampled;
             anyCff |= isCff;
         }
 
-        result = FontCollectionResult(version, fontCount, anyCff);
+        result = FontCollectionResult(version, fontCount, anyCff,
+            sampledChecksums ? "sampled-table-checksums" : null);
         return true;
     }
 

@@ -31,12 +31,13 @@ internal static partial class Signatures {
             MimeType = "application/x-ms-shortcut",
             Confidence = status == ShellLinkParseStatus.Complete ? "High" : "Medium",
             Reason = "shell-link:header-clsid" +
-                     (status == ShellLinkParseStatus.Complete ? ";flagged-structures" : ";sampled-structures")
+                     (status == ShellLinkParseStatus.Complete ? ";flagged-structures" :
+                      status == ShellLinkParseStatus.UnrecognizedExtraData ? ";unrecognized-extra-data" : ";sampled-structures")
         };
         return true;
     }
 
-    private enum ShellLinkParseStatus { Invalid, Sampled, Complete }
+    private enum ShellLinkParseStatus { Invalid, Sampled, UnrecognizedExtraData, Complete }
 
     private static ShellLinkParseStatus InspectShellLinkStructures(ReadOnlySpan<byte> src, long? completeLength) {
         if (completeLength < 0) return ShellLinkParseStatus.Invalid;
@@ -83,6 +84,7 @@ internal static partial class Signatures {
             cursor += byteCount;
         }
 
+        bool unrecognizedExtraData = false;
         while (true) {
             ShellLinkParseStatus status = EnsureShellLinkRange(cursor, 4, src.Length, completeLength);
             if (status != ShellLinkParseStatus.Complete) return status;
@@ -91,11 +93,14 @@ internal static partial class Signatures {
                 cursor += 4;
                 return completeLength.HasValue && cursor != completeLength.Value
                     ? ShellLinkParseStatus.Invalid
-                    : ShellLinkParseStatus.Complete;
+                    : unrecognizedExtraData ? ShellLinkParseStatus.UnrecognizedExtraData : ShellLinkParseStatus.Complete;
             }
             if (blockSize < 8) return ShellLinkParseStatus.Invalid;
             status = EnsureShellLinkRange(cursor, blockSize, src.Length, completeLength);
             if (status != ShellLinkParseStatus.Complete) return status;
+            if (!TryValidateShellLinkExtraData(src.Slice(cursor, checked((int)blockSize)), out bool recognized))
+                return ShellLinkParseStatus.Invalid;
+            unrecognizedExtraData |= !recognized;
             cursor += checked((int)blockSize);
         }
     }

@@ -280,6 +280,7 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt16BigEndian(bytes, offset + 4, 1);
         WriteUInt16BigEndian(bytes, offset + 6, 16);
         Encoding.ASCII.GetBytes("head").CopyTo(bytes, offset + 12);
+        WriteUInt32BigEndian(bytes, offset + 16, 0x64617461);
         WriteUInt32BigEndian(bytes, offset + 20, (uint)tableOffset);
         WriteUInt32BigEndian(bytes, offset + 24, 4);
     }

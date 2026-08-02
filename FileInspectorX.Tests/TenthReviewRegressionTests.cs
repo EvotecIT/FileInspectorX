@@ -177,9 +177,11 @@ public sealed class TenthReviewRegressionTests
         WriteUInt16BigEndian(bytes, 6, 32);
         WriteUInt16BigEndian(bytes, 8, 1);
         Encoding.ASCII.GetBytes("head").CopyTo(bytes, 12);
+        WriteUInt32BigEndian(bytes, 16, 0x64617461);
         WriteUInt32BigEndian(bytes, 20, 44);
         WriteUInt32BigEndian(bytes, 24, 4);
         Encoding.ASCII.GetBytes("name").CopyTo(bytes, 28);
+        WriteUInt32BigEndian(bytes, 32, 0x666F6E74);
         WriteUInt32BigEndian(bytes, 36, 48);
         WriteUInt32BigEndian(bytes, 40, 4);
         Encoding.ASCII.GetBytes("datafont").CopyTo(bytes, 44);

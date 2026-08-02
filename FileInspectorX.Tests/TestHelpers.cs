@@ -146,6 +146,22 @@ internal static class TestHelpers
         return bytes;
     }
 
+    internal static byte[] CreateDex041Container(int memberCount = 2)
+    {
+        const int memberLength = 148;
+        int containerLength = checked(memberCount * memberLength);
+        var container = new byte[containerLength];
+        for (int member = 0; member < memberCount; member++)
+        {
+            byte[] dex = CreateMinimalDex("041", length: memberLength);
+            WriteUInt32LittleEndian(dex, 112, (uint)containerLength);
+            WriteUInt32LittleEndian(dex, 116, (uint)(member * memberLength));
+            FinalizeDex(dex);
+            dex.CopyTo(container, member * memberLength);
+        }
+        return container;
+    }
+
     internal static void FinalizeDex(byte[] bytes, bool littleEndian = true, int dexLength = -1)
     {
         if (dexLength < 0) dexLength = bytes.Length;

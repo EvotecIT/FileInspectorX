@@ -145,6 +145,7 @@ public sealed class EleventhReviewRegressionTests
         var large = ShellLink(6100, 0x00000084);
         WriteUInt16LittleEndian(large, 76, 3000);
         WriteUInt32LittleEndian(large, 6078, 18);
+        WriteUInt32LittleEndian(large, 6082, 0xA0000009);
         Assert.Equal("High", FileInspector.Detect(large)?.Confidence);
         using var stream = new NonSeekableReadStream(large);
         var sampled = FileInspector.Detect(stream);

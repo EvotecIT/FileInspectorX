@@ -337,12 +337,14 @@ internal static partial class Signatures {
         uint headerSize = ReadUInt32(src, 36, fieldsAreLittleEndian);
         uint expectedHeaderSize = version >= 41 ? 0x78u : 0x70u;
         if (headerSize != expectedHeaderSize || fileSize < headerSize || src.Length < headerSize) return false;
+        uint dex041ContainerSize = 0;
         if (version == 41) {
             uint containerSize = ReadUInt32(src, 112, fieldsAreLittleEndian);
             uint headerOffset = ReadUInt32(src, 116, fieldsAreLittleEndian);
             if (headerOffset != 0 || containerSize < headerSize || fileSize > containerSize ||
                 (fileSize < containerSize && (fileSize & 3) != 0) ||
                 (completeLength.HasValue && containerSize != completeLength.Value)) return false;
+            dex041ContainerSize = containerSize;
         }
         else if (completeLength.HasValue && fileSize != completeLength.Value) return false;
 
@@ -350,7 +352,12 @@ internal static partial class Signatures {
             !TryValidateDexSectionsAndMap(src.Slice(0, (int)fileSize), fieldsAreLittleEndian, headerSize)) return false;
 
         bool integrityValidated = false;
-        if (completeLength.HasValue && fileSize <= int.MaxValue && fileSize <= src.Length)
+        if (version == 41 && completeLength.HasValue && completeLength.Value == src.Length)
+        {
+            if (!TryValidateDex041Container(src, dex041ContainerSize)) return false;
+            integrityValidated = true;
+        }
+        else if (completeLength.HasValue && fileSize <= int.MaxValue && fileSize <= src.Length)
         {
             int dexLength = (int)fileSize;
             using var sha1 = System.Security.Cryptography.SHA1.Create();
