@@ -144,7 +144,7 @@ internal static partial class Signatures
                 status = current;
                 cursor++;
                 if (status < 0xF0) runningStatus = status;
-                else if (status != 0xFF) runningStatus = 0;
+                else runningStatus = 0;
             }
 
             if (status < 0xF0)
@@ -201,7 +201,7 @@ internal static partial class Signatures
                 status = current;
                 cursor++;
                 if (status < 0xF0) runningStatus = status;
-                else if (status != 0xFF) runningStatus = 0;
+                else runningStatus = 0;
             }
             if (status < 0xF0) {
                 int remaining = ((status & 0xF0) is 0xC0 or 0xD0 ? 1 : 2) - (consumedFirstData ? 1 : 0);
@@ -251,7 +251,7 @@ internal static partial class Signatures
             {
                 status = current;
                 if (status < 0xF0) runningStatus = status;
-                else if (status != 0xFF) runningStatus = 0;
+                else runningStatus = 0;
             }
 
             if (status < 0xF0)

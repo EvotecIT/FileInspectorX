@@ -59,6 +59,7 @@ internal static partial class Signatures
         bool sawIdat = false;
         bool idatSequenceEnded = false;
         bool sawPlte = false;
+        bool ancillarySemanticsNotValidated = false;
         int idatBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
         using var idat = new MemoryStream();
         bool idatBudgetExceeded = false;
@@ -77,8 +78,10 @@ internal static partial class Signatures
             uint type = ReadUInt32BigEndian(src, cursor + 4);
             bool critical = chunkType[0] is >= (byte)'A' and <= (byte)'Z';
             if (critical && type is not (0x49484452 or 0x504C5445 or 0x49444154 or 0x49454E44)) return false;
+            if (!critical) ancillarySemanticsNotValidated = true;
             if (cursor == 8 && type != 0x49484452) return false;
             if (cursor != 8 && type == 0x49484452) return false;
+            if ((sawIdat && IsPngPreIdatChunk(type)) || (sawPlte && IsPngPrePlteChunk(type))) return false;
             if (type == 0x504C5445)
             {
                 if (sawPlte || sawIdat || colorType is 0 or 4 || chunkLength == 0 || chunkLength > 768 || chunkLength % 3 != 0) return false;
@@ -121,12 +124,20 @@ internal static partial class Signatures
             ? ValidatePngIdat(idat.ToArray(), idatBudgetExceeded, width, height, bitDepth, colorType, src[28], idatBudget)
             : PngIdatValidation.BudgetOrUnsupported;
         if (fullyBounded && idatValidation == PngIdatValidation.Invalid) return false;
-        bool fullyValidated = fullyBounded && idatValidation == PngIdatValidation.Valid;
+        bool fullyValidated = fullyBounded && idatValidation == PngIdatValidation.Valid && !ancillarySemanticsNotValidated;
         result = BinaryResult("png", "image/png", fullyValidated ? "png:chunks+idat+iend" :
+            fullyBounded && ancillarySemanticsNotValidated ? "png:chunks+idat+iend;ancillary-semantics-not-validated" :
             fullyBounded ? "png:chunks+iend;idat-budget-or-interlace" : "png:signature+ihdr;sampled-chunks");
         if (!fullyValidated) result.Confidence = "Medium";
         return true;
     }
+
+    private static bool IsPngPreIdatChunk(uint type)
+        => type is 0x74524E53 or 0x624B4744 or 0x68495354 or 0x6348524D or 0x67414D41 or
+                   0x69434350 or 0x73424954 or 0x73524742 or 0x70485973;
+
+    private static bool IsPngPrePlteChunk(uint type)
+        => type is 0x6348524D or 0x67414D41 or 0x69434350 or 0x73424954 or 0x73524742;
 
     private enum PngIdatValidation
     {
@@ -565,10 +576,14 @@ internal static partial class Signatures
         result = BinaryResult("bmp", "image/bmp", "bmp:file+dib-header");
         bool embeddedPayloadNotValidated = dibSize >= 40 && src.Length >= 34 &&
                                            ReadUInt32LittleEndian(src, 30) is 4 or 5;
-        if (embeddedPayloadNotValidated)
+        bool rlePayloadNotValidated = dibSize >= 40 && src.Length >= 34 &&
+                                      ReadUInt32LittleEndian(src, 30) is 1 or 2;
+        if (embeddedPayloadNotValidated || rlePayloadNotValidated)
         {
             result.Confidence = "Medium";
-            result.Reason += ";embedded-payload-not-validated";
+            result.Reason += embeddedPayloadNotValidated
+                ? ";embedded-payload-not-validated"
+                : ";rle-payload-not-validated";
         }
         if (completeLength.HasValue && fileSize != completeLength.Value)
         {
@@ -851,6 +866,7 @@ internal static partial class Signatures
         if (availableEntries == 0 || (completeLength.HasValue && availableEntries != count)) return false;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
         bool sampledPayload = false;
+        bool rlePayloadNotValidated = false;
         for (int index = 0; index < availableEntries; index++)
         {
             int entryOffset = 6 + index * 16;
@@ -870,7 +886,11 @@ internal static partial class Signatures
             ranges.Add((imageOffset, imageEnd));
             if (imageEnd <= (ulong)src.Length)
             {
-                if (!TryValidateIconPayload(src.Slice((int)imageOffset, (int)imageSize), width, height, secondField, type)) return false;
+                var payload = src.Slice((int)imageOffset, (int)imageSize);
+                if (!TryValidateIconPayload(payload, width, height, secondField, type)) return false;
+                rlePayloadNotValidated |= payload.Length >= 20 &&
+                                          !payload.Slice(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }) &&
+                                          ReadUInt32LittleEndian(payload, 16) is 1 or 2;
             }
             else if (completeLength.HasValue) return false;
             else sampledPayload = true;
@@ -879,8 +899,10 @@ internal static partial class Signatures
         result = new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = type == 1 ? "image/x-icon" : "image/x-win-bitmap",
-            Confidence = completeLength.HasValue && !sampledPayload ? "High" : "Medium",
-            Reason = completeLength.HasValue && !sampledPayload ? $"icon-directory:{extension}" : $"icon-directory:{extension};sampled-length-unknown;sampled-payload"
+            Confidence = completeLength.HasValue && !sampledPayload && !rlePayloadNotValidated ? "High" : "Medium",
+            Reason = rlePayloadNotValidated ? $"icon-directory:{extension};rle-payload-not-validated" :
+                     completeLength.HasValue && !sampledPayload ? $"icon-directory:{extension}" :
+                     $"icon-directory:{extension};sampled-length-unknown;sampled-payload"
         };
         return true;
     }

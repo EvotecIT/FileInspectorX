@@ -155,7 +155,7 @@ public sealed class EleventhReviewRegressionTests
     }
 
     [Fact]
-    public void MidiPreservesRunningStatusAcrossMetaAndClearsItAfterSysExEvents()
+    public void MidiMetaAndSysExEventsCancelRunningStatus()
     {
         byte[] channel = { 0, 0x90, 60, 64 };
         byte[] bareChannel = { 0, 60, 64 };
@@ -164,7 +164,7 @@ public sealed class EleventhReviewRegressionTests
         byte[] explicitChannel = { 0, 0x90, 60, 64 };
         byte[] end = { 0, 0xFF, 0x2F, 0 };
 
-        AssertMidiAccepted(Midi(channel, meta, bareChannel, end));
+        AssertMidiRejected(Midi(channel, meta, bareChannel, end));
         AssertMidiRejected(Midi(channel, sysEx, bareChannel, end));
         AssertMidiAccepted(Midi(channel, meta, explicitChannel, end));
 

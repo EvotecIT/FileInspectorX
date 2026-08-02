@@ -63,7 +63,7 @@ internal static partial class Signatures
                 if (segmentLength < 8) return CommonBinaryValidation.Invalid;
                 byte componentCount = src[cursor + 7];
                 if (componentCount == 0 || segmentLength != 8 + componentCount * 3 ||
-                    src[cursor + 2] is not (8 or 12 or 16) ||
+                    !IsValidJpegSamplePrecision(marker, src[cursor + 2]) ||
                     ReadUInt16BigEndian(src, cursor + 5) == 0) return CommonBinaryValidation.Invalid;
                 frameNeedsDnl |= ReadUInt16BigEndian(src, cursor + 3) == 0;
                 frameComponents.Clear();
@@ -112,6 +112,12 @@ internal static partial class Signatures
 
     private static bool IsJpegStartOfFrame(byte marker)
         => marker is >= 0xC0 and <= 0xCF && marker is not (0xC4 or 0xC8 or 0xCC);
+
+    private static bool IsValidJpegSamplePrecision(byte marker, byte precision)
+    {
+        if (marker is 0xC3 or 0xC7 or 0xCB or 0xCF) return precision is >= 2 and <= 16;
+        return marker == 0xC0 ? precision == 8 : precision is 8 or 12;
+    }
 
     internal static bool TryMatchGzip(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
         => TryMatchGzip(src, src.Length, out result);

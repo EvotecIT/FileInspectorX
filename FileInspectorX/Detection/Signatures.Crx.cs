@@ -129,20 +129,19 @@ internal static partial class Signatures
             if (fieldNumber is 0 or > 0x1FFFFFFF) return false;
             int field = (int)fieldNumber;
             int wire = (int)(key & 7);
-            if (wire != 2 || !TryReadProtobufVarint(header, ref cursor, out ulong length) ||
-                length > (ulong)(header.Length - cursor)) return false;
-            var value = header.Slice(cursor, (int)length);
-            cursor += (int)length;
             if (field is 2 or 3)
             {
+                if (!TryReadProtobufBytes(header, ref cursor, wire, out var value)) return false;
                 if (!TryValidateCrx3Proof(value)) return false;
                 proof = true;
             }
             else if (field == 10000)
             {
+                if (!TryReadProtobufBytes(header, ref cursor, wire, out var value)) return false;
                 if (!TryValidateCrx3SignedData(value)) return false;
                 signedData = true;
             }
+            else if (!TrySkipProtobufValue(header, ref cursor, field, wire)) return false;
         }
         return proof && signedData;
     }
@@ -154,14 +153,18 @@ internal static partial class Signatures
         bool signature = false;
         while (cursor < proof.Length)
         {
-            if (!TryReadProtobufVarint(proof, ref cursor, out ulong tag) || (tag & 7) != 2 ||
-                !TryReadProtobufVarint(proof, ref cursor, out ulong length) || length == 0 || length > (ulong)(proof.Length - cursor)) return false;
+            if (!TryReadProtobufVarint(proof, ref cursor, out ulong tag)) return false;
             ulong fieldNumber = tag >> 3;
             if (fieldNumber is 0 or > 0x1FFFFFFF) return false;
             int field = (int)fieldNumber;
-            key |= field == 1;
-            signature |= field == 2;
-            cursor += (int)length;
+            int wire = (int)(tag & 7);
+            if (field is 1 or 2)
+            {
+                if (!TryReadProtobufBytes(proof, ref cursor, wire, out var value) || value.Length == 0) return false;
+                key |= field == 1;
+                signature |= field == 2;
+            }
+            else if (!TrySkipProtobufValue(proof, ref cursor, field, wire)) return false;
         }
         return key && signature;
     }
@@ -169,9 +172,67 @@ internal static partial class Signatures
     private static bool TryValidateCrx3SignedData(ReadOnlySpan<byte> data)
     {
         int cursor = 0;
-        if (!TryReadProtobufVarint(data, ref cursor, out ulong tag) || tag != 0x0A ||
-            !TryReadProtobufVarint(data, ref cursor, out ulong length) || length != 16) return false;
-        return cursor + 16 == data.Length;
+        bool crxId = false;
+        while (cursor < data.Length)
+        {
+            if (!TryReadProtobufVarint(data, ref cursor, out ulong tag)) return false;
+            ulong fieldNumber = tag >> 3;
+            if (fieldNumber is 0 or > 0x1FFFFFFF) return false;
+            int field = (int)fieldNumber;
+            int wire = (int)(tag & 7);
+            if (field == 1)
+            {
+                if (!TryReadProtobufBytes(data, ref cursor, wire, out var value) || value.Length != 16) return false;
+                crxId = true;
+            }
+            else if (!TrySkipProtobufValue(data, ref cursor, field, wire)) return false;
+        }
+        return crxId;
+    }
+
+    private static bool TryReadProtobufBytes(ReadOnlySpan<byte> data, ref int cursor, int wire,
+        out ReadOnlySpan<byte> value)
+    {
+        value = default;
+        if (wire != 2 || !TryReadProtobufVarint(data, ref cursor, out ulong length) ||
+            length > (ulong)(data.Length - cursor)) return false;
+        value = data.Slice(cursor, (int)length);
+        cursor += (int)length;
+        return true;
+    }
+
+    private static bool TrySkipProtobufValue(ReadOnlySpan<byte> data, ref int cursor, int field, int wire, int depth = 0)
+    {
+        switch (wire)
+        {
+            case 0:
+                return TryReadProtobufVarint(data, ref cursor, out _);
+            case 1:
+                if (cursor > data.Length - 8) return false;
+                cursor += 8;
+                return true;
+            case 2:
+                return TryReadProtobufBytes(data, ref cursor, wire, out _);
+            case 3:
+                if (depth >= 32) return false;
+                while (cursor < data.Length)
+                {
+                    if (!TryReadProtobufVarint(data, ref cursor, out ulong nestedKey)) return false;
+                    ulong nestedFieldNumber = nestedKey >> 3;
+                    if (nestedFieldNumber is 0 or > 0x1FFFFFFF) return false;
+                    int nestedField = (int)nestedFieldNumber;
+                    int nestedWire = (int)(nestedKey & 7);
+                    if (nestedWire == 4) return nestedField == field;
+                    if (!TrySkipProtobufValue(data, ref cursor, nestedField, nestedWire, depth + 1)) return false;
+                }
+                return false;
+            case 5:
+                if (cursor > data.Length - 4) return false;
+                cursor += 4;
+                return true;
+            default:
+                return false;
+        }
     }
 
     private static bool TryReadProtobufVarint(ReadOnlySpan<byte> data, ref int cursor, out ulong value)
@@ -180,6 +241,7 @@ internal static partial class Signatures
         for (int shift = 0; shift < 64 && cursor < data.Length; shift += 7)
         {
             byte current = data[cursor++];
+            if (shift == 63 && (current & 0x7F) > 1) return false;
             value |= (ulong)(current & 0x7F) << shift;
             if ((current & 0x80) == 0) return true;
         }
