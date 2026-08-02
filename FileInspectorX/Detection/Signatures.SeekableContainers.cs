@@ -543,6 +543,8 @@ internal static partial class Signatures
         short previousField = 0;
         var fields = new System.Collections.Generic.HashSet<short>();
         bool version = false, schema = false, rows = false, rowGroups = false;
+        long declaredRows = 0, rowGroupRows = 0;
+        int rowGroupCount = 0;
         bool stopped = false;
         while (cursor < metadata.Length)
         {
@@ -563,13 +565,14 @@ internal static partial class Signatures
             else if (field == 2) { if (type != 9 || !TryValidateParquetSchemaList(metadata, ref cursor)) return false; schema = true; }
             else if (field == 3)
             {
-                if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out long rowCount) || rowCount < 0) return false;
+                if (type != 6 || !TryReadCompactInt64(metadata, ref cursor, out declaredRows) || declaredRows < 0) return false;
                 rows = true;
             }
-            else if (field == 4) { if (type != 9 || !SkipCompactList(metadata, ref cursor, requireNonEmpty: false, 0, requiredElementType: 12)) return false; rowGroups = true; }
+            else if (field == 4) { if (type != 9 || !TryValidateParquetRowGroups(metadata, ref cursor, out rowGroupCount, out rowGroupRows)) return false; rowGroups = true; }
             else if (!SkipCompactValue(metadata, ref cursor, type, 0)) return false;
         }
-        return stopped && cursor == metadata.Length && version && schema && rows && rowGroups;
+        return stopped && cursor == metadata.Length && version && schema && rows && rowGroups &&
+               rowGroupRows == declaredRows && (declaredRows == 0 || rowGroupCount > 0);
     }
 
     private static bool TryValidateParquetSchemaList(ReadOnlySpan<byte> src, ref int cursor)

@@ -716,6 +716,7 @@ internal static partial class Signatures {
     private static bool TryValidateJpeg2000TopLevelBoxes(ReadOnlySpan<byte> src, int cursor, uint brand)
     {
         bool header = false;
+        bool sawHeaderBox = false;
         bool data = false;
         while (cursor < src.Length)
         {
@@ -737,13 +738,23 @@ internal static partial class Signatures {
             if (brand == 0x6D6A7032)
             {
                 if (type == 0x6D6F6F76)
-                    header |= TryValidateMj2MovieBox(src.Slice(cursor + headerLength, (int)boxLength - headerLength));
+                {
+                    if (sawHeaderBox) return false;
+                    sawHeaderBox = true;
+                    header = TryValidateMj2MovieBox(src.Slice(cursor + headerLength, (int)boxLength - headerLength));
+                    if (!header) return false;
+                }
                 if (type == 0x6D646174) data |= boxLength > headerLength;
             }
             else
             {
                 if (type == GetJpeg2000HeaderBoxType(brand))
-                    header |= TryValidateJpeg2000HeaderPayload(src.Slice(cursor + headerLength, (int)boxLength - headerLength), brand);
+                {
+                    if (sawHeaderBox) return false;
+                    sawHeaderBox = true;
+                    header = TryValidateJpeg2000HeaderPayload(src.Slice(cursor + headerLength, (int)boxLength - headerLength), brand);
+                    if (!header) return false;
+                }
                 if (header && type == 0x6A703263)
                     data |= TryValidateJpeg2000Codestream(src.Slice(cursor + headerLength, (int)boxLength - headerLength));
             }
@@ -827,6 +838,7 @@ internal static partial class Signatures {
             bool data = false;
             bool sampledMj2 = false;
             bool sampledCodestream = false;
+            bool sawHeaderBox = false;
             long cursor = 12L + fileTypeLength;
             int remainingBoxHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
             while (cursor < stream.Length)
@@ -861,6 +873,8 @@ internal static partial class Signatures {
                 {
                     if (type == 0x6D6F6F76)
                     {
+                        if (sawHeaderBox) return false;
+                        sawHeaderBox = true;
                         long payloadLength = boxLength - headerLength;
                         if (payloadLength > Settings.DetectionReadBudgetBytes) sampledMj2 = true;
                         else if (!TryReadAt(stream, cursor + headerLength, (int)payloadLength, out var movieBytes) ||
@@ -872,7 +886,12 @@ internal static partial class Signatures {
                 else
                 {
                     if (type == GetJpeg2000HeaderBoxType(brand))
-                        header |= TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand);
+                    {
+                        if (sawHeaderBox) return false;
+                        sawHeaderBox = true;
+                        header = TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand);
+                        if (!header) return false;
+                    }
                     if (header && type == 0x6A703263)
                         data |= TryValidateJpeg2000Codestream(stream, cursor + headerLength, boxLength - headerLength, out sampledCodestream);
                 }

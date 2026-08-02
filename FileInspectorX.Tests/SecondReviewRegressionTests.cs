@@ -265,6 +265,8 @@ public sealed class SecondReviewRegressionTests
         Encoding.ASCII.GetBytes("hbin").CopyTo(bytes, 4096);
         WriteUInt32LittleEndian(bytes, 4100, 0);
         WriteUInt32LittleEndian(bytes, 4104, 0x1000);
+        WriteUInt32LittleEndian(bytes, 4096 + 0x20, 0xFFFFFFB0);
+        Encoding.ASCII.GetBytes("nk").CopyTo(bytes, 4096 + 0x24);
         uint current = 0;
         for (int offset = 0; offset < 0x1FC; offset += 4) current ^= ReadUInt32LittleEndian(bytes, offset);
         WriteUInt32LittleEndian(bytes, 0x100, current ^ calculated);

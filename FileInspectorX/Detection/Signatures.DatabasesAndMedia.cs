@@ -35,8 +35,14 @@ internal static partial class Signatures {
         if (checksum != ReadUInt32LittleEndian(src, 0x1FC)) return false;
         ulong requiredLength = 4096UL + hiveBinsSize;
         if (completeLength < 0 || (completeLength.HasValue && requiredLength > (ulong)completeLength.Value)) return false;
+        bool completeBins = completeLength.HasValue && requiredLength <= (ulong)src.Length;
         bool hasHiveBinHeader = src.Length >= 4108;
-        if (hasHiveBinHeader)
+        if (completeBins)
+        {
+            if (!TryValidateRegistryHiveBins(src.Slice(4096, checked((int)hiveBinsSize)), hiveBinsSize, rootCellOffset))
+                return false;
+        }
+        else if (hasHiveBinHeader)
         {
             uint firstBinOffset = ReadUInt32LittleEndian(src, 4100);
             uint firstBinSize = ReadUInt32LittleEndian(src, 4104);
@@ -51,9 +57,9 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = "hive",
             MimeType = "application/x-windows-registry-hive",
-            Confidence = dirty || !hasHiveBinHeader ? "Medium" : "High",
+            Confidence = dirty || !completeBins ? "Medium" : "High",
             Reason = dirty ? "registry-hive:base-block:dirty" :
-                hasHiveBinHeader ? "registry-hive:base-block+hbin" : "registry-hive:base-block;sampled-hbin",
+                completeBins ? "registry-hive:base-block+all-hbins+root-cell" : "registry-hive:base-block;sampled-hbin",
             ReasonDetails = dirty ? $"registry-hive:sequence-mismatch={primarySequence}/{secondarySequence};recovery-may-be-required" : null
         };
         return true;
@@ -66,8 +72,17 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try
         {
-            return stream.Length >= 4108 && TryReadAt(stream, 0, 4108, out var header) &&
-                   TryMatchRegistryHive(new ReadOnlySpan<byte>(header), stream.Length, out result);
+            if (stream.Length < 4108 || !TryReadAt(stream, 0, 4096, out var header) ||
+                !TryMatchRegistryHive(new ReadOnlySpan<byte>(header), completeLength: null, out result)) return false;
+            var baseBlock = new ReadOnlySpan<byte>(header);
+            uint rootCellOffset = ReadUInt32LittleEndian(baseBlock, 36);
+            uint hiveBinsSize = ReadUInt32LittleEndian(baseBlock, 40);
+            if (4096UL + hiveBinsSize > (ulong)stream.Length ||
+                !TryValidateRegistryHiveBins(stream, hiveBinsSize, rootCellOffset)) return false;
+            bool dirty = ReadUInt32LittleEndian(baseBlock, 4) != ReadUInt32LittleEndian(baseBlock, 8);
+            result!.Confidence = dirty ? "Medium" : "High";
+            result.Reason = dirty ? "registry-hive:base-block:dirty" : "registry-hive:base-block+all-hbins+root-cell";
+            return true;
         }
         catch
         {
@@ -78,6 +93,65 @@ internal static partial class Signatures {
         {
             try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
         }
+    }
+
+    private static bool TryValidateRegistryHiveBins(ReadOnlySpan<byte> bins, uint hiveBinsSize, uint rootCellOffset)
+    {
+        if (hiveBinsSize > int.MaxValue || bins.Length != (int)hiveBinsSize) return false;
+        uint cursor = 0;
+        bool rootFound = false;
+        while (cursor < hiveBinsSize)
+        {
+            if (hiveBinsSize - cursor < 32 || !bins.Slice((int)cursor, 4).SequenceEqual("hbin"u8)) return false;
+            uint binOffset = ReadUInt32LittleEndian(bins, (int)cursor + 4);
+            uint binSize = ReadUInt32LittleEndian(bins, (int)cursor + 8);
+            if (binOffset != cursor || binSize < 4096 || (binSize & 0xFFF) != 0 || binSize > hiveBinsSize - cursor)
+                return false;
+            if (rootCellOffset >= cursor + 32 && rootCellOffset < cursor + binSize)
+            {
+                if (!TryValidateRegistryRootCell(bins.Slice((int)cursor, (int)binSize), rootCellOffset - cursor)) return false;
+                rootFound = true;
+            }
+            cursor += binSize;
+        }
+        return cursor == hiveBinsSize && rootFound;
+    }
+
+    private static bool TryValidateRegistryHiveBins(Stream stream, uint hiveBinsSize, uint rootCellOffset)
+    {
+        uint cursor = 0;
+        bool rootFound = false;
+        while (cursor < hiveBinsSize)
+        {
+            if (hiveBinsSize - cursor < 32 || !TryReadAt(stream, 4096L + cursor, 32, out var header)) return false;
+            var binHeader = new ReadOnlySpan<byte>(header);
+            uint binOffset = ReadUInt32LittleEndian(binHeader, 4);
+            uint binSize = ReadUInt32LittleEndian(binHeader, 8);
+            if (!binHeader.Slice(0, 4).SequenceEqual("hbin"u8) || binOffset != cursor || binSize < 4096 ||
+                (binSize & 0xFFF) != 0 || binSize > hiveBinsSize - cursor) return false;
+            if (rootCellOffset >= cursor + 32 && rootCellOffset < cursor + binSize)
+            {
+                uint relative = rootCellOffset - cursor;
+                int probeLength = (int)Math.Min(80u, binSize - relative);
+                if (!TryReadAt(stream, 4096L + rootCellOffset, probeLength, out var root) ||
+                    !TryValidateRegistryRootCell(new ReadOnlySpan<byte>(root), 0, binSize - relative)) return false;
+                rootFound = true;
+            }
+            cursor += binSize;
+        }
+        return cursor == hiveBinsSize && rootFound;
+    }
+
+    private static bool TryValidateRegistryRootCell(ReadOnlySpan<byte> bin, uint relativeOffset)
+        => TryValidateRegistryRootCell(bin.Slice((int)relativeOffset), 0, (uint)bin.Length - relativeOffset);
+
+    private static bool TryValidateRegistryRootCell(ReadOnlySpan<byte> cell, uint relativeOffset, uint available)
+    {
+        if (relativeOffset != 0 || cell.Length < 6 || available < 6) return false;
+        long signedSize = unchecked((int)ReadUInt32LittleEndian(cell, 0));
+        if (signedSize >= 0) return false;
+        ulong cellSize = (ulong)(-signedSize);
+        return cellSize >= 6 && cellSize <= available && cell.Slice(4, 2).SequenceEqual("nk"u8);
     }
 
     /// <summary>

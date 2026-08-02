@@ -75,7 +75,7 @@ public sealed class FourthReviewRegressionTests
     {
         Assert.Equal("woff2", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
-        Assert.Equal("font:woff2;reserved-nonzero", result?.Reason);
+        Assert.Equal("font:woff2;reserved-nonzero;brotli-payload-not-validated", result?.Reason);
     }
 
     private static void AssertNotDetectedAcrossApis(byte[] bytes, string extension)

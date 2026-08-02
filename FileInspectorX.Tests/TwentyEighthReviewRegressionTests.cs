@@ -71,7 +71,6 @@ public sealed class TwentyEighthReviewRegressionTests
         byte[] valid = TestHelpers.CreateMinimalParquet();
         int rowValue = Find(valid, new byte[] { 0x16, 0x00 }) + 1;
         Assert.True(rowValue > 0);
-        valid[rowValue] = 0x02;
         AssertParity(valid, "parquet");
 
         byte[] negative = (byte[])valid.Clone();

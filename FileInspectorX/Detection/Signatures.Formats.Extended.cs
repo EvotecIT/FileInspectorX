@@ -434,6 +434,26 @@ internal static partial class Signatures
             int blockBytes = GetDdsBlockBytes(fourCc, dxgiFormat);
             if (blockBytes != 0)
                 mipLength = ((currentWidth + 3UL) / 4UL) * ((currentHeight + 3UL) / 4UL) * currentDepth * (uint)blockBytes;
+            else if (dxgiFormat is >= 130 and <= 132)
+            {
+                if (dxgiFormat == 130 && (currentWidth & 1) != 0 || dxgiFormat == 131 && (currentHeight & 1) != 0)
+                    return false;
+                ulong rowBytes = currentWidth;
+                if (mip == 0 && pitchOrLinearSize != 0)
+                {
+                    if (pitchOrLinearSize < rowBytes) return false;
+                    rowBytes = pitchOrLinearSize;
+                }
+                ulong planeRows = dxgiFormat switch
+                {
+                    130 => currentHeight * 2UL,                         // P208: Y + interleaved UV.
+                    131 => currentHeight + 2UL * ((currentHeight + 1UL) / 2UL), // V208: Y + U + V half-height.
+                    _ => currentHeight * 3UL                           // V408: full-height Y, U and V.
+                };
+                if (planeRows == 0 || rowBytes > ulong.MaxValue / planeRows ||
+                    rowBytes * planeRows > ulong.MaxValue / currentDepth) return false;
+                mipLength = rowBytes * planeRows * currentDepth;
+            }
             else if (dxgiFormat != 0 && TryGetDdsBitsPerPixel(dxgiFormat, out uint dxgiBits))
             {
                 ulong rowBytes = (currentWidth * (ulong)dxgiBits + 7UL) / 8UL;
@@ -821,6 +841,7 @@ internal static partial class Signatures
         rootScanBudgetExceeded = false;
         sampledSegment = false;
         int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+        bool foundSegment = false;
         while (cursor < src.Length)
         {
             if (remainingElements-- == 0)
@@ -830,6 +851,8 @@ internal static partial class Signatures
             }
             if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
             {
+                if (foundSegment) return false;
+                foundSegment = true;
                 cursor += 4;
                 if (!TryReadEbmlSize(src, ref cursor, out ulong segmentLength, out bool unknownLength)) return false;
                 if (completeLength.HasValue && cursor > completeLength.Value) return false;
@@ -842,7 +865,9 @@ internal static partial class Signatures
                 if (status == MatroskaSegmentStatus.Invalid) return false;
                 sampledSegment = status == MatroskaSegmentStatus.Sampled;
                 if (!completeLength.HasValue && (!completeSegmentLength.HasValue || completeSegmentLength.Value > availableLength)) sampledSegment = true;
-                return true;
+                if (!completeLength.HasValue || unknownLength || segmentLength > availableLength) return true;
+                cursor += checked((int)segmentLength);
+                continue;
             }
             if (!TryReadEbmlVInt(src, ref cursor, stripMarker: false, out ulong id) || id != 0xEC ||
                 !TryReadEbmlVInt(src, ref cursor, stripMarker: true, out ulong length)) return false;
@@ -859,7 +884,7 @@ internal static partial class Signatures
                 return true;
             }
         }
-        return false;
+        return foundSegment && (!completeLength.HasValue || cursor == completeLength.Value);
     }
 
     private static ContentTypeDetectionResult MatroskaResult(string docType, bool sampledRootVoid = false,
@@ -928,6 +953,8 @@ internal static partial class Signatures
             if (!TryReadMatroskaDocumentType(new ReadOnlySpan<byte>(bytes, 0, read), out string? docType, out int headerEnd)) return false;
             long cursor = headerEnd;
             int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            bool foundSegment = false;
+            bool sampledSegment = false;
             while (cursor < stream.Length)
             {
                 if (remainingElements-- == 0)
@@ -938,6 +965,8 @@ internal static partial class Signatures
                 if (stream.Length - cursor >= 4 && TryReadAt(stream, cursor, 4, out var idBytes) &&
                     new ReadOnlySpan<byte>(idBytes).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
                 {
+                    if (foundSegment) return false;
+                    foundSegment = true;
                     stream.Seek(cursor + 4, SeekOrigin.Begin);
                     if (!TryReadEbmlSize(stream, out ulong segmentLength, out bool unknownLength) ||
                         (!unknownLength && segmentLength > (ulong)(stream.Length - stream.Position))) return false;
@@ -947,8 +976,14 @@ internal static partial class Signatures
                     if (!TryReadAt(stream, segmentPayloadOffset, segmentReadLength, out var segmentBytes)) return false;
                     MatroskaSegmentStatus status = InspectMatroskaSegmentChildren(new ReadOnlySpan<byte>(segmentBytes), completeSegmentLength);
                     if (status == MatroskaSegmentStatus.Invalid) return false;
-                    result = MatroskaResult(docType!, sampledSegment: status == MatroskaSegmentStatus.Sampled);
-                    return true;
+                    sampledSegment = status == MatroskaSegmentStatus.Sampled;
+                    if (unknownLength)
+                    {
+                        result = MatroskaResult(docType!, sampledSegment: sampledSegment);
+                        return true;
+                    }
+                    cursor = segmentPayloadOffset + checked((long)segmentLength);
+                    continue;
                 }
                 if (!TryReadAt(stream, cursor, 1, out var voidId) || voidId[0] != 0xEC) return false;
                 stream.Seek(cursor + 1, SeekOrigin.Begin);
@@ -957,7 +992,9 @@ internal static partial class Signatures
                 if (voidLength > (ulong)(stream.Length - payloadOffset)) return false;
                 cursor = payloadOffset + (long)voidLength;
             }
-            return false;
+            if (!foundSegment) return false;
+            result = MatroskaResult(docType!, sampledSegment: sampledSegment);
+            return true;
         }
         catch
         {
