@@ -174,14 +174,13 @@ public sealed class TwentyFirstReviewRegressionTests
     {
         byte[] minimal = TestHelpers.CreateMinimalJpeg2000();
         var bytes = new byte[minimal.Length + count * 8];
-        Array.Copy(minimal, 0, bytes, 0, 32);
+        Array.Copy(minimal, bytes, minimal.Length);
         for (int index = 0; index < count; index++)
         {
-            int offset = 32 + index * 8;
+            int offset = minimal.Length + index * 8;
             WriteUInt32BigEndian(bytes, offset, 8);
             Encoding.ASCII.GetBytes("free").CopyTo(bytes, offset + 4);
         }
-        Array.Copy(minimal, 32, bytes, 32 + count * 8, minimal.Length - 32);
         return bytes;
     }
 

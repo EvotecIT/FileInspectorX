@@ -117,15 +117,13 @@ public sealed class FifteenthReviewRegressionTests
     private static byte[] MatroskaWithRootVoids(int count)
     {
         byte[] minimal = TestHelpers.CreateMinimalMatroska();
-        const int segmentOffset = 16;
         var bytes = new byte[minimal.Length + count * 2];
-        Array.Copy(minimal, 0, bytes, 0, segmentOffset);
+        Array.Copy(minimal, bytes, minimal.Length);
         for (int index = 0; index < count; index++)
         {
-            bytes[segmentOffset + index * 2] = 0xEC;
-            bytes[segmentOffset + index * 2 + 1] = 0x80;
+            bytes[minimal.Length + index * 2] = 0xEC;
+            bytes[minimal.Length + index * 2 + 1] = 0x80;
         }
-        Array.Copy(minimal, segmentOffset, bytes, segmentOffset + count * 2, minimal.Length - segmentOffset);
         return bytes;
     }
 

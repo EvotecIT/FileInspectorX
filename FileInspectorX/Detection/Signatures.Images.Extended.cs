@@ -871,6 +871,7 @@ internal static partial class Signatures {
             {
                 if (remainingBoxHeaders-- == 0)
                 {
+                    if ((!header && !sampledMj2) || !data) return false;
                     result = new ContentTypeDetectionResult {
                         Extension = extension,
                         MimeType = mime,

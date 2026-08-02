@@ -171,6 +171,8 @@ internal static partial class Signatures
 
     private static bool IsRpmPayloadPrefix(ReadOnlySpan<byte> payload)
     {
+        if (payload.Length >= 6 && (payload.Slice(0, 6).SequenceEqual("070701"u8) ||
+                                    payload.Slice(0, 6).SequenceEqual("070702"u8))) return true;
         if (payload.Length >= 2 && payload[0] == 0x1F && payload[1] == 0x8B) return true;
         if (payload.Length >= 3 && payload.Slice(0, 3).SequenceEqual("BZh"u8)) return true;
         if (payload.Length >= 6 && payload.Slice(0, 6).SequenceEqual(new byte[] { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 })) return true;
@@ -865,7 +867,7 @@ internal static partial class Signatures
             if (remainingElements-- == 0)
             {
                 rootScanBudgetExceeded = true;
-                return true;
+                return foundSegment;
             }
             if (src.Length - cursor >= 4 && src.Slice(cursor, 4).SequenceEqual(new byte[] { 0x18, 0x53, 0x80, 0x67 }))
             {
@@ -979,6 +981,7 @@ internal static partial class Signatures
             {
                 if (remainingElements-- == 0)
                 {
+                    if (!foundSegment) return false;
                     result = MatroskaResult(docType!, rootScanBudgetExceeded: true);
                     return true;
                 }

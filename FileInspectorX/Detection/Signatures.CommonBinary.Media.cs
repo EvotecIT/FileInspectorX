@@ -23,6 +23,7 @@ internal static partial class Signatures
         int limit = complete ? checked((int)completeLength!.Value) : src.Length;
         int cursor = 2;
         bool sawFrame = false, sawScan = false, entropy = false;
+        bool frameNeedsDnl = false, sawDnl = false;
         Span<bool> frameComponents = stackalloc bool[256];
         Span<bool> scanComponents = stackalloc bool[256];
         while (cursor < limit)
@@ -46,7 +47,9 @@ internal static partial class Signatures
                 marker = src[cursor++];
             }
             if (marker == 0 || marker == 0xD8) return CommonBinaryValidation.Invalid;
-            if (marker == 0xD9) return sawFrame && sawScan ? CommonBinaryValidation.Complete : CommonBinaryValidation.Invalid;
+            if (marker == 0xD9)
+                return sawFrame && sawScan && (!frameNeedsDnl || sawDnl)
+                    ? CommonBinaryValidation.Complete : CommonBinaryValidation.Invalid;
             if (marker == 0x01 || marker is >= 0xD0 and <= 0xD7) continue;
             if (cursor + 2 > limit) return complete ? CommonBinaryValidation.Invalid : CommonBinaryValidation.Sampled;
             ushort segmentLength = ReadUInt16BigEndian(src, cursor);
@@ -56,10 +59,12 @@ internal static partial class Signatures
             if (segmentEnd > limit) return complete ? CommonBinaryValidation.Invalid : CommonBinaryValidation.Sampled;
             if (IsJpegStartOfFrame(marker))
             {
+                if (segmentLength < 8) return CommonBinaryValidation.Invalid;
                 byte componentCount = src[cursor + 7];
                 if (componentCount == 0 || segmentLength != 8 + componentCount * 3 ||
                     src[cursor + 2] is not (8 or 12 or 16) ||
-                    ReadUInt16BigEndian(src, cursor + 3) == 0 || ReadUInt16BigEndian(src, cursor + 5) == 0) return CommonBinaryValidation.Invalid;
+                    ReadUInt16BigEndian(src, cursor + 5) == 0) return CommonBinaryValidation.Invalid;
+                frameNeedsDnl |= ReadUInt16BigEndian(src, cursor + 3) == 0;
                 frameComponents.Clear();
                 for (int component = 0; component < componentCount; component++)
                 {
@@ -75,6 +80,7 @@ internal static partial class Signatures
             }
             if (marker == 0xDA)
             {
+                if (segmentLength < 6) return CommonBinaryValidation.Invalid;
                 byte componentCount = src[cursor + 2];
                 if (!sawFrame || componentCount == 0 || segmentLength != 6 + componentCount * 2)
                     return CommonBinaryValidation.Invalid;
@@ -91,6 +97,12 @@ internal static partial class Signatures
                 }
                 sawScan = true;
                 entropy = true;
+            }
+            if (marker == 0xDC)
+            {
+                if (!sawFrame || !sawScan || !frameNeedsDnl || sawDnl || segmentLength != 4 ||
+                    ReadUInt16BigEndian(src, cursor + 2) == 0) return CommonBinaryValidation.Invalid;
+                sawDnl = true;
             }
             cursor = (int)segmentEnd;
         }
