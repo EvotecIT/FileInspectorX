@@ -145,6 +145,7 @@ public sealed class ThirdReviewRegressionTests
         WriteUInt32LittleEndian(bytes, userBlock + 44,
             ComputeHdf5SuperblockChecksum(new ReadOnlySpan<byte>(bytes, userBlock, 44)));
         Encoding.ASCII.GetBytes("OHDR").CopyTo(bytes, userBlock + 48);
+        bytes[userBlock + 52] = 2;
         return bytes;
     }
 

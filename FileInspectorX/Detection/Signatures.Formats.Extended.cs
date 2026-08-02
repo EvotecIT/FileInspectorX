@@ -230,9 +230,11 @@ internal static partial class Signatures
         if (version == 3)
         {
             if (src.Length < 104) return false;
+            ulong incompatibleFeatures = ReadUInt64(src, 72, littleEndian: false);
             uint refcountOrder = ReadUInt32BigEndian(src, 96);
             headerLength = ReadUInt32BigEndian(src, 100);
-            if (refcountOrder > 6 || headerLength < 104 || (headerLength & 7) != 0 || headerLength > clusterSize ||
+            if ((incompatibleFeatures & ~0x1FUL) != 0 || refcountOrder > 6 || headerLength < 104 ||
+                (headerLength & 7) != 0 || headerLength > clusterSize ||
                 (completeLength.HasValue && headerLength > completeLength.Value)) return false;
         }
         bool extendedL2 = version == 3 && src.Length >= 80 && (ReadUInt64(src, 72, littleEndian: false) & 0x10UL) != 0;
@@ -431,6 +433,16 @@ internal static partial class Signatures
             int blockBytes = GetDdsBlockBytes(fourCc, dxgiFormat);
             if (blockBytes != 0)
                 mipLength = ((currentWidth + 3UL) / 4UL) * ((currentHeight + 3UL) / 4UL) * currentDepth * (uint)blockBytes;
+            else if (dxgiFormat != 0 && TryGetDdsBitsPerPixel(dxgiFormat, out uint dxgiBits))
+            {
+                ulong rowBytes = (currentWidth * (ulong)dxgiBits + 7UL) / 8UL;
+                if (mip == 0 && pitchOrLinearSize != 0)
+                {
+                    if (pitchOrLinearSize < rowBytes) return false;
+                    rowBytes = pitchOrLinearSize;
+                }
+                mipLength = rowBytes * currentHeight * currentDepth;
+            }
             else if (!hasFourCc && bitCount != 0)
                 mipLength = ((currentWidth * (ulong)bitCount + 7UL) / 8UL) * currentHeight * currentDepth;
             else if (mip == 0 && pitchOrLinearSize != 0)
@@ -454,6 +466,21 @@ internal static partial class Signatures
         if (dxgiFormat is >= 70 and <= 72 or >= 79 and <= 81) return 8;
         if (dxgiFormat is >= 73 and <= 78 or >= 82 and <= 84 or >= 94 and <= 99) return 16;
         return 0;
+    }
+
+    private static bool TryGetDdsBitsPerPixel(uint format, out uint bits)
+    {
+        bits = 0;
+        if (format is >= 1 and <= 4) bits = 128;
+        else if (format is >= 5 and <= 8) bits = 96;
+        else if (format is >= 9 and <= 22 or >= 109 and <= 110) bits = 64;
+        else if (format is >= 23 and <= 47 or >= 67 and <= 69 or >= 87 and <= 93 or >= 100 and <= 102 or >= 106 and <= 108 or >= 111 and <= 115) bits = 32;
+        else if (format is >= 48 and <= 59 or >= 85 and <= 86 or 105) bits = 16;
+        else if (format is >= 60 and <= 65) bits = 8;
+        else if (format == 66) bits = 1;
+        else if (format == 103) bits = 12;
+        else if (format == 104) bits = 24;
+        return bits != 0;
     }
 
     private static bool IsKnownDdsDxgiFormat(uint format)
@@ -554,6 +581,8 @@ internal static partial class Signatures
         long metaEnd = 144L + metaLength;
         if (metaLength < 48 || completeLength < 0 || (completeLength.HasValue && metaEnd > completeLength.Value)) return false;
         bool fileMetaVersion = false, sopClass = false, sopInstance = false, transferSyntax = false, implementationClass = false;
+        ushort previousTag = 0;
+        bool sawTag = false;
         bool sampled = metaEnd > src.Length;
         long cursor = 144;
         while (cursor < metaEnd)
@@ -566,6 +595,9 @@ internal static partial class Signatures
             ushort tag = ReadUInt16LittleEndian(src, element + 2);
             byte vr1 = src[element + 4], vr2 = src[element + 5];
             if (group != 0x0002 || vr1 is < (byte)'A' or > (byte)'Z' || vr2 is < (byte)'A' or > (byte)'Z') return false;
+            if (sawTag && tag <= previousTag) return false;
+            previousTag = tag;
+            sawTag = true;
             bool longValue = IsDicomLongValueRepresentation(vr1, vr2);
             int headerLength = longValue ? 12 : 8;
             if (cursor + headerLength > src.Length)

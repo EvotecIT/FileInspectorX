@@ -53,6 +53,7 @@ internal static partial class Signatures {
             cursor += 2;
             status = EnsureShellLinkRange(cursor, idListSize, src.Length, completeLength);
             if (status != ShellLinkParseStatus.Complete) return status;
+            if (!TryValidateShellLinkIdList(src.Slice(cursor, idListSize))) return ShellLinkParseStatus.Invalid;
             cursor += idListSize;
         }
 
@@ -96,6 +97,19 @@ internal static partial class Signatures {
             if (status != ShellLinkParseStatus.Complete) return status;
             cursor += checked((int)blockSize);
         }
+    }
+
+    private static bool TryValidateShellLinkIdList(ReadOnlySpan<byte> idList)
+    {
+        int cursor = 0;
+        while (cursor + 2 <= idList.Length)
+        {
+            ushort itemSize = ReadUInt16LittleEndian(idList, cursor);
+            if (itemSize == 0) return cursor + 2 == idList.Length;
+            if (itemSize < 2 || itemSize > idList.Length - cursor) return false;
+            cursor += itemSize;
+        }
+        return false;
     }
 
     private static ShellLinkParseStatus EnsureShellLinkRange(int offset, long length, int sampledLength, long? completeLength) {

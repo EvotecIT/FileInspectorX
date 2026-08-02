@@ -343,6 +343,9 @@ internal static partial class Signatures {
         }
         else if (completeLength.HasValue && fileSize != completeLength.Value) return false;
 
+        if (completeLength.HasValue && fileSize <= src.Length &&
+            !TryValidateDexSectionsAndMap(src.Slice(0, (int)fileSize), fieldsAreLittleEndian, headerSize)) return false;
+
         bool integrityValidated = false;
         if (completeLength.HasValue && fileSize <= int.MaxValue && fileSize <= src.Length)
         {
@@ -363,6 +366,54 @@ internal static partial class Signatures {
                      (integrityValidated ? string.Empty : ";integrity-not-sampled")
         };
         return true;
+    }
+
+    private static bool TryValidateDexSectionsAndMap(ReadOnlySpan<byte> dex, bool littleEndian, uint headerSize)
+    {
+        uint mapOffset = ReadUInt32(dex, 52, littleEndian);
+        uint dataSize = ReadUInt32(dex, 104, littleEndian);
+        uint dataOffset = ReadUInt32(dex, 108, littleEndian);
+        if (mapOffset == 0 || (mapOffset & 3) != 0 || mapOffset < headerSize || mapOffset > dex.Length - 4 ||
+            dataOffset < headerSize || dataOffset > dex.Length || dataSize != dex.Length - dataOffset ||
+            mapOffset < dataOffset) return false;
+
+        var expected = new (ushort Type, int HeaderOffset, uint Width)[] {
+            (0x0001, 56, 4), (0x0002, 64, 4), (0x0003, 72, 12),
+            (0x0004, 80, 8), (0x0005, 88, 8), (0x0006, 96, 32)
+        };
+        for (int index = 0; index < expected.Length; index++)
+        {
+            uint count = ReadUInt32(dex, expected[index].HeaderOffset, littleEndian);
+            uint offset = ReadUInt32(dex, expected[index].HeaderOffset + 4, littleEndian);
+            if ((count == 0) != (offset == 0) || count != 0 &&
+                ((offset & 3) != 0 || offset < headerSize || (ulong)offset + (ulong)count * expected[index].Width > (ulong)dex.Length))
+                return false;
+        }
+
+        uint mapCount = ReadUInt32(dex, (int)mapOffset, littleEndian);
+        if (mapCount is < 2 or > 65535 || (ulong)mapOffset + 4UL + (ulong)mapCount * 12UL > (ulong)dex.Length) return false;
+        var seenTypes = new System.Collections.Generic.HashSet<ushort>();
+        uint previousOffset = 0;
+        bool sawHeader = false, sawMap = false;
+        for (uint index = 0; index < mapCount; index++)
+        {
+            int item = checked((int)mapOffset + 4 + (int)index * 12);
+            ushort type = ReadUInt16(dex, item, littleEndian);
+            ushort unused = ReadUInt16(dex, item + 2, littleEndian);
+            uint count = ReadUInt32(dex, item + 4, littleEndian);
+            uint offset = ReadUInt32(dex, item + 8, littleEndian);
+            if (unused != 0 || count == 0 || offset >= dex.Length || !seenTypes.Add(type) || index != 0 && offset < previousOffset) return false;
+            previousOffset = offset;
+            if (type == 0x0000) sawHeader = count == 1 && offset == 0;
+            else if (type == 0x1000) sawMap = count == 1 && offset == mapOffset;
+            for (int expectedIndex = 0; expectedIndex < expected.Length; expectedIndex++)
+            {
+                if (type != expected[expectedIndex].Type) continue;
+                if (count != ReadUInt32(dex, expected[expectedIndex].HeaderOffset, littleEndian) ||
+                    offset != ReadUInt32(dex, expected[expectedIndex].HeaderOffset + 4, littleEndian)) return false;
+            }
+        }
+        return sawHeader && sawMap;
     }
 
     private static uint ComputeAdler32(ReadOnlySpan<byte> data)

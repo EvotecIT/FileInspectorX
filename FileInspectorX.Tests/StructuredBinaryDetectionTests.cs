@@ -411,6 +411,7 @@ public sealed class StructuredBinaryDetectionTests
             WriteUInt32LittleEndian(bytes, offset + 44,
                 ComputeHdf5SuperblockChecksum(new ReadOnlySpan<byte>(bytes, offset, 44)));
             System.Text.Encoding.ASCII.GetBytes("OHDR").CopyTo(bytes, offset + 48);
+            bytes[offset + 52] = 2;
         }
         return bytes;
     }

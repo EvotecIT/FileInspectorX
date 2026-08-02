@@ -254,6 +254,7 @@ internal static partial class Signatures {
         }
         bool sampledTables = false;
         var tableTags = new System.Collections.Generic.HashSet<uint>();
+        var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
         for (int table = 0; table < tableCount; table++) {
             int record = 12 + table * 16;
             for (int tag = 0; tag < 4; tag++)
@@ -263,6 +264,10 @@ internal static partial class Signatures {
             uint tableLength = ReadUInt32BigEndian(src, record + 12);
             if (tableOffset < directoryEnd || tableLength == 0 || (tableOffset & 3) != 0 ||
                 (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
+            ulong tableEnd = (ulong)tableOffset + tableLength;
+            for (int range = 0; range < tableRanges.Count; range++)
+                if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
+            tableRanges.Add((tableOffset, tableEnd));
             sampledTables |= !completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)src.Length;
         }
 
@@ -340,6 +345,7 @@ internal static partial class Signatures {
             ReadUInt16BigEndian(directory, 10) != tableCount * 16 - maximumPowerOfTwo * 16) return false;
         if (directory.Length < 12L + tableCount * 16L) return false;
         var tableTags = new System.Collections.Generic.HashSet<uint>();
+        var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
         for (int table = 0; table < tableCount; table++) {
             int record = 12 + table * 16;
             for (int tag = 0; tag < 4; tag++)
@@ -349,6 +355,10 @@ internal static partial class Signatures {
             uint tableLength = ReadUInt32BigEndian(directory, record + 12);
             if (tableLength == 0 || (tableOffset & 3) != 0 ||
                 (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
+            ulong tableEnd = (ulong)tableOffset + tableLength;
+            for (int range = 0; range < tableRanges.Count; range++)
+                if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
+            tableRanges.Add((tableOffset, tableEnd));
         }
         return true;
     }

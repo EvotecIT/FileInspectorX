@@ -33,8 +33,10 @@ internal static partial class Signatures {
         result = null;
         for (long offset = 0; offset <= src.Length - Hdf5Signature.Length; offset = NextHdf5Offset(offset)) {
             if (MatchesHdf5Signature(src, (int)offset) &&
-                TryValidateHdf5Superblock(src.Slice((int)offset), offset, completeLength)) {
-                result = Hdf5Result(offset, completeLength.HasValue);
+                TryValidateHdf5Superblock(src.Slice((int)offset), offset, completeLength, out ulong rootAddress, out bool modern) &&
+                (!modern || TryValidateHdf5RootObjectHeader(src, rootAddress, completeLength))) {
+                bool complete = completeLength.HasValue && (!modern || rootAddress + 6 <= (ulong)src.Length);
+                result = Hdf5Result(offset, complete);
                 return true;
             }
             if (offset > int.MaxValue / 2) break;
@@ -72,7 +74,9 @@ internal static partial class Signatures {
                 }
                 var candidate = new ReadOnlySpan<byte>(superblock, 0, read);
                 if (read >= Hdf5Signature.Length && MatchesHdf5Signature(candidate, 0) &&
-                    TryValidateHdf5Superblock(candidate, offset, length)) {
+                    TryValidateHdf5Superblock(candidate, offset, length, out ulong rootAddress, out bool modern) &&
+                    (!modern || TryReadAt(stream, checked((long)rootAddress), 6, out var rootHeader) &&
+                     TryValidateHdf5ObjectHeaderV2(new ReadOnlySpan<byte>(rootHeader)))) {
                     result = Hdf5Result(offset);
                     return true;
                 }
@@ -620,7 +624,10 @@ internal static partial class Signatures {
         return true;
     }
 
-    private static bool TryValidateHdf5Superblock(ReadOnlySpan<byte> src, long signatureOffset, long? fileLength) {
+    private static bool TryValidateHdf5Superblock(ReadOnlySpan<byte> src, long signatureOffset, long? fileLength,
+        out ulong rootObjectAddress, out bool modern) {
+        rootObjectAddress = 0;
+        modern = false;
         if (src.Length < 12) return false;
         byte version = src[8];
         if (version is 0 or 1) {
@@ -652,10 +659,12 @@ internal static partial class Signatures {
                 absoluteObjectHeader < (ulong)(signatureOffset + cursor + 24) || absoluteObjectHeader >= absoluteEof) return false;
             uint cacheType = ReadUInt32LittleEndian(src, cursor);
             if (cacheType > 1 || ReadUInt32LittleEndian(src, cursor + 4) != 0) return false;
+            rootObjectAddress = absoluteObjectHeader;
             return true;
         }
 
         if (version is not (2 or 3)) return false;
+        modern = true;
         byte modernOffsetSize = src[9];
         byte modernLengthSize = src[10];
         byte allowedFlags = version == 3 ? (byte)0x07 : (byte)0x03;
@@ -677,8 +686,20 @@ internal static partial class Signatures {
             absoluteRoot < (ulong)(signatureOffset + modernCursor + 4) || absoluteRoot >= absoluteModernEof ||
             (!extensionUndefined && (!TryAddHdfRelativeAddress(modernBase, extensionAddress, out ulong absoluteExtension) ||
                                      absoluteExtension < (ulong)(signatureOffset + modernCursor + 4) || absoluteExtension >= absoluteModernEof))) return false;
+        rootObjectAddress = absoluteRoot;
         return true;
     }
+
+    private static bool TryValidateHdf5RootObjectHeader(ReadOnlySpan<byte> file, ulong rootAddress, long? completeLength)
+    {
+        if (rootAddress > int.MaxValue || rootAddress + 6UL > (ulong)file.Length)
+            return !completeLength.HasValue;
+        return TryValidateHdf5ObjectHeaderV2(file.Slice((int)rootAddress, 6));
+    }
+
+    private static bool TryValidateHdf5ObjectHeaderV2(ReadOnlySpan<byte> header)
+        => header.Length >= 6 && header.Slice(0, 4).SequenceEqual("OHDR"u8) && header[4] == 2 &&
+           (header[5] & 0xC0) == 0;
 
     private static bool TryAddHdfRelativeAddress(ulong baseAddress, ulong relativeAddress, out ulong absoluteAddress) {
         if (ulong.MaxValue - baseAddress < relativeAddress) {

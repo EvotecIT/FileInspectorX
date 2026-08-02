@@ -147,7 +147,9 @@ internal static partial class Signatures {
                 partChunks = DivideRoundUp(height, GetOpenExrScanLinesPerChunk(compressionValue));
             }
             if (partChunks == 0 || totalChunkCount > ulong.MaxValue - partChunks) return false;
-            partLayouts.Add(new OpenExrPartLayout(partRequiresTiles, partIsDeep, partChunks));
+            partLayouts.Add(new OpenExrPartLayout(partRequiresTiles, partIsDeep, partChunks,
+                dataMinX, dataMinY, dataMaxX, dataMaxY, tileWidth, tileHeight, tileMode,
+                GetOpenExrScanLinesPerChunk(compressionValue)));
             totalChunkCount += partChunks;
 
             if (!multipart) break;
@@ -180,10 +182,23 @@ internal static partial class Signatures {
 
     private readonly struct OpenExrPartLayout
     {
-        internal OpenExrPartLayout(bool tiled, bool deep, ulong chunkCount) { Tiled = tiled; Deep = deep; ChunkCount = chunkCount; }
+        internal OpenExrPartLayout(bool tiled, bool deep, ulong chunkCount, int minX, int minY, int maxX, int maxY,
+            uint tileWidth, uint tileHeight, byte tileMode, uint scanLinesPerChunk)
+        {
+            Tiled = tiled; Deep = deep; ChunkCount = chunkCount; MinX = minX; MinY = minY; MaxX = maxX; MaxY = maxY;
+            TileWidth = tileWidth; TileHeight = tileHeight; TileMode = tileMode; ScanLinesPerChunk = scanLinesPerChunk;
+        }
         internal bool Tiled { get; }
         internal bool Deep { get; }
         internal ulong ChunkCount { get; }
+        internal int MinX { get; }
+        internal int MinY { get; }
+        internal int MaxX { get; }
+        internal int MaxY { get; }
+        internal uint TileWidth { get; }
+        internal uint TileHeight { get; }
+        internal byte TileMode { get; }
+        internal uint ScanLinesPerChunk { get; }
     }
 
     private static bool TryValidateOpenExrChunkFraming(ReadOnlySpan<byte> src, int tableOffset, long? completeLength,
@@ -212,6 +227,8 @@ internal static partial class Signatures {
         if (chunkCount > chunkBudget) return true;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>((int)chunkCount);
         var partChunkCounts = new ulong[partLayouts.Count];
+        var partCoordinates = new System.Collections.Generic.HashSet<string>[partLayouts.Count];
+        for (int part = 0; part < partCoordinates.Length; part++) partCoordinates[part] = new System.Collections.Generic.HashSet<string>();
         foreach (ulong offset in offsets) {
             if (offset > int.MaxValue || offset + (ulong)(multipart ? 4 : 8) > (ulong)src.Length)
                 return !completeLength.HasValue || completeLength.Value > src.Length;
@@ -226,6 +243,28 @@ internal static partial class Signatures {
             if (completeLength.HasValue && (ulong)chunkHeaderLength > (ulong)completeLength.Value - offset) return false;
             if (offset + (ulong)chunkHeaderLength > (ulong)src.Length)
                 return !completeLength.HasValue || completeLength.Value > src.Length;
+            if (layout.Tiled)
+            {
+                int tileX = unchecked((int)ReadUInt32(src, chunk + partPrefix, true));
+                int tileY = unchecked((int)ReadUInt32(src, chunk + partPrefix + 4, true));
+                int levelX = unchecked((int)ReadUInt32(src, chunk + partPrefix + 8, true));
+                int levelY = unchecked((int)ReadUInt32(src, chunk + partPrefix + 12, true));
+                if (tileX < 0 || tileY < 0 || levelX < 0 || levelY < 0) return false;
+                if (layout.TileMode == 0)
+                {
+                    ulong tilesX = DivideRoundUp((ulong)((long)layout.MaxX - layout.MinX + 1), layout.TileWidth);
+                    ulong tilesY = DivideRoundUp((ulong)((long)layout.MaxY - layout.MinY + 1), layout.TileHeight);
+                    if (levelX != 0 || levelY != 0 || (ulong)tileX >= tilesX || (ulong)tileY >= tilesY) return false;
+                }
+                if (!partCoordinates[partNumber].Add(tileX + ":" + tileY + ":" + levelX + ":" + levelY)) return false;
+            }
+            else
+            {
+                int scanLine = unchecked((int)ReadUInt32(src, chunk + partPrefix, true));
+                long relative = (long)scanLine - layout.MinY;
+                if (scanLine < layout.MinY || scanLine > layout.MaxY || relative % layout.ScanLinesPerChunk != 0 ||
+                    !partCoordinates[partNumber].Add(scanLine.ToString(System.Globalization.CultureInfo.InvariantCulture))) return false;
+            }
             ulong payloadLength;
             if (layout.Deep) {
                 ulong offsetTableLength = ReadUInt64(src, chunk + sizeOffset, true);
@@ -787,6 +826,7 @@ internal static partial class Signatures {
             bool header = false;
             bool data = false;
             bool sampledMj2 = false;
+            bool sampledCodestream = false;
             long cursor = 12L + fileTypeLength;
             int remainingBoxHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
             while (cursor < stream.Length)
@@ -834,7 +874,7 @@ internal static partial class Signatures {
                     if (type == GetJpeg2000HeaderBoxType(brand))
                         header |= TryValidateJpeg2000HeaderPayload(stream, cursor + headerLength, boxLength - headerLength, brand);
                     if (header && type == 0x6A703263)
-                        data |= TryValidateJpeg2000Codestream(stream, cursor + headerLength, boxLength - headerLength);
+                        data |= TryValidateJpeg2000Codestream(stream, cursor + headerLength, boxLength - headerLength, out sampledCodestream);
                 }
                 cursor += boxLength;
             }
@@ -842,8 +882,9 @@ internal static partial class Signatures {
             result = new ContentTypeDetectionResult {
                 Extension = extension,
                 MimeType = mime,
-                Confidence = sampledMj2 ? "Medium" : "High",
-                Reason = "jpeg2000:" + extension + (sampledMj2 ? ";movie-box-budget" : string.Empty)
+                Confidence = sampledMj2 || sampledCodestream ? "Medium" : "High",
+                Reason = "jpeg2000:" + extension + (sampledMj2 ? ";movie-box-budget" : string.Empty) +
+                         (sampledCodestream ? ";codestream-budget" : string.Empty)
             };
             return true;
         }
@@ -962,10 +1003,73 @@ internal static partial class Signatures {
     }
 
     private static bool TryValidateJpeg2000Codestream(ReadOnlySpan<byte> payload)
-        => payload.Length >= 4 && payload[0] == 0xFF && payload[1] == 0x4F &&
-           payload[payload.Length - 2] == 0xFF && payload[payload.Length - 1] == 0xD9;
+        => TryValidateJpeg2000CodestreamFraming(payload, payload.Length, requireEnd: true);
 
-    private static bool TryValidateJpeg2000Codestream(Stream stream, long offset, long length)
-        => length >= 4 && TryReadAt(stream, offset, 2, out var start) && TryReadAt(stream, offset + length - 2, 2, out var end) &&
-           start[0] == 0xFF && start[1] == 0x4F && end[0] == 0xFF && end[1] == 0xD9;
+    private static bool TryValidateJpeg2000Codestream(Stream stream, long offset, long length, out bool sampled)
+    {
+        sampled = false;
+        if (length < 61 || !TryReadAt(stream, offset + length - 2, 2, out var end) || end[0] != 0xFF || end[1] != 0xD9) return false;
+        int budget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int readLength = (int)Math.Min(length, budget);
+        if (!TryReadAt(stream, offset, readLength, out var bytes)) return false;
+        sampled = readLength < length;
+        return TryValidateJpeg2000CodestreamFraming(new ReadOnlySpan<byte>(bytes), length, requireEnd: !sampled);
+    }
+
+    private static bool TryValidateJpeg2000CodestreamFraming(ReadOnlySpan<byte> payload, long declaredLength, bool requireEnd)
+    {
+        if (payload.Length < 47 || payload[0] != 0xFF || payload[1] != 0x4F ||
+            payload[2] != 0xFF || payload[3] != 0x51) return false;
+        ushort sizLength = ReadUInt16BigEndian(payload, 4);
+        if (sizLength < 41 || 2L + sizLength > payload.Length) return false;
+        uint xSize = ReadUInt32BigEndian(payload, 8), ySize = ReadUInt32BigEndian(payload, 12);
+        uint xOrigin = ReadUInt32BigEndian(payload, 16), yOrigin = ReadUInt32BigEndian(payload, 20);
+        uint tileWidth = ReadUInt32BigEndian(payload, 24), tileHeight = ReadUInt32BigEndian(payload, 28);
+        uint tileXOrigin = ReadUInt32BigEndian(payload, 32), tileYOrigin = ReadUInt32BigEndian(payload, 36);
+        ushort components = ReadUInt16BigEndian(payload, 40);
+        if (components == 0 || sizLength != 38 + components * 3 || xSize <= xOrigin || ySize <= yOrigin ||
+            tileWidth == 0 || tileHeight == 0 || tileXOrigin > xOrigin || tileYOrigin > yOrigin) return false;
+        for (int component = 0; component < components; component++)
+        {
+            int descriptor = 42 + component * 3;
+            if ((payload[descriptor] & 0x7F) > 37 || payload[descriptor + 1] == 0 || payload[descriptor + 2] == 0) return false;
+        }
+        int cursor = 4 + sizLength;
+        bool sawTile = false;
+        while (cursor + 2 <= payload.Length)
+        {
+            if (payload[cursor] != 0xFF) return false;
+            byte marker = payload[cursor + 1];
+            if (marker == 0xD9) return requireEnd && sawTile && cursor + 2 == payload.Length && declaredLength == payload.Length;
+            if (marker != 0x90)
+            {
+                if (cursor + 4 > payload.Length) return false;
+                ushort segmentLength = ReadUInt16BigEndian(payload, cursor + 2);
+                if (segmentLength < 2 || cursor + 2 + segmentLength > payload.Length) return false;
+                cursor += 2 + segmentLength;
+                continue;
+            }
+            if (cursor + 12 > payload.Length || ReadUInt16BigEndian(payload, cursor + 2) != 10) return false;
+            uint tilePartLength = ReadUInt32BigEndian(payload, cursor + 6);
+            if (tilePartLength != 0 && (tilePartLength < 15 || cursor + (long)tilePartLength > declaredLength - 2)) return false;
+            int tileStart = cursor;
+            cursor += 12;
+            while (cursor + 2 <= payload.Length && !(payload[cursor] == 0xFF && payload[cursor + 1] == 0x93))
+            {
+                if (payload[cursor] != 0xFF || cursor + 4 > payload.Length) return false;
+                ushort segmentLength = ReadUInt16BigEndian(payload, cursor + 2);
+                if (segmentLength < 2 || cursor + 2 + segmentLength > payload.Length) return false;
+                cursor += 2 + segmentLength;
+            }
+            if (cursor + 3 > payload.Length) return false;
+            cursor += 2;
+            sawTile = true;
+            if (tilePartLength == 0) return !requireEnd;
+            long tileEnd = tileStart + (long)tilePartLength;
+            if (tileEnd <= cursor) return false;
+            if (tileEnd > payload.Length) return !requireEnd;
+            cursor = (int)tileEnd;
+        }
+        return !requireEnd && sawTile;
+    }
 }

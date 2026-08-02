@@ -113,17 +113,32 @@ internal static class TestHelpers
     internal static byte[] CreateMinimalDex(string version = "035", bool reverseEndian = false, int length = 0x70)
     {
         int headerSize = version == "041" ? 0x78 : 0x70;
-        if (length < headerSize) length = headerSize;
+        int mapOffset = (headerSize + 3) & ~3;
+        int minimumLength = mapOffset + 28;
+        if (length < minimumLength) length = minimumLength;
         var bytes = new byte[length];
         Encoding.ASCII.GetBytes("dex\n" + version + "\0").CopyTo(bytes, 0);
         WriteUInt32(bytes, 32, (uint)length, !reverseEndian);
         WriteUInt32(bytes, 36, (uint)headerSize, !reverseEndian);
         WriteUInt32(bytes, 40, 0x12345678, !reverseEndian);
+        WriteUInt32(bytes, 52, (uint)mapOffset, !reverseEndian);
+        WriteUInt32(bytes, 104, (uint)(length - mapOffset), !reverseEndian);
+        WriteUInt32(bytes, 108, (uint)mapOffset, !reverseEndian);
         if (version == "041")
         {
             WriteUInt32(bytes, 112, (uint)length, !reverseEndian);
             WriteUInt32(bytes, 116, 0, !reverseEndian);
         }
+        WriteUInt32(bytes, mapOffset, 2, !reverseEndian);
+        WriteUInt16LittleEndian(bytes, mapOffset + 4, 0);
+        WriteUInt16LittleEndian(bytes, mapOffset + 6, 0);
+        WriteUInt32(bytes, mapOffset + 8, 1, !reverseEndian);
+        WriteUInt32(bytes, mapOffset + 12, 0, !reverseEndian);
+        if (reverseEndian) { bytes[mapOffset + 16] = 0x10; bytes[mapOffset + 17] = 0; }
+        else WriteUInt16LittleEndian(bytes, mapOffset + 16, 0x1000);
+        WriteUInt16LittleEndian(bytes, mapOffset + 18, 0);
+        WriteUInt32(bytes, mapOffset + 20, 1, !reverseEndian);
+        WriteUInt32(bytes, mapOffset + 24, (uint)mapOffset, !reverseEndian);
         FinalizeDex(bytes, !reverseEndian);
         return bytes;
     }
@@ -131,6 +146,10 @@ internal static class TestHelpers
     internal static void FinalizeDex(byte[] bytes, bool littleEndian = true, int dexLength = -1)
     {
         if (dexLength < 0) dexLength = bytes.Length;
+        uint dataOffset = littleEndian
+            ? (uint)(bytes[108] | bytes[109] << 8 | bytes[110] << 16 | bytes[111] << 24)
+            : (uint)(bytes[111] | bytes[110] << 8 | bytes[109] << 16 | bytes[108] << 24);
+        if (dataOffset != 0 && dataOffset <= dexLength) WriteUInt32(bytes, 104, (uint)dexLength - dataOffset, littleEndian);
         using var sha1 = SHA1.Create();
         sha1.ComputeHash(bytes, 32, dexLength - 32).CopyTo(bytes, 12);
         WriteUInt32(bytes, 8, ComputeAdler32(bytes, 12, dexLength - 12), littleEndian);
@@ -155,7 +174,8 @@ internal static class TestHelpers
         string firstRequired = brand == "jpx " ? "jpxh" : brand == "jpm " ? "jpmh" : brand == "mjp2" ? "moov" : "jp2h";
         string secondRequired = brand == "mjp2" ? "mdat" : "jp2c";
         int headerLength = brand == "mjp2" ? 34 : brand == "jpm " ? 16 : 30;
-        int dataLength = brand == "mjp2" ? 9 : 12;
+        byte[] codestream = brand == "mjp2" ? Array.Empty<byte>() : CreateMinimalJpeg2000Codestream();
+        int dataLength = brand == "mjp2" ? 9 : 8 + codestream.Length;
         var bytes = new byte[32 + headerLength + dataLength];
         new byte[] { 0, 0, 0, 12, (byte)'j', (byte)'P', (byte)' ', (byte)' ', 0x0D, 0x0A, 0x87, 0x0A }.CopyTo(bytes, 0);
         WriteUInt32BigEndian(bytes, 12, 20);
@@ -188,7 +208,25 @@ internal static class TestHelpers
         int dataOffset = 32 + headerLength;
         WriteUInt32BigEndian(bytes, dataOffset, (uint)dataLength);
         Encoding.ASCII.GetBytes(secondRequired).CopyTo(bytes, dataOffset + 4);
-        if (brand != "mjp2") new byte[] { 0xFF, 0x4F, 0xFF, 0xD9 }.CopyTo(bytes, dataOffset + 8);
+        if (brand != "mjp2") codestream.CopyTo(bytes, dataOffset + 8);
+        return bytes;
+    }
+
+    private static byte[] CreateMinimalJpeg2000Codestream()
+    {
+        var bytes = new byte[62];
+        bytes[0] = 0xFF; bytes[1] = 0x4F;
+        bytes[2] = 0xFF; bytes[3] = 0x51;
+        WriteUInt16BigEndian(bytes, 4, 41);
+        WriteUInt32BigEndian(bytes, 8, 1); WriteUInt32BigEndian(bytes, 12, 1);
+        WriteUInt32BigEndian(bytes, 24, 1); WriteUInt32BigEndian(bytes, 28, 1);
+        WriteUInt16BigEndian(bytes, 40, 1);
+        bytes[42] = 7; bytes[43] = 1; bytes[44] = 1;
+        bytes[45] = 0xFF; bytes[46] = 0x90;
+        WriteUInt16BigEndian(bytes, 47, 10);
+        WriteUInt32BigEndian(bytes, 51, 15);
+        bytes[57] = 0xFF; bytes[58] = 0x93; bytes[59] = 0;
+        bytes[60] = 0xFF; bytes[61] = 0xD9;
         return bytes;
     }
 

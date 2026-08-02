@@ -915,7 +915,9 @@ internal static partial class Signatures
 
     private static bool TryValidateIconPayload(ReadOnlySpan<byte> payload, int width, int height, ushort directoryBitCount, ushort type)
     {
-        if (TryMatchPng(payload, payload.Length, out _)) return true;
+        if (TryMatchPng(payload, payload.Length, out _))
+            return payload.Length >= 24 && ReadUInt32BigEndian(payload, 16) == (uint)width &&
+                   ReadUInt32BigEndian(payload, 20) == (uint)height;
         if (payload.Length < 40) return false;
         uint dibSize = ReadUInt32LittleEndian(payload, 0);
         if (dibSize is not (40 or 52 or 56 or 108 or 124) || dibSize > payload.Length) return false;
@@ -960,8 +962,12 @@ internal static partial class Signatures
                 int prefixLength = (int)Math.Min(imageSize, 124u);
                 if (!TryReadAt(stream, imageOffset, prefixLength, out var payloadPrefix)) return false;
                 var payload = new ReadOnlySpan<byte>(payloadPrefix);
-                if (!TryMatchPng(payload, completeLength: null, out _) &&
-                    !TryValidateIconPayload(payload, width, height, bitCount, type)) return false;
+                if (payload.Length >= 8 && payload.Slice(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }))
+                {
+                    if (payload.Length < 24 || ReadUInt32BigEndian(payload, 16) != (uint)width ||
+                        ReadUInt32BigEndian(payload, 20) != (uint)height) return false;
+                }
+                else if (!TryValidateIconPayload(payload, width, height, bitCount, type)) return false;
             }
             result!.Confidence = "Medium";
             result.Reason = "icon-directory:" + result.Extension + ";payload-scan-budget";
