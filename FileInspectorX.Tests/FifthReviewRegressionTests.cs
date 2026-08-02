@@ -12,10 +12,10 @@ public sealed class FifthReviewRegressionTests
     [Fact]
     public void GenericHeifBrandsPreserveTheImageContainer()
     {
-        AssertHeif(Ftyp("mif1"), "High", "ftyp:heif-generic");
-        AssertHeif(Ftyp("zzzz", "mif1"), "High", "ftyp:heif-generic");
-        AssertHeif(Ftyp("mif2"), "High", "ftyp:heif-generic");
-        AssertHeif(Ftyp("msf1"), "High", "ftyp:heif-generic");
+        AssertHeif(Ftyp("mif1"), "Medium", "ftyp:heif-generic;brand-contents-not-validated");
+        AssertHeif(Ftyp("zzzz", "mif1"), "Medium", "ftyp:heif-generic;brand-contents-not-validated");
+        AssertHeif(Ftyp("mif2"), "Medium", "ftyp:heif-generic;brand-contents-not-validated");
+        AssertHeif(Ftyp("msf1"), "Medium", "ftyp:heif-generic;brand-contents-not-validated");
     }
 
     [Fact]
@@ -25,7 +25,8 @@ public sealed class FifthReviewRegressionTests
 
         Assert.Equal("heic", result?.Extension);
         Assert.Equal("image/heic", result?.MimeType);
-        Assert.Equal("High", result?.Confidence);
+        Assert.Equal("Medium", result?.Confidence);
+        Assert.Contains("brand-contents-not-validated", result?.Reason);
     }
 
     [Fact]

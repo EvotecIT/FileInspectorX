@@ -104,7 +104,8 @@ public sealed class TenthReviewRegressionTests
         Assert.NotEqual("evtx", FileInspector.Detect(truncated)?.Extension);
 
         var complete = TestHelpers.CreateMinimalEvtx();
-        Assert.Equal("High", FileInspector.Detect(complete)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(complete)?.Confidence);
+        Assert.Contains("chunk-integrity-not-validated", FileInspector.Detect(complete)?.Reason);
         using var sampledStream = new NonSeekableReadStream(complete);
         var sampled = FileInspector.Detect(sampledStream);
         Assert.Equal("evtx", sampled?.Extension);

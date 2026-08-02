@@ -156,9 +156,9 @@ internal static partial class Signatures {
     private static ContentTypeDetectionResult GlbResult(uint version, bool complete) => new() {
         Extension = "glb",
         MimeType = "model/gltf-binary",
-        Confidence = complete ? "High" : "Medium",
+        Confidence = "Medium",
         Reason = $"glb:v{version}+json-" + (version == 1 ? "content" : "chunk") +
-                 (complete ? string.Empty : ";sampled-length-unknown")
+                 (complete ? ";asset-metadata-not-validated" : ";sampled-length-unknown")
     };
 
     private static bool HasGlbJsonObjectStart(ReadOnlySpan<byte> src, int offset, uint declaredLength) {

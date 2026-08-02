@@ -267,8 +267,8 @@ internal static partial class Signatures {
     private static ContentTypeDetectionResult EvtxResult(bool complete) => new() {
         Extension = "evtx",
         MimeType = "application/vnd.ms-windows.evtx",
-        Confidence = complete ? "High" : "Medium",
-        Reason = "evtx:file-header" + (complete ? "+chunk" : ";sampled-chunks")
+        Confidence = "Medium",
+        Reason = "evtx:file-header" + (complete ? "+chunk-signatures;chunk-integrity-not-validated" : ";sampled-chunks")
     };
 
     /// <summary>
@@ -474,7 +474,7 @@ internal static partial class Signatures {
             kinds |= GetFtypBrandKind(comp.Slice(offset, 4)) & ~FtypBrandKind.LegacyHeif;
         bool completeBox = boxLength <= (ulong)src.Length;
         if (!TryCreateFtypResult(brand, kinds, completeBox, out result)) return false;
-        DowngradeUnframedFtyp(result, HasFollowingIsoBox(src, completeLength, boxLength));
+        DowngradeUnvalidatedFtypContents(result, HasFollowingIsoBox(src, completeLength, boxLength));
         return true;
     }
 
@@ -528,7 +528,7 @@ internal static partial class Signatures {
                 remaining -= batch;
             }
             if (!TryCreateFtypResult(brand, kinds, completeBox: true, out result)) return false;
-            DowngradeUnframedFtyp(result, HasFollowingIsoBox(stream, boxLength));
+            DowngradeUnvalidatedFtypContents(result, HasFollowingIsoBox(stream, boxLength));
             return true;
         } catch {
             result = null;
@@ -538,11 +538,11 @@ internal static partial class Signatures {
         }
     }
 
-    private static void DowngradeUnframedFtyp(ContentTypeDetectionResult? result, bool hasFollowingBox)
+    private static void DowngradeUnvalidatedFtypContents(ContentTypeDetectionResult? result, bool hasFollowingBox)
     {
-        if (result == null || result.Confidence != "High" || hasFollowingBox) return;
+        if (result == null || result.Confidence != "High") return;
         result.Confidence = "Medium";
-        result.Reason += ";ftyp-only-or-unframed";
+        result.Reason += hasFollowingBox ? ";brand-contents-not-validated" : ";ftyp-only-or-unframed";
     }
 
     private static bool HasFollowingIsoBox(ReadOnlySpan<byte> src, long? completeLength, ulong boxLength)

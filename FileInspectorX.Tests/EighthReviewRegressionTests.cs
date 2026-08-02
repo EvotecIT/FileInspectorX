@@ -32,7 +32,7 @@ public sealed class EighthReviewRegressionTests
 
     [Fact]
     public void FtypScansPastTheFormerSixtyBrandLimit()
-        => AssertParity(FtypWithDecisiveBrand(61), "avif", "High");
+        => AssertParity(FtypWithDecisiveBrand(61), "avif", "Medium");
 
     [Fact]
     public void SeekableFtypScansCompatibilityListsBeyondTheHeaderSample()
@@ -40,7 +40,7 @@ public sealed class EighthReviewRegressionTests
         var bytes = FtypWithDecisiveBrand(1100);
 
         Assert.True(bytes.Length > Settings.HeaderReadBytes);
-        AssertParity(bytes, "avif", "High");
+        AssertParity(bytes, "avif", "Medium");
 
         using var stream = new NonSeekableReadStream(bytes);
         var sampled = FileInspector.Detect(stream);

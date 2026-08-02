@@ -707,8 +707,9 @@ internal static partial class Signatures {
         result = new ContentTypeDetectionResult {
             Extension = extension,
             MimeType = mime,
-            Confidence = completeBox && requiredBoxes ? "High" : "Medium",
-            Reason = "jpeg2000:" + extension + (completeBox && requiredBoxes ? string.Empty : ";sampled-file-type-box")
+            Confidence = completeBox && requiredBoxes && brand != 0x6D6A7032 ? "High" : "Medium",
+            Reason = "jpeg2000:" + extension + (completeBox && requiredBoxes ?
+                brand == 0x6D6A7032 ? ";sample-table-not-validated" : string.Empty : ";sampled-file-type-box")
         };
         return true;
     }
@@ -901,9 +902,10 @@ internal static partial class Signatures {
             result = new ContentTypeDetectionResult {
                 Extension = extension,
                 MimeType = mime,
-                Confidence = sampledMj2 || sampledCodestream ? "Medium" : "High",
+                Confidence = brand == 0x6D6A7032 || sampledMj2 || sampledCodestream ? "Medium" : "High",
                 Reason = "jpeg2000:" + extension + (sampledMj2 ? ";movie-box-budget" : string.Empty) +
-                         (sampledCodestream ? ";codestream-budget" : string.Empty)
+                         (sampledCodestream ? ";codestream-budget" : string.Empty) +
+                         (brand == 0x6D6A7032 && !sampledMj2 ? ";sample-table-not-validated" : string.Empty)
             };
             return true;
         }

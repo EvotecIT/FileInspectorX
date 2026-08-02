@@ -38,7 +38,7 @@ public sealed class FifteenthReviewRegressionTests
     public void EvtxValidatesEveryDeclaredChunkHeader()
     {
         byte[] valid = Evtx(chunkCount: 2);
-        AssertParity(valid, "evtx", "High");
+        AssertParity(valid, "evtx", "Medium");
         valid[4096 + 65536] = 0;
         AssertNotDetectedAs(valid, "evtx");
     }
@@ -71,7 +71,7 @@ public sealed class FifteenthReviewRegressionTests
     public void GlbVersionTwoRequiresCompleteTrailingChunkFraming()
     {
         byte[] valid = GlbWithBinaryChunk();
-        AssertParity(valid, "glb", "High");
+        AssertParity(valid, "glb", "Medium");
 
         Array.Resize(ref valid, valid.Length + 4);
         WriteUInt32LittleEndian(valid, 8, (uint)valid.Length);

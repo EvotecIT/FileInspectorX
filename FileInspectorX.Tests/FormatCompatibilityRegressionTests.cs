@@ -109,7 +109,7 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt32LittleEndian(bytes, 16, 0);
         Encoding.ASCII.GetBytes("{}  ").CopyTo(bytes, 20);
 
-        AssertParity(bytes, "glb", "High");
+        AssertParity(bytes, "glb", "Medium");
     }
 
     [Theory]
@@ -128,15 +128,15 @@ public sealed class FormatCompatibilityRegressionTests
         WriteUInt32BigEndian(bytes, fileTypeLength, 8);
         Encoding.ASCII.GetBytes("free").CopyTo(bytes, fileTypeLength + 4);
 
-        AssertParity(bytes, "mp4", "High");
+        AssertParity(bytes, "mp4", "Medium");
     }
 
     [Fact]
     public void ReferencedStructuresUseCompleteLengthAcrossDetectionApis()
     {
         AssertParity(LargeMinidump(), "dmp", "High");
-        AssertParity(LargeRpmSignatureHeader(), "rpm", "High");
-        AssertParity(LargeFtypBox(), "mp4", "High");
+        AssertParity(LargeRpmSignatureHeader(), "rpm", "Medium");
+        AssertParity(LargeFtypBox(), "mp4", "Medium");
     }
 
     [Fact]

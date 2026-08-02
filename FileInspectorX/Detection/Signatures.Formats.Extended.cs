@@ -46,6 +46,8 @@ internal static partial class Signatures
                 !TryReadAt(stream, mainHeaderOffset + mainLength, (int)Math.Min(6, stream.Length - mainHeaderOffset - mainLength), out var payloadPrefix) ||
                 !IsRpmPayloadPrefix(new ReadOnlySpan<byte>(payloadPrefix))) return false;
             result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
+            result.Confidence = "Medium";
+            result.Reason += ";payload-not-validated";
             return true;
         }
         catch
@@ -91,6 +93,8 @@ internal static partial class Signatures
         if (!TryValidateRpmHeader(src.Slice((int)mainHeaderOffset, mainLength), out _) ||
             !IsRpmPayloadPrefix(src.Slice((int)payloadOffset))) return false;
         result = BinaryResult("rpm", "application/x-rpm", "rpm:lead+signature-header");
+        result.Confidence = "Medium";
+        result.Reason += ";payload-not-validated";
         return true;
     }
 

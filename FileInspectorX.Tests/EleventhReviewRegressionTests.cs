@@ -23,7 +23,8 @@ public sealed class EleventhReviewRegressionTests
     public void UnknownLengthGlbSampleIsNeverHighConfidence()
     {
         var bytes = Glb(5000);
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Contains("asset-metadata-not-validated", FileInspector.Detect(bytes)?.Reason);
 
         using var stream = new NonSeekableReadStream(bytes);
         var result = FileInspector.Detect(stream);
