@@ -53,7 +53,7 @@ public sealed class FiftySecondReviewRegressionTests
     [Fact]
     public void BaselineJpegRequiresSequentialScanParameters()
     {
-        AssertParity(TestHelpers.CreateMinimalJpeg(), "jpg", "High");
+        AssertParity(TestHelpers.CreateMinimalJpeg(), "jpg", "Medium");
         byte[] malformed = TestHelpers.CreateMinimalJpeg();
         malformed[22] = 255;
         AssertNotDetectedAs(malformed, "jpg");

@@ -75,6 +75,9 @@ internal static partial class Signatures
         for (int index = 0; index < count; index++)
         {
             bool fileOffset = false, plaintextMetadata = false, cryptoMetadata = false, encryptedMetadata = false;
+            long chunkFileOffset = 0;
+            long columnDataStart = 0;
+            long columnCompressedSize = 0;
             bool stopped = false;
             short previous = 0;
             var fields = new System.Collections.Generic.HashSet<short>();
@@ -100,11 +103,13 @@ internal static partial class Signatures
                 {
                     if (type != 6 || !TryReadCompactInt64(src, ref cursor, out long offset) ||
                         offset < 4 || offset >= dataEnd) return false;
+                    chunkFileOffset = offset;
                     fileOffset = true;
                 }
                 else if (field == 3)
                 {
-                    if (type != 12 || !TryValidateParquetColumnMetadata(src, ref cursor, dataEnd)) return false;
+                    if (type != 12 || !TryValidateParquetColumnMetadata(src, ref cursor, dataEnd,
+                            out columnDataStart, out columnCompressedSize)) return false;
                     plaintextMetadata = true;
                 }
                 else if (field == 8)
@@ -123,14 +128,19 @@ internal static partial class Signatures
             bool hasValidRepresentation = plaintextMetadata
                 ? !cryptoMetadata && !encryptedMetadata
                 : cryptoMetadata && encryptedMetadata;
-            if (!fileOffset || !stopped || !hasValidRepresentation) return false;
+            if (!fileOffset || !stopped || !hasValidRepresentation ||
+                plaintextMetadata && (chunkFileOffset > columnDataStart ||
+                    columnCompressedSize > dataEnd - columnDataStart)) return false;
             encryptedColumns |= cryptoMetadata;
         }
         return true;
     }
 
-    private static bool TryValidateParquetColumnMetadata(ReadOnlySpan<byte> src, ref int cursor, long dataEnd)
+    private static bool TryValidateParquetColumnMetadata(ReadOnlySpan<byte> src, ref int cursor, long dataEnd,
+        out long dataStart, out long totalCompressedSize)
     {
+        dataStart = long.MaxValue;
+        totalCompressedSize = 0;
         bool physicalType = false, encodings = false, path = false, codec = false;
         bool values = false, uncompressedSize = false, compressedSize = false, dataPageOffset = false;
         short previous = 0;
@@ -139,7 +149,8 @@ internal static partial class Signatures
         {
             byte header = src[cursor++];
             if (header == 0)
-                return physicalType && encodings && path && codec && values && uncompressedSize && compressedSize && dataPageOffset;
+                return physicalType && encodings && path && codec && values && uncompressedSize && compressedSize &&
+                       dataPageOffset && dataStart < dataEnd && totalCompressedSize <= dataEnd - dataStart;
             int delta = header >> 4;
             int decodedField = delta == 0 ? ReadCompactFieldId(src, ref cursor) : previous + delta;
             if (decodedField is <= 0 or > short.MaxValue) return false;
@@ -171,16 +182,22 @@ internal static partial class Signatures
                 if (type != 6 || !TryReadCompactInt64(src, ref cursor, out long value) || value < 0) return false;
                 if (field == 5) values = true;
                 else if (field == 6) uncompressedSize = true;
-                else compressedSize = true;
+                else
+                {
+                    totalCompressedSize = value;
+                    compressedSize = true;
+                }
             }
             else if (field == 9)
             {
                 if (type != 6 || !TryReadCompactInt64(src, ref cursor, out long offset) || offset < 4 || offset >= dataEnd) return false;
                 dataPageOffset = true;
+                if (offset < dataStart) dataStart = offset;
             }
             else if (field is 10 or 11)
             {
                 if (type != 6 || !TryReadCompactInt64(src, ref cursor, out long offset) || offset < 4 || offset >= dataEnd) return false;
+                if (field == 11 && offset < dataStart) dataStart = offset;
             }
             else if (!SkipCompactValue(src, ref cursor, type, 3)) return false;
             previous = field;

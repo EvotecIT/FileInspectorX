@@ -11,8 +11,8 @@ internal static partial class Signatures
         CommonBinaryValidation status = ValidateJpeg(src, completeLength);
         if (status == CommonBinaryValidation.Invalid) return false;
         result = BinaryResult("jpg", "image/jpeg", status == CommonBinaryValidation.Complete
-            ? "jpeg:markers+scan+eoi" : "jpeg:soi+sampled-markers");
-        if (status == CommonBinaryValidation.Sampled) result.Confidence = "Medium";
+            ? "jpeg:markers+scan+eoi;entropy-data-not-validated" : "jpeg:soi+sampled-markers");
+        result.Confidence = "Medium";
         return true;
     }
 

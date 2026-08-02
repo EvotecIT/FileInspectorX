@@ -29,7 +29,7 @@ public sealed class FortyFirstReviewRegressionTests
     public void TrueTypeHighConfidenceRequiresFlavorSpecificMandatoryTables()
     {
         byte[] complete = CompleteTrueType();
-        AssertParity(complete, "ttf", "High", "sfnt:truetype");
+        AssertParity(complete, "ttf", "Medium", "mandatory-table-contents-not-validated");
         complete[CompleteTrueTypeHeadAdjustmentOffset()] ^= 1;
         AssertParity(complete, "ttf", "Medium", "whole-font-checksum-invalid");
         byte[] incomplete = CompleteTrueType();

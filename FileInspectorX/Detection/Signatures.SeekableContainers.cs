@@ -312,7 +312,7 @@ internal static partial class Signatures
             if (remainingBudget < 512) return sawHeader && sawRequiredMember;
             remainingBudget -= 512;
             var header = archive.Slice((int)cursor, 512);
-            if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
+            if (!TryReadTarHeader(header, out ulong dataLength, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
             {
                 if (!sawHeader || !sawRequiredMember || cursor > archive.Length - 1024 || remainingBudget < 512 ||
@@ -327,6 +327,14 @@ internal static partial class Signatures
             sawHeader = true;
             sawRequiredMember |= TarHeaderNameMatches(header, requiredMember);
             if (paddedDataLength > (ulong)(archive.Length - cursor - 512)) return false;
+            int paddingLength = checked((int)(paddedDataLength - dataLength));
+            if (paddingLength > 0)
+            {
+                if (remainingBudget < paddingLength) return sawHeader && sawRequiredMember;
+                remainingBudget -= paddingLength;
+                int paddingOffset = checked((int)(cursor + 512 + (long)dataLength));
+                if (!IsAllZero(archive.Slice(paddingOffset, paddingLength))) return false;
+            }
             cursor += 512 + (long)paddedDataLength;
         }
         return false;
@@ -347,7 +355,7 @@ internal static partial class Signatures
             remainingBudget -= 512;
             if (!TryReadAt(stream, offset + cursor, 512, out var headerBytes)) return false;
             var header = new ReadOnlySpan<byte>(headerBytes);
-            if (!TryReadTarHeader(header, out ulong paddedDataLength, out bool zeroBlock)) return false;
+            if (!TryReadTarHeader(header, out ulong dataLength, out ulong paddedDataLength, out bool zeroBlock)) return false;
             if (zeroBlock)
             {
                 if (!sawHeader || !sawRequiredMember || cursor > length - 1024 ||
@@ -362,6 +370,14 @@ internal static partial class Signatures
             sawHeader = true;
             sawRequiredMember |= TarHeaderNameMatches(header, requiredMember);
             if (paddedDataLength > (ulong)(length - cursor - 512)) return false;
+            int paddingLength = checked((int)(paddedDataLength - dataLength));
+            if (paddingLength > 0)
+            {
+                if (remainingBudget < paddingLength) return sawHeader && sawRequiredMember;
+                remainingBudget -= paddingLength;
+                if (!TryReadAt(stream, offset + cursor + 512 + (long)dataLength, paddingLength, out var padding) ||
+                    !IsAllZero(new ReadOnlySpan<byte>(padding))) return false;
+            }
             cursor += 512 + (long)paddedDataLength;
         }
         return false;
@@ -399,13 +415,15 @@ internal static partial class Signatures
         return true;
     }
 
-    private static bool TryReadTarHeader(ReadOnlySpan<byte> header, out ulong paddedDataLength, out bool zeroBlock)
+    private static bool TryReadTarHeader(ReadOnlySpan<byte> header, out ulong dataLength,
+        out ulong paddedDataLength, out bool zeroBlock)
     {
+        dataLength = 0;
         paddedDataLength = 0;
         zeroBlock = IsAllZero(header);
         if (zeroBlock) return true;
         if (header.Length != 512 || !header.Slice(257, 5).SequenceEqual("ustar"u8) ||
-            !TryReadTarOctal(header.Slice(124, 12), out ulong dataLength) ||
+            !TryReadTarOctal(header.Slice(124, 12), out dataLength) ||
             !TryReadTarOctal(header.Slice(148, 8), out ulong storedChecksum)) return false;
         ulong checksum = 0;
         for (int index = 0; index < header.Length; index++)

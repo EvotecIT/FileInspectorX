@@ -8,7 +8,7 @@ public sealed class ThirtySecondReviewRegressionTests
     [Fact]
     public void CompleteJpegRequiresBoundedSegmentsScanAndEndMarker()
     {
-        AssertParity(TestHelpers.CreateMinimalJpeg(), "jpg", "High");
+        AssertParity(TestHelpers.CreateMinimalJpeg(), "jpg", "Medium");
         AssertNotDetectedAs(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xFF }, "jpg");
     }
 

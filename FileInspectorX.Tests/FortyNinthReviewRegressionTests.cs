@@ -15,7 +15,7 @@ public sealed class FortyNinthReviewRegressionTests
         lossless[6] = precision;
         lossless[22] = 1;
         lossless[23] = 0;
-        AssertParity(lossless, "jpg", "High");
+        AssertParity(lossless, "jpg", "Medium");
 
         byte[] baseline = TestHelpers.CreateMinimalJpeg();
         baseline[6] = precision;

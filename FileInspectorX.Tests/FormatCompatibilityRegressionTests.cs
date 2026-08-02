@@ -70,7 +70,7 @@ public sealed class FormatCompatibilityRegressionTests
         original.AsSpan(0, 2).CopyTo(bytes);
         bytes[2] = 0xFF;
         original.AsSpan(2).CopyTo(bytes.AsSpan(3));
-        AssertParity(bytes, "jpg", "High");
+        AssertParity(bytes, "jpg", "Medium");
     }
 
     [Fact]

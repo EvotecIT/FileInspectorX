@@ -309,7 +309,8 @@ internal static partial class Signatures {
         bool hasRequiredTables = HasRequiredSfntTables(flavor, tableTags);
         result = FontResult(extension, mime,
             !hasRequiredTables ? "mandatory-tables-missing" : sampledTables ? "sampled-table-data" :
-            checksumStatus == FontChecksumStatus.AggregateMismatch ? "whole-font-checksum-invalid" : null);
+            checksumStatus == FontChecksumStatus.AggregateMismatch ? "whole-font-checksum-invalid" :
+            "mandatory-table-contents-not-validated");
         return true;
     }
 

@@ -13,7 +13,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("zip", TestHelpers.CreateEmptyZip(), 0);
         yield return Sample("ole2", Ole2(), 28, "Medium");
         yield return Sample("pdf", Encoding.ASCII.GetBytes("%PDF-1.7\n"), 6, "Medium");
-        yield return Sample("jpg", TestHelpers.CreateMinimalJpeg(), 0);
+        yield return Sample("jpg", TestHelpers.CreateMinimalJpeg(), 0, "Medium");
         yield return Sample("bmp", Bmp(), 14);
         yield return Sample("gz", Gzip(), 2, "Medium");
         yield return Sample("bz2", new byte[] { 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 }, 4, "Medium");
