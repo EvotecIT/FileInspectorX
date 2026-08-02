@@ -207,6 +207,8 @@ internal static partial class Signatures
             return true;
         }
         result = BinaryResult("mp3", "audio/mpeg", $"mp3:id3v2.{src[3]}+audio-frame");
+        result.Confidence = "Medium";
+        result.Reason += ";frame-chain-not-validated";
         return true;
     }
 

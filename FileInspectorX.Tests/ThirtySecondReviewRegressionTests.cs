@@ -37,7 +37,7 @@ public sealed class ThirtySecondReviewRegressionTests
     [Fact]
     public void Mp3BoundsTheId3TagAndRequiresAnAudioFrame()
     {
-        AssertParity(TestHelpers.CreateMinimalMp3(), "mp3", "High");
+        AssertParity(TestHelpers.CreateMinimalMp3(), "mp3", "Medium");
         var truncated = new byte[10];
         Encoding.ASCII.GetBytes("ID3").CopyTo(truncated, 0);
         truncated[3] = 4;
@@ -48,7 +48,7 @@ public sealed class ThirtySecondReviewRegressionTests
     [Fact]
     public void DynamicVhdValidatesEveryBatEntry()
     {
-        AssertParity(DynamicVhd(uint.MaxValue), "vhd", "High");
+        AssertParity(DynamicVhd(uint.MaxValue), "vhd", "Medium");
         AssertNotDetectedAs(DynamicVhd(0), "vhd");
     }
 

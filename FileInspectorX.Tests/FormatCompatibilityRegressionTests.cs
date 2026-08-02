@@ -168,7 +168,7 @@ public sealed class FormatCompatibilityRegressionTests
             0x16, 0x54, 0xAE, 0x6B, 0x83, 0xAE, 0x81, 0x00
         }.CopyTo(bytes, 4101);
 
-        AssertParity(bytes, "matroska", "High");
+        AssertParity(bytes, "matroska", "Medium");
     }
 
     private static ContentTypeDetectionResult AssertParity(byte[] bytes, string extension, string confidence)

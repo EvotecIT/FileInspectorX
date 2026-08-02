@@ -18,12 +18,12 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("gz", Gzip(), 2, "Medium");
         yield return Sample("bz2", new byte[] { 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 }, 4, "Medium");
         yield return Sample("ogg", Ogg(), 4);
-        yield return Sample("mp3", Mp3(), 3);
+        yield return Sample("mp3", Mp3(), 3, "Medium");
         yield return Sample("wasm", Wasm(), 4);
         yield return Sample("pcap", Pcap(), 4);
         yield return Sample("pcapng", PcapNg(), 8);
-        yield return Sample("flac", Flac(), 7);
-        yield return Sample("crx", Crx(), 4);
+        yield return Sample("flac", Flac(), 7, "Medium");
+        yield return Sample("crx", Crx(), 4, "Medium");
         yield return Sample("ico", Icon(), 2);
         yield return Sample("ttc", FontCollection(), 4);
         yield return Sample("rpm", Rpm(), 96, "Medium");
@@ -33,7 +33,7 @@ public sealed class ValidatedFormatDetectionTests
         yield return Sample("qoi", Qoi(), 12);
         yield return Sample("dcm", Dicom(), 136, "Medium");
         yield return Sample("ndb", OutlookNdb(), 8, "Medium");
-        yield return Sample("matroska", Matroska(), 6);
+        yield return Sample("matroska", Matroska(), 6, "Medium");
         yield return Sample("parquet", Parquet(), 4);
         yield return Sample("arrow", Arrow(), 6);
         yield return Sample("deb", Deb(), 80);
@@ -343,8 +343,11 @@ public sealed class ValidatedFormatDetectionTests
     {
         var bytes = new byte[42];
         Encoding.ASCII.GetBytes("fLaC").CopyTo(bytes, 0);
+        bytes[4] = 0x80;
         bytes[7] = 34;
-        bytes[18] = 0x0A; bytes[19] = 0xC4; bytes[20] = 0x40;
+        WriteUInt16BigEndian(bytes, 8, 16);
+        WriteUInt16BigEndian(bytes, 10, 16);
+        bytes[18] = 0x0A; bytes[19] = 0xC4; bytes[20] = 0x42; bytes[21] = 0xF0; bytes[25] = 1;
         return bytes;
     }
 

@@ -15,7 +15,7 @@ public sealed class ThirtyThirdReviewRegressionTests
     [Fact]
     public void MatroskaConsumesRootElementsAfterAKnownLengthSegment()
     {
-        AssertParity(TestHelpers.CreateMinimalMatroska(), "matroska", "High");
+        AssertParity(TestHelpers.CreateMinimalMatroska(), "matroska", "Medium");
         byte[] valid = TestHelpers.CreateMinimalMatroska();
         var trailingGarbage = new byte[valid.Length + 1];
         valid.CopyTo(trailingGarbage, 0);

@@ -27,7 +27,7 @@ public sealed class EighthReviewRegressionTests
 
         Assert.Equal("matroska", result?.Extension);
         Assert.Equal("Medium", result?.Confidence);
-        Assert.Equal("ebml:doctype=matroska;sampled-root-void", result?.Reason);
+        Assert.Equal("ebml:doctype=matroska;segment-child-semantics-not-validated;sampled-root-void", result?.Reason);
     }
 
     [Fact]

@@ -549,6 +549,13 @@ internal static partial class Signatures
         if (dibSize is not (12u or 16u or 40u or 52u or 56u or 64u or 108u or 124u)) return false;
         if (!TryValidateBmpDib(src, dibSize, pixelOffset, fileSize)) return false;
         result = BinaryResult("bmp", "image/bmp", "bmp:file+dib-header");
+        bool embeddedPayloadNotValidated = dibSize >= 40 && src.Length >= 34 &&
+                                           ReadUInt32LittleEndian(src, 30) is 4 or 5;
+        if (embeddedPayloadNotValidated)
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";embedded-payload-not-validated";
+        }
         if (!completeLength.HasValue && fileSize > src.Length)
         {
             result.Confidence = "Medium";
@@ -791,9 +798,18 @@ internal static partial class Signatures
         result = null;
         if (src.Length < 42 || !src.Slice(0, 4).SequenceEqual("fLaC"u8)) return false;
         if ((src[4] & 0x7F) != 0 || ReadUInt24BigEndian(src, 5) != 34) return false;
+        ushort minimumBlockSize = ReadUInt16BigEndian(src, 8);
+        ushort maximumBlockSize = ReadUInt16BigEndian(src, 10);
+        uint minimumFrameSize = ReadUInt24BigEndian(src, 12);
+        uint maximumFrameSize = ReadUInt24BigEndian(src, 15);
         uint sampleRate = (uint)((src[18] << 12) | (src[19] << 4) | (src[20] >> 4));
-        if (sampleRate == 0) return false;
+        int bitsPerSample = (((src[20] & 1) << 4) | (src[21] >> 4)) + 1;
+        if (minimumBlockSize < 16 || maximumBlockSize < minimumBlockSize ||
+            minimumFrameSize != 0 && maximumFrameSize != 0 && maximumFrameSize < minimumFrameSize ||
+            sampleRate == 0 || bitsPerSample is < 4 or > 32) return false;
         result = BinaryResult("flac", "audio/flac", "flac:streaminfo");
+        result.Confidence = "Medium";
+        result.Reason += ";metadata+audio-not-fully-validated";
         return true;
     }
 
@@ -847,7 +863,8 @@ internal static partial class Signatures
         return true;
     }
 
-    private static bool TryValidateIconPayload(ReadOnlySpan<byte> payload, int width, int height, ushort directoryBitCount, ushort type)
+    private static bool TryValidateIconPayload(ReadOnlySpan<byte> payload, int width, int height, ushort directoryBitCount,
+        ushort type, bool requireBitmapData = true)
     {
         if (TryMatchPng(payload, payload.Length, out _))
             return payload.Length >= 24 && ReadUInt32BigEndian(payload, 16) == (uint)width &&
@@ -862,7 +879,29 @@ internal static partial class Signatures
         uint compression = ReadUInt32LittleEndian(payload, 16);
         if (dibWidth != width || dibHeight != height * 2 || planes != 1 || bitCount is not (1 or 4 or 8 or 16 or 24 or 32) ||
             type == 1 && directoryBitCount != bitCount || compression > 6 || compression == 4 || compression == 5) return false;
-        return true;
+        if (!requireBitmapData) return true;
+
+        uint imageSize = ReadUInt32LittleEndian(payload, 20);
+        uint colorsUsed = ReadUInt32LittleEndian(payload, 32);
+        ulong masksLength = dibSize == 40 && compression is 3 or 6 ? compression == 6 ? 16UL : 12UL : 0UL;
+        ulong paletteEntries = colorsUsed != 0 ? colorsUsed : bitCount <= 8 ? 1UL << bitCount : 0UL;
+        if (paletteEntries > 256) return false;
+        ulong paletteLength = paletteEntries * 4;
+        ulong xorLength;
+        if (compression is 1 or 2)
+        {
+            if (imageSize == 0) return false;
+            xorLength = imageSize;
+        }
+        else
+        {
+            ulong xorStride = (((ulong)width * bitCount + 31) / 32) * 4;
+            xorLength = xorStride * (ulong)height;
+            if (imageSize != 0 && imageSize < xorLength) return false;
+        }
+        ulong andStride = (((ulong)width + 31) / 32) * 4;
+        ulong requiredLength = dibSize + masksLength + paletteLength + xorLength + andStride * (ulong)height;
+        return requiredLength <= (ulong)payload.Length;
     }
 
     internal static bool TryMatchIcon(Stream stream, out ContentTypeDetectionResult? result)
@@ -901,7 +940,7 @@ internal static partial class Signatures
                     if (payload.Length < 24 || ReadUInt32BigEndian(payload, 16) != (uint)width ||
                         ReadUInt32BigEndian(payload, 20) != (uint)height) return false;
                 }
-                else if (!TryValidateIconPayload(payload, width, height, bitCount, type)) return false;
+                else if (!TryValidateIconPayload(payload, width, height, bitCount, type, requireBitmapData: false)) return false;
             }
             result!.Confidence = "Medium";
             result.Reason = "icon-directory:" + result.Extension + ";payload-scan-budget";

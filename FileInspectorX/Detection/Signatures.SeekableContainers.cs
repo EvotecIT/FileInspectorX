@@ -473,6 +473,11 @@ internal static partial class Signatures
                 !TryValidateVhdBat(file.Slice((int)bat.TableOffset, (int)bat.TableLength), file.Length, bat)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
+        if (diskType is 3 or 4 && (file.Length < 512 || !file.Slice(0, 512).SequenceEqual(footer)))
+        {
+            result.Confidence = "Medium";
+            result.Reason += ";leading-footer-not-validated";
+        }
         return true;
     }
 
@@ -494,6 +499,15 @@ internal static partial class Signatures
                 !TryValidateVhdBat(new ReadOnlySpan<byte>(table), stream.Length, bat)) return false;
         }
         result = BinaryResult("vhd", "application/x-vhd", $"vhd:footer;type={diskType}");
+        if (diskType is 3 or 4)
+        {
+            if (!TryReadAt(stream, 0, 512, out var leadingFooter) ||
+                !new ReadOnlySpan<byte>(leadingFooter).SequenceEqual(footer))
+            {
+                result.Confidence = "Medium";
+                result.Reason += ";leading-footer-not-validated";
+            }
+        }
         return true;
     }
 

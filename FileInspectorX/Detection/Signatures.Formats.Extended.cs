@@ -903,6 +903,8 @@ internal static partial class Signatures
         var result = docType == "webm"
             ? BinaryResult("webm", "application/webm", "ebml:doctype=webm")
             : BinaryResult("matroska", "application/x-matroska", "ebml:doctype=matroska");
+        result.Confidence = "Medium";
+        result.Reason += ";segment-child-semantics-not-validated";
         if (sampledRootVoid)
         {
             result.Confidence = "Medium";

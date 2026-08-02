@@ -9,7 +9,7 @@ public sealed class EleventhReviewRegressionTests
     public void LargeNonSeekableCrxRetainsIdentityAtReducedConfidence()
     {
         var bytes = Crx3(5000);
-        Assert.Equal("High", FileInspector.Detect(bytes)?.Confidence);
+        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
 
         using var stream = new NonSeekableReadStream(bytes);
         var result = FileInspector.Detect(stream);

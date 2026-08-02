@@ -46,7 +46,7 @@ public sealed class SeventhReviewRegressionTests
 
     [Fact]
     public void MatroskaAllowsRootLevelVoidBeforeSegment()
-        => AssertParity(MatroskaWithLargeRootVoid(), "matroska", "High");
+        => AssertParity(MatroskaWithLargeRootVoid(), "matroska", "Medium");
 
     [Fact]
     public void GuessedNugetArchiveRoutesToPackageKind()

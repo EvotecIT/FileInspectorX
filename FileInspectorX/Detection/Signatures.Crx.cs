@@ -48,9 +48,10 @@ internal static partial class Signatures
     private static ContentTypeDetectionResult CrxResult(uint version, bool complete)
     {
         var result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
+        result.Confidence = "Medium";
+        result.Reason += ";signature-not-verified";
         if (!complete)
         {
-            result.Confidence = "Medium";
             result.Reason += ";sampled-signed-header";
         }
         return result;
@@ -95,6 +96,8 @@ internal static partial class Signatures
             if (!TryReadAt(stream, headerEnd, 30, out var zipHeader) ||
                 !TryValidateZipLocalHeader(new ReadOnlySpan<byte>(zipHeader), stream.Length - headerEnd)) return false;
             result = BinaryResult("crx", "application/x-chrome-extension", $"crx:version={version}");
+            result.Confidence = "Medium";
+            result.Reason += ";signature-not-verified";
             StructuredValidationStatus zipStatus = TryValidateZipCentralDirectory(stream, headerEnd, stream.Length - headerEnd);
             if (!signedHeaderValidated || zipStatus != StructuredValidationStatus.Complete)
             {
