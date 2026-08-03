@@ -57,6 +57,10 @@
                           GeneratePathProperty="true"
                           PrivateAssets="all"
                           Condition="'$(IncludeMagika)' == 'true'" />
+        <None Include="..\Module\en-US\FileInspectorX-help.xml"
+              Link="en-US\FileInspectorX.PowerShell.dll-Help.xml"
+              CopyToOutputDirectory="PreserveNewest"
+              CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

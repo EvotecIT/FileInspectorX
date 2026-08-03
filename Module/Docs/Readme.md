@@ -12,5 +12,3 @@ FileInspectorX is PowerShell module that allows you to query files and folders f
 ## FileInspectorX Cmdlets
 ### [Get-FileInsight](Get-FileInsight.md)
 Analyzes files and returns a full FileAnalysis object by default, with optional compact views.
-
-By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.

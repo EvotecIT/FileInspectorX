@@ -7,7 +7,6 @@
       <command:noun>FileInsight</command:noun>
       <maml:description>
         <maml:para>Analyzes files and returns a full FileAnalysis object by default, with optional compact views.</maml:para>
-        <maml:para>By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.</maml:para>
       </maml:description>
     </command:details>
     <maml:description>
