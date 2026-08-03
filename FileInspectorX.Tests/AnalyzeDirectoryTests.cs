@@ -9,7 +9,7 @@ public class AnalyzeDirectoryTests {
         var dir = Directory.CreateTempSubdirectory();
         try {
             var pPng = Path.Combine(dir.FullName, "a.bin");
-            File.WriteAllBytes(pPng, new byte[] { 0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A });
+            File.WriteAllBytes(pPng, TestHelpers.CreateMinimalPng());
             var pTxt = Path.Combine(dir.FullName, "b.txt");
             File.WriteAllText(pTxt, "{\"x\":1}");
 

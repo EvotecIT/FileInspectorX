@@ -113,7 +113,7 @@ public class NameAndTextDetectionRegressionTests
         var p = Path.Combine(dir, "IntelSoftwareAssetManagerService.exe.130304.dmp");
         try
         {
-            File.WriteAllBytes(p, new byte[] { 0x4D, 0x44, 0x4D, 0x50, 0x93, 0xA7, 0x00, 0x00 });
+            File.WriteAllBytes(p, TestHelpers.CreateMinimalMinidump());
 
             var a = FileInspector.Analyze(p);
 

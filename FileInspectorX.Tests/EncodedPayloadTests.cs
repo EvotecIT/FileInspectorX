@@ -3,18 +3,12 @@ using Xunit;
 namespace FileInspectorX.Tests;
 
 public class EncodedPayloadTests {
-    private static byte[] MinimalMZ()
-    {
-        // Minimal bytes to trigger MZ detection (no real PE required)
-        return new byte[] { 0x4D, 0x5A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    }
-
     [Fact]
     public void Base64_Encoded_Exe_Inner_Detected()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var mz = Enumerable.Repeat(MinimalMZ(), 32).SelectMany(b => b).ToArray(); // ensure long enough for detection
+            var mz = TestHelpers.CreateMinimalPe();
             var b64 = Convert.ToBase64String(mz);
             File.WriteAllText(p, b64);
             var a = FileInspector.Analyze(p);
@@ -32,7 +26,7 @@ public class EncodedPayloadTests {
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var mz = Enumerable.Repeat(MinimalMZ(), 32).SelectMany(b => b).ToArray();
+            var mz = TestHelpers.CreateMinimalPe();
             var b64 = Convert.ToBase64String(mz);
             var wrapped = string.Join(Environment.NewLine, Chunk(b64, 76));
             File.WriteAllText(p, wrapped);
@@ -51,7 +45,7 @@ public class EncodedPayloadTests {
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var mz = Enumerable.Repeat(MinimalMZ(), 40).SelectMany(b => b).ToArray(); // ensure long enough for detection
+            var mz = TestHelpers.CreateMinimalPe();
             var hex = string.Concat(mz.Select(b => b.ToString("X2")));
             File.WriteAllText(p, hex);
             var a = FileInspector.Analyze(p);
@@ -69,7 +63,7 @@ public class EncodedPayloadTests {
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var mz = Enumerable.Repeat(MinimalMZ(), 40).SelectMany(b => b).ToArray();
+            var mz = TestHelpers.CreateMinimalPe();
             var hexPairs = mz.Select(b => b.ToString("X2")).ToArray();
             var wrapped = string.Join(Environment.NewLine,
                 Chunk(hexPairs, 16).Select(line => string.Join(" ", line)));
@@ -89,7 +83,7 @@ public class EncodedPayloadTests {
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try {
-            var mz = Enumerable.Repeat(MinimalMZ(), 24).SelectMany(b => b).ToArray();
+            var mz = TestHelpers.CreateMinimalPe();
             var qp = EncodeQuotedPrintable(mz, 60);
             File.WriteAllText(p, qp);
             var a = FileInspector.Analyze(p);

@@ -13,7 +13,7 @@ public class DetectorTests {
         var tmp = Path.GetTempFileName();
         var png = tmp + ".png";
         try {
-            File.WriteAllBytes(tmp, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+            File.WriteAllBytes(tmp, TestHelpers.CreateMinimalPng());
             File.Move(tmp, png);
             var res = FI.Detect(png);
             Assert.NotNull(res);
@@ -31,6 +31,11 @@ public class DetectorTests {
             buf[0] = 0x7F; buf[1] = (byte)'E'; buf[2] = (byte)'L'; buf[3] = (byte)'F';
             buf[4] = 2; // 64-bit
             buf[5] = 1; // little-endian
+            buf[6] = 1; // ELF identity version
+            BitConverter.GetBytes((ushort)2).CopyTo(buf, 16); // executable
+            BitConverter.GetBytes((ushort)0x3E).CopyTo(buf, 18); // x86-64
+            BitConverter.GetBytes(1u).CopyTo(buf, 20); // ELF header version
+            BitConverter.GetBytes((ushort)64).CopyTo(buf, 52); // ELF64 header size
             File.WriteAllBytes(elf, buf);
             var res = FI.Detect(elf);
             Assert.NotNull(res);
@@ -61,6 +66,7 @@ public class DetectorTests {
         var m4a = Path.GetTempFileName();
         try {
             var buf = new byte[24];
+            buf[3] = 16;
             System.Text.Encoding.ASCII.GetBytes("ftyp").CopyTo(buf, 4);
             System.Text.Encoding.ASCII.GetBytes("M4A ").CopyTo(buf, 8); // major brand
             File.WriteAllBytes(m4a, buf);
@@ -251,6 +257,7 @@ public class DetectorTests {
             Assert.Equal("zip", res!.Extension);
             Assert.Equal("apk", res.GuessedExtension);
             Assert.Equal("application/vnd.android.package-archive", res.MimeType);
+            Assert.True(res.IsDangerous);
 
             var cmp = FI.CompareDeclaredDetailed(".apk", res);
             Assert.False(cmp.Mismatch);
@@ -281,6 +288,7 @@ public class DetectorTests {
             Assert.Equal("zip", res!.Extension);
             Assert.Equal("jar", res.GuessedExtension);
             Assert.Equal("application/java-archive", res.MimeType);
+            Assert.True(res.IsDangerous);
 
             var cmp = FI.CompareDeclaredDetailed(".jar", res);
             Assert.False(cmp.Mismatch);
@@ -342,7 +350,7 @@ public class DetectorTests {
         var mp4 = Path.GetTempFileName();
         try {
             var buf = new byte[16];
-            // size 0..3 ignored, set ftyp at 4..7
+            buf[3] = 16;
             System.Text.Encoding.ASCII.GetBytes("ftyp").CopyTo(buf, 4);
             System.Text.Encoding.ASCII.GetBytes("isom").CopyTo(buf, 8);
             File.WriteAllBytes(mp4, buf);
@@ -361,6 +369,10 @@ public class DetectorTests {
         {
             var buf = new byte[32];
             System.Text.Encoding.ASCII.GetBytes("MDMP").CopyTo(buf, 0);
+            BitConverter.GetBytes(0xA793u).CopyTo(buf, 4);
+            BitConverter.GetBytes(1u).CopyTo(buf, 8);
+            BitConverter.GetBytes(32u).CopyTo(buf, 12);
+            Array.Resize(ref buf, 44);
             File.WriteAllBytes(dump, buf);
 
             var res = FI.Detect(dump);
@@ -368,7 +380,7 @@ public class DetectorTests {
             Assert.NotNull(res);
             Assert.Equal("dmp", res!.Extension);
             Assert.Equal("application/x-ms-minidump", res.MimeType);
-            Assert.Equal("High", res.Confidence);
+            Assert.Equal("Medium", res.Confidence);
         }
         finally
         {
@@ -377,7 +389,7 @@ public class DetectorTests {
     }
 
     [Fact]
-    public void Detect_ValidPe_UpgradesConfidence_FromParsedHeader()
+    public void Detect_ValidPe_RefinesFamilyWithoutOverstatingSectionValidation()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -394,7 +406,7 @@ public class DetectorTests {
 
         Assert.NotNull(res);
         Assert.True(res!.Extension is "exe" or "dll" or "sys");
-        Assert.Equal("High", res.Confidence);
+        Assert.Equal("Medium", res.Confidence);
         Assert.Contains("pe:header", res.Reason ?? string.Empty);
     }
 
@@ -440,8 +452,7 @@ public class DetectorTests {
         var evtx = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".evtx");
         try
         {
-            var buf = new byte[32];
-            System.Text.Encoding.ASCII.GetBytes("ElfFile\0").CopyTo(buf, 0);
+            var buf = TestHelpers.CreateMinimalEvtx();
             File.WriteAllBytes(evtx, buf);
 
             using var held = new FileStream(evtx, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
@@ -462,6 +473,7 @@ public class DetectorTests {
         var heic = Path.GetTempFileName();
         try {
             var buf = new byte[16];
+            buf[3] = 16;
             System.Text.Encoding.ASCII.GetBytes("ftyp").CopyTo(buf, 4);
             System.Text.Encoding.ASCII.GetBytes("heic").CopyTo(buf, 8);
             File.WriteAllBytes(heic, buf);
@@ -476,7 +488,7 @@ public class DetectorTests {
     public void Detect_BZip2_FromImportedTable() {
         var bz = Path.GetTempFileName();
         try {
-            File.WriteAllBytes(bz, new byte[] { 0x42, 0x5A, 0x68 });
+            File.WriteAllBytes(bz, new byte[] { 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 });
             var res = FI.Detect(bz);
             Assert.NotNull(res);
             Assert.Equal("bz2", res!.Extension);
@@ -513,8 +525,13 @@ public class DetectorTests {
     public void Detect_Glb_Binary() {
         var p = Path.GetTempFileName();
         try {
-            var buf = new byte[12];
+            var buf = new byte[24];
             System.Text.Encoding.ASCII.GetBytes("glTF").CopyTo(buf, 0);
+            BitConverter.GetBytes(2u).CopyTo(buf, 4);
+            BitConverter.GetBytes(24u).CopyTo(buf, 8);
+            BitConverter.GetBytes(4u).CopyTo(buf, 12);
+            System.Text.Encoding.ASCII.GetBytes("JSON").CopyTo(buf, 16);
+            System.Text.Encoding.ASCII.GetBytes("{}  ").CopyTo(buf, 20);
             File.WriteAllBytes(p, buf);
             var res = FI.Detect(p);
             Assert.NotNull(res);
@@ -527,7 +544,7 @@ public class DetectorTests {
     public void Detect_Tiff_BigEndian() {
         var p = Path.GetTempFileName();
         try {
-            var buf = new byte[] { 0x4D, 0x4D, 0x00, 0x2A, 0, 0, 0, 0 };
+            var buf = new byte[] { 0x4D, 0x4D, 0x00, 0x2A, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0 };
             File.WriteAllBytes(p, buf);
             var res = FI.Detect(p);
             Assert.NotNull(res);
@@ -542,12 +559,23 @@ public class DetectorTests {
     public void Detect_Cab() {
         var p = Path.GetTempFileName();
         try {
-            File.WriteAllBytes(p, new byte[] { (byte)'M', (byte)'S', (byte)'C', (byte)'F', 0, 0, 0, 0 });
+            var buf = new byte[62];
+            System.Text.Encoding.ASCII.GetBytes("MSCF").CopyTo(buf, 0);
+            BitConverter.GetBytes((uint)buf.Length).CopyTo(buf, 8);
+            BitConverter.GetBytes(44u).CopyTo(buf, 16);
+            buf[24] = 3;
+            buf[25] = 1;
+            BitConverter.GetBytes((ushort)1).CopyTo(buf, 26);
+            BitConverter.GetBytes((ushort)1).CopyTo(buf, 28);
+            BitConverter.GetBytes((uint)buf.Length).CopyTo(buf, 36);
+            BitConverter.GetBytes((ushort)0).CopyTo(buf, 52);
+            buf[60] = (byte)'a';
+            File.WriteAllBytes(p, buf);
             var res = FI.Detect(p);
             Assert.NotNull(res);
             Assert.Equal("cab", res!.Extension);
             Assert.Equal("application/vnd.ms-cab-compressed", res.MimeType);
-            Assert.Equal("cab:MSCF", res.Reason);
+            Assert.Equal("cab:cfheader;folders+files", res.Reason);
         } finally { if (File.Exists(p)) File.Delete(p); }
     }
 
@@ -609,8 +637,17 @@ public class DetectorTests {
     public void Detect_MachO_64LE() {
         var p = Path.GetTempFileName();
         try {
-            // magic CFFA ED FE
-            File.WriteAllBytes(p, new byte[] { 0xCF, 0xFA, 0xED, 0xFE, 0, 0, 0, 0 });
+            // 64-bit little-endian Mach header with x86_64 CPU, object file type and no load commands.
+            File.WriteAllBytes(p, new byte[] {
+                0xCF, 0xFA, 0xED, 0xFE,
+                0x07, 0x00, 0x00, 0x01,
+                0x03, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            });
             var res = FI.Detect(p);
             Assert.NotNull(res);
             Assert.Equal("macho", res!.Extension);
@@ -646,7 +683,8 @@ public class DetectorTests {
     public void Classify_ContentKind_Works() {
         var p = Path.GetTempFileName();
         try {
-            File.WriteAllBytes(p, new byte[] { 0x50, 0x4B, 0x03, 0x04 }); // zip
+            using (var fs = File.Create(p))
+            using (var archive = new ZipArchive(fs, ZipArchiveMode.Create)) { }
             var res = FI.Detect(p);
             var kind = global::FileInspectorX.KindClassifier.Classify(res);
             Assert.Equal(global::FileInspectorX.ContentKind.Archive, kind);
@@ -709,8 +747,12 @@ public class DetectorTests {
         var header = new byte[512];
         var sig = new byte[]{0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1};
         Array.Copy(sig, 0, header, 0, sig.Length);
+        header[0x1A] = 0x03;
+        header[0x1C] = 0xFE;
+        header[0x1D] = 0xFF;
         header[0x1E] = 0x09;
         header[0x1F] = 0x00;
+        header[0x20] = 0x06;
         // Our mini CFBF reader maps sector N to offset 512 + ((N + 1) * 512),
         // so FAT sector SID 0 lives at 1024 and directory sector SID 2 lives at 2048.
         WriteLe32(header, 0x2C, 1);

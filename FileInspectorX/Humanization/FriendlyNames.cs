@@ -129,14 +129,18 @@ public static class FriendlyNames
             case "exe":  return "Windows executable (.exe)";
             case "dll":  return "Windows library (.dll)";
             case "parquet": return "Apache Parquet data file";
+            case "ndb": return "Outlook data store (PST/OST)";
             case "pcap": return "Packet capture (PCAP)";
             case "pcapng": return "Packet capture (PCAPNG)";
             case "wasm": return "WebAssembly module";
             case "heic": return "HEIC image";
+            case "heif": return "HEIF image";
+            case "matroska": return "Matroska container";
             case "flac": return "FLAC audio";
             case "wav": return "WAV audio";
             case "mp3": return "MP3 audio";
             case "m4a": return "AAC audio (M4A)";
+            case "m4b": return "Audiobook (M4B)";
             case "mp4": return "MPEG-4 video";
             case "avi": return "AVI video";
             case "3gp": return "3GPP media";

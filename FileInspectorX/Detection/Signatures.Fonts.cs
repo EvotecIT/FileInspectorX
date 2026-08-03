@@ -1,0 +1,713 @@
+namespace FileInspectorX;
+
+/// <summary>
+/// OpenType and Web Open Font Format detection.
+/// </summary>
+internal static partial class Signatures {
+    private static readonly uint[] Woff2KnownTableTags = {
+        0x636D6170, 0x68656164, 0x68686561, 0x686D7478, 0x6D617870, 0x6E616D65, 0x4F532F32,
+        0x706F7374, 0x63767420, 0x6670676D, 0x676C7966, 0x6C6F6361, 0x70726570, 0x43464620,
+        0x564F5247, 0x45424454, 0x45424C43, 0x67617370, 0x68646D78, 0x6B65726E, 0x4C545348,
+        0x50434C54, 0x56444D58, 0x76686561, 0x766D7478, 0x42415345, 0x47444546, 0x47504F53,
+        0x47535542, 0x45425343, 0x4A535446, 0x4D415448, 0x43424454, 0x43424C43, 0x434F4C52,
+        0x4350414C, 0x53564720, 0x73626978, 0x61636E74, 0x61766172, 0x62646174, 0x626C6F63,
+        0x62736C6E, 0x63766172, 0x66647363, 0x66656174, 0x666D7478, 0x66766172, 0x67766172,
+        0x68737479, 0x6A757374, 0x6C636172, 0x6D6F7274, 0x6D6F7278, 0x6F706264, 0x70726F70,
+        0x7472616B, 0x5A617066, 0x53696C66, 0x476C6174, 0x476C6F63, 0x46656174, 0x53696C6C
+    };
+
+    internal static bool TryMatchFont(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
+        => TryMatchFont(src, src.Length, out result);
+
+    internal static bool TryMatchFont(Stream stream, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (!stream.CanRead || !stream.CanSeek) return false;
+        long originalPosition = stream.Position;
+        try {
+            if (stream.Length < 4 || !TryReadAt(stream, 0, (int)Math.Min(64, stream.Length), out var prefix)) return false;
+            if (stream.Length <= Math.Max(64, Settings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
+                TryReadAt(stream, 0, (int)stream.Length, out var completeFont))
+                return TryMatchFont(new ReadOnlySpan<byte>(completeFont), stream.Length, out result);
+            var src = new ReadOnlySpan<byte>(prefix);
+            if (src.Length >= 4 && src.Slice(0, 4).SequenceEqual("wOF2"u8))
+                return TryMatchWoff2(stream, src, out result);
+            if (!src.Slice(0, 4).SequenceEqual("ttcf"u8)) {
+                if (src.Slice(0, 4).SequenceEqual("wOFF"u8)) {
+                    if (src.Length < 44) return false;
+                    ushort woffTableCount = ReadUInt16BigEndian(src, 12);
+                    long woffDirectoryLength = 44L + woffTableCount * 20L;
+                    if (woffTableCount is < 1 or > 4095 || woffDirectoryLength > stream.Length ||
+                        !TryReadAt(stream, 0, (int)woffDirectoryLength, out var woffDirectory)) return false;
+                    return TryMatchFont(new ReadOnlySpan<byte>(woffDirectory), stream.Length, out result);
+                }
+                if (src.Length < 12) return false;
+                ushort standaloneTableCount = ReadUInt16BigEndian(src, 4);
+                long standaloneDirectoryLength = 12L + standaloneTableCount * 16L;
+                if (standaloneTableCount is < 1 or > 4095 || standaloneDirectoryLength > stream.Length ||
+                    !TryReadAt(stream, 0, (int)standaloneDirectoryLength, out var standaloneDirectory)) return false;
+                return TryMatchFont(new ReadOnlySpan<byte>(standaloneDirectory), stream.Length, out result);
+            }
+
+            if (src.Length < 12) return false;
+            uint version = ReadUInt32BigEndian(src, 4);
+            uint fontCount = ReadUInt32BigEndian(src, 8);
+            long collectionHeaderLength = 12L + fontCount * 4L + (version == 0x00020000u ? 12L : 0L);
+            if (version is not (0x00010000u or 0x00020000u) || fontCount is < 1 or > 4095 ||
+                collectionHeaderLength > stream.Length || !TryReadAt(stream, 0, (int)collectionHeaderLength, out var collectionHeader)) return false;
+
+            var header = new ReadOnlySpan<byte>(collectionHeader);
+            if (!TryValidateTtcDsigHeader(header, version, fontCount, stream.Length)) return false;
+            bool anyCff = false;
+            bool allRequiredTables = true;
+            long directoryReadBudget = Math.Max(collectionHeaderLength, Math.Max(256, Settings.DetectionReadBudgetBytes));
+            long remainingDirectoryReadBudget = directoryReadBudget - collectionHeaderLength;
+            var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
+                (0, (ulong)collectionHeaderLength)
+            };
+            var directories = new System.Collections.Generic.List<(uint Offset, int Length)>();
+            for (uint i = 0; i < fontCount; i++) {
+                uint directoryOffset = ReadUInt32BigEndian(header, checked(12 + (int)i * 4));
+                if (directoryOffset + 12L > stream.Length) return false;
+                if (remainingDirectoryReadBudget < 12)
+                {
+                    result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
+                    return true;
+                }
+                if (!TryReadAt(stream, directoryOffset, 12, out var directoryHeader)) return false;
+                remainingDirectoryReadBudget -= 12;
+                ushort tableCount = ReadUInt16BigEndian(new ReadOnlySpan<byte>(directoryHeader), 4);
+                long directoryLength = 12L + tableCount * 16L;
+                if (tableCount is < 1 or > 4095 || directoryOffset + directoryLength > stream.Length) return false;
+                ulong directoryEnd = (ulong)directoryOffset + (ulong)directoryLength;
+                bool existingDirectory = false;
+                for (int range = 0; range < directoryRanges.Count; range++)
+                {
+                    if (directoryOffset == directoryRanges[range].Start && directoryEnd == directoryRanges[range].End)
+                    {
+                        existingDirectory = true;
+                        break;
+                    }
+                    if (directoryOffset < directoryRanges[range].End && directoryEnd > directoryRanges[range].Start) return false;
+                }
+                if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
+                directories.Add((directoryOffset, (int)directoryLength));
+            }
+            for (int index = 0; index < directories.Count; index++) {
+                uint directoryOffset = directories[index].Offset;
+                int directoryLength = directories[index].Length;
+                if (directoryLength > remainingDirectoryReadBudget)
+                {
+                    result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
+                    return true;
+                }
+                if (!TryReadAt(stream, directoryOffset, (int)directoryLength, out var directoryBytes)) return false;
+                remainingDirectoryReadBudget -= directoryLength;
+                var directory = new ReadOnlySpan<byte>(directoryBytes);
+                if (!TryValidateCollectionFontDirectory(directory, directoryOffset, stream.Length, directoryRanges,
+                        out bool isCff, out bool hasRequiredTables)) return false;
+                anyCff |= isCff;
+                allRequiredTables &= hasRequiredTables;
+            }
+
+            result = FontCollectionResult(version, fontCount, anyCff,
+                allRequiredTables ? "table-checksum-budget" : "mandatory-tables-missing;table-checksum-budget");
+            return true;
+        } catch {
+            result = null;
+            return false;
+        } finally {
+            try { stream.Seek(originalPosition, SeekOrigin.Begin); } catch { }
+        }
+    }
+
+    private static bool TryMatchWoff2(Stream stream, ReadOnlySpan<byte> header, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (header.Length < 48 || stream.Length > uint.MaxValue) return false;
+        uint declaredLength = ReadUInt32BigEndian(header, 8);
+        ushort tableCount = ReadUInt16BigEndian(header, 12);
+        if (declaredLength != stream.Length || tableCount is < 1 or > 4095) return false;
+
+        long cursor = 48;
+        stream.Seek(cursor, SeekOrigin.Begin);
+        Span<byte> tag = stackalloc byte[4];
+        bool sawGlyfTransform = false;
+        bool sawLocaTransform = false;
+        bool sawHhea = false;
+        bool sawMaxp = false;
+        bool sawHmtxTransform = false;
+        for (int table = 0; table < tableCount; table++) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte flags)) return false;
+            int tagIndex = flags & 0x3F;
+            int transformVersion = flags >> 6;
+            bool isGlyf = tagIndex == 10;
+            bool isLoca = tagIndex == 11;
+            bool isHmtx = tagIndex == 3;
+            bool isHhea = tagIndex == 2;
+            bool isMaxp = tagIndex == 4;
+            if (tagIndex == 0x3F) {
+                for (int i = 0; i < tag.Length; i++) {
+                    if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out tag[i]) || tag[i] < 0x20 || tag[i] > 0x7E)
+                        return false;
+                }
+                isGlyf = tag.SequenceEqual("glyf"u8);
+                isLoca = tag.SequenceEqual("loca"u8);
+                isHmtx = tag.SequenceEqual("hmtx"u8);
+                isHhea = tag.SequenceEqual("hhea"u8);
+                isMaxp = tag.SequenceEqual("maxp"u8);
+            }
+            if (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint originalLength) || originalLength == 0)
+                return false;
+            if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
+            if (transformed && (!TryReadWoff2UIntBase128(stream, declaredLength, ref cursor, out uint transformedLength) ||
+                (isLoca ? transformedLength != 0 : transformedLength == 0)))
+                return false;
+            sawGlyfTransform |= isGlyf && transformed;
+            sawLocaTransform |= isLoca && transformed;
+            sawHmtxTransform |= isHmtx && transformed;
+            sawHhea |= isHhea;
+            sawMaxp |= isMaxp;
+        }
+
+        if (sawGlyfTransform != sawLocaTransform ||
+            sawHmtxTransform && (!sawGlyfTransform || !sawHhea || !sawMaxp)) return false;
+
+        if (ReadUInt32BigEndian(header, 4) == 0x74746366 &&
+            !TryReadWoff2CollectionDirectory(stream, declaredLength, ref cursor, tableCount)) return false;
+        if (cursor > int.MaxValue || !TryReadAt(stream, 0, (int)cursor, out var directory)) return false;
+        return TryMatchFont(new ReadOnlySpan<byte>(directory), stream.Length, out result);
+    }
+
+    private static bool TryReadWoff2CollectionDirectory(Stream stream, uint declaredLength, ref long cursor, ushort tableCount) {
+        if (!TryReadWoff2UInt32(stream, declaredLength, ref cursor, out uint version) ||
+            version is not (0x00010000u or 0x00020000u) ||
+            !TryReadWoff2255UInt16(stream, declaredLength, ref cursor, out ushort fontCount) || fontCount == 0) return false;
+
+        for (int font = 0; font < fontCount; font++) {
+            if (!TryReadWoff2255UInt16(stream, declaredLength, ref cursor, out ushort fontTableCount) ||
+                fontTableCount == 0 || fontTableCount > tableCount ||
+                !TryReadWoff2UInt32(stream, declaredLength, ref cursor, out uint flavor) ||
+                !TryGetSfntFlavor(flavor, out _, out _)) return false;
+            for (int table = 0; table < fontTableCount; table++)
+                if (!TryReadWoff2255UInt16(stream, declaredLength, ref cursor, out ushort index) || index >= tableCount) return false;
+        }
+        return true;
+    }
+
+    private static bool TryReadWoff2Byte(Stream stream, uint declaredLength, ref long cursor, out byte value) {
+        value = 0;
+        if (cursor >= declaredLength) return false;
+        int current = stream.ReadByte();
+        if (current < 0) return false;
+        cursor++;
+        value = (byte)current;
+        return true;
+    }
+
+    private static bool TryReadWoff2UInt32(Stream stream, uint declaredLength, ref long cursor, out uint value) {
+        value = 0;
+        for (int i = 0; i < 4; i++) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte current)) return false;
+            value = (value << 8) | current;
+        }
+        return true;
+    }
+
+    private static bool TryReadWoff2UIntBase128(Stream stream, uint declaredLength, ref long cursor, out uint value) {
+        value = 0;
+        for (int i = 0; i < 5; i++) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte current) ||
+                (i == 0 && current == 0x80) || (value & 0xFE000000u) != 0) return false;
+            value = (value << 7) | (uint)(current & 0x7F);
+            if ((current & 0x80) == 0) return true;
+        }
+        return false;
+    }
+
+    private static bool TryReadWoff2255UInt16(Stream stream, uint declaredLength, ref long cursor, out ushort value) {
+        value = 0;
+        if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte code)) return false;
+        if (code == 253) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte high) ||
+                !TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte low)) return false;
+            value = (ushort)(high << 8 | low);
+            return true;
+        }
+        if (code is 254 or 255) {
+            if (!TryReadWoff2Byte(stream, declaredLength, ref cursor, out byte tail)) return false;
+            value = (ushort)(tail + (code == 255 ? 253 : 506));
+            return true;
+        }
+        value = code;
+        return true;
+    }
+
+    internal static bool TryMatchFont(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (src.Length < 4) return false;
+
+        if (src[0] == (byte)'w' && src[1] == (byte)'O' && src[2] == (byte)'F' && src[3] == (byte)'F')
+            return TryMatchWoff(src, completeLength, isWoff2: false, out result);
+        if (src[0] == (byte)'w' && src[1] == (byte)'O' && src[2] == (byte)'F' && src[3] == (byte)'2')
+            return TryMatchWoff(src, completeLength, isWoff2: true, out result);
+        if (src.Slice(0, 4).SequenceEqual("ttcf"u8))
+            return TryMatchFontCollection(src, completeLength, out result);
+
+        if (src.Length < 28) return false;
+        uint flavor = ReadUInt32BigEndian(src, 0);
+        if (!TryGetSfntFlavor(flavor, out var extension, out var mime)) return false;
+
+        ushort tableCount = ReadUInt16BigEndian(src, 4);
+        ushort searchRange = ReadUInt16BigEndian(src, 6);
+        ushort entrySelector = ReadUInt16BigEndian(src, 8);
+        ushort rangeShift = ReadUInt16BigEndian(src, 10);
+        if (tableCount < 1 || tableCount > 4095) return false;
+
+        int maximumPowerOfTwo = 1;
+        ushort expectedSelector = 0;
+        while ((maximumPowerOfTwo << 1) <= tableCount) {
+            maximumPowerOfTwo <<= 1;
+            expectedSelector++;
+        }
+        int expectedSearchRange = maximumPowerOfTwo * 16;
+        int expectedRangeShift = tableCount * 16 - expectedSearchRange;
+        if (searchRange != expectedSearchRange || entrySelector != expectedSelector || rangeShift != expectedRangeShift)
+            return false;
+
+        long directoryEnd = 12L + tableCount * 16L;
+        if (completeLength.HasValue && directoryEnd > completeLength.Value) return false;
+        if (directoryEnd > src.Length) {
+            if (completeLength.HasValue) return false;
+            result = FontResult(extension, mime, "sampled-directory");
+            return true;
+        }
+        bool sampledTables = false;
+        var tableTags = new System.Collections.Generic.HashSet<uint>();
+        var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+        uint previousTableTag = 0;
+        for (int table = 0; table < tableCount; table++) {
+            int record = 12 + table * 16;
+            for (int tag = 0; tag < 4; tag++)
+                if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
+            uint tableTag = ReadUInt32BigEndian(src, record);
+            if (table > 0 && tableTag <= previousTableTag || !tableTags.Add(tableTag)) return false;
+            previousTableTag = tableTag;
+            uint tableOffset = ReadUInt32BigEndian(src, record + 8);
+            uint tableLength = ReadUInt32BigEndian(src, record + 12);
+            if (tableOffset < directoryEnd || tableLength == 0 || (tableOffset & 3) != 0 ||
+                (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
+            ulong tableEnd = (ulong)tableOffset + tableLength;
+            for (int range = 0; range < tableRanges.Count; range++)
+                if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
+            tableRanges.Add((tableOffset, tableEnd));
+            sampledTables |= (ulong)tableOffset + tableLength > (ulong)src.Length;
+        }
+
+        FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(src, src, validateAggregateChecksum: true);
+        if (checksumStatus == FontChecksumStatus.Invalid) return false;
+        sampledTables |= checksumStatus == FontChecksumStatus.Sampled;
+
+        bool hasRequiredTables = HasRequiredSfntTables(flavor, tableTags);
+        result = FontResult(extension, mime,
+            !hasRequiredTables ? "mandatory-tables-missing" : sampledTables ? "sampled-table-data" :
+            checksumStatus == FontChecksumStatus.AggregateMismatch ? "whole-font-checksum-invalid" :
+            "mandatory-table-contents-not-validated");
+        return true;
+    }
+
+    private static bool TryMatchFontCollection(ReadOnlySpan<byte> src, long? completeLength, out ContentTypeDetectionResult? result) {
+        result = null;
+        if (src.Length < 16) return false;
+        uint version = ReadUInt32BigEndian(src, 4);
+        uint fontCount = ReadUInt32BigEndian(src, 8);
+        long headerLength = 12L + fontCount * 4L + (version == 0x00020000u ? 12L : 0L);
+        if (version is not (0x00010000u or 0x00020000u) || fontCount is < 1 or > 4095 || headerLength > src.Length ||
+            !TryValidateTtcDsigHeader(src, version, fontCount, completeLength))
+            return false;
+
+        bool anyCff = false;
+        long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
+            (0, (ulong)headerLength)
+        };
+        var directories = new System.Collections.Generic.List<(uint Offset, int Length)>();
+        for (uint i = 0; i < fontCount; i++) {
+            uint directoryOffset = ReadUInt32BigEndian(src, checked(12 + (int)i * 4));
+            if (directoryOffset > int.MaxValue || directoryOffset + 12L > src.Length) return false;
+            int offset = (int)directoryOffset;
+            ushort tableCount = ReadUInt16BigEndian(src, offset + 4);
+            long directoryLength = 12L + tableCount * 16L;
+            if (tableCount is < 1 or > 4095 || (ulong)directoryOffset + (ulong)directoryLength > (ulong)src.Length)
+                return false;
+            ulong directoryEnd = (ulong)directoryOffset + (ulong)directoryLength;
+            bool existingDirectory = false;
+            for (int range = 0; range < directoryRanges.Count; range++)
+            {
+                if (directoryOffset == directoryRanges[range].Start && directoryEnd == directoryRanges[range].End)
+                {
+                    existingDirectory = true;
+                    break;
+                }
+                if (directoryOffset < directoryRanges[range].End && directoryEnd > directoryRanges[range].Start) return false;
+            }
+            if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
+            directories.Add((directoryOffset, (int)directoryLength));
+        }
+        bool sampledChecksums = false;
+        bool allRequiredTables = true;
+        for (int index = 0; index < directories.Count; index++) {
+            uint directoryOffset = directories[index].Offset;
+            int directoryLength = directories[index].Length;
+            if (directoryLength > remainingValidationBudget)
+            {
+                result = FontCollectionResult(version, fontCount, anyCff, "directory-budget");
+                return true;
+            }
+            remainingValidationBudget -= directoryLength;
+            if (!TryValidateCollectionFontDirectory(src.Slice((int)directoryOffset, directoryLength), directoryOffset,
+                    completeLength, directoryRanges, out bool isCff, out bool hasRequiredTables)) return false;
+            FontChecksumStatus checksumStatus = ValidateSfntTableChecksums(
+                src, src.Slice((int)directoryOffset, directoryLength), validateAggregateChecksum: false);
+            if (checksumStatus == FontChecksumStatus.Invalid) return false;
+            sampledChecksums |= checksumStatus == FontChecksumStatus.Sampled;
+            anyCff |= isCff;
+            allRequiredTables &= hasRequiredTables;
+        }
+
+        result = FontCollectionResult(version, fontCount, anyCff,
+            !allRequiredTables ? "mandatory-tables-missing" : sampledChecksums ? "sampled-table-checksums" : null);
+        return true;
+    }
+
+    private static bool TryValidateTtcDsigHeader(ReadOnlySpan<byte> header, uint version, uint fontCount, long? completeLength)
+    {
+        if (version != 0x00020000u) return true;
+        long dsigFields = 12L + fontCount * 4L;
+        if (dsigFields > int.MaxValue || dsigFields + 12 > header.Length) return false;
+        int offset = (int)dsigFields;
+        uint tag = ReadUInt32BigEndian(header, offset);
+        uint length = ReadUInt32BigEndian(header, offset + 4);
+        uint dataOffset = ReadUInt32BigEndian(header, offset + 8);
+        if (tag == 0) return length == 0 && dataOffset == 0;
+        long headerLength = dsigFields + 12;
+        return tag == 0x44534947 && length >= 8 && dataOffset >= headerLength && (dataOffset & 3) == 0 &&
+               (!completeLength.HasValue || (ulong)dataOffset + length <= (ulong)completeLength.Value);
+    }
+
+    private static bool TryValidateCollectionFontDirectory(ReadOnlySpan<byte> directory, long directoryOffset, long? completeLength,
+        System.Collections.Generic.IReadOnlyList<(ulong Start, ulong End)> protectedRanges,
+        out bool isCff, out bool hasRequiredTables) {
+        isCff = false;
+        hasRequiredTables = false;
+        if (directory.Length < 28 || directoryOffset < 0 || completeLength < 0) return false;
+        uint flavor = ReadUInt32BigEndian(directory, 0);
+        if (!TryGetSfntFlavor(flavor, out var extension, out _)) return false;
+        isCff = extension == "otf";
+        ushort tableCount = ReadUInt16BigEndian(directory, 4);
+        if (tableCount < 1 || tableCount > 4095 ||
+            (completeLength.HasValue && directoryOffset + 12L + tableCount * 16L > completeLength.Value)) return false;
+        int maximumPowerOfTwo = 1;
+        ushort expectedSelector = 0;
+        while ((maximumPowerOfTwo << 1) <= tableCount) {
+            maximumPowerOfTwo <<= 1;
+            expectedSelector++;
+        }
+        if (ReadUInt16BigEndian(directory, 6) != maximumPowerOfTwo * 16 ||
+            ReadUInt16BigEndian(directory, 8) != expectedSelector ||
+            ReadUInt16BigEndian(directory, 10) != tableCount * 16 - maximumPowerOfTwo * 16) return false;
+        if (directory.Length < 12L + tableCount * 16L) return false;
+        var tableTags = new System.Collections.Generic.HashSet<uint>();
+        var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+        uint previousTableTag = 0;
+        for (int table = 0; table < tableCount; table++) {
+            int record = 12 + table * 16;
+            for (int tag = 0; tag < 4; tag++)
+                if (directory[record + tag] < 0x20 || directory[record + tag] > 0x7E) return false;
+            uint tableTag = ReadUInt32BigEndian(directory, record);
+            if (table > 0 && tableTag <= previousTableTag || !tableTags.Add(tableTag)) return false;
+            previousTableTag = tableTag;
+            uint tableOffset = ReadUInt32BigEndian(directory, record + 8);
+            uint tableLength = ReadUInt32BigEndian(directory, record + 12);
+            if (tableLength == 0 || (tableOffset & 3) != 0 ||
+                (completeLength.HasValue && (ulong)tableOffset + tableLength > (ulong)completeLength.Value)) return false;
+            ulong tableEnd = (ulong)tableOffset + tableLength;
+            for (int range = 0; range < protectedRanges.Count; range++)
+                if (tableOffset < protectedRanges[range].End && tableEnd > protectedRanges[range].Start) return false;
+            for (int range = 0; range < tableRanges.Count; range++)
+                if (tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
+            tableRanges.Add((tableOffset, tableEnd));
+        }
+        hasRequiredTables = HasRequiredSfntTables(flavor, tableTags);
+        return true;
+    }
+
+    private static bool HasRequiredSfntTables(uint flavor, System.Collections.Generic.HashSet<uint> tags)
+    {
+        // Common tables required by OpenType fonts. Apple legacy TrueType omits OS/2.
+        uint[] common = {
+            0x636D6170, // cmap
+            0x68656164, // head
+            0x68686561, // hhea
+            0x686D7478, // hmtx
+            0x6D617870, // maxp
+            0x6E616D65, // name
+            0x706F7374  // post
+        };
+        for (int index = 0; index < common.Length; index++)
+            if (!tags.Contains(common[index])) return false;
+
+        if (flavor != 0x74727565 && !tags.Contains(0x4F532F32)) return false; // OS/2
+        if (flavor is 0x00010000 or 0x74727565)
+            return tags.Contains(0x676C7966) && tags.Contains(0x6C6F6361); // glyf + loca
+        if (flavor == 0x4F54544F)
+            return tags.Contains(0x43464620) || tags.Contains(0x43464632); // CFF / CFF2
+
+        // The deprecated Apple typ1 flavor has no modern mandatory-table contract.
+        return false;
+    }
+
+    private static ContentTypeDetectionResult FontResult(string extension, string mime, string? sampledReason) => new() {
+        Extension = extension,
+        MimeType = mime,
+        Confidence = sampledReason == null ? "High" : "Medium",
+        Reason = (extension == "otf" ? "sfnt:opentype-cff" : "sfnt:truetype") +
+                 (sampledReason == null ? string.Empty : ";" + sampledReason)
+    };
+
+    private static ContentTypeDetectionResult FontCollectionResult(uint version, uint fontCount, bool anyCff,
+        string? sampledReason = null) => new() {
+        Extension = anyCff ? "otc" : "ttc",
+        MimeType = "font/collection",
+        Confidence = sampledReason == null ? "High" : "Medium",
+        Reason = $"font-collection:v{version >> 16};fonts={fontCount}" +
+                 (sampledReason == null ? string.Empty : ";" + sampledReason)
+    };
+
+    private static bool TryMatchWoff(ReadOnlySpan<byte> src, long? completeLength, bool isWoff2, out ContentTypeDetectionResult? result) {
+        result = null;
+        int headerSize = isWoff2 ? 48 : 44;
+        if (src.Length < headerSize) return false;
+
+        uint flavor = ReadUInt32BigEndian(src, 4);
+        bool isCollection = isWoff2 && flavor == 0x74746366;
+        if (!isCollection && !TryGetSfntFlavor(flavor, out _, out _)) return false;
+        uint declaredLength = ReadUInt32BigEndian(src, 8);
+        ushort tableCount = ReadUInt16BigEndian(src, 12);
+        ushort reserved = ReadUInt16BigEndian(src, 14);
+        uint totalSfntSize = ReadUInt32BigEndian(src, 16);
+        if (tableCount < 1 || tableCount > 4095 || (!isWoff2 && reserved != 0) || declaredLength < headerSize ||
+            (completeLength.HasValue && declaredLength != completeLength.Value) ||
+            (!completeLength.HasValue && declaredLength < src.Length))
+            return false;
+        if (totalSfntSize < 12L + tableCount * 16L) return false;
+
+        if (isWoff2) {
+            uint compressedSize = ReadUInt32BigEndian(src, 20);
+            int cursor = 48;
+            bool sawGlyfTransform = false;
+            bool sawLocaTransform = false;
+            bool sawHhea = false;
+            bool sawMaxp = false;
+            bool sawHmtxTransform = false;
+            var tableTags = new System.Collections.Generic.HashSet<uint>();
+            for (int table = 0; table < tableCount; table++)
+            {
+                if (cursor >= src.Length) return false;
+                byte flags = src[cursor++];
+                int tagIndex = flags & 0x3F;
+                int transformVersion = flags >> 6;
+                bool isGlyf = tagIndex == 10;
+                bool isLoca = tagIndex == 11;
+                bool isHmtx = tagIndex == 3;
+                bool isHhea = tagIndex == 2;
+                bool isMaxp = tagIndex == 4;
+                uint tableTag;
+                if (tagIndex == 0x3F) {
+                    if (src.Length < cursor + 4) return false;
+                    for (int i = 0; i < 4; i++)
+                        if (src[cursor + i] < 0x20 || src[cursor + i] > 0x7E) return false;
+                    tableTag = ReadUInt32BigEndian(src, cursor);
+                    isGlyf = src.Slice(cursor, 4).SequenceEqual("glyf"u8);
+                    isLoca = src.Slice(cursor, 4).SequenceEqual("loca"u8);
+                    isHmtx = src.Slice(cursor, 4).SequenceEqual("hmtx"u8);
+                    isHhea = src.Slice(cursor, 4).SequenceEqual("hhea"u8);
+                    isMaxp = src.Slice(cursor, 4).SequenceEqual("maxp"u8);
+                    cursor += 4;
+                } else tableTag = Woff2KnownTableTags[tagIndex];
+                if (!tableTags.Add(tableTag)) return false;
+                if (!TryReadUIntBase128(src, ref cursor, out uint originalLength) || originalLength == 0) return false;
+                if (!TryGetWoff2TransformState(isGlyf, isLoca, isHmtx, transformVersion, out bool transformed)) return false;
+                if (transformed && (!TryReadUIntBase128(src, ref cursor, out uint transformedLength) ||
+                    (isLoca ? transformedLength != 0 : transformedLength == 0))) return false;
+                sawGlyfTransform |= isGlyf && transformed;
+                sawLocaTransform |= isLoca && transformed;
+                sawHmtxTransform |= isHmtx && transformed;
+                sawHhea |= isHhea;
+                sawMaxp |= isMaxp;
+            }
+
+            if (sawGlyfTransform != sawLocaTransform ||
+                sawHmtxTransform && (!sawGlyfTransform || !sawHhea || !sawMaxp)) return false;
+
+            if (isCollection && !TryValidateWoff2CollectionDirectory(src, ref cursor, tableCount)) return false;
+            if (compressedSize == 0 || (ulong)cursor + compressedSize > declaredLength) return false;
+            if (!TryValidateWoffOptionalLayout(declaredLength, (ulong)cursor + compressedSize,
+                    ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32), ReadUInt32BigEndian(src, 36),
+                    ReadUInt32BigEndian(src, 40), ReadUInt32BigEndian(src, 44))) return false;
+        } else {
+            long minimumLength = 44L + tableCount * 20L;
+            if (declaredLength < minimumLength || (declaredLength & 3) != 0 || (totalSfntSize & 3) != 0) return false;
+            if (minimumLength > src.Length) {
+                if (completeLength.HasValue) return false;
+                result = WoffResult(isWoff2: false, nonCanonicalReserved: false, sampledReason: "sampled-directory");
+                return true;
+            }
+            ulong fontDataEnd = (ulong)minimumLength;
+            var tableTags = new System.Collections.Generic.HashSet<uint>();
+            var tableRanges = new System.Collections.Generic.List<(ulong Start, ulong End)>();
+            for (int table = 0; table < tableCount; table++) {
+                int record = 44 + table * 20;
+                for (int tag = 0; tag < 4; tag++)
+                    if (src[record + tag] < 0x20 || src[record + tag] > 0x7E) return false;
+                if (!tableTags.Add(ReadUInt32BigEndian(src, record))) return false;
+                uint tableOffset = ReadUInt32BigEndian(src, record + 4);
+                uint compressedLength = ReadUInt32BigEndian(src, record + 8);
+                uint originalLength = ReadUInt32BigEndian(src, record + 12);
+                if ((tableOffset & 3) != 0 || tableOffset < minimumLength || compressedLength == 0 ||
+                    originalLength < compressedLength || (ulong)tableOffset + compressedLength > declaredLength) return false;
+                ulong tableEnd = (ulong)tableOffset + compressedLength;
+                for (int range = 0; range < tableRanges.Count; range++)
+                    if ((ulong)tableOffset < tableRanges[range].End && tableEnd > tableRanges[range].Start) return false;
+                tableRanges.Add(((ulong)tableOffset, tableEnd));
+                fontDataEnd = Math.Max(fontDataEnd, (ulong)tableOffset + compressedLength);
+            }
+            if (!TryValidateWoffOptionalLayout(declaredLength, fontDataEnd,
+                    ReadUInt32BigEndian(src, 24), ReadUInt32BigEndian(src, 28), ReadUInt32BigEndian(src, 32),
+                    ReadUInt32BigEndian(src, 36), ReadUInt32BigEndian(src, 40))) return false;
+        }
+
+        bool nonCanonicalReserved = isWoff2 && reserved != 0;
+        result = WoffResult(isWoff2, nonCanonicalReserved,
+            sampledReason: isWoff2 ? "brotli-payload-not-validated" : "table-payloads-not-validated");
+        return true;
+    }
+
+    private static bool TryGetWoff2TransformState(bool isGlyf, bool isLoca, bool isHmtx,
+        int transformVersion, out bool transformed)
+    {
+        transformed = false;
+        if (isGlyf || isLoca)
+        {
+            if (transformVersion is not (0 or 3)) return false;
+            transformed = transformVersion == 0;
+            return true;
+        }
+        if (isHmtx)
+        {
+            if (transformVersion is not (0 or 1)) return false;
+            transformed = transformVersion == 1;
+            return true;
+        }
+        return transformVersion == 0;
+    }
+
+    private static ContentTypeDetectionResult WoffResult(bool isWoff2, bool nonCanonicalReserved, string? sampledReason) {
+        string extension = isWoff2 ? "woff2" : "woff";
+        bool medium = nonCanonicalReserved || sampledReason != null;
+        return new ContentTypeDetectionResult {
+            Extension = extension,
+            MimeType = "font/" + extension,
+            Confidence = medium ? "Medium" : "High",
+            Reason = "font:" + extension + (nonCanonicalReserved ? ";reserved-nonzero" : string.Empty) +
+                     (sampledReason == null ? string.Empty : ";" + sampledReason)
+        };
+    }
+
+    private static bool TryValidateWoff2CollectionDirectory(ReadOnlySpan<byte> src, ref int cursor, ushort tableCount)
+    {
+        if (cursor + 4 > src.Length) return false;
+        uint version = ReadUInt32BigEndian(src, cursor);
+        cursor += 4;
+        if (version is not (0x00010000u or 0x00020000u) ||
+            !TryRead255UInt16(src, ref cursor, out ushort fontCount) || fontCount == 0) return false;
+
+        for (int font = 0; font < fontCount; font++)
+        {
+            if (!TryRead255UInt16(src, ref cursor, out ushort fontTableCount) ||
+                fontTableCount == 0 || fontTableCount > tableCount || cursor + 4 > src.Length) return false;
+            uint flavor = ReadUInt32BigEndian(src, cursor);
+            cursor += 4;
+            if (!TryGetSfntFlavor(flavor, out _, out _)) return false;
+            for (int table = 0; table < fontTableCount; table++)
+                if (!TryRead255UInt16(src, ref cursor, out ushort index) || index >= tableCount) return false;
+        }
+        return true;
+    }
+
+    private static bool TryRead255UInt16(ReadOnlySpan<byte> src, ref int cursor, out ushort value)
+    {
+        value = 0;
+        if (cursor >= src.Length) return false;
+        byte code = src[cursor++];
+        if (code == 253)
+        {
+            if (cursor + 2 > src.Length) return false;
+            value = (ushort)(src[cursor] << 8 | src[cursor + 1]);
+            cursor += 2;
+            return true;
+        }
+        if (code is 254 or 255)
+        {
+            if (cursor >= src.Length) return false;
+            value = (ushort)(src[cursor++] + (code == 255 ? 253 : 506));
+            return true;
+        }
+        value = code;
+        return true;
+    }
+
+    private static bool TryValidateWoffOptionalLayout(uint fileLength, ulong fontDataEnd, uint metadataOffset,
+        uint metadataLength, uint metadataOriginalLength, uint privateOffset, uint privateLength) {
+        if (metadataOffset == 0 && (metadataLength != 0 || metadataOriginalLength != 0) ||
+            metadataOffset != 0 && (metadataLength == 0 || metadataOriginalLength == 0 || (metadataOffset & 3) != 0)) return false;
+        if (privateOffset == 0 && privateLength != 0 ||
+            privateOffset != 0 && (privateLength == 0 || (privateOffset & 3) != 0)) return false;
+        ulong nextOffset = (fontDataEnd + 3) & ~3UL;
+        if (metadataOffset != 0) {
+            if (metadataOffset < nextOffset || (ulong)metadataOffset + metadataLength > fileLength) return false;
+            nextOffset = ((ulong)metadataOffset + metadataLength + 3) & ~3UL;
+        }
+        return privateOffset == 0 || privateOffset >= nextOffset && (ulong)privateOffset + privateLength <= fileLength;
+    }
+
+    private static bool TryReadUIntBase128(ReadOnlySpan<byte> src, ref int cursor, out uint value) {
+        value = 0;
+        for (int i = 0; i < 5; i++) {
+            if (cursor >= src.Length) return false;
+            byte current = src[cursor++];
+            if (i == 0 && current == 0x80) return false;
+            if ((value & 0xFE000000u) != 0) return false;
+            value = (value << 7) | (uint)(current & 0x7F);
+            if ((current & 0x80) == 0) return true;
+        }
+        return false;
+    }
+
+    private static bool TryGetSfntFlavor(uint flavor, out string extension, out string mime) {
+        if (flavor is 0x00010000 or 0x74727565) {
+            extension = "ttf";
+            mime = "font/ttf";
+            return true;
+        }
+        if (flavor is 0x4F54544F or 0x74797031) {
+            extension = "otf";
+            mime = "font/otf";
+            return true;
+        }
+        extension = string.Empty;
+        mime = string.Empty;
+        return false;
+    }
+
+    private static uint ReadUInt32BigEndian(ReadOnlySpan<byte> src, int offset)
+        => (uint)(src[offset] << 24 | src[offset + 1] << 16 | src[offset + 2] << 8 | src[offset + 3]);
+}

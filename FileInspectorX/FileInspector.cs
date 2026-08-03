@@ -96,6 +96,16 @@ public static partial class FileInspector {
             // .jpg <-> .jpeg
             if ((a.Equals("jpg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpeg", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("jpeg", StringComparison.OrdinalIgnoreCase) && b.Equals("jpg", StringComparison.OrdinalIgnoreCase))) return true;
+            // HDF5 commonly uses either .h5 or .hdf5.
+            if ((a.Equals("h5", StringComparison.OrdinalIgnoreCase) && b.Equals("hdf5", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("hdf5", StringComparison.OrdinalIgnoreCase) && b.Equals("h5", StringComparison.OrdinalIgnoreCase))) return true;
+            // Standard MIDI files commonly use either .mid or .midi.
+            if ((a.Equals("mid", StringComparison.OrdinalIgnoreCase) && b.Equals("midi", StringComparison.OrdinalIgnoreCase)) ||
+                (a.Equals("midi", StringComparison.OrdinalIgnoreCase) && b.Equals("mid", StringComparison.OrdinalIgnoreCase))) return true;
+            // Matroska's document type identifies the container, not its track composition.
+            if (IsMatroskaExtension(a) && IsMatroskaExtension(b)) return true;
+            // The shared Outlook NDB header does not distinguish personal and offline stores.
+            if (IsOutlookDataExtension(a) && IsOutlookDataExtension(b)) return true;
             // .htm <-> .html
             if ((a.Equals("htm", StringComparison.OrdinalIgnoreCase) && b.Equals("html", StringComparison.OrdinalIgnoreCase)) ||
                 (a.Equals("html", StringComparison.OrdinalIgnoreCase) && b.Equals("htm", StringComparison.OrdinalIgnoreCase))) return true;
@@ -134,6 +144,18 @@ public static partial class FileInspector {
             if (InPlainTextFamily(a) && InPlainTextFamily(b)) return true;
             return false;
         }
+
+        static bool IsMatroskaExtension(string ext)
+            => ext.Equals("matroska", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mkv", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mka", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mks", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("mk3d", StringComparison.OrdinalIgnoreCase);
+
+        static bool IsOutlookDataExtension(string ext)
+            => ext.Equals("ndb", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("pst", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals("ost", StringComparison.OrdinalIgnoreCase);
 
         if (!string.IsNullOrEmpty(detGuess) &&
             !Equivalent(decl, det) &&
@@ -293,6 +315,15 @@ public static partial class FileInspector {
                     return result;
                 return ApplyLearnedClassification(result, fs, options);
             }
+            var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
+            bool hdfDetected = Signatures.TryMatchHdf5(fs, minimumOffset: 0, out var pathHdf5);
+            if (hdfDetected)
+                return FinishPathOnly(DetectStreamCore(
+                    fs,
+                    deterministicOptions,
+                    extDeclared,
+                    hdfProbeComplete: true,
+                    preDetectedHdf5: pathHdf5));
             if (Signatures.TryMatchUdf(fs, out var udf)) return FinishPathOnly(udf);
             if (Signatures.TryMatchIso(fs, out var iso)) return FinishPathOnly(iso);
             if (Signatures.TryMatchDmg(fs, out var dmg)) return FinishPathOnly(dmg);
@@ -300,12 +331,11 @@ public static partial class FileInspector {
                 => ApplyLearnedClassification(result, fs, options);
             if (Signatures.TryMatchMsg(fs, out var msg))
                 return Finish(msg);
-            var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            var det = Detect(fs, deterministicOptions, extDeclared);
+            var det = DetectStreamCore(fs, deterministicOptions, extDeclared, hdfProbeComplete: true);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
-                    // A successful PE parse is stronger evidence than the 2-byte MZ prefix alone.
-                    det.Confidence = "High";
+                    // A successful PE parse refines family details, but does not validate every section entry.
+                    det.Confidence = "Medium";
                     det.Reason = AppendReason(det.Reason, "pe:header");
                     const ushort IMAGE_FILE_DLL = 0x2000;
                     if ((pe.Characteristics & IMAGE_FILE_DLL) != 0) { det.Extension = "dll"; det.Reason = AppendReason(det.Reason, "pe-family-precise"); }
@@ -426,7 +456,12 @@ public static partial class FileInspector {
         }
     }
 
-    private static ContentTypeDetectionResult? DetectStreamCore(Stream stream, DetectionOptions? options, string? declaredExtension) {
+    private static ContentTypeDetectionResult? DetectStreamCore(
+        Stream stream,
+        DetectionOptions? options,
+        string? declaredExtension,
+        bool hdfProbeComplete = false,
+        ContentTypeDetectionResult? preDetectedHdf5 = null) {
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         if (!stream.CanSeek && options.LearnedClassificationMode != LearnedClassificationMode.Off)
@@ -444,23 +479,93 @@ public static partial class FileInspector {
         var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
         var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
-        var read = ReadAvailable(stream, header, 0, header.Length);
+        var read = ReadAvailable(stream, header, 0, headLen);
+        bool nonSeekableEof = !stream.CanSeek && read < headLen;
         var src = new ReadOnlySpan<byte>(header, 0, read);
         var srcMemory = new ReadOnlyMemory<byte>(header, 0, read);
+        // A short non-seekable read reached EOF and therefore has a known complete length.
+        // Filling the sample buffer proves only the prefix length, not the whole-file length.
+        long? completeLength = stream.CanSeek ? stream.Length : nonSeekableEof ? read : null;
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
             => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
+
+        // HDF5 may place its signature after a power-of-two user block containing arbitrary data.
+        // Establish the container identity before interpreting bytes inside that user block.
+        if (preDetectedHdf5 != null) return Finish(Enrich(preDetectedHdf5, src, stream, options));
+        if (!hdfProbeComplete) {
+            if (stream.CanSeek) {
+                if (Signatures.TryMatchHdf5(stream, 0, out var seekableHdf5))
+                    return Finish(Enrich(seekableHdf5, src, stream, options));
+            }
+            else if (Signatures.TryMatchHdf5(src, completeLength, out var sampledHdf5)) {
+                return Finish(Enrich(sampledHdf5, src, stream, options));
+            }
+        }
+
+        if (stream.CanSeek && Signatures.TryMatchSeekableContainers(stream, out var seekableContainer))
+            return Finish(Enrich(seekableContainer, src, stream, options));
+        if (!stream.CanSeek && completeLength.HasValue && Signatures.TryMatchCompleteContainers(src, out var completeContainer))
+            return Finish(Enrich(completeContainer, src, stream, options));
+
+        if ((stream.CanSeek ? Signatures.TryMatchPe(stream, out var validatedPe) : Signatures.TryMatchPe(src, completeLength, out validatedPe)))
+            return Finish(Enrich(validatedPe, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchLegacyMz(stream, out var legacyMz) : Signatures.TryMatchLegacyMz(src, completeLength, out legacyMz)))
+            return Finish(Enrich(legacyMz, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchPcapNg(stream, out var seekablePcapNg)) return Finish(Enrich(seekablePcapNg, src, stream, options));
+        if (!stream.CanSeek && Signatures.TryMatchPcapNg(src, completeLength, out var sampledPcapNg)) return Finish(Enrich(sampledPcapNg, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchPcap(stream, out var seekablePcap)) return Finish(Enrich(seekablePcap, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchCrx(stream, out var seekableCrx) : Signatures.TryMatchCrx(src, completeLength, out seekableCrx)))
+            return Finish(Enrich(seekableCrx, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchIcon(stream, out var validatedIcon) : Signatures.TryMatchIcon(src, completeLength, out validatedIcon)))
+            return Finish(Enrich(validatedIcon, src, stream, options));
+        if (Signatures.TryMatchCommonBinary(src, completeLength, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, completeLength, out validatedZip))) {
+            var refined = TryRefineZipOOxml(stream);
+            if (refined != null) return Finish(Enrich(refined, src, stream, options));
+            var guess = TryGuessZipSubtype(stream, out var guessMime);
+            if (string.IsNullOrWhiteSpace(guessMime) && !string.IsNullOrWhiteSpace(guess) &&
+                MimeMaps.TryGetByExtension(guess, out var mappedMime) && !string.IsNullOrWhiteSpace(mappedMime))
+                guessMime = mappedMime;
+            validatedZip!.GuessedExtension = guess;
+            if (!string.IsNullOrWhiteSpace(guessMime)) validatedZip.MimeType = guessMime!;
+            return Finish(Enrich(validatedZip, src, stream, options));
+        }
+        if (Signatures.TryMatchOle2(src, out var validatedOle)) {
+            var refined = TryRefineOle2Subtype(stream);
+            return Finish(Enrich(refined ?? validatedOle, src, stream, options));
+        }
+        if (stream.CanSeek && Signatures.TryMatchMatroska(stream, out var seekableMatroska)) return Finish(Enrich(seekableMatroska, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchQcow2(stream, out var seekableQcow2)) return Finish(Enrich(seekableQcow2, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchMidi(stream, out var seekableMidi)) return Finish(Enrich(seekableMidi, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchRpm(stream, out var seekableRpm)) return Finish(Enrich(seekableRpm, src, stream, options));
+        if (stream.CanSeek && Signatures.TryMatchDicom(stream, out var seekableDicom)) return Finish(Enrich(seekableDicom, src, stream, options));
+        if (Signatures.TryMatchExtendedHeaderFormats(src, completeLength, out var extendedBinary)) return Finish(Enrich(extendedBinary, src, stream, options));
 
         // TAR, RIFF, EVTX, ESE/Registry, SQLite quick checks first
         if (Signatures.TryMatchTar(src, out var tar)) return Finish(Enrich(tar, src, stream, options));
         if (Signatures.TryMatchRiff(src, out var riff)) return Finish(Enrich(riff, src, stream, options));
-        if (Signatures.TryMatchEvtx(src, out var evtx)) return Finish(Enrich(evtx, src, stream, options));
-        if (Signatures.TryMatchMinidump(src, out var minidump)) return Finish(Enrich(minidump, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchEvtx(stream, out var evtx) : Signatures.TryMatchEvtx(src, completeLength, out evtx)))
+            return Finish(Enrich(evtx, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchMinidump(stream, out var minidump) : Signatures.TryMatchMinidump(src, completeLength, out minidump)))
+            return Finish(Enrich(minidump, src, stream, options));
         if (Signatures.TryMatchProtectedDump(src, out var protectedDump)) return Finish(Enrich(protectedDump, src, stream, options));
+        if (Signatures.TryMatchShellLink(src, completeLength, out var shellLink)) return Finish(Enrich(shellLink, src, stream, options));
         if (Signatures.TryMatchEse(src, out var ese)) return Finish(Enrich(ese, src, stream, options));
-        if (Signatures.TryMatchRegistryHive(src, out var hive)) return Finish(Enrich(hive, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchRegistryHive(stream, out var hive) : Signatures.TryMatchRegistryHive(src, completeLength, out hive)))
+            return Finish(Enrich(hive, src, stream, options));
         if (Signatures.TryMatchRegistryPol(src, out var pol)) return Finish(Enrich(pol, src, stream, options));
-        if (Signatures.TryMatchFtyp(src, out var ftyp)) return Finish(Enrich(ftyp, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchFtyp(stream, out var ftyp) : Signatures.TryMatchFtyp(src, completeLength, out ftyp)))
+            return Finish(Enrich(ftyp, src, stream, options));
         if (Signatures.TryMatchSqlite(src, out var sqlite)) return Finish(Enrich(sqlite, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchNetCdf(stream, out var netCdf) : Signatures.TryMatchNetCdf(src, completeLength, out netCdf)))
+            return Finish(Enrich(netCdf, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchFont(stream, out var font) : Signatures.TryMatchFont(src, completeLength, out font)))
+            return Finish(Enrich(font, src, stream, options));
+        if (Signatures.TryMatchOpenExr(src, completeLength, out var openExr)) return Finish(Enrich(openExr, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchPhotoshop(stream, out var photoshop) : Signatures.TryMatchPhotoshop(src, completeLength, out photoshop)))
+            return Finish(Enrich(photoshop, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchJpeg2000(stream, out var jpeg2000) : Signatures.TryMatchJpeg2000(src, completeLength, out jpeg2000)))
+            return Finish(Enrich(jpeg2000, src, stream, options));
         if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
         if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
         if (Signatures.TryMatchDerCertificate(srcMemory, out var der)) return Finish(Enrich(der, src, stream, options));
@@ -468,43 +573,24 @@ public static partial class FileInspector {
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
         if (Signatures.TryMatchRar(src, out var rar)) return Finish(Enrich(rar, src, stream, options));
-        if (Signatures.TryMatchElf(src, out var elf)) return Finish(Enrich(elf, src, stream, options));
-        if (Signatures.TryMatchMachO(src, out var macho)) return Finish(Enrich(macho, src, stream, options));
-        if (Signatures.TryMatchCab(src, out var cab)) return Finish(Enrich(cab, src, stream, options));
-        if (Signatures.TryMatchGlb(src, out var glb)) return Finish(Enrich(glb, src, stream, options));
-        if (Signatures.TryMatchTiff(src, out var tiff)) return Finish(Enrich(tiff, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchElf(stream, out var elf) : Signatures.TryMatchElf(src, completeLength, out elf)))
+            return Finish(Enrich(elf, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchJavaClass(stream, out var javaClass) : Signatures.TryMatchJavaClass(src, completeLength, out javaClass)))
+            return Finish(Enrich(javaClass, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchDex(stream, out var dex) : Signatures.TryMatchDex(src, completeLength, out dex)))
+            return Finish(Enrich(dex, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchMachO(stream, out var macho) : Signatures.TryMatchMachO(src, completeLength, out macho)))
+            return Finish(Enrich(macho, src, stream, options));
+        if (Signatures.TryMatchCab(src, completeLength, out var cab)) return Finish(Enrich(cab, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchGlb(stream, out var glb) : Signatures.TryMatchGlb(src, completeLength, out glb)))
+            return Finish(Enrich(glb, src, stream, options));
+        if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, completeLength, out tiff)))
+            return Finish(Enrich(tiff, src, stream, options));
         // ISO requires file path offsets; skip here
 
         foreach (var sig in Signatures.All()) {
             if (Signatures.Match(src, sig)) {
-                if (sig.Extension == "zip") {
-                    var refined = TryRefineZipOOxml(stream);
-                    if (refined != null) return Finish(Enrich(refined, src, stream, options));
-                    var confZip = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
-                    var guess = TryGuessZipSubtype(stream, out var guessMime);
-                    if (string.IsNullOrWhiteSpace(guessMime) &&
-                        !string.IsNullOrWhiteSpace(guess) &&
-                        MimeMaps.TryGetByExtension(guess, out var guessedMime) &&
-                        !string.IsNullOrWhiteSpace(guessedMime))
-                    {
-                        guessMime = guessedMime;
-                    }
-                    var basicZip = new ContentTypeDetectionResult {
-                        Extension = sig.Extension,
-                        MimeType = !string.IsNullOrWhiteSpace(guessMime)
-                            ? guessMime!
-                            : NormalizeMime(sig.Extension, sig.MimeType),
-                        Confidence = confZip,
-                        Reason = $"magic:{sig.Extension}",
-                        GuessedExtension = guess
-                    };
-                    return Finish(Enrich(basicZip, src, stream, options));
-                }
-                if (sig.Extension == "ole2" && stream is not null) {
-                    var refinedOle = TryRefineOle2Subtype(stream);
-                    if (refinedOle != null) return Finish(Enrich(refinedOle, src, stream, options));
-                }
-                var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
+                var conf = sig.Confidence;
                 var basic = new ContentTypeDetectionResult {
                     Extension = sig.Extension,
                     MimeType = NormalizeMime(sig.Extension, sig.MimeType),
@@ -512,11 +598,6 @@ public static partial class FileInspector {
                     Reason = $"magic:{sig.Extension}"
                 };
                 var enriched = Enrich(basic, src, stream, options);
-                // Promote generic OLE2 to MSI when directory hints indicate MSI tables (extra safeguard for detection-only callers)
-                if (sig.Extension == "ole2" && stream is not null)
-                {
-                    try { var refine = TryRefineOle2Subtype(stream); if (refine != null) return Finish(Enrich(refine, src, stream, options)); } catch { }
-                }
                 return Finish(enriched);
             }
         }
@@ -1154,7 +1235,7 @@ public static partial class FileInspector {
             if (ascii.IndexOf("Media", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
             if (ascii.IndexOf("Component", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
             if (hasSum && cnt >= 2)
-                return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = cnt >= 3 ? "High" : "Medium", Reason = cnt >= 3 ? "ole2:msi-dir-high" : "ole2:msi-hint" };
+                return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = "Medium", Reason = "ole2:msi-hint;sector-chains-not-validated" };
 
             // Try mini CFBF directory parse for higher confidence
             if (TryGetOleDirectoryNames(stream, out var names))
@@ -1164,7 +1245,7 @@ public static partial class FileInspector {
                 string[] msiNames = new [] { "Property", "Directory", "Feature", "Media", "Component", "File", "InstallExecuteSequence" };
                 foreach (var nm in names) foreach (var t in msiNames) { if (nm.Equals(t, StringComparison.OrdinalIgnoreCase)) { hits++; break; } }
                 if (hasSummary && hits >= 2)
-                    return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = hits >= 3 ? "High" : "Medium", Reason = hits >= 3 ? "ole2:msi-cfbf-high" : "ole2:msi-cfbf" };
+                    return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = "Medium", Reason = "ole2:msi-cfbf;sector-chains-partial" };
             }
         } catch { }
         return null;
@@ -1285,16 +1366,28 @@ public static partial class FileInspector {
                 ? ApplyLearnedClassification(biased, learnedData.Value, options)
                 : biased;
         }
+        if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
+        if (Signatures.TryMatchCompleteContainers(data, out var completeContainer)) return Finish(Enrich(completeContainer, data, null, options));
+        if (Signatures.TryMatchCommonBinary(data, data.Length, out var commonBinary)) return Finish(Enrich(commonBinary, data, null, options));
+        if (Signatures.TryMatchZip(data, out var validatedZip)) return Finish(Enrich(validatedZip, data, null, options));
+        if (Signatures.TryMatchOle2(data, out var validatedOle)) return Finish(Enrich(validatedOle, data, null, options));
+        if (Signatures.TryMatchExtendedHeaderFormats(data, out var extendedBinary)) return Finish(Enrich(extendedBinary, data, null, options));
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
         if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
         if (Signatures.TryMatchEvtx(data, out var evtx2)) return Finish(Enrich(evtx2, data, null, options));
         if (Signatures.TryMatchMinidump(data, out var minidump2)) return Finish(Enrich(minidump2, data, null, options));
         if (Signatures.TryMatchProtectedDump(data, out var protectedDump2)) return Finish(Enrich(protectedDump2, data, null, options));
+        if (Signatures.TryMatchShellLink(data, out var shellLink)) return Finish(Enrich(shellLink, data, null, options));
         if (Signatures.TryMatchEse(data, out var ese2)) return Finish(Enrich(ese2, data, null, options));
         if (Signatures.TryMatchRegistryHive(data, out var hive2)) return Finish(Enrich(hive2, data, null, options));
         if (Signatures.TryMatchRegistryPol(data, out var pol2)) return Finish(Enrich(pol2, data, null, options));
         if (Signatures.TryMatchFtyp(data, out var ftyp)) return Finish(Enrich(ftyp, data, null, options));
         if (Signatures.TryMatchSqlite(data, out var sqlite)) return Finish(Enrich(sqlite, data, null, options));
+        if (Signatures.TryMatchNetCdf(data, out var netCdf)) return Finish(Enrich(netCdf, data, null, options));
+        if (Signatures.TryMatchFont(data, out var font)) return Finish(Enrich(font, data, null, options));
+        if (Signatures.TryMatchOpenExr(data, data.Length, out var openExr)) return Finish(Enrich(openExr, data, null, options));
+        if (Signatures.TryMatchPhotoshop(data, data.Length, out var photoshop)) return Finish(Enrich(photoshop, data, null, options));
+        if (Signatures.TryMatchJpeg2000(data, out var jpeg2000)) return Finish(Enrich(jpeg2000, data, null, options));
         if (dataMemory.HasValue)
         {
             if (Signatures.TryMatchPkcs12(dataMemory.Value, out var p12Mem)) return Finish(Enrich(p12Mem, data, null, options));
@@ -1311,13 +1404,15 @@ public static partial class FileInspector {
         if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));
         if (Signatures.TryMatch7z(data, out var _7z)) return Finish(Enrich(_7z, data, null, options));
         if (Signatures.TryMatchRar(data, out var rar)) return Finish(Enrich(rar, data, null, options));
-        if (Signatures.TryMatchElf(data, out var elf)) return Finish(Enrich(elf, data, null, options));
+        if (Signatures.TryMatchElf(data, data.Length, out var elf)) return Finish(Enrich(elf, data, null, options));
+        if (Signatures.TryMatchJavaClass(data, out var javaClass)) return Finish(Enrich(javaClass, data, null, options));
+        if (Signatures.TryMatchDex(data, out var dex)) return Finish(Enrich(dex, data, null, options));
         if (Signatures.TryMatchMachO(data, out var macho)) return Finish(Enrich(macho, data, null, options));
         if (Signatures.TryMatchCab(data, out var cab)) return Finish(Enrich(cab, data, null, options));
         if (Signatures.TryMatchGlb(data, out var glb)) return Finish(Enrich(glb, data, null, options));
         if (Signatures.TryMatchTiff(data, out var tiff)) return Finish(Enrich(tiff, data, null, options));
         foreach (var sig in Signatures.All()) if (Signatures.Match(data, sig)) {
-                var conf = sig.Prefix != null && sig.Prefix.Length >= 4 ? "High" : (sig.Prefix != null && sig.Prefix.Length == 3 ? "Medium" : "Low");
+                var conf = sig.Confidence;
                 var basic = new ContentTypeDetectionResult {
                     Extension = sig.Extension,
                     MimeType = NormalizeMime(sig.Extension, sig.MimeType),
@@ -1477,7 +1572,9 @@ public static partial class FileInspector {
         if (result != null)
         {
             result.BytesInspected = inspected;
-            result.IsDangerous = result.IsDangerous || DangerousExtensions.IsDangerous(result.Extension);
+            result.IsDangerous = result.IsDangerous ||
+                                 DangerousExtensions.IsDangerous(result.Extension) ||
+                                 DangerousExtensions.IsDangerous(result.GuessedExtension);
         }
         return result;
     }

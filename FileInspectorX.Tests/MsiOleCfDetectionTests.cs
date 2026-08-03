@@ -19,8 +19,11 @@ public class MsiOleCfDetectionTests
             // Signature D0 CF 11 E0 A1 B1 1A E1
             var sig = new byte[]{0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1};
             Array.Copy(sig, 0, header, 0, sig.Length);
+            header[0x1A] = 0x03; // major version 3
+            header[0x1C] = 0xFE; header[0x1D] = 0xFF; // little-endian byte order
             // sector size shift (0x1E) = 9 => 512 bytes
             header[0x1E] = 0x09; header[0x1F] = 0x00;
+            header[0x20] = 0x06; // mini-sector shift
             // FAT count (0x2C) = 1
             BitConverter.TryWriteBytes(new Span<byte>(header, 0x2C, 4), 1);
             // Directory start SID (0x30) = 2 (will be at offset 512 + (2+1)*512)
@@ -70,4 +73,3 @@ public class MsiOleCfDetectionTests
         }
     }
 }
-

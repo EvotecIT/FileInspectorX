@@ -13,7 +13,8 @@ public static class InspectHelpers {
         if (r is null) return false;
         if (!string.IsNullOrEmpty(r.MimeType) && r.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) return true;
         var ext = (r.Extension ?? string.Empty).ToLowerInvariant();
-        return ext is "png" or "jpg" or "jpeg" or "gif" or "webp" or "bmp" or "tif" or "tiff" or "heic";
+        return ext is "png" or "jpg" or "jpeg" or "gif" or "webp" or "bmp" or "tif" or "tiff" or "heic" or "heif" or
+               "exr" or "psd" or "psb" or "jp2" or "jpx" or "jpm";
     }
 
     /// <summary>
