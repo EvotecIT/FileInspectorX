@@ -253,6 +253,14 @@ namespace FileInspectorX.PowerShell {
                                 foreach (var v in a.ToReferencesView(p)) WriteObject(v);
                                 break; }
                             case InsightView.ShellProperties: {
+                                if (!options.IncludeShellProperties) {
+                                    WriteError(new ErrorRecord(
+                                        new InvalidOperationException("The ShellProperties view requires -EnableShellProperties because Windows shell handlers parse the file in-process."),
+                                        "ShellPropertiesRequiresOptIn",
+                                        ErrorCategory.PermissionDenied,
+                                        p));
+                                    break;
+                                }
                                 var a = FileInspector.Inspect(p, options);
                                 foreach (var v in a.ToShellPropertiesView(p)) WriteObject(v);
                                 break; }

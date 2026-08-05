@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Xml;
@@ -34,11 +35,22 @@ public static partial class FileInspector
             var extsNode = !string.IsNullOrEmpty(ns) ? doc.SelectSingleNode("/a:Package/a:Extensions", nsm) : doc.SelectSingleNode("/Package/Extensions");
             if (idNode == null && propsNode == null) return;
 
+            var identityName = GetAttr(idNode!, "Name")?.Trim();
+            var publisher = GetAttr(idNode!, "Publisher")?.Trim();
+            var version = GetAttr(idNode!, "Version");
+            var hasRequiredIdentity =
+                !string.IsNullOrWhiteSpace(identityName) &&
+                !string.IsNullOrWhiteSpace(publisher) &&
+                IsValidAppPackageVersion(version);
+
             var info = res.Installer ?? new InstallerInfo();
-            info.Kind = InstallerKind.Msix; // default; caller decides if Appx vs Msix via container subtype
-            info.IdentityName = GetAttr(idNode!, "Name");
-            info.Publisher = GetAttr(idNode!, "Publisher");
-            info.Version = GetAttr(idNode!, "Version");
+            if (hasRequiredIdentity)
+            {
+                info.Kind = InstallerKind.Msix; // default; caller decides if Appx vs Msix via container subtype
+                info.IdentityName = identityName;
+                info.Publisher = publisher;
+                info.Version = version;
+            }
             if (propsNode != null)
             {
                 var pDisp = propsNode.SelectSingleNode(!string.IsNullOrEmpty(ns) ? "a:PublisherDisplayName" : "PublisherDisplayName", nsm);
@@ -87,6 +99,19 @@ public static partial class FileInspector
         catch { }
         finally { ApplyArchiveInspectionBudget(res, budget); }
 #endif
+    }
+
+    private static bool IsValidAppPackageVersion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var parts = value!.Split('.');
+        if (parts.Length != 4) return false;
+        foreach (var part in parts)
+        {
+            if (!ushort.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out _)) return false;
+        }
+
+        return true;
     }
 
     private static void TryPopulateVsixManifest(string path, FileAnalysis res)

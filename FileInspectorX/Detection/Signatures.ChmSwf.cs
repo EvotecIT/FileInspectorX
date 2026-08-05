@@ -9,9 +9,11 @@ internal static partial class Signatures
         if (src.Length < 16 || !src.Slice(0, 4).SequenceEqual("ITSF"u8)) return false;
         uint version = ReadUInt32LittleEndian(src, 4);
         uint headerLength = ReadUInt32LittleEndian(src, 8);
-        if (version is not (2u or 3u) || headerLength < 0x60 || headerLength > int.MaxValue) return false;
+        if (version is not (2u or 3u)) return false;
+        uint minimumHeaderLength = version == 2u ? 0x58u : 0x60u;
+        if (headerLength < minimumHeaderLength || headerLength > int.MaxValue) return false;
         if (completeLength.HasValue && headerLength > completeLength.Value) return false;
-        if (src.Length < Math.Min((int)headerLength, 0x60)) return false;
+        if (src.Length < (int)minimumHeaderLength) return false;
 
         result = new ContentTypeDetectionResult
         {

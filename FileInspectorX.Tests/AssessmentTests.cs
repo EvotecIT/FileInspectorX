@@ -301,7 +301,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_SelfSigned_Untrusted_Chain_UsesOnePrimaryTrustFailure()
+    public void Assess_SelfSigned_Untrusted_Chain_AccumulatesIndependentTrustFailures()
     {
         var analysis = new FileAnalysis
         {
@@ -317,10 +317,11 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(20, assessed.Score);
+        Assert.Equal(70, assessed.Score);
+        Assert.Equal(AssessmentDecision.Block, assessed.Decision);
         Assert.Contains("Sig.SelfSigned", assessed.Codes);
-        Assert.DoesNotContain("Sig.ChainInvalid", assessed.Codes);
-        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+        Assert.Contains("Sig.ChainInvalid", assessed.Codes);
+        Assert.Contains("Sig.WinTrustInvalid", assessed.Codes);
     }
 
     [Fact]
@@ -632,7 +633,10 @@ public class AssessmentTests
         {
             Installer = new InstallerInfo
             {
-                Kind = InstallerKind.Msix
+                Kind = InstallerKind.Msix,
+                IdentityName = "Contoso.App",
+                Publisher = "CN=Contoso",
+                Version = "1.2.3.4"
             }
         };
 
@@ -1029,6 +1033,9 @@ public class AssessmentTests
             Installer = new InstallerInfo
             {
                 Kind = InstallerKind.Appx,
+                IdentityName = "Contoso.App",
+                Publisher = "CN=Contoso",
+                Version = "1.2.3.4",
                 Capabilities = new[] { "runFullTrust", "broadFileSystemAccess" },
                 Extensions = new[] { "windows.protocol", "filetypeassociation" }
             }
@@ -1044,6 +1051,24 @@ public class AssessmentTests
         Assert.Contains("Appx.Capability.BroadFileSystemAccess", assessed.Codes);
         Assert.Contains("Appx.Extension.Protocol", assessed.Codes);
         Assert.Contains("Appx.Extension.FTA", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_Appx_Marker_Without_Validated_Package_Identity_Keeps_Archive_Content_Penalties()
+    {
+        var analysis = new FileAnalysis
+        {
+            ContainerSubtype = "appx",
+            Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerContainsScripts
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(55, assessed.Score);
+        Assert.Equal(AssessmentDecision.Warn, assessed.Decision);
+        Assert.Contains("Sig.Absent", assessed.Codes);
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.ContainsScripts", assessed.Codes);
     }
 
     [Fact]
