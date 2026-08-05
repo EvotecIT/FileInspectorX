@@ -388,9 +388,14 @@ public static partial class FileInspector {
                 if (det.Extension is "docx" && hasMacros) res.GuessedExtension ??= "docm";
                 if (det.Extension is "xlsx" && hasMacros) res.GuessedExtension ??= "xlsm";
                 if (det.Extension is "pptx" && hasMacros) res.GuessedExtension ??= "pptm";
-                // Package signature extraction for APPX/MSIX
-                if (subType is "appx" or "msix") { TryPopulateAppxSignature(path, res); TryPopulateAppxManifest(path, res); }
-                if (subType is "vsix") { TryPopulateVsixManifest(path, res); }
+                // Package signature extraction is part of Authenticode analysis, while
+                // installer manifest enrichment remains explicitly opt-in.
+                if (subType is "appx" or "msix")
+                {
+                    TryPopulateAppxSignature(path, res);
+                    if (includeInstaller) TryPopulateAppxManifest(path, res);
+                }
+                if (includeInstaller && subType is "vsix") TryPopulateVsixManifest(path, res);
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
                 if (hasExtLinks) {

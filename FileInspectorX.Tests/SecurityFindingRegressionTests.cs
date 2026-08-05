@@ -255,6 +255,33 @@ public sealed class SecurityFindingRegressionTests
         }
     }
 
+    [Theory]
+    [InlineData("AppxManifest.xml", "<Package xmlns=\"http://schemas.microsoft.com/appx/manifest/foundation/windows10\"><Identity Name=\"Contoso.App\" Publisher=\"CN=Contoso\" Version=\"1.2.3.4\"/><Properties><PublisherDisplayName>Contoso</PublisherDisplayName></Properties></Package>", InstallerKind.Msix)]
+    [InlineData("extension.vsixmanifest", "<PackageManifest xmlns=\"http://schemas.microsoft.com/developer/vsx-schema/2011\"><Metadata><Identity Id=\"Contoso.Extension\" Publisher=\"Contoso\" Version=\"1.2.3\"/><DisplayName>Contoso Extension</DisplayName></Metadata></PackageManifest>", InstallerKind.Vsix)]
+    public void PackageManifestEnrichmentHonorsPerCallInstallerOptIn(string entryName, string manifest, InstallerKind expectedKind)
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                var entry = archive.CreateEntry(entryName);
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write(manifest);
+            }
+
+            var excluded = FileInspector.Analyze(path, new FileInspector.DetectionOptions { IncludeInstaller = false });
+            var included = FileInspector.Analyze(path, new FileInspector.DetectionOptions { IncludeInstaller = true });
+
+            Assert.Null(excluded.Installer);
+            Assert.Equal(expectedKind, included.Installer?.Kind);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
     [Fact]
     public void MalformedUtf16DoesNotHidePowerShellContent()
     {
