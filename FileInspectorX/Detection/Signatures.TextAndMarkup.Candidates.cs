@@ -71,9 +71,10 @@ internal static partial class Signatures
 
         int scoreMargin = Math.Max(0, Settings.DetectionPrimaryScoreMargin);
         int tieMargin = Math.Max(0, Settings.DetectionDeclaredTieBreakerMargin);
-        bool allowReplace = det.Reason == null ||
-                            (det.Reason.IndexOf("malformed", StringComparison.OrdinalIgnoreCase) < 0 &&
-                             det.Reason.IndexOf("validation-error", StringComparison.OrdinalIgnoreCase) < 0);
+        bool allowReplace = !IsStructuredPrimary(det.Reason) &&
+                            (det.Reason == null ||
+                             (det.Reason.IndexOf("malformed", StringComparison.OrdinalIgnoreCase) < 0 &&
+                              det.Reason.IndexOf("validation-error", StringComparison.OrdinalIgnoreCase) < 0));
         bool replaced = false;
         if (allowReplace && primary != null && best != null &&
             !(primary.IsDangerous && !best.IsDangerous) &&
@@ -158,6 +159,15 @@ internal static partial class Signatures
                 if (r.IndexOf("text-plain", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             }
             return false;
+        }
+        static bool IsStructuredPrimary(string? reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return false;
+            var structuredReason = reason!;
+            return structuredReason.StartsWith("text:json", StringComparison.OrdinalIgnoreCase) ||
+                   structuredReason.StartsWith("text:ndjson", StringComparison.OrdinalIgnoreCase) ||
+                   structuredReason.StartsWith("text:xml", StringComparison.OrdinalIgnoreCase) ||
+                   structuredReason.StartsWith("text:yaml", StringComparison.OrdinalIgnoreCase);
         }
     }
 

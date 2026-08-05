@@ -93,6 +93,12 @@ internal static partial class Signatures
             if (TryDetectEncodedBlocks(in ctx, out result))
                 return FinalizeResult(ref result, in ctx);
 
+            // Structurally recognizable configuration formats own their contents, including
+            // string values that happen to contain script snippets. Active script detection
+            // remains ahead of passive logs and plain text below.
+            if (TryDetectStructuredText(in ctx, out result))
+                return FinalizeResult(ref result, in ctx);
+
             // Active script content takes precedence over passive text formats. This prevents
             // headings, log phrases, or declared extensions from masking executable text.
             bool declaredMarkdownCodeSample = ctx.DeclaredMd && HasClosedMarkdownFence(ctx.HeadLower);
@@ -103,9 +109,6 @@ internal static partial class Signatures
                 result = scriptResult;
                 return FinalizeResult(ref result, in ctx);
             }
-
-            if (TryDetectStructuredText(in ctx, out result))
-                return FinalizeResult(ref result, in ctx);
 
             if (TryDetectLogAndDelimitedText(in ctx, out result))
                 return FinalizeResult(ref result, in ctx);

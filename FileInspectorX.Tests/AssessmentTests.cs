@@ -301,7 +301,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_SelfSigned_Untrusted_Chain_Reaches_Warn_Threshold()
+    public void Assess_SelfSigned_Untrusted_Chain_UsesOnePrimaryTrustFailure()
     {
         var analysis = new FileAnalysis
         {
@@ -317,10 +317,10 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(70, assessed.Score);
+        Assert.Equal(20, assessed.Score);
         Assert.Contains("Sig.SelfSigned", assessed.Codes);
-        Assert.Contains("Sig.ChainInvalid", assessed.Codes);
-        Assert.Contains("Sig.WinTrustInvalid", assessed.Codes);
+        Assert.DoesNotContain("Sig.ChainInvalid", assessed.Codes);
+        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
     }
 
     [Fact]
@@ -612,7 +612,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Untrusted_Appx_ContainerSubtype_Does_Not_Establish_Package_Identity()
+    public void Assess_Unsigned_Appx_ContainerSubtype_Gets_Signature_Absent_Penalty()
     {
         var analysis = new FileAnalysis
         {
@@ -621,8 +621,8 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(0, assessed.Score);
-        Assert.DoesNotContain("Sig.Absent", assessed.Codes);
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
     }
 
     [Fact]

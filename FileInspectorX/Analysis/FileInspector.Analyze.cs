@@ -1322,10 +1322,7 @@ public static partial class FileInspector {
             var br = new BinaryReader(fs);
             int filesSeen = 0;
             int blocksSeen = 0;
-            int metadataBlockBudget = Math.Max(1, Settings.ArchiveMaxEntries);
-            int maxBlocks = maxFiles > int.MaxValue - metadataBlockBudget
-                ? int.MaxValue
-                : maxFiles + metadataBlockBudget;
+            int maxBlocks = GetRar4BlockSafetyLimit(maxFiles);
             long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
             long walkStart = fs.Position;
             while (fs.Position + 7 <= fs.Length && filesSeen < maxFiles &&
@@ -1379,9 +1376,14 @@ public static partial class FileInspector {
             var localPreviews = new List<InnerEntryPreview>();
             var execExts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             int previewCap = Math.Min(5, Settings.DeepContainerMaxEntries);
-            int headerBudget = Math.Max(1, Settings.DeepContainerMaxEntries);
+            int entryLimit = Math.Max(1, Settings.DeepContainerMaxEntries);
+            int blocksSeen = 0;
+            int maxBlocks = GetRar4BlockSafetyLimit(entryLimit);
+            long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
+            long walkStart = fs.Position;
 
-            while (fs.Position + 7 <= fs.Length && headerBudget-- > 0)
+            while (fs.Position + 7 <= fs.Length && count < entryLimit &&
+                   blocksSeen++ < maxBlocks && fs.Position - walkStart < byteBudget)
             {
                 long hdrStart = fs.Position;
                 br.ReadUInt16(); // head crc
@@ -1474,6 +1476,15 @@ public static partial class FileInspector {
             return true;
         }
         catch { return false; }
+    }
+
+    private static int GetRar4BlockSafetyLimit(int fileLimit)
+    {
+        fileLimit = Math.Max(1, fileLimit);
+        int metadataBlockBudget = Math.Max(1, Settings.ArchiveMaxEntries);
+        return fileLimit > int.MaxValue - metadataBlockBudget
+            ? int.MaxValue
+            : fileLimit + metadataBlockBudget;
     }
 
     /// <summary>

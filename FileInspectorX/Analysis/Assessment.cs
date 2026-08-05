@@ -247,15 +247,18 @@ public static partial class FileInspector
 
         if (sig != null && hasSignaturePresence)
         {
+            bool hasPrimaryTrustFailure = false;
             bool hasSignatureFailure = false;
             if (sig.IsSelfSigned == true)
             {
                 Add("Sig.SelfSigned", 20);
+                hasPrimaryTrustFailure = true;
                 hasSignatureFailure = true;
             }
-            if (sig.ChainValid == false)
+            else if (sig.ChainValid == false)
             {
                 Add("Sig.ChainInvalid", 25);
+                hasPrimaryTrustFailure = true;
                 hasSignatureFailure = true;
             }
             if (sig.EnvelopeSignatureValid == false)
@@ -263,7 +266,7 @@ public static partial class FileInspector
                 Add("Sig.BadEnvelope", 15);
                 hasSignatureFailure = true;
             }
-            if (sig.IsTrustedWindowsPolicy == false && !winTrustReportsNoSignature)
+            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false && !winTrustReportsNoSignature)
             {
                 Add("Sig.WinTrustInvalid", 25);
                 hasSignatureFailure = true;
@@ -273,7 +276,7 @@ public static partial class FileInspector
         else
         {
             var ext = a.Detection?.Extension?.ToLowerInvariant();
-            if (ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx" || hasAppPackageIdentity)
+            if (ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx" || isAppPackageContainer)
                 Add("Sig.Absent", 10);
         }
 
