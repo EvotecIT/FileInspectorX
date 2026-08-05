@@ -708,7 +708,7 @@ public static partial class FileInspector {
                     if (string.IsNullOrEmpty(res.ScriptLanguage)) res.ScriptLanguage = mappedScript;
                     res.Flags |= ContentFlags.IsScript;
                     if (string.IsNullOrEmpty(res.TextSubtype)) res.TextSubtype = mappedScript;
-                    if (detectedExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd" or "vbs" or "js")
+                    if (DangerousExtensions.IsDangerous(detectedExt) || DangerousExtensions.IsDangerous(declaredExt))
                         res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 if (declaredExt == "js" || detectedExt == "js") {
@@ -771,7 +771,7 @@ public static partial class FileInspector {
                 } catch { }
 
                 // Potentially dangerous scripts by declared type
-                if (declaredExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd") {
+                if (MapScriptLanguageFromExtension(declaredExt) != null && DangerousExtensions.IsDangerous(declaredExt)) {
                     res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 // Set TextSubtype for common text families
@@ -3006,10 +3006,7 @@ public static partial class FileInspector {
     }
 
     private static bool IsScriptLikeExtension(string? extension)
-    {
-        var ext = (extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
-        return ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "ksh" or "vbs" or "js" or "mjs" or "py" or "rb" or "lua";
-    }
+        => MapScriptLanguageFromExtension(extension) != null;
 
     private static bool IsArchiveLikeExtension(string? extension)
     {
@@ -3017,14 +3014,8 @@ public static partial class FileInspector {
         return ext is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf" or "jar" or "apk";
     }
 
-    private static bool IsScriptName(string name) {
-        var lower = name.ToLowerInvariant();
-        return lower.EndsWith(".ps1") || lower.EndsWith(".psm1") || lower.EndsWith(".psd1") ||
-               lower.EndsWith(".bat") || lower.EndsWith(".cmd") ||
-               lower.EndsWith(".sh") || lower.EndsWith(".bash") || lower.EndsWith(".zsh") || lower.EndsWith(".ksh") ||
-               lower.EndsWith(".vbs") || lower.EndsWith(".js") || lower.EndsWith(".mjs") ||
-               lower.EndsWith(".py") || lower.EndsWith(".rb");
-    }
+    private static bool IsScriptName(string name)
+        => IsScriptLikeExtension(Path.GetExtension(name));
 
     private static bool IsInstallerName(string name)
     {
@@ -3117,7 +3108,7 @@ public static partial class FileInspector {
             "py" or "pyw" => "python",
             "rb" => "ruby",
             "lua" => "lua",
-            "sh" or "bash" or "zsh" => "shell",
+            "sh" or "bash" or "zsh" or "ksh" => "shell",
             "bat" or "cmd" => "batch",
             "pl" => "perl",
             _ => null

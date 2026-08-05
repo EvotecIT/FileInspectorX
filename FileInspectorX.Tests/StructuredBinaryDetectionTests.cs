@@ -143,6 +143,18 @@ public sealed class StructuredBinaryDetectionTests
     }
 
     [Fact]
+    public void RegistryExportHeaderInHdf5UserBlockDoesNotMaskTheContainer()
+    {
+        var bytes = Hdf5(4096);
+        System.Text.Encoding.ASCII.GetBytes("Windows Registry Editor Version 5.00\r\n")
+            .CopyTo(bytes, 0);
+
+        Assert.Equal("h5", FileInspector.Detect(bytes)?.Extension);
+        using var stream = new MemoryStream(bytes, writable: false);
+        Assert.Equal("h5", FileInspector.Detect(stream)?.Extension);
+    }
+
+    [Fact]
     public void Hdf5UserBlockSignatureCannotMaskPdfForPathDetection()
     {
         var bytes = Hdf5(8192);

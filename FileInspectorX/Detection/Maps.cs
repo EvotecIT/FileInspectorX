@@ -208,8 +208,8 @@ public static class DangerousExtensions {
     public static readonly ISet<string> Default = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "exe", "dll", "sys", "msi", "msp", "cpl", "scr", "pif", "com",
-        "bat", "cmd", "ps1", "psm1", "psd1", "vbs", "js", "jse", "wsf", "wsh",
-        "sh", "bash", "zsh", "py", "rb", "lua",
+        "bat", "cmd", "ps1", "psm1", "psd1", "vbs", "vbe", "js", "jse", "mjs", "cjs", "wsf", "wsh",
+        "sh", "bash", "zsh", "ksh", "py", "pyw", "rb", "pl", "lua",
         "reg", "hta", "lnk", "chm", "swf",
         "class", "dex", "wasm", "elf", "macho", "jar", "apk", "ipa", "crx", "deb", "rpm", "appx", "msix", "xap", "vsix"
     };

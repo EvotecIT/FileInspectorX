@@ -20,10 +20,10 @@ public static partial class FileInspector
             bool allowLowConfidenceDetectedScript = detectionConfidenceLow &&
                                                     IsReferenceFriendlyTextExtension(ext);
             bool detectedScriptLike = (!detectionConfidenceLow || allowLowConfidenceDetectedScript) &&
-                                      detectedExt is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css";
+                                      (IsScriptLikeExtension(detectedExt) || detectedExt == "css");
             bool isXmlLike = ext == "xml" || string.IsNullOrEmpty(ext) || detectedXmlLike;
             bool isHtmlLike = ext is "html" or "htm" || detectedHtmlLike;
-            bool isScriptLike = ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css"
+            bool isScriptLike = IsScriptLikeExtension(ext) || ext == "css"
                                 || detectedScriptLike;
             var scriptSourceTag = detectedScriptLike && !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
                 ? detectedExt

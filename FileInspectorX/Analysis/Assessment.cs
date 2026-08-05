@@ -144,8 +144,8 @@ public static partial class FileInspector
 
             return false;
         }
-        bool IsEmbeddedExecutableExtension(string ext) => ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx";
-        bool IsEmbeddedScriptExtension(string ext) => ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "vbe" or "wsf" or "wsh" or "py" or "rb";
+        bool IsEmbeddedExecutableExtension(string? ext) => ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx";
+        bool IsEmbeddedScriptExtension(string? ext) => MapScriptLanguageFromExtension(ext) != null;
 
         if (!a.AnalysisComplete) Add("Analysis.Incomplete", 0);
 
@@ -190,13 +190,8 @@ public static partial class FileInspector
             var innerExt = a.EncodedInnerDetection?.Extension?.ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(innerExt))
             {
-                switch (innerExt)
-                {
-                    case "exe": case "dll": case "sys": case "ocx": case "cpl": case "scr": case "com": case "pif": case "msi": case "msp": case "msix": case "appx":
-                        Add("Encoded.InnerExecutable", 20); break;
-                    case "ps1": case "psm1": case "psd1": case "bat": case "cmd": case "sh": case "bash": case "zsh": case "js": case "vbs": case "vbe": case "wsf": case "wsh": case "py": case "rb":
-                        Add("Encoded.InnerScript", 15); break;
-                }
+                if (IsEmbeddedExecutableExtension(innerExt)) Add("Encoded.InnerExecutable", 20);
+                else if (IsEmbeddedScriptExtension(innerExt)) Add("Encoded.InnerScript", 15);
             }
         }
         // Embedded data URIs in HTML/scripts
