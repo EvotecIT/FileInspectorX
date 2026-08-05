@@ -235,7 +235,7 @@ public static partial class FileInspector
         var sig = a.Authenticode;
         bool hasSignaturePresence =
             sig?.Present == true ||
-            sig?.IsTrustedWindowsPolicy != null ||
+            sig?.IsTrustedWindowsPolicy == true ||
             !string.IsNullOrWhiteSpace(sig?.SignerSubject) ||
             !string.IsNullOrWhiteSpace(sig?.SignerThumbprint);
 

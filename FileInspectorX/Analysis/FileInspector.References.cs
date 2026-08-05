@@ -1101,7 +1101,7 @@ public static partial class FileInspector
             {
                 var exp = ExpandEnv(best!);
                 var issues = ComputePathIssues(best!, exp, treatAsCommandHead: true);
-                bool exi = FileExistsSafe(exp);
+                bool? exi = FileExistsSafe(exp);
                 refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = best!, ExpandedValue = exp, Exists = exi, Issues = issues, SourceTag = "lnk:target" });
             }
         } catch { }
@@ -1146,7 +1146,7 @@ public static partial class FileInspector
                 {
                     var exp = ExpandEnv(cmd);
                     var iss = ComputePathIssues(cmd, exp, treatAsCommandHead: true);
-                    bool exi = FileExistsSafe(exp);
+                    bool? exi = FileExistsSafe(exp);
                     refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = cmd, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:scripts.xml" });
                 }
             }
@@ -1159,7 +1159,7 @@ public static partial class FileInspector
                     {
                         var exp = ExpandEnv(tok);
                         var iss = ComputePathIssues(tok, exp, treatAsCommandHead: false);
-                        bool exi = FileExistsSafe(exp);
+                        bool? exi = FileExistsSafe(exp);
                         refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = tok, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:scripts.xml" });
                     }
                 }
@@ -1238,7 +1238,7 @@ public static partial class FileInspector
             var img = command!.Trim();
             var expanded = ExpandEnv(img);
             var issues = ComputePathIssues(img, expanded, treatAsCommandHead: true);
-            bool exists = FileExistsSafe(expanded);
+            bool? exists = FileExistsSafe(expanded);
             if (LooksLikePath(img))
             {
                 refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = img, ExpandedValue = expanded, Exists = exists, Issues = issues, SourceTag = "task:exec" });
@@ -1252,7 +1252,7 @@ public static partial class FileInspector
                     {
                         var exp = ExpandEnv(tok);
                         var iss = ComputePathIssues(tok, exp, treatAsCommandHead: false);
-                        bool exi = FileExistsSafe(exp);
+                        bool? exi = FileExistsSafe(exp);
                         refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = tok, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "task:args" });
                     }
                 }
@@ -1288,7 +1288,7 @@ public static partial class FileInspector
                     {
                         var exp = ExpandEnv(val);
                         var iss = ComputePathIssues(val, exp, treatAsCommandHead: true);
-                        bool exi = FileExistsSafe(exp);
+                        bool? exi = FileExistsSafe(exp);
                         refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = val, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:scripts.ini" });
                     }
                 }
@@ -1301,7 +1301,7 @@ public static partial class FileInspector
                         {
                             var exp = ExpandEnv(tok);
                             var iss = ComputePathIssues(tok, exp, treatAsCommandHead: false);
-                            bool exi = FileExistsSafe(exp);
+                            bool? exi = FileExistsSafe(exp);
                             refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = tok, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:params" });
                         }
                     }
@@ -1369,14 +1369,14 @@ public static partial class FileInspector
         return issues;
     }
 
-    private static bool FileExistsSafe(string? p)
+    private static bool? FileExistsSafe(string? p)
     {
-        if (!Settings.ReferencePathExistenceChecksEnabled) return false;
+        if (!Settings.ReferencePathExistenceChecksEnabled) return null;
         try
         {
             var normalized = NormalizePathToken(p);
-            if (string.IsNullOrWhiteSpace(normalized) || normalized.StartsWith("\\\\", StringComparison.Ordinal))
-                return false;
+            if (string.IsNullOrWhiteSpace(normalized)) return null;
+            if (normalized.StartsWith("\\\\", StringComparison.Ordinal)) return null;
 #if NET8_0_OR_GREATER || NET472
             if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
             {
@@ -1384,13 +1384,13 @@ public static partial class FileInspector
                 if (!string.IsNullOrWhiteSpace(root))
                 {
                     var drive = new DriveInfo(root);
-                    if (drive.DriveType == DriveType.Network) return false;
+                    if (drive.DriveType == DriveType.Network) return null;
                 }
             }
 #endif
             return File.Exists(normalized);
         }
-        catch { return false; }
+        catch { return null; }
     }
 
     private static bool IsReferenceFriendlyTextExtension(string? extension)

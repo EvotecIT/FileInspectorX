@@ -288,6 +288,7 @@ public static partial class FileInspector {
     /// </summary>
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
+        var includeInstaller = ShouldIncludeInstaller(options);
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         var det = Detect(path, options);
@@ -615,7 +616,7 @@ public static partial class FileInspector {
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 
             // MSI metadata enrichment (Windows): product version via msi.dll
-            if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && det.Extension == "msi")
+            if (includeInstaller && det.Extension == "msi")
             {
                 try {
                     Breadcrumbs.Write("MSI_META_BEGIN", path: path);
@@ -627,9 +628,7 @@ public static partial class FileInspector {
                         res.VersionInfo = dict;
                     }
                 } catch (Exception ex) {
-                    // Circuit breaker: disable installer enrichment for the remainder of the process after first failure
                     Breadcrumbs.Write("MSI_META_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path);
-                    Settings.IncludeInstaller = false;
                 }
             }
             // If the file name declares .msi, promote detection to MSI even if the magic stayed at OLE2.
@@ -646,13 +645,13 @@ public static partial class FileInspector {
                         det.Reason = string.IsNullOrEmpty(det.Reason) ? "declared:msi" : det.Reason + ";declared:msi";
                     }
                     // MSI property enrichment is optional and may be disabled for stability; only attempt when enabled
-                    if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
+                    if (includeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
                 }
             } catch (Exception ex) { Breadcrumbs.Write("MSI_PROMOTE_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
             try
             {
-                if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
+                if (includeInstaller && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
                 {
                     det.Extension = "msi";
                     det.MimeType = "application/x-msi";
@@ -889,7 +888,7 @@ public static partial class FileInspector {
                 TryParseP7b(path, res);
             }
             // MSI package properties (Windows only)
-            if ((options?.IncludeInstaller != false) && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
+            if (includeInstaller && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
                 if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
             }
@@ -1217,6 +1216,13 @@ public static partial class FileInspector {
         }
         return res;
     }
+
+    /// <summary>
+    /// Resolves installer enrichment from the per-call option when supplied and otherwise
+    /// preserves the process-wide compatibility setting.
+    /// </summary>
+    internal static bool ShouldIncludeInstaller(DetectionOptions? options)
+        => options?.IncludeInstaller ?? Settings.IncludeInstaller;
 
     // Parse OOXML .rels fragments to count external targets and categorize by allowed domains.
     private static void CountOoxmlExternalTargets(string xml, ref int allowed, ref int disallowed, ref int unc)

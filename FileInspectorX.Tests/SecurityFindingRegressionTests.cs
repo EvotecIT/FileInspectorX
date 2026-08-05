@@ -237,6 +237,25 @@ public sealed class SecurityFindingRegressionTests
     }
 
     [Fact]
+    public void PerCallInstallerOptInOverridesDisabledGlobalSetting()
+    {
+        var previous = Settings.IncludeInstaller;
+        try
+        {
+            Settings.IncludeInstaller = false;
+            Assert.True(FileInspector.ShouldIncludeInstaller(new FileInspector.DetectionOptions { IncludeInstaller = true }));
+            Assert.False(FileInspector.ShouldIncludeInstaller(new FileInspector.DetectionOptions { IncludeInstaller = false }));
+
+            Settings.IncludeInstaller = true;
+            Assert.True(FileInspector.ShouldIncludeInstaller(options: null));
+        }
+        finally
+        {
+            Settings.IncludeInstaller = previous;
+        }
+    }
+
+    [Fact]
     public void MalformedUtf16DoesNotHidePowerShellContent()
     {
         var valid = new UnicodeEncoding(false, true).GetBytes(
@@ -402,6 +421,16 @@ public sealed class SecurityFindingRegressionTests
             method.Name == nameof(FileInspector.Detect) &&
             method.GetParameters().Length == 2 &&
             method.GetParameters()[0].ParameterType == typeof(ReadOnlySpan<byte>));
+    }
+
+    [Fact]
+    public void SpanDetectSupportsDeclaredExtensionNamedArgument()
+    {
+        var bytes = Encoding.UTF8.GetBytes("plain text");
+
+        var result = FileInspector.Detect(bytes.AsSpan(), declaredExtension: "txt");
+
+        Assert.Equal("txt", result?.Extension);
     }
 
     private static int FindChunk(byte[] png, string chunkType)

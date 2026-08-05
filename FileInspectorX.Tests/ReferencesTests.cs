@@ -23,6 +23,32 @@ public class ReferencesTests
     }
 
     [Fact]
+    public void Extract_TaskScheduler_DisabledExistenceChecks_ReportUnknown()
+    {
+        var previousExistenceChecks = Settings.ReferencePathExistenceChecksEnabled;
+        var existingPath = Path.GetTempFileName();
+        var taskPath = Path.GetTempFileName() + ".xml";
+        try
+        {
+            Settings.ReferencePathExistenceChecksEnabled = false;
+            File.WriteAllText(taskPath, $"<Task><Actions><Exec><Command>{existingPath}</Command></Exec></Actions></Task>");
+
+            var analysis = FileInspector.Analyze(taskPath);
+            var reference = Assert.Single(
+                analysis.References ?? Array.Empty<Reference>(),
+                item => item.Kind == ReferenceKind.FilePath && item.SourceTag == "task:exec");
+
+            Assert.Null(reference.Exists);
+        }
+        finally
+        {
+            Settings.ReferencePathExistenceChecksEnabled = previousExistenceChecks;
+            try { File.Delete(existingPath); } catch { }
+            try { File.Delete(taskPath); } catch { }
+        }
+    }
+
+    [Fact]
     public void Extract_Gpo_ScriptsIni_CmdAndParams()
     {
         string ini = """

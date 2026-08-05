@@ -455,6 +455,27 @@ public class AssessmentTests
     }
 
     [Fact]
+    public void Assess_WinTrustNoSignature_Pe_Gets_SignatureAbsent_InsteadOf_InvalidPenalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult { Extension = "exe" },
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = false,
+                IsTrustedWindowsPolicy = false,
+                WinTrustStatusCode = unchecked((int)0x800B0100)
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
+        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+    }
+
+    [Fact]
     public void Assess_Unsigned_Sys_File_Gets_Signature_Absent_Penalty()
     {
         var analysis = new FileAnalysis

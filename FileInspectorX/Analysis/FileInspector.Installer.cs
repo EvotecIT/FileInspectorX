@@ -130,7 +130,6 @@ public static partial class FileInspector
     {
 #if NET8_0_OR_GREATER || NET472
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
-        if (!Settings.IncludeInstaller) return;
         // Only attempt when file likely is MSI: declared .msi or detection already flagged msi
         try
         {

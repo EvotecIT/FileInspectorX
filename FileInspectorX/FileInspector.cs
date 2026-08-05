@@ -1288,7 +1288,7 @@ public static partial class FileInspector {
             int fatCount = BitConverter.ToInt32(hdr, 0x2C);
             int readBudget = Math.Max(512, Settings.DetectionReadBudgetBytes);
             int maxFatSectorsByBudget = Math.Max(1, readBudget / sectorSize);
-            if (dirStartSid < 0 || fatCount <= 0 || fatCount > 109) return false;
+            if (dirStartSid < 0 || fatCount <= 0) return false;
             // Read FAT sector SIDs from DIFAT in header (109 entries)
             var fatSids = new List<int>();
             for (int i = 0; i < 109; i++)
@@ -1372,13 +1372,13 @@ public static partial class FileInspector {
     /// <see cref="Detect(ReadOnlyMemory{byte}, DetectionOptions?, string?)"/> overloads when the input is array-backed,
     /// because crypto ASN.1 parsing needs ReadOnlyMemory and span-only callers pay a bridge allocation.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null)
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options)
     {
         return DetectCore(data, null, options, null);
     }
 
     /// <summary>Detects content type from a byte span with an optional declared extension hint.</summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options, string? declaredExtension)
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
     {
         return DetectCore(data, null, options, declaredExtension);
     }
