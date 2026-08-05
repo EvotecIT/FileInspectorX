@@ -57,7 +57,7 @@ internal static class JsonStructureValidator
         int i = 0;
         SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
         if (timedOut) return false;
-        if (!ParseValue(ref i, text, sw, timeoutTicks, ref timedOut)) return false;
+        if (!ParseValue(ref i, text, sw, timeoutTicks, 0, ref timedOut)) return false;
         SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
         return !timedOut && i == text.Length;
     }
@@ -78,7 +78,7 @@ internal static class JsonStructureValidator
         }
     }
 
-    private static bool ParseValue(ref int i, string text, System.Diagnostics.Stopwatch? sw, long timeoutTicks, ref bool timedOut)
+    private static bool ParseValue(ref int i, string text, System.Diagnostics.Stopwatch? sw, long timeoutTicks, int depth, ref bool timedOut)
     {
         SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
         if (timedOut || i >= text.Length) return false;
@@ -86,9 +86,11 @@ internal static class JsonStructureValidator
         switch (text[i])
         {
             case '{':
-                return ParseObject(ref i, text, sw, timeoutTicks, ref timedOut);
+                return depth < Settings.JsonStructuralValidationMaxDepth &&
+                       ParseObject(ref i, text, sw, timeoutTicks, depth + 1, ref timedOut);
             case '[':
-                return ParseArray(ref i, text, sw, timeoutTicks, ref timedOut);
+                return depth < Settings.JsonStructuralValidationMaxDepth &&
+                       ParseArray(ref i, text, sw, timeoutTicks, depth + 1, ref timedOut);
             case '"':
                 return ParseString(ref i, text, sw, timeoutTicks, ref timedOut);
             case 't':
@@ -102,7 +104,7 @@ internal static class JsonStructureValidator
         }
     }
 
-    private static bool ParseObject(ref int i, string text, System.Diagnostics.Stopwatch? sw, long timeoutTicks, ref bool timedOut)
+    private static bool ParseObject(ref int i, string text, System.Diagnostics.Stopwatch? sw, long timeoutTicks, int depth, ref bool timedOut)
     {
         i++;
         SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
@@ -119,7 +121,7 @@ internal static class JsonStructureValidator
             SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
             if (timedOut || i >= text.Length || text[i] != ':') return false;
             i++;
-            if (!ParseValue(ref i, text, sw, timeoutTicks, ref timedOut)) return false;
+            if (!ParseValue(ref i, text, sw, timeoutTicks, depth, ref timedOut)) return false;
             SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
             if (timedOut || i >= text.Length) return false;
             if (text[i] == '}')
@@ -136,7 +138,7 @@ internal static class JsonStructureValidator
         return false;
     }
 
-    private static bool ParseArray(ref int i, string text, System.Diagnostics.Stopwatch? sw, long timeoutTicks, ref bool timedOut)
+    private static bool ParseArray(ref int i, string text, System.Diagnostics.Stopwatch? sw, long timeoutTicks, int depth, ref bool timedOut)
     {
         i++;
         SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
@@ -149,7 +151,7 @@ internal static class JsonStructureValidator
 
         while (i < text.Length)
         {
-            if (!ParseValue(ref i, text, sw, timeoutTicks, ref timedOut)) return false;
+            if (!ParseValue(ref i, text, sw, timeoutTicks, depth, ref timedOut)) return false;
             SkipWhitespace(ref i, text, sw, timeoutTicks, ref timedOut);
             if (timedOut || i >= text.Length) return false;
             if (text[i] == ']')

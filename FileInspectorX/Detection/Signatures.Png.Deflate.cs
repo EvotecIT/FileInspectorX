@@ -45,6 +45,10 @@ internal static partial class Signatures
             if (inflater.ReadByte() != -1 || compressed.Position != compressed.Length)
                 return PngIdatValidation.Invalid;
         }
+        catch (InvalidDataException)
+        {
+            return PngIdatValidation.Invalid;
+        }
         catch (IOException)
         {
             return PngIdatValidation.Invalid;

@@ -11,7 +11,7 @@ Analyzes files and returns a full FileAnalysis object by default, with optional 
 ## SYNTAX
 ### Path (Default)
 ```powershell
-Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -68,6 +68,38 @@ Disable the default Magika assistance and use deterministic analysis only.
 Type: SwitchParameter
 Parameter Sets: Path
 Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -EnableInstaller
+Opt in to installer/package metadata parsing.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: Path
+Aliases: none
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -EnableShellProperties
+Opt in to Windows shell property handlers.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: Path
+Aliases: none
 Possible values:
 
 Required: False

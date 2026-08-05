@@ -84,6 +84,7 @@ internal static partial class Signatures {
         var dataOffsets = new uint[folderCount];
         var dataBlockCounts = new ushort[folderCount];
         var compressionTypes = new byte[folderCount];
+        var uniqueDataOffsets = new System.Collections.Generic.HashSet<uint>();
         bool payloadIntegrityNotValidated = false;
         var folderDataRanges = new System.Collections.Generic.List<CabDataRange>(folderCount);
         for (int folder = 0; folder < folderCount; folder++) {
@@ -92,6 +93,7 @@ internal static partial class Signatures {
             ushort dataBlockCount = ReadUInt16LittleEndian(src, record + 4);
             ushort compressionType = ReadUInt16LittleEndian(src, record + 6);
             if (dataOffset > cabinetSize) return false;
+            if (dataBlockCount != 0 && !uniqueDataOffsets.Add(dataOffset)) return false;
             if (!IsValidCabCompressionType(compressionType)) return false;
             dataOffsets[folder] = dataOffset;
             dataBlockCounts[folder] = dataBlockCount;

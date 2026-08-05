@@ -1,4 +1,4 @@
-Import-Module PSPublishModule -Force
+Import-Module PSPublishModule -MinimumVersion '3.0.98' -MaximumVersion '3.0.98.9999' -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module

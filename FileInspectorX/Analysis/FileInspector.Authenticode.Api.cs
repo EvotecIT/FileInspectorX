@@ -17,10 +17,8 @@ public static partial class FileInspector
             {
                 if (a.Authenticode.IsTrustedWindowsPolicy.HasValue)
                     return a.Authenticode.IsTrustedWindowsPolicy.Value;
-                // If WinTrust was unavailable, require the full cross-platform
-                // envelope, file-digest, and chain verification result.
-                if (a.Authenticode.Present)
-                    return GetSignatureStatus(a)?.IsValid;
+                // This API reports Windows policy only. Cross-platform envelope, digest,
+                // and chain evidence remains available through GetSignatureStatus.
             }
             // No signature or not applicable
             return null;

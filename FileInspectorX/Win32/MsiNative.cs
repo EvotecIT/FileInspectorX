@@ -35,7 +35,7 @@ internal static class MsiNative
     private static extern int MsiGetSummaryInformationW(IntPtr hDatabase, string? szDatabasePath, uint uiUpdateCount, out IntPtr phSummaryInfo);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiSummaryInfoGetPropertyW")]
-    private static extern int MsiSummaryInfoGetPropertyW(IntPtr hSummaryInfo, uint uiProperty, out uint puiDataType, out int piValue, System.Text.StringBuilder? szValueBuf, ref uint pcchValueBuf);
+    private static extern int MsiSummaryInfoGetPropertyW(IntPtr hSummaryInfo, uint uiProperty, out uint puiDataType, out int piValue, out System.Runtime.InteropServices.ComTypes.FILETIME pftValue, System.Text.StringBuilder? szValueBuf, ref uint pcchValueBuf);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiFormatRecordW")]
     private static extern int MsiFormatRecordW(IntPtr hInstall, IntPtr hRecord, System.Text.StringBuilder? szResult, ref int pcchResult);
@@ -106,11 +106,12 @@ internal static class MsiNative
     internal static string? GetSummaryString(SafeMsiHandle hSum, uint pid)
     {
         uint type; int ival; uint cch = 0;
-        int rc = MsiSummaryInfoGetPropertyW(hSum.DangerousGetHandle(), pid, out type, out ival, null, ref cch);
+        System.Runtime.InteropServices.ComTypes.FILETIME fileTime;
+        int rc = MsiSummaryInfoGetPropertyW(hSum.DangerousGetHandle(), pid, out type, out ival, out fileTime, null, ref cch);
         if (rc != ERROR_MORE_DATA && rc != ERROR_SUCCESS) return null;
         if (cch == 0) return null;
         var sb = new System.Text.StringBuilder((int)cch + 1);
-        rc = MsiSummaryInfoGetPropertyW(hSum.DangerousGetHandle(), pid, out type, out ival, sb, ref cch);
+        rc = MsiSummaryInfoGetPropertyW(hSum.DangerousGetHandle(), pid, out type, out ival, out fileTime, sb, ref cch);
         if (rc != ERROR_SUCCESS) return null;
         return sb.ToString();
     }

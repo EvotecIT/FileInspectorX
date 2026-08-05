@@ -52,7 +52,7 @@ public sealed class TwelfthReviewRegressionTests
     }
 
     [Fact]
-    public void SeekableNetCdfNameValidationHonorsReadBudget()
+    public void SeekableNetCdfBudgetPrecheckDoesNotCreateIdentity()
     {
         int originalBudget = Settings.DetectionReadBudgetBytes;
         try
@@ -62,9 +62,7 @@ public sealed class TwelfthReviewRegressionTests
 
             var result = FileInspector.Detect(stream);
 
-            Assert.Equal("nc", result?.Extension);
-            Assert.Equal("Medium", result?.Confidence);
-            Assert.Contains("validation-budget-exceeded", result?.Reason);
+            Assert.NotEqual("nc", result?.Extension);
             Assert.Equal(7, stream.Position);
         }
         finally

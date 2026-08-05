@@ -644,7 +644,7 @@ public class TextDetectionsTests {
     }
 
     [Fact]
-    public void Markdown_Heading_With_Blank_Line_And_Javascript_Snippet_Stays_Markdown()
+    public void Markdown_Heading_Cannot_Mask_Javascript_Content()
     {
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
         try
@@ -652,10 +652,9 @@ public class TextDetectionsTests {
             File.WriteAllText(p, "# Notes\n\nconst fs = require('fs')\nmodule.exports = fs\n");
             var r = FileInspector.Detect(p);
             Assert.NotNull(r);
-            Assert.Equal("md", r!.Extension);
-            Assert.Equal("text/markdown", r.MimeType);
-            Assert.NotNull(r.Alternatives);
-            Assert.Contains(r.Alternatives!, a => string.Equals(a.Extension, "js", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal("js", r!.Extension);
+            Assert.Equal("application/javascript", r.MimeType);
+            Assert.True(r.IsDangerous);
         }
         finally { if (File.Exists(p)) File.Delete(p); }
     }

@@ -390,11 +390,6 @@ internal static partial class Signatures
         if (peOffset + 26L <= src.Length)
         {
             if (!TryValidatePeHeader(src.Slice((int)peOffset), peOffset, completeLength ?? long.MaxValue, out result)) return false;
-            if (!completeLength.HasValue && peOffset + 24L + ReadUInt16LittleEndian(src, (int)peOffset + 20) > src.Length)
-            {
-                result!.Confidence = "Medium";
-                result.Reason += ";sampled-optional-header";
-            }
             return true;
         }
         if (completeLength.HasValue) return false;
@@ -454,7 +449,20 @@ internal static partial class Signatures
         if (optionalMagic != 0x10B && optionalMagic != 0x20B) return false;
         if (!IsCompatiblePeMachine(machine, optionalMagic)) return false;
         int minimumOptionalHeaderSize = optionalMagic == 0x10B ? 96 : 112;
-        if (optionalHeaderSize < minimumOptionalHeaderSize || peHeader.Length < 24 + minimumOptionalHeaderSize) return false;
+        if (optionalHeaderSize < minimumOptionalHeaderSize) return false;
+        if (peHeader.Length < 24 + minimumOptionalHeaderSize)
+        {
+            if (totalLength != long.MaxValue) return false;
+            string sampledExtension = (characteristics & 0x2000) != 0 ? "dll" : "exe";
+            result = new ContentTypeDetectionResult
+            {
+                Extension = sampledExtension,
+                MimeType = "application/x-msdownload",
+                Confidence = "Medium",
+                Reason = (optionalMagic == 0x20B ? "pe:pe32+" : "pe:pe32") + ";sampled-optional-header"
+            };
+            return true;
+        }
         uint sectionAlignment = ReadUInt32LittleEndian(peHeader, 56);
         uint fileAlignment = ReadUInt32LittleEndian(peHeader, 60);
         uint sizeOfImage = ReadUInt32LittleEndian(peHeader, 80);

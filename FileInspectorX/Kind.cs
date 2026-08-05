@@ -65,7 +65,7 @@ public static class KindClassifier {
         if (ext is "parquet" or "arrow" or "h5" or "hdf5" or "nc") return ContentKind.StructuredData;
         if (ext == "dcm") return ContentKind.Medical;
         if (mime.Contains("zip") || mime.Contains("tar") || mime.Contains("gzip") || InspectHelpers.IsArchive(r)) return ContentKind.Archive;
-        if (ext is "elf" or "exe" or "dll" or "macho" or "class" or "dex" or "lnk" or "wasm") return ContentKind.Executable;
+        if (ext is "elf" or "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "macho" or "class" or "dex" or "lnk" or "chm" or "swf" or "reg" or "wasm") return ContentKind.Executable;
         if (ext is "docx" or "xlsx" or "pptx" or "pdf" or "rtf" or "eml") return ContentKind.Document;
         if (ext is "gltf" or "glb") return ContentKind.Model;
         if (ext is "sqlite" or "edb" or "accdb" or "mdb" or "pst" or "ost" or "ndb" or "hive") return ContentKind.Database;

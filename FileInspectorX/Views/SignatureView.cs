@@ -13,6 +13,10 @@ public sealed class SignatureView
     public bool? EnvelopeSignatureValid { get; set; }
     /// <summary>True if chain builds successfully.</summary>
     public bool? ChainValid { get; set; }
+    /// <summary>True when the Authenticode image digest matches the inspected PE bytes.</summary>
+    public bool? FileHashMatches { get; set; }
+    /// <summary>True when Windows WinVerifyTrust policy trusts the file.</summary>
+    public bool? IsTrustedWindowsPolicy { get; set; }
     /// <summary>True if countersignature/time-stamp is present.</summary>
     public bool? TimestampPresent { get; set; }
     /// <summary>Time-stamp time (when present).</summary>
@@ -53,6 +57,8 @@ public sealed class SignatureView
         Present = a?.Present ?? false,
         EnvelopeSignatureValid = a?.EnvelopeSignatureValid,
         ChainValid = a?.ChainValid,
+        FileHashMatches = a?.FileHashMatches,
+        IsTrustedWindowsPolicy = a?.IsTrustedWindowsPolicy,
         TimestampPresent = a?.TimestampPresent,
         TimestampTime = a?.TimestampTime,
         SignerSubject = a?.SignerSubject,

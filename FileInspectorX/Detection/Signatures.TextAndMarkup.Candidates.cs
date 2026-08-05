@@ -59,8 +59,8 @@ internal static partial class Signatures
             det.Score = primary.Score;
             det.IsDangerous = primary.IsDangerous;
             bool allowUpgrade = det.Reason == null ||
-                                (!det.Reason.Contains("malformed", StringComparison.OrdinalIgnoreCase) &&
-                                 !det.Reason.Contains("validation-error", StringComparison.OrdinalIgnoreCase));
+                                (det.Reason.IndexOf("malformed", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                 det.Reason.IndexOf("validation-error", StringComparison.OrdinalIgnoreCase) < 0);
             if (allowUpgrade && ConfidenceRank(primary.Confidence) > ConfidenceRank(det.Confidence))
                 det.Confidence = primary.Confidence;
         }
@@ -72,10 +72,11 @@ internal static partial class Signatures
         int scoreMargin = Math.Max(0, Settings.DetectionPrimaryScoreMargin);
         int tieMargin = Math.Max(0, Settings.DetectionDeclaredTieBreakerMargin);
         bool allowReplace = det.Reason == null ||
-                            (!det.Reason.Contains("malformed", StringComparison.OrdinalIgnoreCase) &&
-                             !det.Reason.Contains("validation-error", StringComparison.OrdinalIgnoreCase));
+                            (det.Reason.IndexOf("malformed", StringComparison.OrdinalIgnoreCase) < 0 &&
+                             det.Reason.IndexOf("validation-error", StringComparison.OrdinalIgnoreCase) < 0);
         bool replaced = false;
         if (allowReplace && primary != null && best != null &&
+            !(primary.IsDangerous && !best.IsDangerous) &&
             !string.Equals(best.Extension, primaryExt, StringComparison.OrdinalIgnoreCase) &&
             best.Score >= primary.Score + scoreMargin)
         {

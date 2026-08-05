@@ -35,17 +35,16 @@ public class FixtureCorpusTests
     }
 
     [Fact]
-    public void Fixture_Markdown_BlankLine_Javascript_StaysMarkdown()
+    public void Fixture_Markdown_Heading_Cannot_Mask_Javascript()
     {
         var path = TestHelpers.GetFixturePath("text", "markdown-heading-js.txt");
 
         var detection = FileInspector.Detect(path);
 
         Assert.NotNull(detection);
-        Assert.Equal("md", detection!.Extension);
-        Assert.Equal("text/markdown", detection.MimeType);
-        Assert.NotNull(detection.Alternatives);
-        Assert.Contains(detection.Alternatives!, a => string.Equals(a.Extension, "js", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("js", detection!.Extension);
+        Assert.Equal("application/javascript", detection.MimeType);
+        Assert.True(detection.IsDangerous);
     }
 
     [Fact]

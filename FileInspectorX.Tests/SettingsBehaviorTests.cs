@@ -52,6 +52,27 @@ public class SettingsBehaviorTests
     }
 
     [Xunit.Fact]
+    public void JsonValidationCore_Rejects_Nesting_Beyond_Configured_Maximum()
+    {
+        var previous = Settings.JsonStructuralValidationMaxDepth;
+        try
+        {
+            Settings.JsonStructuralValidationMaxDepth = 4;
+            var allowed = JsonStructureValidator.TryValidateCoreForTest("[[[[]]]]", null, 0L, out var allowedTimedOut);
+            var rejected = JsonStructureValidator.TryValidateCoreForTest("[[[[[]]]]]", null, 0L, out var rejectedTimedOut);
+
+            Xunit.Assert.True(allowed);
+            Xunit.Assert.False(allowedTimedOut);
+            Xunit.Assert.False(rejected);
+            Xunit.Assert.False(rejectedTimedOut);
+        }
+        finally
+        {
+            Settings.JsonStructuralValidationMaxDepth = previous;
+        }
+    }
+
+    [Xunit.Fact]
     public void DangerousExtensionsOverrideMode_Merge_Keeps_Defaults()
     {
         var prevOverride = Settings.DangerousExtensionsOverride;

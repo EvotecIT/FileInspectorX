@@ -52,6 +52,8 @@ internal static partial class Signatures {
         try
         {
             if (stream.Length < 20 || stream.Length > uint.MaxValue) return false;
+            if (!TryReadAt(stream, 0, 20, out var glbHeader) ||
+                !new ReadOnlySpan<byte>(glbHeader, 0, 4).SequenceEqual("glTF"u8)) return false;
             int prefixLength = (int)Math.Min(stream.Length, Math.Max(20, Settings.DetectionReadBudgetBytes));
             if (!TryReadAt(stream, 0, prefixLength, out var prefix)) return false;
             var src = new ReadOnlySpan<byte>(prefix);
@@ -369,9 +371,11 @@ internal static partial class Signatures {
         ulong totalLength = completeLength.HasValue ? (ulong)completeLength.Value : (ulong)src.Length;
         var visited = new System.Collections.Generic.HashSet<ulong>();
         int remainingEntries = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
+        int remainingDirectories = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 16 : 6));
         ulong current = firstIfd;
         bool usableImageDirectory = false;
         while (current != 0) {
+            if (--remainingDirectories < 0) return TiffDirectoryStatus.Sampled;
             if (!visited.Add(current) || current > int.MaxValue) return TiffDirectoryStatus.Invalid;
             int countSize = isBigTiff ? 8 : 2;
             if (current + (ulong)countSize > totalLength) return completeLength.HasValue ? TiffDirectoryStatus.Invalid : TiffDirectoryStatus.Sampled;
@@ -420,9 +424,11 @@ internal static partial class Signatures {
     private static TiffDirectoryStatus InspectTiffDirectories(Stream stream, bool littleEndian, bool isBigTiff, ulong firstIfd) {
         var visited = new System.Collections.Generic.HashSet<ulong>();
         int remainingEntries = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
+        int remainingDirectories = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 16 : 6));
         ulong current = firstIfd;
         bool usableImageDirectory = false;
         while (current != 0) {
+            if (--remainingDirectories < 0) return TiffDirectoryStatus.Sampled;
             if (!visited.Add(current) || current > long.MaxValue) return TiffDirectoryStatus.Invalid;
             int countSize = isBigTiff ? 8 : 2;
             if (!TryReadAt(stream, (long)current, countSize, out var countBytes)) return TiffDirectoryStatus.Invalid;

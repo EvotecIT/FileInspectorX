@@ -93,6 +93,17 @@ internal static partial class Signatures
             if (TryDetectEncodedBlocks(in ctx, out result))
                 return FinalizeResult(ref result, in ctx);
 
+            // Active script content takes precedence over passive text formats. This prevents
+            // headings, log phrases, or declared extensions from masking executable text.
+            bool declaredMarkdownCodeSample = ctx.DeclaredMd && HasClosedMarkdownFence(ctx.HeadLower);
+            if (!declaredMarkdownCodeSample &&
+                TryDetectScriptsAndPlainText(ctx.Data, ctx.Head, ctx.HeadStr, ctx.HeadLower, ctx.Decl, ctx.DeclaredMd, ctx.DeclaredCmd, ctx.BomDetected, ctx.TextCharset, out var scriptResult) &&
+                scriptResult != null && IsActiveScriptExtension(scriptResult.Extension))
+            {
+                result = scriptResult;
+                return FinalizeResult(ref result, in ctx);
+            }
+
             if (TryDetectStructuredText(in ctx, out result))
                 return FinalizeResult(ref result, in ctx);
 
@@ -174,13 +185,13 @@ internal static partial class Signatures
                 {
                     if (nulOdd > nulEven * UTF16_NUL_DOMINANCE_FACTOR)
                     {
-                        transcodeEnc = new System.Text.UnicodeEncoding(false, false, true);
+                        transcodeEnc = new System.Text.UnicodeEncoding(false, false, false);
                         transcodeBytesPerChar = 2;
                         textCharset = "utf-16le";
                     }
                     else if (nulEven > nulOdd * UTF16_NUL_DOMINANCE_FACTOR)
                     {
-                        transcodeEnc = new System.Text.UnicodeEncoding(true, false, true);
+                        transcodeEnc = new System.Text.UnicodeEncoding(true, false, false);
                         transcodeBytesPerChar = 2;
                         textCharset = "utf-16be";
                     }
@@ -193,13 +204,13 @@ internal static partial class Signatures
                         {
                             if (maxPos == 0)
                             {
-                                transcodeEnc = new System.Text.UTF32Encoding(false, false, true);
+                                transcodeEnc = new System.Text.UTF32Encoding(false, false, false);
                                 transcodeBytesPerChar = 4;
                                 textCharset = "utf-32le";
                             }
                             else if (maxPos == 3)
                             {
-                                transcodeEnc = new System.Text.UTF32Encoding(true, false, true);
+                                transcodeEnc = new System.Text.UTF32Encoding(true, false, false);
                                 transcodeBytesPerChar = 4;
                                 textCharset = "utf-32be";
                             }
@@ -224,10 +235,10 @@ internal static partial class Signatures
             {
                 System.Text.Encoding enc;
                 int bytesPerChar;
-                if (bomCharset == "utf-16le") { enc = new System.Text.UnicodeEncoding(false, true, true); bytesPerChar = 2; }
-                else if (bomCharset == "utf-16be") { enc = new System.Text.UnicodeEncoding(true, true, true); bytesPerChar = 2; }
-                else if (bomCharset == "utf-32le") { enc = new System.Text.UTF32Encoding(false, true, true); bytesPerChar = 4; }
-                else if (bomCharset == "utf-32be") { enc = new System.Text.UTF32Encoding(true, true, true); bytesPerChar = 4; }
+                if (bomCharset == "utf-16le") { enc = new System.Text.UnicodeEncoding(false, true, false); bytesPerChar = 2; }
+                else if (bomCharset == "utf-16be") { enc = new System.Text.UnicodeEncoding(true, true, false); bytesPerChar = 2; }
+                else if (bomCharset == "utf-32le") { enc = new System.Text.UTF32Encoding(false, true, false); bytesPerChar = 4; }
+                else if (bomCharset == "utf-32be") { enc = new System.Text.UTF32Encoding(true, true, false); bytesPerChar = 4; }
                 else { enc = transcodeEnc!; bytesPerChar = transcodeBytesPerChar; }
 
                 int decodeBudget = headerBytes * bytesPerChar;
@@ -330,6 +341,7 @@ internal static partial class Signatures
     {
         strippedBytes = null;
         strippedLength = 0;
+        source = source.Slice(0, Math.Min(source.Length, Math.Max(256, Settings.DetectionReadBudgetBytes)));
         int nulCount = 0;
         for (int i = 0; i < source.Length; i++)
         {

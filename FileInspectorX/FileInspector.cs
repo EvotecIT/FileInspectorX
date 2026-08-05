@@ -32,12 +32,12 @@ public static partial class FileInspector {
         public bool IncludeAuthenticode { get; set; } = true;
         /// <summary>Include references extraction from config files (Task XML, scripts.ini/xml). Default true.</summary>
         public bool IncludeReferences { get; set; } = true;
-        /// <summary>Include installer/package metadata (MSIX/APPX/VSIX/MSI). Default true.</summary>
-        public bool IncludeInstaller { get; set; } = true;
+        /// <summary>Include installer/package metadata (MSIX/APPX/VSIX/MSI). Default false because native parsers require explicit trust.</summary>
+        public bool IncludeInstaller { get; set; } = false;
         /// <summary>Compute Assessment (score/decision) and attach to the result. Default true.</summary>
         public bool IncludeAssessment { get; set; } = true;
-        /// <summary>Include Windows shell properties (Explorer Details). Default true.</summary>
-        public bool IncludeShellProperties { get; set; } = true;
+        /// <summary>Include Windows shell properties (Explorer Details). Default false because shell handlers execute in-process.</summary>
+        public bool IncludeShellProperties { get; set; } = false;
 
         /// <summary>
         /// Optional learned classifier. It is never invoked while
@@ -47,6 +47,29 @@ public static partial class FileInspector {
 
         /// <summary>Controls optional learned classification. Default is <see cref="FileInspectorX.LearnedClassificationMode.Off"/>.</summary>
         public LearnedClassificationMode LearnedClassificationMode { get; set; } = FileInspectorX.LearnedClassificationMode.Off;
+
+        internal int NestedContainerDepth { get; set; }
+        internal NestedContainerBudgetState? NestedContainerBudget { get; set; }
+    }
+
+    internal sealed class NestedContainerBudgetState
+    {
+        private int _remainingEntries;
+        private long _remainingBytes;
+
+        internal NestedContainerBudgetState(int entries, long bytes)
+        {
+            _remainingEntries = Math.Max(0, entries);
+            _remainingBytes = Math.Max(0, bytes);
+        }
+
+        internal bool TryConsume(long bytes)
+        {
+            if (bytes <= 0 || _remainingEntries <= 0 || bytes > _remainingBytes) return false;
+            _remainingEntries--;
+            _remainingBytes -= bytes;
+            return true;
+        }
     }
 
     /// <summary>
@@ -316,14 +339,6 @@ public static partial class FileInspector {
                 return ApplyLearnedClassification(result, fs, options);
             }
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            bool hdfDetected = Signatures.TryMatchHdf5(fs, minimumOffset: 0, out var pathHdf5);
-            if (hdfDetected)
-                return FinishPathOnly(DetectStreamCore(
-                    fs,
-                    deterministicOptions,
-                    extDeclared,
-                    hdfProbeComplete: true,
-                    preDetectedHdf5: pathHdf5));
             if (Signatures.TryMatchUdf(fs, out var udf)) return FinishPathOnly(udf);
             if (Signatures.TryMatchIso(fs, out var iso)) return FinishPathOnly(iso);
             if (Signatures.TryMatchDmg(fs, out var dmg)) return FinishPathOnly(dmg);
@@ -331,7 +346,7 @@ public static partial class FileInspector {
                 => ApplyLearnedClassification(result, fs, options);
             if (Signatures.TryMatchMsg(fs, out var msg))
                 return Finish(msg);
-            var det = DetectStreamCore(fs, deterministicOptions, extDeclared, hdfProbeComplete: true);
+            var det = DetectStreamCore(fs, deterministicOptions, extDeclared);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
                     // A successful PE parse refines family details, but does not validate every section entry.
@@ -459,9 +474,7 @@ public static partial class FileInspector {
     private static ContentTypeDetectionResult? DetectStreamCore(
         Stream stream,
         DetectionOptions? options,
-        string? declaredExtension,
-        bool hdfProbeComplete = false,
-        ContentTypeDetectionResult? preDetectedHdf5 = null) {
+        string? declaredExtension) {
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         if (!stream.CanSeek && options.LearnedClassificationMode != LearnedClassificationMode.Off)
@@ -489,19 +502,6 @@ public static partial class FileInspector {
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
             => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
-        // HDF5 may place its signature after a power-of-two user block containing arbitrary data.
-        // Establish the container identity before interpreting bytes inside that user block.
-        if (preDetectedHdf5 != null) return Finish(Enrich(preDetectedHdf5, src, stream, options));
-        if (!hdfProbeComplete) {
-            if (stream.CanSeek) {
-                if (Signatures.TryMatchHdf5(stream, 0, out var seekableHdf5))
-                    return Finish(Enrich(seekableHdf5, src, stream, options));
-            }
-            else if (Signatures.TryMatchHdf5(src, completeLength, out var sampledHdf5)) {
-                return Finish(Enrich(sampledHdf5, src, stream, options));
-            }
-        }
-
         if (stream.CanSeek && Signatures.TryMatchSeekableContainers(stream, out var seekableContainer))
             return Finish(Enrich(seekableContainer, src, stream, options));
         if (!stream.CanSeek && completeLength.HasValue && Signatures.TryMatchCompleteContainers(src, out var completeContainer))
@@ -519,6 +519,15 @@ public static partial class FileInspector {
         if ((stream.CanSeek ? Signatures.TryMatchIcon(stream, out var validatedIcon) : Signatures.TryMatchIcon(src, completeLength, out validatedIcon)))
             return Finish(Enrich(validatedIcon, src, stream, options));
         if (Signatures.TryMatchCommonBinary(src, completeLength, out var commonBinary)) return Finish(Enrich(commonBinary, src, stream, options));
+        // HDF5 user blocks may contain arbitrary bytes, but they must not override a validated
+        // primary format such as PE/PDF/ZIP detected above.
+        if (stream.CanSeek) {
+            if (Signatures.TryMatchHdf5(stream, 0, out var seekableHdf5))
+                return Finish(Enrich(seekableHdf5, src, stream, options));
+        }
+        else if (Signatures.TryMatchHdf5(src, completeLength, out var sampledHdf5)) {
+            return Finish(Enrich(sampledHdf5, src, stream, options));
+        }
         if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, completeLength, out validatedZip))) {
             var refined = TryRefineZipOOxml(stream);
             if (refined != null) return Finish(Enrich(refined, src, stream, options));
@@ -737,7 +746,10 @@ public static partial class FileInspector {
 
         var detExt = (det.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
         var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
-        bool wantsAdmxAdml = detExt == "admx" || detExt == "adml" || decl == "admx" || decl == "adml";
+        // A declared name is attacker controlled. Only parse when content detection
+        // already established an XML-family document.
+        bool wantsAdmxAdml = detExt == "admx" || detExt == "adml" ||
+                             ((decl == "admx" || decl == "adml") && detExt == "xml");
         if (!wantsAdmxAdml) return;
 
         try
@@ -781,6 +793,8 @@ public static partial class FileInspector {
                 {
                     if (TimeoutHelpers.IsExpired(sw, timeoutTicks))
                         throw new TimeoutException("XML well-formedness validation timed out.");
+                    if (reader.Depth > 256)
+                        throw new System.Xml.XmlException("XML nesting depth exceeds the safe validation limit.");
                 }
                 det.ValidationStatus = "passed";
             }
@@ -792,14 +806,14 @@ public static partial class FileInspector {
             catch (System.Xml.XmlException ex)
             {
                 Breadcrumbs.Write("XML_MALFORMED", message: ex.Message, path: path);
-                det.Confidence = "Low";
+                if (detExt == "admx" || detExt == "adml" || detExt == "xml") det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "xml:malformed");
                 det.ValidationStatus = "failed";
             }
         catch (TimeoutException ex)
         {
             Breadcrumbs.Write("XML_TIMEOUT", message: ex.Message, path: path);
-            det.Confidence = "Low";
+            if (detExt == "admx" || detExt == "adml" || detExt == "xml") det.Confidence = "Low";
             det.Reason = AppendReason(det.Reason, "xml:validation-timeout");
             det.ValidationStatus = "timeout";
         }
@@ -889,7 +903,7 @@ public static partial class FileInspector {
             }
             else
             {
-                det.ValidationStatus = "passed";
+                det.ValidationStatus = budgetLimited ? "skipped" : "passed";
             }
             return;
         }
@@ -912,7 +926,7 @@ public static partial class FileInspector {
         }
         else
         {
-            det.ValidationStatus = "passed";
+            det.ValidationStatus = budgetLimited ? "skipped" : "passed";
         }
     }
 
@@ -1053,8 +1067,8 @@ public static partial class FileInspector {
                 if (TimeoutHelpers.IsExpired(sw, timeoutTicks)) return false;
                 if (reader.NodeType == System.Xml.XmlNodeType.Element)
                 {
-                    rootName = reader.Name;
-                    break;
+                    rootName ??= reader.Name;
+                    if (reader.Depth > 256) return false;
                 }
             }
             return !string.IsNullOrEmpty(rootName);
@@ -1190,6 +1204,7 @@ public static partial class FileInspector {
                                 Kind = KindClassifier.Classify(det),
                                 Flags = ContentFlags.None
                             };
+                            PopulateDetectionSummary(quick);
                             Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
                             return quick;
                         }
@@ -1203,11 +1218,13 @@ public static partial class FileInspector {
             if (options.DetectOnly)
             {
                 var det = Detect(path, options);
-                return new FileAnalysis {
+                var detectedOnly = new FileAnalysis {
                     Detection = det,
                     Kind = ClassifyKindWithLearnedText(det),
                     Flags = ContentFlags.None
                 };
+                PopulateDetectionSummary(detectedOnly);
+                return detectedOnly;
             }
         return Analyze(path, options);
     }
@@ -1263,36 +1280,43 @@ public static partial class FileInspector {
             // Signature
             byte[] sig = new byte[] { 0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1 };
             for (int i = 0; i < 8; i++) if (hdr[i] != sig[i]) return false;
-            int secShift = hdr[0x1E] | (hdr[0x1F] << 8); // typically 9 => 512 bytes
+            int secShift = hdr[0x1E] | (hdr[0x1F] << 8);
+            // CFBF permits only 512-byte (v3) and 4096-byte (v4) sectors.
+            if (secShift is not (9 or 12)) return false;
             int sectorSize = 1 << secShift;
             int dirStartSid = BitConverter.ToInt32(hdr, 0x30);
             int fatCount = BitConverter.ToInt32(hdr, 0x2C);
-            if (dirStartSid < 0 || sectorSize < 512 || sectorSize > (1<<20)) return false;
+            int readBudget = Math.Max(512, Settings.DetectionReadBudgetBytes);
+            int maxFatSectorsByBudget = Math.Max(1, readBudget / sectorSize);
+            if (dirStartSid < 0 || fatCount <= 0 || fatCount > 109) return false;
             // Read FAT sector SIDs from DIFAT in header (109 entries)
             var fatSids = new List<int>();
             for (int i = 0; i < 109; i++)
             {
                 int sid = BitConverter.ToInt32(hdr, 0x4C + i*4);
-                if (sid >= 0) fatSids.Add(sid);
+                if (sid >= 0 && fatSids.Count < fatCount && fatSids.Count < maxFatSectorsByBudget) fatSids.Add(sid);
             }
             if (fatSids.Count == 0 || fatCount == 0) return false;
             // Build FAT table
-            var fat = new List<int>();
+            var fat = new List<int>(Math.Min(fatSids.Count * (sectorSize / 4), readBudget / 4));
+            int bytesRead = 512;
             foreach (var sid in fatSids)
             {
+                if (bytesRead > readBudget - sectorSize) break;
                 long off = 512L + ((long)sid + 1) * sectorSize;
                 if (off < 0 || off + sectorSize > stream.Length) continue;
                 stream.Seek(off, SeekOrigin.Begin);
                 var sec = new byte[sectorSize];
                 int rn = stream.Read(sec, 0, sec.Length);
                 if (rn != sec.Length) break;
+                bytesRead += rn;
                 // Each FAT sector contains 32-bit entries
                 for (int p = 0; p + 4 <= sec.Length; p += 4)
                     fat.Add(BitConverter.ToInt32(sec, p));
             }
             // Walk directory stream through FAT (bounded). Increase sectors for robust MSI detection.
             const int ENDOFCHAIN = unchecked((int)0xFFFFFFFE);
-            int cur = dirStartSid; int maxSectors = 64; int sectors = 0;
+            int cur = dirStartSid; int maxSectors = Math.Min(64, Math.Max(1, (readBudget - bytesRead) / sectorSize)); int sectors = 0;
             while (cur >= 0 && cur < fat.Count && sectors < maxSectors)
             {
                 long off = 512L + ((long)cur + 1) * sectorSize;
@@ -1348,7 +1372,13 @@ public static partial class FileInspector {
     /// <see cref="Detect(ReadOnlyMemory{byte}, DetectionOptions?, string?)"/> overloads when the input is array-backed,
     /// because crypto ASN.1 parsing needs ReadOnlyMemory and span-only callers pay a bridge allocation.
     /// </summary>
-    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null, string? declaredExtension = null)
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options = null)
+    {
+        return DetectCore(data, null, options, null);
+    }
+
+    /// <summary>Detects content type from a byte span with an optional declared extension hint.</summary>
+    public static ContentTypeDetectionResult? Detect(ReadOnlySpan<byte> data, DetectionOptions? options, string? declaredExtension)
     {
         return DetectCore(data, null, options, declaredExtension);
     }
@@ -1366,9 +1396,9 @@ public static partial class FileInspector {
                 ? ApplyLearnedClassification(biased, learnedData.Value, options)
                 : biased;
         }
-        if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
         if (Signatures.TryMatchCompleteContainers(data, out var completeContainer)) return Finish(Enrich(completeContainer, data, null, options));
         if (Signatures.TryMatchCommonBinary(data, data.Length, out var commonBinary)) return Finish(Enrich(commonBinary, data, null, options));
+        if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
         if (Signatures.TryMatchZip(data, out var validatedZip)) return Finish(Enrich(validatedZip, data, null, options));
         if (Signatures.TryMatchOle2(data, out var validatedOle)) return Finish(Enrich(validatedOle, data, null, options));
         if (Signatures.TryMatchExtendedHeaderFormats(data, out var extendedBinary)) return Finish(Enrich(extendedBinary, data, null, options));
@@ -1396,9 +1426,13 @@ public static partial class FileInspector {
         }
         else
         {
-            if (Signatures.TryMatchPkcs12(data, out var p12)) return Finish(Enrich(p12, data, null, options));
-            if (Signatures.TryMatchPkcs7SignedData(data, out var pkcs7)) return Finish(Enrich(pkcs7, data, null, options));
-            if (Signatures.TryMatchDerCertificate(data, out var der)) return Finish(Enrich(der, data, null, options));
+            if (data.Length >= 16 && data[0] == 0x30)
+            {
+                var cryptoMemory = new ReadOnlyMemory<byte>(data.ToArray());
+                if (Signatures.TryMatchPkcs12(cryptoMemory, out var p12)) return Finish(Enrich(p12, data, null, options));
+                if (Signatures.TryMatchPkcs7SignedData(cryptoMemory, out var pkcs7)) return Finish(Enrich(pkcs7, data, null, options));
+                if (Signatures.TryMatchDerCertificate(cryptoMemory, out var der)) return Finish(Enrich(der, data, null, options));
+            }
         }
         if (Signatures.TryMatchOpenPgpBinary(data, out var pgpbin)) return Finish(Enrich(pgpbin, data, null, options));
         if (Signatures.TryMatchKeePassKdbx(data, out var kdbx)) return Finish(Enrich(kdbx, data, null, options));

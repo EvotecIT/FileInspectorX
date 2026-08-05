@@ -126,7 +126,7 @@ public sealed class StructuredBinaryDetectionTests
     }
 
     [Fact]
-    public void Hdf5UserBlockContentDoesNotOverrideContainerAcrossOverloads()
+    public void Hdf5UserBlockSignatureCannotMaskPdfAcrossOverloads()
     {
         var bytes = Hdf5(8192);
         System.Text.Encoding.ASCII.GetBytes("%PDF-1.7\n").CopyTo(bytes, 0);
@@ -136,14 +136,14 @@ public sealed class StructuredBinaryDetectionTests
         var fromStream = FileInspector.Detect(stream);
         var fromBytes = FileInspector.Detect(bytes);
 
-        Assert.Equal("h5", fromStream?.Extension);
-        Assert.Equal("h5", fromBytes?.Extension);
+        Assert.Equal("pdf", fromStream?.Extension);
+        Assert.Equal("pdf", fromBytes?.Extension);
         Assert.Equal(fromBytes?.Reason, fromStream?.Reason);
         Assert.Equal(19, stream.Position);
     }
 
     [Fact]
-    public void Hdf5UserBlockContentDoesNotOverrideContainerForPathDetection()
+    public void Hdf5UserBlockSignatureCannotMaskPdfForPathDetection()
     {
         var bytes = Hdf5(8192);
         System.Text.Encoding.ASCII.GetBytes("%PDF-1.7\n").CopyTo(bytes, 0);
@@ -154,7 +154,7 @@ public sealed class StructuredBinaryDetectionTests
 
             var result = FileInspector.Detect(path);
 
-            Assert.Equal("h5", result?.Extension);
+            Assert.Equal("pdf", result?.Extension);
         }
         finally
         {
@@ -237,7 +237,7 @@ public sealed class StructuredBinaryDetectionTests
     [Fact]
     public void ShellLinkDetectionIgnoresBenignDeclaredExtensionAndReportsMismatch()
     {
-        var result = FileInspector.Detect(ShellLink(), declaredExtension: "txt");
+        var result = FileInspector.Detect(ShellLink(), null, "txt");
         var comparison = FileInspector.CompareDeclared("txt", result);
 
         Assert.Equal("lnk", result?.Extension);

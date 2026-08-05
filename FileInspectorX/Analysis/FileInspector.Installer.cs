@@ -19,12 +19,10 @@ public static partial class FileInspector
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("AppxManifest.xml");
             if (entry == null) return;
-            using var s = budget.OpenEntry(entry, checked((int)Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes)));
+            var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes));
+            using var s = budget.OpenEntry(entry, checked((int)manifestMaxBytes));
             if (s == null) return;
-            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreComments = true, IgnoreWhitespace = true, CloseInput = true };
-            using var xr = XmlReader.Create(s, settings);
-            var doc = new XmlDocument { XmlResolver = null };
-            doc.Load(xr);
+            if (!BoundedXmlDocument.TryLoad(s, manifestMaxBytes, out var doc)) return;
             var nsm = new XmlNamespaceManager(doc.NameTable);
             var ns = doc.DocumentElement?.NamespaceURI ?? string.Empty;
             if (!string.IsNullOrEmpty(ns)) nsm.AddNamespace("a", ns);
@@ -101,12 +99,10 @@ public static partial class FileInspector
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("extension.vsixmanifest");
             if (entry == null) return;
-            using var s = budget.OpenEntry(entry, checked((int)Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes)));
+            var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes));
+            using var s = budget.OpenEntry(entry, checked((int)manifestMaxBytes));
             if (s == null) return;
-            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreComments = true, IgnoreWhitespace = true, CloseInput = true };
-            using var xr = XmlReader.Create(s, settings);
-            var doc = new XmlDocument { XmlResolver = null };
-            doc.Load(xr);
+            if (!BoundedXmlDocument.TryLoad(s, manifestMaxBytes, out var doc)) return;
             var nsm = new XmlNamespaceManager(doc.NameTable);
             var ns = doc.DocumentElement?.NamespaceURI ?? string.Empty;
             if (!string.IsNullOrEmpty(ns)) nsm.AddNamespace("v", ns);
@@ -128,7 +124,6 @@ public static partial class FileInspector
 #endif
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _msiLocks = new(System.StringComparer.OrdinalIgnoreCase);
     private static readonly object _msiGlobalLock = new object();
 
     private static void TryPopulateMsiProperties(string path, FileAnalysis res)
@@ -146,10 +141,9 @@ public static partial class FileInspector
             if (!(byName || byDetect)) return;
         } catch { return; }
 
-        // Serialize native MSI access per path to avoid re-entrancy issues inside msi.dll
-        var locker = _msiLocks.GetOrAdd(path, _ => new object());
+        // msi.dll is process-global and not reliably re-entrant. A single bounded
+        // lock provides the same serialization without retaining attacker paths.
         lock (_msiGlobalLock)
-        lock (locker)
         {
         Breadcrumbs.Write("MSI_PROPS_BEGIN", path: path);
         try {

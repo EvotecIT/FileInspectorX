@@ -270,6 +270,14 @@ public class AssessmentTests
                     {
                         CountExe = 1
                     }
+                },
+                Authenticode = new AuthenticodeInfo
+                {
+                    Present = true,
+                    EnvelopeSignatureValid = true,
+                    ChainValid = true,
+                    FileHashMatches = true,
+                    IsTrustedWindowsPolicy = true
                 }
             };
 
@@ -293,7 +301,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Does_Not_Triple_Count_One_SelfSigned_Trust_Failure()
+    public void Assess_SelfSigned_Untrusted_Chain_Reaches_Warn_Threshold()
     {
         var analysis = new FileAnalysis
         {
@@ -309,10 +317,10 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(20, assessed.Score);
+        Assert.Equal(70, assessed.Score);
         Assert.Contains("Sig.SelfSigned", assessed.Codes);
-        Assert.DoesNotContain("Sig.ChainInvalid", assessed.Codes);
-        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+        Assert.Contains("Sig.ChainInvalid", assessed.Codes);
+        Assert.Contains("Sig.WinTrustInvalid", assessed.Codes);
     }
 
     [Fact]
@@ -379,7 +387,11 @@ public class AssessmentTests
                 Authenticode = new AuthenticodeInfo
                 {
                     Present = true,
-                    SignerSubjectCN = "Contoso"
+                    SignerSubjectCN = "Contoso",
+                    EnvelopeSignatureValid = true,
+                    ChainValid = true,
+                    FileHashMatches = true,
+                    IsTrustedWindowsPolicy = true
                 }
             };
 
@@ -579,7 +591,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Unsigned_Appx_ContainerSubtype_Gets_Signature_Absent_Penalty()
+    public void Assess_Untrusted_Appx_ContainerSubtype_Does_Not_Establish_Package_Identity()
     {
         var analysis = new FileAnalysis
         {
@@ -588,8 +600,8 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(10, assessed.Score);
-        Assert.Contains("Sig.Absent", assessed.Codes);
+        Assert.Equal(0, assessed.Score);
+        Assert.DoesNotContain("Sig.Absent", assessed.Codes);
     }
 
     [Fact]
@@ -955,7 +967,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Tool_Indicator_Does_Not_Stack_On_Generic_Archive_Content_Signals()
+    public void Assess_Tool_Indicator_Remains_Independent_In_Risky_Archive()
     {
         var analysis = new FileAnalysis
         {
@@ -965,9 +977,9 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(25, assessed.Score);
+        Assert.Equal(35, assessed.Score);
         Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
-        Assert.DoesNotContain("Tool.Indicator", assessed.Codes);
+        Assert.Contains("Tool.Indicator", assessed.Codes);
     }
 
     [Fact]
@@ -987,7 +999,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Appx_Container_Does_Not_Stack_Generic_Archive_Content_Penalties_With_Appx_Signals()
+    public void Assess_Appx_Container_Preserves_Generic_Archive_Content_Penalties()
     {
         var analysis = new FileAnalysis
         {
@@ -1003,10 +1015,10 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(55, assessed.Score);
+        Assert.Equal(100, assessed.Score);
         Assert.Contains("Sig.Absent", assessed.Codes);
-        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
-        Assert.DoesNotContain("Archive.ContainsScripts", assessed.Codes);
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.ContainsScripts", assessed.Codes);
         Assert.Contains("Appx.Capability.RunFullTrust", assessed.Codes);
         Assert.Contains("Appx.Capability.BroadFileSystemAccess", assessed.Codes);
         Assert.Contains("Appx.Extension.Protocol", assessed.Codes);
@@ -1179,7 +1191,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Archive_With_Embedded_Installer_Does_Not_Add_Generic_Executable_Container_Penalty()
+    public void Assess_Archive_With_Embedded_Installer_Also_Preserves_Executable_Penalty()
     {
         var analysis = new FileAnalysis
         {
@@ -1188,9 +1200,9 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(25, assessed.Score);
+        Assert.Equal(50, assessed.Score);
         Assert.Contains("Archive.ContainsInstallers", assessed.Codes);
-        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
         Assert.Equal(25, assessed.Factors["Archive.ContainsInstallers"]);
     }
 

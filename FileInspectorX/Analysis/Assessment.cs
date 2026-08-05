@@ -152,21 +152,13 @@ public static partial class FileInspector
         // Containers and archives
         bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
         bool isAppPackageContainer =
-            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix ||
-            string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
+            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix;
         bool hasInstallerContainer = (a.Flags & ContentFlags.ContainerContainsInstallers) != 0;
-        bool hasArchiveContentRisk =
-            (a.Flags & (ContentFlags.ContainerContainsExecutables |
-                        ContentFlags.ContainerContainsScripts |
-                        ContentFlags.ContainerContainsInstallers |
-                        ContentFlags.ContainerHasDisguisedExecutables)) != 0;
-
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
         if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer && !hasInstallerContainer) Add("Archive.ContainsExecutables", 25);
-        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !isAppPackageContainer) Add("Archive.ContainsScripts", 20);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) Add("Archive.ContainsScripts", 20);
         if (hasInstallerContainer) Add("Archive.ContainsInstallers", 25);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
         if (hasDisguisedExecutables) Add("Archive.DisguisedExecutables", 25);
@@ -243,24 +235,21 @@ public static partial class FileInspector
         var sig = a.Authenticode;
         bool hasSignaturePresence =
             sig?.Present == true ||
-            sig?.IsTrustedWindowsPolicy == true ||
+            sig?.IsTrustedWindowsPolicy != null ||
             !string.IsNullOrWhiteSpace(sig?.SignerSubject) ||
             !string.IsNullOrWhiteSpace(sig?.SignerThumbprint);
 
         if (sig != null && hasSignaturePresence)
         {
-            bool hasPrimaryTrustFailure = false;
             bool hasSignatureFailure = false;
             if (sig.IsSelfSigned == true)
             {
                 Add("Sig.SelfSigned", 20);
-                hasPrimaryTrustFailure = true;
                 hasSignatureFailure = true;
             }
-            else if (sig.ChainValid == false)
+            if (sig.ChainValid == false)
             {
                 Add("Sig.ChainInvalid", 25);
-                hasPrimaryTrustFailure = true;
                 hasSignatureFailure = true;
             }
             if (sig.EnvelopeSignatureValid == false)
@@ -268,7 +257,7 @@ public static partial class FileInspector
                 Add("Sig.BadEnvelope", 15);
                 hasSignatureFailure = true;
             }
-            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false)
+            if (sig.IsTrustedWindowsPolicy == false)
             {
                 Add("Sig.WinTrustInvalid", 25);
                 hasSignatureFailure = true;
@@ -297,7 +286,7 @@ public static partial class FileInspector
             switch (f)
             {
                 case var t when t != null && t.StartsWith("tool:"):
-                    if (!hasArchiveContentRisk) AddSecurityFindingCode("Tool.Indicator", 10);
+                    AddSecurityFindingCode("Tool.Indicator", 10);
                     break;
                 case "ps:encoded": AddSecurityFindingCode("Script.Encoded", 25); break;
                 case "ps:iex": AddSecurityFindingCode("Script.IEX", 20); break;
@@ -488,11 +477,17 @@ public static partial class FileInspector
 
         // Package vendor presence / allow-list hints
         string? pkgVendor = a.Installer?.PublisherDisplayName ?? a.Installer?.Publisher ?? a.Installer?.Manufacturer;
+        var vendorSignature = a.Authenticode;
+        bool trustedVendorIdentity = vendorSignature?.Present == true &&
+            vendorSignature.EnvelopeSignatureValid == true &&
+            vendorSignature.ChainValid == true &&
+            vendorSignature.FileHashMatches != false &&
+            (vendorSignature.IsTrustedWindowsPolicy == true || vendorSignature.FileHashMatches == true);
         bool packageVendorAllowed = false;
         if (!string.IsNullOrWhiteSpace(pkgVendor))
         {
             Add("Package.VendorPresent", 0);
-            packageVendorAllowed = IsAllowedVendor(pkgVendor);
+            packageVendorAllowed = trustedVendorIdentity && IsAllowedVendor(pkgVendor);
             if (packageVendorAllowed) Add("Package.VendorAllowed", -15);
         }
         else if (a.Installer != null)
@@ -502,9 +497,9 @@ public static partial class FileInspector
         }
         // Signature vendor allow
         var sigCn = a.Authenticode?.SignerSubjectCN; var sigOrg = a.Authenticode?.SignerSubjectO;
-        bool signatureVendorAllowed =
-            (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) ||
-            (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg));
+        bool signatureVendorAllowed = trustedVendorIdentity &&
+            ((!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) ||
+             (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)));
 
         if (!packageVendorAllowed && signatureVendorAllowed) Add("Sig.VendorAllowed", -10);
         else if (a.Authenticode?.Present == true)

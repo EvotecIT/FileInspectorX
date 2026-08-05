@@ -89,8 +89,11 @@ internal static partial class Signatures {
                     }
                     if (directoryOffset < directoryRanges[range].End && directoryEnd > directoryRanges[range].Start) return false;
                 }
-                if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
-                directories.Add((directoryOffset, (int)directoryLength));
+                if (!existingDirectory)
+                {
+                    directoryRanges.Add((directoryOffset, directoryEnd));
+                    directories.Add((directoryOffset, (int)directoryLength));
+                }
             }
             for (int index = 0; index < directories.Count; index++) {
                 uint directoryOffset = directories[index].Offset;
@@ -195,7 +198,7 @@ internal static partial class Signatures {
 
     private static bool TryReadWoff2Byte(Stream stream, uint declaredLength, ref long cursor, out byte value) {
         value = 0;
-        if (cursor >= declaredLength) return false;
+        if (cursor >= declaredLength || cursor >= Math.Max(48, Settings.DetectionReadBudgetBytes)) return false;
         int current = stream.ReadByte();
         if (current < 0) return false;
         cursor++;
@@ -349,8 +352,11 @@ internal static partial class Signatures {
                 }
                 if (directoryOffset < directoryRanges[range].End && directoryEnd > directoryRanges[range].Start) return false;
             }
-            if (!existingDirectory) directoryRanges.Add((directoryOffset, directoryEnd));
-            directories.Add((directoryOffset, (int)directoryLength));
+            if (!existingDirectory)
+            {
+                directoryRanges.Add((directoryOffset, directoryEnd));
+                directories.Add((directoryOffset, (int)directoryLength));
+            }
         }
         bool sampledChecksums = false;
         bool allRequiredTables = true;

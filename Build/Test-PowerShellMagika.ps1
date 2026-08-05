@@ -89,6 +89,16 @@ try {
     if ($null -ne $deterministicOnly.Detection.LearnedClassification) {
         throw 'DisableMagika did not disable learned classification.'
     }
+
+    $requiredFailedClosed = $false
+    try {
+        Get-FileInsight -Path $fixturePath -DisableMagika -LearnedClassificationMode Required -ErrorAction Stop
+    } catch {
+        $requiredFailedClosed = $true
+    }
+    if (-not $requiredFailedClosed) {
+        throw 'Required learned-classification mode silently fell back after Magika was disabled.'
+    }
 } finally {
     if (Test-Path -LiteralPath $fixturePath) {
         Remove-Item -LiteralPath $fixturePath -Force

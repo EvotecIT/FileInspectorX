@@ -209,7 +209,8 @@ public static class DangerousExtensions {
     {
         "exe", "dll", "sys", "msi", "msp", "cpl", "scr", "pif", "com",
         "bat", "cmd", "ps1", "psm1", "psd1", "vbs", "js", "jse", "wsf", "wsh",
-        "reg", "hta", "lnk",
+        "sh", "bash", "zsh", "py", "rb", "lua",
+        "reg", "hta", "lnk", "chm", "swf",
         "class", "dex", "wasm", "elf", "macho", "jar", "apk", "ipa", "crx", "deb", "rpm", "appx", "msix", "xap", "vsix"
     };
 

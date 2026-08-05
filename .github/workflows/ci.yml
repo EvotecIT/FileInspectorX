@@ -36,8 +36,6 @@ jobs:
   build-test:
     name: Build/Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -112,9 +110,24 @@ jobs:
           name: coverage-${{ matrix.os }}
           path: ./TestResults/**/coverage.cobertura.xml
 
+      - name: Check Codecov token availability
+        id: codecov-token
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [[ -n "$CODECOV_TOKEN" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload coverage to Codecov
-        if: runner.os == 'Linux' && env.CODECOV_TOKEN != '' && hashFiles('TestResults/**/coverage.cobertura.xml') != ''
-        uses: codecov/codecov-action@v6
+        if: runner.os == 'Linux' && steps.codecov-token.outputs.available == 'true' && hashFiles('TestResults/**/coverage.cobertura.xml') != ''
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: ./TestResults/**/coverage.cobertura.xml
           token: ${{ env.CODECOV_TOKEN }}
@@ -122,5 +135,5 @@ jobs:
           fail_ci_if_error: false
 
       - name: Coverage upload skipped (missing CODECOV_TOKEN)
-        if: runner.os == 'Linux' && env.CODECOV_TOKEN == ''
+        if: runner.os == 'Linux' && steps.codecov-token.outputs.available != 'true'
         run: echo "Skipping Codecov upload because CODECOV_TOKEN is not configured."

@@ -290,6 +290,18 @@ public class Settings {
     public static int JsonStructuralValidationTimeoutMs { get; set; } = 4000;
 
     /// <summary>
+    /// Maximum nesting depth accepted by JSON structural validation.
+    /// Defaults to 128. Values less than 1 reject all container nesting.
+    /// </summary>
+    public static int JsonStructuralValidationMaxDepth { get; set; } = 128;
+
+    /// <summary>
+    /// Maximum encoded byte length accepted for an individual NetCDF name.
+    /// Defaults to 64 KiB to bound validation allocations for untrusted metadata.
+    /// </summary>
+    public static int NetCdfNameMaxBytes { get; set; } = 64 * 1024;
+
+    /// <summary>
     /// Maximum file size in bytes to validate when <see cref="AdmxAdmlXmlWellFormednessValidationEnabled"/> is true.
     /// Defaults to 5 MB.
     /// </summary>
@@ -414,10 +426,10 @@ public class Settings {
     public static int WinTrustCacheMaxEntries { get; set; } = 0;
 
     /// <summary>
-    /// When true, safe MSI/AppX/Installer metadata enrichment is collected by default.
-    /// Riskier MSI-specific paths such as CustomActions and SummaryInformation remain opt-in.
+    /// When true, MSI/AppX/Installer metadata enrichment is available to callers that also opt in.
+    /// Default false because native installer parsing is not a safe default for untrusted files.
     /// </summary>
-    public static bool IncludeInstaller { get; set; } = true;
+    public static bool IncludeInstaller { get; set; } = false;
 
     /// <summary>
     /// When true, MSI CustomAction summary is collected (Windows only) during installer enrichment.
@@ -481,6 +493,29 @@ public class Settings {
     /// Defaults to false to keep payloads smaller.
     /// </summary>
     public static bool ReferenceFullListsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// When true, generic ReportView exports scanner-host ownership and permission details.
+    /// Default false; raw FileAnalysis remains available to trusted local callers.
+    /// </summary>
+    public static bool ReportHostFileMetadataEnabled { get; set; } = false;
+
+    /// <summary>
+    /// When true, script finding evidence may include sanitized source snippets.
+    /// Default false because sanitizers cannot prove that arbitrary source text contains no secrets.
+    /// </summary>
+    public static bool FindingEvidenceSnippetsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// When true, reference extraction may query local filesystem existence for extracted paths.
+    /// Default false so untrusted references cannot trigger UNC or mapped-drive network access.
+    /// </summary>
+    public static bool ReferencePathExistenceChecksEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Maximum characters read from the Zone.Identifier alternate data stream. Default 64 KiB.
+    /// </summary>
+    public static int MotwMaxCharacters { get; set; } = 64 * 1024;
     /// <summary>
     /// Maximum number of bytes read from reference-bearing text files (html/xml/scripts/ini/url) during reference extraction.
     /// Default 512 KB. Set to 0 to use the default cap.
@@ -508,10 +543,10 @@ public class Settings {
     public static string[] AllowedVendors { get; set; } = Array.Empty<string>();
 
     /// <summary>
-    /// Vendor match mode for AllowedVendors list. 'Contains' (default) matches if vendor string contains an allowed token (case-insensitive).
-    /// 'Exact' requires a full case-insensitive equality.
+    /// Vendor match mode for AllowedVendors list. Exact matching is the safe default;
+    /// Contains must be selected explicitly for compatibility scenarios.
     /// </summary>
-    public static VendorMatchMode VendorMatchMode { get; set; } = VendorMatchMode.Contains;
+    public static VendorMatchMode VendorMatchMode { get; set; } = VendorMatchMode.Exact;
 
     /// <summary>
     /// When true, zip/tar container analysis performs a deeper scan of inner entries (bounded by budgets) to detect disguised types and suspicious names.
@@ -528,6 +563,11 @@ public class Settings {
     /// Maximum number of bytes to read from each inner entry during deep scan. Default 262144 (256 KB).
     /// </summary>
     public static int DeepContainerMaxEntryBytes { get; set; } = 262_144;
+
+    /// <summary>
+    /// Maximum nested archive depth followed during deep container analysis. Default 3.
+    /// </summary>
+    public static int DeepContainerMaxDepth { get; set; } = 3;
 
     /// <summary>Maximum number of archive entries materialized or enumerated during one inspection.</summary>
     public static int ArchiveMaxEntries { get; set; } = 4_096;
@@ -613,9 +653,9 @@ public class Settings {
 /// </summary>
 public enum VendorMatchMode
 {
-    /// <summary>Case-insensitive substring match (default).</summary>
+    /// <summary>Case-insensitive substring match. This accepts spoofable superstrings and is not recommended for trust policy.</summary>
     Contains = 0,
-    /// <summary>Case-insensitive full equality.</summary>
+    /// <summary>Case-insensitive full equality (default).</summary>
     Exact = 1
 }
 

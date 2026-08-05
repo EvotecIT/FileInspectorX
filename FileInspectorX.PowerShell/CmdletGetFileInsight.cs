@@ -13,7 +13,7 @@ using FileInspectorX.Magika;
 namespace FileInspectorX.PowerShell {
     /// <summary>
     /// <para type="synopsis">Analyzes files and returns a full FileAnalysis object by default, with optional compact views.</para>
-    /// <para type="description">By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.</para>
+    /// <para type="description">By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Installer metadata and Windows shell properties require -EnableInstaller and -EnableShellProperties because those native parsers process input in the current process. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.</para>
     /// <example>
     ///  <para>Analyze a single file</para>
     ///  <code>Get-FileInsight -Path C:\\files\\sample.docx</code>
@@ -27,8 +27,8 @@ namespace FileInspectorX.PowerShell {
     ///  <code>Get-ChildItem -Filter *.exe -File -Recurse | Get-FileInsight -View Detection</code>
     /// </example>
     /// <example>
-    ///  <para>Summarize a directory, skipping signature and installer enrichment</para>
-    ///  <code>Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -ExcludeInstaller</code>
+    ///  <para>Summarize a directory without signature enrichment</para>
+    ///  <code>Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature</code>
     /// </example>
     /// <example>
     ///  <para>Include SHA-256 and first 16 bytes header (hex)</para>
@@ -89,12 +89,16 @@ namespace FileInspectorX.PowerShell {
         [Parameter()] public SwitchParameter ExcludeReferences { get; set; }
         /// <summary>Exclude installer/package metadata (MSIX/APPX/VSIX/MSI).</summary>
         [Parameter()] public SwitchParameter ExcludeInstaller { get; set; }
+        /// <summary>Opt in to installer/package metadata parsing.</summary>
+        [Parameter()] public SwitchParameter EnableInstaller { get; set; }
         /// <summary>Exclude container triage (ZIP/TAR sampling, subtype and inner hints).</summary>
         [Parameter()] public SwitchParameter ExcludeContainer { get; set; }
         /// <summary>Exclude assessment (score/decision/codes).</summary>
         [Parameter()] public SwitchParameter ExcludeAssessment { get; set; }
         /// <summary>Exclude Windows shell properties (Explorer Details).</summary>
         [Parameter()] public SwitchParameter ExcludeShellProperties { get; set; }
+        /// <summary>Opt in to Windows shell property handlers.</summary>
+        [Parameter()] public SwitchParameter EnableShellProperties { get; set; }
 
         /// <summary>Disable the default Magika assistance and use deterministic analysis only.</summary>
         [Parameter()]
@@ -122,6 +126,16 @@ namespace FileInspectorX.PowerShell {
             // Bridge internal logger to PowerShell streams (optional; zero logic beyond wiring).
             _logger = new InternalLogger(false);
             _ = new InternalLoggerPowerShell(_logger, this.WriteVerbose, this.WriteWarning, this.WriteDebug, this.WriteError, this.WriteProgress, this.WriteInformation);
+            if (LearnedClassificationMode == FileInspectorX.LearnedClassificationMode.Required && !IsMagikaEnabled)
+            {
+                ThrowTerminatingError(new ErrorRecord(
+                    new LearnedClassificationException(
+                        "Magika Required mode was requested, but the provider is disabled, unavailable in this build, or unsupported by this process architecture.",
+                        new InvalidOperationException("The required Magika provider is unavailable.")),
+                    "RequiredLearnedClassificationUnavailable",
+                    ErrorCategory.ResourceUnavailable,
+                    targetObject: null));
+            }
             if (IsMagikaEnabled)
             {
                 try
@@ -172,10 +186,10 @@ namespace FileInspectorX.PowerShell {
                 IncludePermissions = !ExcludePermissions,
                 IncludeAuthenticode = !ExcludeSignature,
                 IncludeReferences = !ExcludeReferences,
-                IncludeInstaller = !ExcludeInstaller,
+                IncludeInstaller = EnableInstaller && !ExcludeInstaller,
                 IncludeContainer = !ExcludeContainer,
                 IncludeAssessment = !ExcludeAssessment,
-                IncludeShellProperties = !ExcludeShellProperties,
+                IncludeShellProperties = EnableShellProperties && !ExcludeShellProperties,
                 LearnedClassifier = _magikaClassifier,
                 LearnedClassificationMode = IsMagikaEnabled
                     ? LearnedClassificationMode
