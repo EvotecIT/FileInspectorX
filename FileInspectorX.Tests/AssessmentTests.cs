@@ -1020,7 +1020,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Appx_Container_Preserves_Generic_Archive_Content_Penalties()
+    public void Assess_Appx_Container_Uses_Package_Signals_Without_Generic_Content_Penalties()
     {
         var analysis = new FileAnalysis
         {
@@ -1036,10 +1036,10 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(100, assessed.Score);
+        Assert.Equal(55, assessed.Score);
         Assert.Contains("Sig.Absent", assessed.Codes);
-        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
-        Assert.Contains("Archive.ContainsScripts", assessed.Codes);
+        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
+        Assert.DoesNotContain("Archive.ContainsScripts", assessed.Codes);
         Assert.Contains("Appx.Capability.RunFullTrust", assessed.Codes);
         Assert.Contains("Appx.Capability.BroadFileSystemAccess", assessed.Codes);
         Assert.Contains("Appx.Extension.Protocol", assessed.Codes);

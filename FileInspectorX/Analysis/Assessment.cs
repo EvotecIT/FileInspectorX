@@ -151,14 +151,18 @@ public static partial class FileInspector
 
         // Containers and archives
         bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
-        bool isAppPackageContainer =
+        bool hasAppPackageIdentity =
             a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix;
+        bool isAppPackageContainer =
+            hasAppPackageIdentity ||
+            string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
         bool hasInstallerContainer = (a.Flags & ContentFlags.ContainerContainsInstallers) != 0;
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
         if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables) Add("Archive.ContainsExecutables", 25);
-        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0) Add("Archive.ContainsScripts", 20);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !isAppPackageContainer) Add("Archive.ContainsScripts", 20);
         if (hasInstallerContainer) Add("Archive.ContainsInstallers", 25);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
         if (hasDisguisedExecutables) Add("Archive.DisguisedExecutables", 25);
@@ -233,9 +237,11 @@ public static partial class FileInspector
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;
+        bool winTrustReportsNoSignature = sig?.WinTrustStatusCode == TrustENoSignature;
         bool hasSignaturePresence =
             sig?.Present == true ||
             sig?.IsTrustedWindowsPolicy == true ||
+            (sig?.WinTrustStatusCode.HasValue == true && !winTrustReportsNoSignature) ||
             !string.IsNullOrWhiteSpace(sig?.SignerSubject) ||
             !string.IsNullOrWhiteSpace(sig?.SignerThumbprint);
 
@@ -257,7 +263,7 @@ public static partial class FileInspector
                 Add("Sig.BadEnvelope", 15);
                 hasSignatureFailure = true;
             }
-            if (sig.IsTrustedWindowsPolicy == false)
+            if (sig.IsTrustedWindowsPolicy == false && !winTrustReportsNoSignature)
             {
                 Add("Sig.WinTrustInvalid", 25);
                 hasSignatureFailure = true;
@@ -267,7 +273,7 @@ public static partial class FileInspector
         else
         {
             var ext = a.Detection?.Extension?.ToLowerInvariant();
-            if (ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx" || isAppPackageContainer)
+            if (ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx" || hasAppPackageIdentity)
                 Add("Sig.Absent", 10);
         }
 

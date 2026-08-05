@@ -30,6 +30,7 @@ internal static partial class Signatures
         if (TryMatchIcon(src, out result)) return true;
         if (TryMatchChm(src, completeLength, out result)) return true;
         if (TryMatchSwf(src, completeLength, out result)) return true;
+        if (TryMatchRegistryExport(src, out result)) return true;
         result = null;
         return false;
     }
