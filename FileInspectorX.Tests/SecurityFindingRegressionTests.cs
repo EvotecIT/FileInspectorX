@@ -56,6 +56,31 @@ public sealed class SecurityFindingRegressionTests
     }
 
     [Fact]
+    public void CabDataBlockValidationUsesOneAggregateBudget()
+    {
+        int previous = Settings.DetectionReadBudgetBytes;
+        try
+        {
+            var bytes = CreateCabWithDataBlocks(3);
+
+            Settings.DetectionReadBudgetBytes = 24;
+            var complete = FileInspector.Detect(bytes);
+            Assert.Equal("cab", complete?.Extension);
+            Assert.Equal("High", complete?.Confidence);
+
+            Settings.DetectionReadBudgetBytes = 16;
+            var budgetLimited = FileInspector.Detect(bytes);
+            Assert.Equal("cab", budgetLimited?.Extension);
+            Assert.Equal("Medium", budgetLimited?.Confidence);
+            Assert.Contains("validation-budget-exceeded", budgetLimited?.Reason);
+        }
+        finally
+        {
+            Settings.DetectionReadBudgetBytes = previous;
+        }
+    }
+
+    [Fact]
     public void Hdf5UserBlockSignatureDoesNotMaskPortableExecutable()
     {
         var pe = TestHelpers.CreateMinimalPe();
@@ -617,6 +642,35 @@ public sealed class SecurityFindingRegressionTests
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         protected override void Dispose(bool disposing) { if (disposing) _inner.Dispose(); base.Dispose(disposing); }
+    }
+
+    private static byte[] CreateCabWithDataBlocks(ushort blockCount)
+    {
+        const int filesOffset = 44;
+        const int dataOffset = 62;
+        int cabinetSize = dataOffset + blockCount * 9;
+        var bytes = new byte[cabinetSize];
+        Encoding.ASCII.GetBytes("MSCF").CopyTo(bytes, 0);
+        TestHelpers.WriteUInt32LittleEndian(bytes, 8, (uint)cabinetSize);
+        TestHelpers.WriteUInt32LittleEndian(bytes, 16, filesOffset);
+        bytes[24] = 3;
+        bytes[25] = 1;
+        TestHelpers.WriteUInt16LittleEndian(bytes, 26, 1);
+        TestHelpers.WriteUInt16LittleEndian(bytes, 28, 1);
+        TestHelpers.WriteUInt32LittleEndian(bytes, 36, dataOffset);
+        TestHelpers.WriteUInt16LittleEndian(bytes, 40, blockCount);
+        TestHelpers.WriteUInt32LittleEndian(bytes, filesOffset, blockCount);
+        bytes[filesOffset + 16] = (byte)'a';
+
+        for (int block = 0; block < blockCount; block++)
+        {
+            int offset = dataOffset + block * 9;
+            TestHelpers.WriteUInt16LittleEndian(bytes, offset + 4, 1);
+            TestHelpers.WriteUInt16LittleEndian(bytes, offset + 6, 1);
+            bytes[offset + 8] = (byte)block;
+        }
+
+        return bytes;
     }
 
     private sealed class CountingReadStream : MemoryStream
