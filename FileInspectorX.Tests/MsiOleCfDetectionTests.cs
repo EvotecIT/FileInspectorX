@@ -7,8 +7,10 @@ namespace FileInspectorX.Tests;
 
 public class MsiOleCfDetectionTests
 {
-    [Fact]
-    public void OleCfbf_WithMsiDirectoryNames_IsDetectedAsMsi()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(110)]
+    public void OleCfbf_WithMsiDirectoryNames_IsDetectedAsMsi(int declaredFatSectorCount)
     {
         var tmp = Path.GetTempFileName();
         try
@@ -24,8 +26,9 @@ public class MsiOleCfDetectionTests
             // sector size shift (0x1E) = 9 => 512 bytes
             header[0x1E] = 0x09; header[0x1F] = 0x00;
             header[0x20] = 0x06; // mini-sector shift
-            // FAT count (0x2C) = 1
-            BitConverter.TryWriteBytes(new Span<byte>(header, 0x2C, 4), 1);
+            // Large files can declare more FAT sectors than fit in the 109 header DIFAT slots.
+            // The bounded reader can still use the valid header entries it has available.
+            BitConverter.TryWriteBytes(new Span<byte>(header, 0x2C, 4), declaredFatSectorCount);
             // Directory start SID (0x30) = 2 (will be at offset 512 + (2+1)*512)
             BitConverter.TryWriteBytes(new Span<byte>(header, 0x30, 4), 2);
             // DIFAT first entry at 0x4C = FAT sector SID 0

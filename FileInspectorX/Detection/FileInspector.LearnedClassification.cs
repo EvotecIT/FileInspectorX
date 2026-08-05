@@ -192,7 +192,7 @@ public static partial class FileInspector
             result.Score = null;
             result.Reason = "learned:" + prediction.Provider.ToLowerInvariant() + ":" + prediction.OutputLabel;
             result.ReasonDetails = "model:" + prediction.ModelId;
-            result.IsDangerous = DangerousExtensions.IsDangerous(result.Extension);
+            result.IsDangerous = result.IsDangerous || DangerousExtensions.IsDangerous(result.Extension);
             AlignCandidatesAfterLearnedPromotion(
                 result,
                 deterministicPrimary,
@@ -581,7 +581,8 @@ public static partial class FileInspector
 
         return result.Extension.Equals("txt", StringComparison.OrdinalIgnoreCase) ||
                result.Extension.Equals("text", StringComparison.OrdinalIgnoreCase) ||
-               result.Reason.Contains("bias:decl:", StringComparison.OrdinalIgnoreCase);
+               result.Reason.IndexOf("bias:decl:", StringComparison.OrdinalIgnoreCase) >= 0 &&
+               !DangerousExtensions.IsDangerous(result.Extension);
     }
 
     private static bool ExtensionsEquivalent(string? left, string? right)

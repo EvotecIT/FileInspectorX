@@ -1,10 +1,10 @@
 namespace FileInspectorX;
 
 /// <summary>
-/// Additional consolidated signatures maintained as a separate set to keep core tables small.
+/// Consolidated prefix signatures that do not yet have a dedicated structural detector.
+/// Short or structurally sensitive formats belong in a validated detector instead of this table.
 /// </summary>
 internal static partial class Signatures {
-    // Standard signatures consolidated from reference sources
     internal static readonly Signature[] Standard = new[] {
         new Signature("vob", "application/octet-stream", new byte[]{0x00,0x00,0x01,0xBA}, "Medium"),
         new Signature("hlp", "application/octet-stream", new byte[]{0x00,0x00,0xFF,0xFF,0xFF,0xFF}, "Medium"),

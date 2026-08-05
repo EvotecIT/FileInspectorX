@@ -2,8 +2,23 @@ using Xunit;
 
 namespace FileInspectorX.Tests;
 
-public class DetectionDetailsTests
+[Collection(nameof(DetectionSettingsCollection))]
+public class DetectionDetailsTests : IDisposable
 {
+    private readonly bool _originalFindingEvidenceSnippetsEnabled = Settings.FindingEvidenceSnippetsEnabled;
+    private readonly bool _originalReportHostFileMetadataEnabled = Settings.ReportHostFileMetadataEnabled;
+
+    public DetectionDetailsTests()
+    {
+        Settings.FindingEvidenceSnippetsEnabled = true;
+        Settings.ReportHostFileMetadataEnabled = true;
+    }
+
+    public void Dispose()
+    {
+        Settings.FindingEvidenceSnippetsEnabled = _originalFindingEvidenceSnippetsEnabled;
+        Settings.ReportHostFileMetadataEnabled = _originalReportHostFileMetadataEnabled;
+    }
     [Fact]
     public void Analyze_And_Report_Expose_DetectionReasonDetails()
     {

@@ -206,7 +206,9 @@ internal static partial class SecurityHeuristics
     internal static (bool isLog, int info, int warn, int error) ClassifyLogFromText(string text)
     {
         if (string.IsNullOrEmpty(text)) return (false, 0, 0, 0);
-        int info=0, warn=0, error=0; int tsLines=0, total=0; bool eventViewer=false;
+        int info=0, warn=0, error=0; int tsLines=0, total=0;
+        int eventViewerLabels = 0;
+        bool eventViewerAnchor = false;
         int pathErrorLines = 0;
         using (var sr = new System.IO.StringReader(text))
         {
@@ -221,11 +223,16 @@ internal static partial class SecurityHeuristics
                 if (u.Contains("INFO")) info++;
                 if (u.Contains("WARN") || u.Contains("WARNING")) warn++;
                 if (u.Contains("ERROR") || u.Contains("ERR ")) error++;
-                if (!eventViewer && (u.Contains("LOG NAME:") && (u.Contains("EVENT ID:") || u.Contains("TASK CATEGORY:") || u.Contains("LEVEL:")))) eventViewer = true;
+                if (u.StartsWith("LOG NAME:")) { eventViewerLabels++; eventViewerAnchor = true; }
+                else if (u.StartsWith("EVENT ID:")) { eventViewerLabels++; eventViewerAnchor = true; }
+                else if (u.StartsWith("TASK CATEGORY:") || u.StartsWith("LEVEL:") ||
+                         u.StartsWith("SOURCE:") || u.StartsWith("COMPUTER:") ||
+                         u.StartsWith("DESCRIPTION:")) eventViewerLabels++;
                 if (LooksLikeWindowsPathErrorLine(l)) pathErrorLines++;
             }
         }
         // Basic log heuristic: at least a few timestamped lines or level tokens across multiple lines
+        bool eventViewer = eventViewerAnchor && eventViewerLabels >= 3;
         bool isLog = eventViewer || (tsLines >= 3 && total >= 10) || (info+warn+error >= 5) || pathErrorLines >= 3;
         return (isLog, info, warn, error);
     }
@@ -304,36 +311,12 @@ internal static partial class SecurityHeuristics
     private static bool IsCommonPsVerb(ReadOnlySpan<char> verb)
     {
         if (verb.Length < 2 || verb.Length > 16) return false;
-        return verb.Equals("get", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("set", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("new", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("add", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("remove", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("copy", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("move", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("rename", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("test", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("invoke", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("start", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("stop", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("enable", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("disable", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("import", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("export", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("select", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("convert", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("write", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("read", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("update", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("connect", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("disconnect", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("format", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("register", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("unregister", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("resolve", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("find", StringComparison.OrdinalIgnoreCase) ||
-               verb.Equals("build", StringComparison.OrdinalIgnoreCase);
+        var value = verb.ToString().ToLowerInvariant();
+        return value is "get" or "set" or "new" or "add" or "remove" or "clear" or
+               "copy" or "move" or "rename" or "test" or "invoke" or "start" or
+               "stop" or "enable" or "disable" or "import" or "export" or "select" or
+               "convert" or "write" or "read" or "update" or "connect" or "disconnect" or
+               "format" or "register" or "unregister" or "resolve" or "find" or "build";
     }
 
     private static bool IsAllowedHost(string host)
@@ -849,7 +832,7 @@ internal static partial class SecurityHeuristics
                 int len = end - start;
                 if (len < 24) continue;
 
-                var token = text.Substring(start, len);
+                var token = text.Substring(start, len).Trim('.');
                 if (LooksLikeJwtToken(token)) count++;
             }
             return count;
@@ -875,7 +858,9 @@ internal static partial class SecurityHeuristics
                 int len = i - start;
                 if (len < 24) continue;
 
-                var token = text.Substring(start, len);
+                var rawToken = text.Substring(start, len);
+                var token = rawToken.Trim('.');
+                start += rawToken.Length - rawToken.TrimStart('.').Length;
                 if (!LooksLikeJwtToken(token) || !seen.Add(token)) continue;
                 matches.Add(new JwtTokenMatch { Token = token, Index = start });
             }
@@ -1499,7 +1484,6 @@ internal static partial class SecurityHeuristics
                lower.IndexOf("replace_me", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("replace-with", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("replacewith", StringComparison.Ordinal) >= 0 ||
-               lower.IndexOf("replace", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("token_here", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("secret_here", StringComparison.Ordinal) >= 0 ||
                lower.IndexOf("key_here", StringComparison.Ordinal) >= 0 ||

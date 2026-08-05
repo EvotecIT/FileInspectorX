@@ -351,10 +351,10 @@ internal static partial class Signatures
             if (looksMd)
             {
                 var okByCues = declaredMd ? mdCues >= 1 : mdCues >= 2;
-                bool hasFence = sl.Contains("```");
+                bool hasFence = HasClosedMarkdownFence(sl);
                 bool hasHeading = sl.StartsWith("# ") || sl.Contains("\n# ");
                 bool mdStructural = hasFence || hasHeading;
-                if (okByCues && !logCuesLocal && (!scriptCues || declaredMd || mdStructural))
+                if (okByCues && !logCuesLocal && (!scriptCues || (declaredMd && hasFence)))
                 {
                     var mdConf = mdStructural ? "Medium" : "Low";
                     int mdAdjust = mdStructural ? 4 : 0;

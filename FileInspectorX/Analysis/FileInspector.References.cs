@@ -20,10 +20,10 @@ public static partial class FileInspector
             bool allowLowConfidenceDetectedScript = detectionConfidenceLow &&
                                                     IsReferenceFriendlyTextExtension(ext);
             bool detectedScriptLike = (!detectionConfidenceLow || allowLowConfidenceDetectedScript) &&
-                                      detectedExt is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css";
+                                      (IsScriptLikeExtension(detectedExt) || detectedExt == "css");
             bool isXmlLike = ext == "xml" || string.IsNullOrEmpty(ext) || detectedXmlLike;
             bool isHtmlLike = ext is "html" or "htm" || detectedHtmlLike;
-            bool isScriptLike = ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "css"
+            bool isScriptLike = IsScriptLikeExtension(ext) || ext == "css"
                                 || detectedScriptLike;
             var scriptSourceTag = detectedScriptLike && !string.IsNullOrWhiteSpace(detectedExt) && IsScriptTextSubtype(MapTextSubtypeFromExtension(detectedExt))
                 ? detectedExt
@@ -36,8 +36,7 @@ public static partial class FileInspector
             // Try for .xml; when ambiguous, a quick shape check happens inside
             if (isXmlLike)
             {
-                if (LooksLikeTaskXml(path))
-                    TryExtractTaskSchedulerXml(path, list);
+                TryExtractTaskSchedulerXml(path, list);
             }
 
             // GPO scripts INI (scripts.ini, psscripts.ini)
@@ -200,11 +199,12 @@ public static partial class FileInspector
             }
 
             // data: URIs inside scripts (strings or code)
+            var scriptCommentMap = BuildScriptCommentMap(text);
             int di = 0;
             while (di < text.Length)
             {
                 int at = text.IndexOf("data:", di, StringComparison.OrdinalIgnoreCase); if (at < 0) break;
-                if (!LooksLikeScriptDataUriStart(text, at))
+                if (scriptCommentMap[at] || !LooksLikeScriptDataUriStart(text, at))
                 {
                     di = at + 5;
                     continue;
@@ -239,85 +239,75 @@ public static partial class FileInspector
             static bool LooksLikeScriptDataUriStart(string script, int index)
             {
                 if (index < 0 || index >= script.Length) return false;
-                if (IsInsideScriptComment(script, index)) return false;
                 if (index == 0) return true;
 
                 char prev = script[index - 1];
                 return prev == '"' || prev == '\'' || prev == '`';
             }
 
-            static bool IsInsideScriptComment(string script, int index)
+            static bool[] BuildScriptCommentMap(string script)
             {
-                bool inLineComment = false;
-                bool inBlockComment = false;
-                bool inSingle = false;
-                bool inDouble = false;
-                bool inTemplate = false;
-
-                for (int i = 0; i < index && i < script.Length; i++)
+                var comments = new bool[script.Length];
+                bool inLineComment = false, inBlockComment = false;
+                bool inSingle = false, inDouble = false, inTemplate = false;
+                for (int index = 0; index < script.Length; index++)
                 {
-                    char c = script[i];
-                    char next = i + 1 < script.Length ? script[i + 1] : '\0';
-
+                    char current = script[index];
+                    char next = index + 1 < script.Length ? script[index + 1] : '\0';
                     if (inLineComment)
                     {
-                        if (c == '\r' || c == '\n')
-                            inLineComment = false;
+                        comments[index] = true;
+                        if (current is '\r' or '\n') inLineComment = false;
                         continue;
                     }
-
                     if (inBlockComment)
                     {
-                        if (c == '*' && next == '/')
+                        comments[index] = true;
+                        if (current == '*' && next == '/')
                         {
+                            comments[index + 1] = true;
                             inBlockComment = false;
-                            i++;
+                            index++;
                         }
                         continue;
                     }
-
                     if (inSingle)
                     {
-                        if (c == '\\' && i + 1 < script.Length) { i++; continue; }
-                        if (c == '\'') inSingle = false;
+                        if (current == '\\' && index + 1 < script.Length) { index++; continue; }
+                        if (current == '\'') inSingle = false;
                         continue;
                     }
-
                     if (inDouble)
                     {
-                        if (c == '\\' && i + 1 < script.Length) { i++; continue; }
-                        if (c == '"') inDouble = false;
+                        if (current == '\\' && index + 1 < script.Length) { index++; continue; }
+                        if (current == '"') inDouble = false;
                         continue;
                     }
-
                     if (inTemplate)
                     {
-                        if (c == '\\' && i + 1 < script.Length) { i++; continue; }
-                        if (c == '`') inTemplate = false;
+                        if (current == '\\' && index + 1 < script.Length) { index++; continue; }
+                        if (current == '`') inTemplate = false;
                         continue;
                     }
-
-                    if (c == '/' && next == '/')
+                    if (current == '/' && next == '/')
                     {
+                        comments[index] = comments[index + 1] = true;
                         inLineComment = true;
-                        i++;
-                        continue;
+                        index++;
                     }
-
-                    if (c == '/' && next == '*')
+                    else if (current == '/' && next == '*')
                     {
+                        comments[index] = comments[index + 1] = true;
                         inBlockComment = true;
-                        i++;
-                        continue;
+                        index++;
                     }
-
-                    if (c == '\'') { inSingle = true; continue; }
-                    if (c == '"') { inDouble = true; continue; }
-                    if (c == '`') { inTemplate = true; continue; }
+                    else if (current == '\'') inSingle = true;
+                    else if (current == '"') inDouble = true;
+                    else if (current == '`') inTemplate = true;
                 }
-
-                return inLineComment || inBlockComment;
+                return comments;
             }
+
         }
         catch { }
     }
@@ -1111,7 +1101,7 @@ public static partial class FileInspector
             {
                 var exp = ExpandEnv(best!);
                 var issues = ComputePathIssues(best!, exp, treatAsCommandHead: true);
-                bool exi = FileExistsSafe(exp);
+                bool? exi = FileExistsSafe(exp);
                 refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = best!, ExpandedValue = exp, Exists = exi, Issues = issues, SourceTag = "lnk:target" });
             }
         } catch { }
@@ -1156,7 +1146,7 @@ public static partial class FileInspector
                 {
                     var exp = ExpandEnv(cmd);
                     var iss = ComputePathIssues(cmd, exp, treatAsCommandHead: true);
-                    bool exi = FileExistsSafe(exp);
+                    bool? exi = FileExistsSafe(exp);
                     refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = cmd, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:scripts.xml" });
                 }
             }
@@ -1169,7 +1159,7 @@ public static partial class FileInspector
                     {
                         var exp = ExpandEnv(tok);
                         var iss = ComputePathIssues(tok, exp, treatAsCommandHead: false);
-                        bool exi = FileExistsSafe(exp);
+                        bool? exi = FileExistsSafe(exp);
                         refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = tok, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:scripts.xml" });
                     }
                 }
@@ -1179,35 +1169,19 @@ public static partial class FileInspector
 
     private static void TryExtractTaskSchedulerXml(string path, List<Reference> refs)
     {
-        // Preferred: parse as XML with namespace awareness; fallback to lenient text extraction
-        if (!TryExtractTaskSchedulerXmlDoc(path, refs))
-        {
-            try {
-                var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
-                string? ExtractCI(string tag)
-                {
-                    var open = "<" + tag + ">"; var close = "</" + tag + ">";
-                    int a = IndexOfCI(text, open); if (a < 0) return null; a += open.Length;
-                    int b = IndexOfCI(text, close, a); if (b < 0) return null;
-                    return text.Substring(a, b - a).Trim();
-                }
-                var command = ExtractCI("Command");
-                var arguments = ExtractCI("Arguments");
-                var workingDir = ExtractCI("WorkingDirectory");
-                var clsid = ExtractCI("ClassId");
-                EmitTaskRefs(command, arguments, workingDir, clsid, refs);
-            } catch { }
-        }
+        // Parse every XML candidate with the secure reader. This handles BOM/encoding
+        // declarations and late Actions nodes without a lossy UTF-8 prefix precheck.
+        TryExtractTaskSchedulerXmlDoc(path, refs);
     }
 
     private static bool TryExtractTaskSchedulerXmlDoc(string path, List<Reference> refs)
     {
         try {
-            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreComments = true, IgnoreProcessingInstructions = true, IgnoreWhitespace = true, CloseInput = true, XmlResolver = null };
+            var maxBytes = Settings.ReferenceExtractionMaxBytes > 0
+                ? Settings.ReferenceExtractionMaxBytes
+                : 512 * 1024;
             using var fs = File.OpenRead(path);
-            using var xr = XmlReader.Create(fs, settings);
-            var doc = new XmlDocument { XmlResolver = null };
-            doc.Load(xr);
+            if (!BoundedXmlDocument.TryLoad(fs, maxBytes, out var doc)) return false;
 
             var root = doc.DocumentElement; if (root == null || !root.Name.EndsWith("Task", StringComparison.OrdinalIgnoreCase)) return false;
             string ns = root.NamespaceURI ?? string.Empty;
@@ -1264,7 +1238,7 @@ public static partial class FileInspector
             var img = command!.Trim();
             var expanded = ExpandEnv(img);
             var issues = ComputePathIssues(img, expanded, treatAsCommandHead: true);
-            bool exists = FileExistsSafe(expanded);
+            bool? exists = FileExistsSafe(expanded);
             if (LooksLikePath(img))
             {
                 refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = img, ExpandedValue = expanded, Exists = exists, Issues = issues, SourceTag = "task:exec" });
@@ -1278,7 +1252,7 @@ public static partial class FileInspector
                     {
                         var exp = ExpandEnv(tok);
                         var iss = ComputePathIssues(tok, exp, treatAsCommandHead: false);
-                        bool exi = FileExistsSafe(exp);
+                        bool? exi = FileExistsSafe(exp);
                         refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = tok, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "task:args" });
                     }
                 }
@@ -1314,7 +1288,7 @@ public static partial class FileInspector
                     {
                         var exp = ExpandEnv(val);
                         var iss = ComputePathIssues(val, exp, treatAsCommandHead: true);
-                        bool exi = FileExistsSafe(exp);
+                        bool? exi = FileExistsSafe(exp);
                         refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = val, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:scripts.ini" });
                     }
                 }
@@ -1327,7 +1301,7 @@ public static partial class FileInspector
                         {
                             var exp = ExpandEnv(tok);
                             var iss = ComputePathIssues(tok, exp, treatAsCommandHead: false);
-                            bool exi = FileExistsSafe(exp);
+                            bool? exi = FileExistsSafe(exp);
                             refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = tok, ExpandedValue = exp, Exists = exi, Issues = iss, SourceTag = "gpo:params" });
                         }
                     }
@@ -1377,7 +1351,10 @@ public static partial class FileInspector
         bool wasQuoted = IsQuotedToken(raw);
         if (treatAsCommandHead && hasSpaces && !wasQuoted) issues |= ReferenceIssue.UnquotedPathWithSpaces;
         if (t.StartsWith("\\\\")) issues |= ReferenceIssue.UncPath;
-        if (System.IO.Path.IsPathRooted(t) && !t.StartsWith(".\\") && !t.StartsWith("..\\") && !t.StartsWith("./") && !t.StartsWith("../"))
+        bool windowsDriveRooted = t.Length >= 3 && char.IsLetter(t[0]) && t[1] == ':' &&
+                                  (t[2] == '\\' || t[2] == '/');
+        if ((System.IO.Path.IsPathRooted(t) || windowsDriveRooted) &&
+            !t.StartsWith(".\\") && !t.StartsWith("..\\") && !t.StartsWith("./") && !t.StartsWith("../"))
             issues |= ReferenceIssue.AbsolutePath;
         if (t.StartsWith(".\\") || t.StartsWith("..\\") || t.StartsWith("./") || t.StartsWith("../")) issues |= ReferenceIssue.RelativePath;
         if (t.IndexOf('%') >= 0 && string.Equals(expandedNormalized, t, StringComparison.Ordinal)) issues |= ReferenceIssue.ContainsEnvVars;
@@ -1392,14 +1369,28 @@ public static partial class FileInspector
         return issues;
     }
 
-    private static bool FileExistsSafe(string? p)
+    private static bool? FileExistsSafe(string? p)
     {
+        if (!Settings.ReferencePathExistenceChecksEnabled) return null;
         try
         {
             var normalized = NormalizePathToken(p);
-            return !string.IsNullOrWhiteSpace(normalized) && File.Exists(normalized);
+            if (string.IsNullOrWhiteSpace(normalized)) return null;
+            if (normalized.StartsWith("\\\\", StringComparison.Ordinal)) return null;
+#if NET8_0_OR_GREATER || NET472
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                var root = Path.GetPathRoot(normalized);
+                if (!string.IsNullOrWhiteSpace(root))
+                {
+                    var drive = new DriveInfo(root);
+                    if (drive.DriveType == DriveType.Network) return null;
+                }
+            }
+#endif
+            return File.Exists(normalized);
         }
-        catch { return false; }
+        catch { return null; }
     }
 
     private static bool IsReferenceFriendlyTextExtension(string? extension)

@@ -84,14 +84,17 @@ internal static partial class Signatures {
         var dataOffsets = new uint[folderCount];
         var dataBlockCounts = new ushort[folderCount];
         var compressionTypes = new byte[folderCount];
+        var uniqueDataOffsets = new System.Collections.Generic.HashSet<uint>();
         bool payloadIntegrityNotValidated = false;
         var folderDataRanges = new System.Collections.Generic.List<CabDataRange>(folderCount);
+        int remainingDataBlocks = Math.Max(1, Settings.DetectionReadBudgetBytes / (8 + dataReserve));
         for (int folder = 0; folder < folderCount; folder++) {
             int record = checked(cursor + (int)(folder * folderRecordSize));
             uint dataOffset = ReadUInt32LittleEndian(src, record);
             ushort dataBlockCount = ReadUInt16LittleEndian(src, record + 4);
             ushort compressionType = ReadUInt16LittleEndian(src, record + 6);
             if (dataOffset > cabinetSize) return false;
+            if (dataBlockCount != 0 && !uniqueDataOffsets.Add(dataOffset)) return false;
             if (!IsValidCabCompressionType(compressionType)) return false;
             dataOffsets[folder] = dataOffset;
             dataBlockCounts[folder] = dataBlockCount;
@@ -134,6 +137,8 @@ internal static partial class Signatures {
             if (dataCursor < cursor || dataCursor >= cabinetSize) return false;
             ulong uncompressedLength = 0;
             for (int block = 0; block < dataBlockCount; block++) {
+                if (remainingDataBlocks-- == 0)
+                    return TryCreateBudgetLimitedCab(out result);
                 long blockHeaderLength = 8L + dataReserve;
                 if (dataCursor > cabinetSize - blockHeaderLength) return false;
                 if (dataCursor + blockHeaderLength > src.Length)
@@ -196,14 +201,20 @@ internal static partial class Signatures {
         return true;
     }
 
+    private static bool TryCreateBudgetLimitedCab(out ContentTypeDetectionResult? result) {
+        result = CabResult(complete: false, validationBudgetExceeded: true);
+        return true;
+    }
+
     private static ContentTypeDetectionResult CabResult(bool complete, bool payloadIntegrityNotValidated = false,
-        bool trailingDataNotValidated = false) => new() {
+        bool trailingDataNotValidated = false, bool validationBudgetExceeded = false) => new() {
         Extension = "cab",
         MimeType = "application/vnd.ms-cab-compressed",
         Confidence = complete && !payloadIntegrityNotValidated && !trailingDataNotValidated ? "High" : "Medium",
         Reason = "cab:cfheader" + (complete ? ";folders+files" : ";sampled-structures") +
                  (payloadIntegrityNotValidated ? ";payload-integrity-not-validated" : string.Empty) +
-                 (trailingDataNotValidated ? ";trailing-data-not-validated" : string.Empty)
+                 (trailingDataNotValidated ? ";trailing-data-not-validated" : string.Empty) +
+                 (validationBudgetExceeded ? ";validation-budget-exceeded" : string.Empty)
     };
 
     internal static bool TryMatchTar(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result) {

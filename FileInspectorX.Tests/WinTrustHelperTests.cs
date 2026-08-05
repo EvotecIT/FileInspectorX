@@ -82,7 +82,7 @@ public class WinTrustHelperTests
             Assert.True(
                 analysis.Authenticode == null ||
                 (!analysis.Authenticode.IsTrustedWindowsPolicy.HasValue &&
-                 !((analysis.Authenticode.VerificationNote ?? string.Empty).Contains("WinTrust", StringComparison.OrdinalIgnoreCase))));
+                 (analysis.Authenticode.VerificationNote ?? string.Empty).IndexOf("WinTrust", StringComparison.OrdinalIgnoreCase) < 0));
         }
         finally
         {

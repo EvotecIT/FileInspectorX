@@ -144,28 +144,24 @@ public static partial class FileInspector
 
             return false;
         }
-        bool IsEmbeddedExecutableExtension(string ext) => ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx";
-        bool IsEmbeddedScriptExtension(string ext) => ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "js" or "vbs" or "vbe" or "wsf" or "wsh" or "py" or "rb";
+        bool IsEmbeddedExecutableExtension(string? ext) => ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx";
+        bool IsEmbeddedScriptExtension(string? ext) => MapScriptLanguageFromExtension(ext) != null;
 
         if (!a.AnalysisComplete) Add("Analysis.Incomplete", 0);
 
         // Containers and archives
         bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
+        bool hasAppPackageIdentity =
+            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix;
         bool isAppPackageContainer =
-            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix ||
+            hasAppPackageIdentity ||
             string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
         bool hasInstallerContainer = (a.Flags & ContentFlags.ContainerContainsInstallers) != 0;
-        bool hasArchiveContentRisk =
-            (a.Flags & (ContentFlags.ContainerContainsExecutables |
-                        ContentFlags.ContainerContainsScripts |
-                        ContentFlags.ContainerContainsInstallers |
-                        ContentFlags.ContainerHasDisguisedExecutables)) != 0;
-
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
         if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer && !hasInstallerContainer) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer) Add("Archive.ContainsExecutables", 25);
         if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !isAppPackageContainer) Add("Archive.ContainsScripts", 20);
         if (hasInstallerContainer) Add("Archive.ContainsInstallers", 25);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
@@ -194,13 +190,8 @@ public static partial class FileInspector
             var innerExt = a.EncodedInnerDetection?.Extension?.ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(innerExt))
             {
-                switch (innerExt)
-                {
-                    case "exe": case "dll": case "sys": case "ocx": case "cpl": case "scr": case "com": case "pif": case "msi": case "msp": case "msix": case "appx":
-                        Add("Encoded.InnerExecutable", 20); break;
-                    case "ps1": case "psm1": case "psd1": case "bat": case "cmd": case "sh": case "bash": case "zsh": case "js": case "vbs": case "vbe": case "wsf": case "wsh": case "py": case "rb":
-                        Add("Encoded.InnerScript", 15); break;
-                }
+                if (IsEmbeddedExecutableExtension(innerExt)) Add("Encoded.InnerExecutable", 20);
+                else if (IsEmbeddedScriptExtension(innerExt)) Add("Encoded.InnerScript", 15);
             }
         }
         // Embedded data URIs in HTML/scripts
@@ -241,9 +232,11 @@ public static partial class FileInspector
 
         // Signature quality (if present on PE or package)
         var sig = a.Authenticode;
+        bool winTrustReportsNoSignature = sig?.WinTrustStatusCode == TrustENoSignature;
         bool hasSignaturePresence =
             sig?.Present == true ||
             sig?.IsTrustedWindowsPolicy == true ||
+            (sig?.WinTrustStatusCode.HasValue == true && !winTrustReportsNoSignature) ||
             !string.IsNullOrWhiteSpace(sig?.SignerSubject) ||
             !string.IsNullOrWhiteSpace(sig?.SignerThumbprint);
 
@@ -268,7 +261,7 @@ public static partial class FileInspector
                 Add("Sig.BadEnvelope", 15);
                 hasSignatureFailure = true;
             }
-            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false)
+            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false && !winTrustReportsNoSignature)
             {
                 Add("Sig.WinTrustInvalid", 25);
                 hasSignatureFailure = true;
@@ -297,7 +290,7 @@ public static partial class FileInspector
             switch (f)
             {
                 case var t when t != null && t.StartsWith("tool:"):
-                    if (!hasArchiveContentRisk) AddSecurityFindingCode("Tool.Indicator", 10);
+                    AddSecurityFindingCode("Tool.Indicator", 10);
                     break;
                 case "ps:encoded": AddSecurityFindingCode("Script.Encoded", 25); break;
                 case "ps:iex": AddSecurityFindingCode("Script.IEX", 20); break;
@@ -488,11 +481,17 @@ public static partial class FileInspector
 
         // Package vendor presence / allow-list hints
         string? pkgVendor = a.Installer?.PublisherDisplayName ?? a.Installer?.Publisher ?? a.Installer?.Manufacturer;
+        var vendorSignature = a.Authenticode;
+        bool trustedVendorIdentity = vendorSignature?.Present == true &&
+            vendorSignature.EnvelopeSignatureValid == true &&
+            vendorSignature.ChainValid == true &&
+            vendorSignature.FileHashMatches != false &&
+            (vendorSignature.IsTrustedWindowsPolicy == true || vendorSignature.FileHashMatches == true);
         bool packageVendorAllowed = false;
         if (!string.IsNullOrWhiteSpace(pkgVendor))
         {
             Add("Package.VendorPresent", 0);
-            packageVendorAllowed = IsAllowedVendor(pkgVendor);
+            packageVendorAllowed = trustedVendorIdentity && IsAllowedVendor(pkgVendor);
             if (packageVendorAllowed) Add("Package.VendorAllowed", -15);
         }
         else if (a.Installer != null)
@@ -502,9 +501,9 @@ public static partial class FileInspector
         }
         // Signature vendor allow
         var sigCn = a.Authenticode?.SignerSubjectCN; var sigOrg = a.Authenticode?.SignerSubjectO;
-        bool signatureVendorAllowed =
-            (!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) ||
-            (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg));
+        bool signatureVendorAllowed = trustedVendorIdentity &&
+            ((!string.IsNullOrWhiteSpace(sigCn) && IsAllowedVendor(sigCn)) ||
+             (!string.IsNullOrWhiteSpace(sigOrg) && IsAllowedVendor(sigOrg)));
 
         if (!packageVendorAllowed && signatureVendorAllowed) Add("Sig.VendorAllowed", -10);
         else if (a.Authenticode?.Present == true)

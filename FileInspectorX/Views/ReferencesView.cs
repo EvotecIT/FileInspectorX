@@ -32,7 +32,7 @@ public sealed class ReferencesView
                 Path = path,
                 Kind = r.Kind,
                 Value = r.Value,
-                ExpandedValue = r.ExpandedValue,
+                ExpandedValue = Settings.ReferenceFullListsEnabled ? r.ExpandedValue : null,
                 Exists = r.Exists,
                 Issues = r.Issues,
                 Source = r.SourceTag,

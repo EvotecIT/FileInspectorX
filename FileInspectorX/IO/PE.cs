@@ -39,7 +39,11 @@ internal static class PeReader {
             if (br.ReadByte() != (byte)'P' || br.ReadByte() != (byte)'E' || br.ReadByte() != 0 || br.ReadByte() != 0) return false;
             info.IsPE = true;
             br.ReadUInt16(); // Machine
-            ushort numberOfSections = br.ReadUInt16(); info.NumberOfSections = numberOfSections;
+            ushort numberOfSections = br.ReadUInt16();
+            // PE/COFF section counts are normally tiny. Cap attacker-controlled
+            // section work before allocating or walking the table.
+            if (numberOfSections == 0 || numberOfSections > 256) return false;
+            info.NumberOfSections = numberOfSections;
             br.ReadUInt32(); // TimeDateStamp
             br.ReadUInt32(); // PointerToSymbolTable
             br.ReadUInt32(); // NumberOfSymbols
@@ -132,7 +136,7 @@ internal static class PeReader {
             if (!RvaToFileOffset(pe, addressOfNames, out var namesOff)) return false;
             if (!RvaToFileOffset(pe, addressOfNameOrdinals, out var ordOff)) ordOff = 0;
             fs.Seek(namesOff, SeekOrigin.Begin);
-            int count = (int)Math.Min(numberOfNames, 4096); // safety cap
+            int count = (int)Math.Min(numberOfNames, 1024); // bounded default analysis work
             var list = new List<string>(count);
             for (int i = 0; i < count; i++)
             {

@@ -34,9 +34,11 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPkcs12(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
-        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
-        => TryMatchPkcs12(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+    {
+        result = null;
+        if (src.Length < 16 || src[0] != 0x30) return false;
+        return TryMatchPkcs12(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+    }
 
     internal static bool TryMatchPkcs12(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
     {
@@ -68,9 +70,11 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchPkcs7SignedData(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
-        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
-        => TryMatchPkcs7SignedData(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+    {
+        result = null;
+        if (src.Length < 16 || src[0] != 0x30) return false;
+        return TryMatchPkcs7SignedData(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+    }
 
     internal static bool TryMatchPkcs7SignedData(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
     {
@@ -91,9 +95,11 @@ internal static partial class Signatures
     }
 
     internal static bool TryMatchDerCertificate(ReadOnlySpan<byte> src, out ContentTypeDetectionResult? result)
-        // AsnReader requires ReadOnlyMemory<byte>; span-only callers pay a copy here.
-        // Array-backed callers should prefer Detect(byte[]) / Detect(ReadOnlyMemory<byte>) to avoid it.
-        => TryMatchDerCertificate(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+    {
+        result = null;
+        if (src.Length < 16 || src[0] != 0x30) return false;
+        return TryMatchDerCertificate(new ReadOnlyMemory<byte>(src.ToArray()), out result);
+    }
 
     internal static bool TryMatchDerCertificate(ReadOnlyMemory<byte> src, out ContentTypeDetectionResult? result)
     {

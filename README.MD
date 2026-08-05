@@ -186,8 +186,8 @@ Get-FileInsight -Path .\file.bin -View Summary | Format-Table -Auto
 Get-FileInsight -Path .\file.bin -View Detection | Format-Table -Auto
 Get-FileInsight -Path .\file.bin -View Permissions | Format-Table Path,Owner,Group,ModeSymbolic,EveryoneWriteAllowed -Auto
 Get-FileInsight -Path .\app.exe -View Signature | Format-List
-Get-FileInsight -Path .\package.msix -View Installer | Format-Table -Auto
-Get-FileInsight -Path .\song.mp3 -View ShellProperties | Format-Table -Auto
+Get-FileInsight -Path .\package.msix -EnableInstaller -View Installer | Format-Table -Auto
+Get-FileInsight -Path .\song.mp3 -EnableShellProperties -View ShellProperties | Format-Table -Auto
 
 # Exclude sections to trim work/shape
 Get-FileInsight -Path .\file.bin -ExcludePermissions -ExcludeReferences -ExcludeShellProperties | Format-List
@@ -211,8 +211,9 @@ The normal PowerShell module bundles Magika and its ONNX runtime. `Assist` mode 
 learned evidence enhances the typed deterministic result, while deterministic validation remains
 authoritative on conflicts. A provider failure is recorded without losing the deterministic result.
 Use `-DisableMagika` for deterministic-only analysis, or `-LearnedClassificationMode Required`
-when provider failure must terminate the file operation. Provider-free builds and unsupported
-process architectures automatically remain deterministic-only.
+when provider failure or unavailability must terminate the file operation. Provider-free builds
+and unsupported process architectures remain deterministic-only in `Assist` mode and fail closed
+when `Required` is requested.
 
 ### PowerShell quick help
 
@@ -224,8 +225,8 @@ Get-Help Get-FileInsight -Examples
 # Detect-only for all EXE files under the current directory
 Get-ChildItem -Filter *.exe -File -Recurse | Get-FileInsight -View Detection | Format-Table -Auto
 
-# Summarize a directory, skipping signature and installer enrichment
-Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -ExcludeInstaller | Format-Table -Auto
+# Summarize a directory without signature enrichment
+Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature | Format-Table -Auto
 ```
 
 ## Views
@@ -245,14 +246,14 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature -
 ## Usage Model: Raw + Views + Exclude Toggles
 
 - Default Raw
-  - The cmdlet returns the full `FileAnalysis` object by default (`-View Raw`). This is a single, rich object with Detection, Flags, Security, Authenticode/Installer, References, Assessment, Secrets summary, and more.
+  - The cmdlet returns the full `FileAnalysis` object by default (`-View Raw`). This is a single, rich object with Detection, Flags, Security, Authenticode, References, Assessment, Secrets summary, and more. Installer metadata and Windows shell properties require explicit opt-in.
 
 - Views for display
 - Use `-View Summary|Detection|Analysis|Permissions|Signature|References|Assessment|Installer|ShellProperties` to get compact, tabular shapes.
   - Every view carries `.Raw` so you can drill back into the full object without re‑invoking.
 
-- Trim work/shape with excludes
-  - `-ExcludePermissions`, `-ExcludeSignature`, `-ExcludeInstaller`, `-ExcludeReferences`, `-ExcludeContainer`, `-ExcludeAssessment`, `-ExcludeShellProperties`.
+- Trim work/shape with excludes; enable native enrichment explicitly
+  - `-ExcludePermissions`, `-ExcludeSignature`, `-ExcludeReferences`, `-ExcludeContainer`, and `-ExcludeAssessment` trim default analysis. Use `-EnableInstaller` or `-EnableShellProperties` only when in-process native parsing of the input is acceptable.
   - In C#, use `new FileInspector.DetectionOptions { IncludePermissions = false, ... }`.
 
 ```csharp
@@ -449,6 +450,7 @@ Example keys: `DetectedTypeExtension`, `DetectedTypeName`, `DetectionConfidence`
 Settings.DeepContainerScanEnabled = true;      // default: false
 Settings.DeepContainerMaxEntries = 64;         // sample cap
 Settings.DeepContainerMaxEntryBytes = 262144;  // per‑entry cap (256 KB)
+Settings.DeepContainerMaxDepth = 3;            // nested archive depth cap
 Settings.ArchiveMaxEntries = 4096;
 Settings.ArchiveMaxCentralDirectoryBytes = 8L * 1024 * 1024;
 Settings.ArchiveMaxEntryReadBytes = 1L * 1024 * 1024;
@@ -460,14 +462,19 @@ Settings.KnownToolHashes = new Dictionary<string,string> { /* name => lowercase 
 // Script & secrets scanning
 Settings.SecurityScanScripts = true;           // default: true
 Settings.SecretsScanEnabled = true;            // default: true
+Settings.FindingEvidenceSnippetsEnabled = false; // opt in before exporting source snippets
+
+// Report privacy: MOTW stays available, host ownership/ACL details are opt in
+Settings.ReportHostFileMetadataEnabled = false;
 
 // Authenticode (Windows policy optional)
 Settings.VerifyAuthenticodeWithWinTrust = true;   // default true on Windows
 Settings.VerifyAuthenticodeRevocation = false;    // default
 
 // Vendor allow hints (for assessment)
-Settings.AllowedVendors = new[] { "Microsoft", "YourCompany" };
-Settings.VendorMatchMode = VendorMatchMode.Contains; // or Exact
+// Match the exact legal names from publisher identities you have independently verified.
+Settings.AllowedVendors = new[] { "Microsoft Corporation", "Your Company Legal Name" };
+Settings.VendorMatchMode = VendorMatchMode.Exact;
 ```
 
 ## Flags → Assessment Codes (Quick Map)

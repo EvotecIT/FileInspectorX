@@ -22,7 +22,7 @@ internal static partial class Signatures
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-dns", ReasonDetails = "log:dns" };
             return true;
         }
-        if (LogHeuristics.LooksLikePowerShellTranscript(headLower))
+        if (!scriptCues && LogHeuristics.LooksLikePowerShellTranscript(headLower))
         {
             result = new ContentTypeDetectionResult { Extension = "log", MimeType = "text/plain", Confidence = "Medium", Reason = "text:log-powershell-transcript", ReasonDetails = "log:powershell-transcript" };
             return true;
@@ -198,10 +198,8 @@ internal static partial class Signatures
             {
                 // Do not classify as Markdown if strong PowerShell cues or log cues are present
                 var okByCues = declaredMd ? mdCues >= 1 : mdCues >= 2;
-                bool hasFence = sl.Contains("```");
-                bool hasHeading = sl.StartsWith("# ") || sl.Contains("\n# ");
-                bool mdStructural = hasFence || hasHeading;
-                if (okByCues && !logCues && (!scriptCues || declaredMd || mdStructural))
+                bool declaredMarkdownCodeSample = declaredMd && HasClosedMarkdownFence(sl);
+                if (okByCues && !logCues && (!scriptCues || declaredMarkdownCodeSample))
                 {
                     result = new ContentTypeDetectionResult { Extension = "md", MimeType = "text/markdown", Confidence = "Low", Reason = "text:md" };
                     return true;

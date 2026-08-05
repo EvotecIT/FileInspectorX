@@ -79,10 +79,11 @@ internal static partial class SecurityHeuristics
 
             var lower = line.ToLowerInvariant();
             int nameIdx = lower.IndexOf("-name", StringComparison.Ordinal);
-            if (nameIdx < 0) nameIdx = lower.IndexOf("-modulename", StringComparison.Ordinal);
+            int moduleNameIdx = lower.IndexOf("-modulename", StringComparison.Ordinal);
+            if (nameIdx < 0) nameIdx = moduleNameIdx;
             if (nameIdx >= 0)
             {
-                var name = ReadTokenAfter(span, nameIdx + (lower.AsSpan(nameIdx).StartsWith("-modulename") ? 11 : 5));
+                var name = ReadTokenAfter(span, nameIdx + (nameIdx == moduleNameIdx ? 11 : 5));
                 return NormalizeModuleName(name);
             }
 

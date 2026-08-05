@@ -245,11 +245,19 @@ public static partial class FileInspector
 
     private static bool TryRunAuthenticodeShellScript(string baseScript, out string stdout)
     {
-        foreach (var shell in new[] { "pwsh", "powershell.exe" })
+        var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var trustedShells = new[]
         {
+            System.IO.Path.Combine(programFiles, "PowerShell", "7", "pwsh.exe"),
+            System.IO.Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe")
+        };
+        foreach (var shell in trustedShells)
+        {
+            if (!System.IO.File.Exists(shell)) continue;
             try
             {
-                var shellScript = shell.Equals("powershell.exe", StringComparison.OrdinalIgnoreCase)
+                var shellScript = shell.EndsWith("powershell.exe", StringComparison.OrdinalIgnoreCase)
                     ? "Import-Module Microsoft.PowerShell.Security" + Environment.NewLine + baseScript
                     : baseScript;
 

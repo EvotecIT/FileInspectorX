@@ -733,33 +733,36 @@ public sealed class ReportView
         if (a.InnerExecutableExtCounts != null && a.InnerExecutableExtCounts.Count > 0) r.InnerExecutableExtCounts = a.InnerExecutableExtCounts;
         if (a.Security != null)
         {
-            r.IsSymlink = a.Security.IsSymlink;
-            r.IsHidden = a.Security.IsHidden;
-            r.IsReadOnly = a.Security.IsReadOnly;
-            r.Owner = a.Security.Owner;
-            r.OwnerId = a.Security.OwnerId;
-            r.Group = a.Security.Group;
-            r.GroupId = a.Security.GroupId;
-            r.ModeOctal = a.Security.ModeOctal;
-            r.ModeSymbolic = a.Security.ModeSymbolic;
-            r.IsExecutable = a.Security.IsExecutable;
-            r.IsWorldWritable = a.Security.IsWorldWritable;
-            r.EveryoneWriteAllowed = a.Security.EveryoneWriteAllowed;
-            r.AuthenticatedUsersWriteAllowed = a.Security.AuthenticatedUsersWriteAllowed;
-            r.EveryoneReadAllowed = a.Security.EveryoneReadAllowed;
-            r.BuiltinUsersWriteAllowed = a.Security.BuiltinUsersWriteAllowed;
-            r.BuiltinUsersReadAllowed = a.Security.BuiltinUsersReadAllowed;
-            r.AdministratorsWriteAllowed = a.Security.AdministratorsWriteAllowed;
-            r.AdministratorsReadAllowed = a.Security.AdministratorsReadAllowed;
-            r.HasDenyEntries = a.Security.HasDenyEntries;
-            r.TotalAllowCount = a.Security.TotalAllowCount;
-            r.TotalDenyCount = a.Security.TotalDenyCount;
-            r.ExplicitAllowCount = a.Security.ExplicitAllowCount;
-            r.ExplicitDenyCount = a.Security.ExplicitDenyCount;
             r.MotwZoneId = a.Security.MotwZoneId;
             r.MotwReferrerUrl = a.Security.MotwReferrerUrl;
             r.MotwHostUrl = a.Security.MotwHostUrl;
             r.AlternateStreamCount = a.Security.AlternateStreamCount;
+            if (Settings.ReportHostFileMetadataEnabled)
+            {
+                r.IsSymlink = a.Security.IsSymlink;
+                r.IsHidden = a.Security.IsHidden;
+                r.IsReadOnly = a.Security.IsReadOnly;
+                r.Owner = a.Security.Owner;
+                r.OwnerId = a.Security.OwnerId;
+                r.Group = a.Security.Group;
+                r.GroupId = a.Security.GroupId;
+                r.ModeOctal = a.Security.ModeOctal;
+                r.ModeSymbolic = a.Security.ModeSymbolic;
+                r.IsExecutable = a.Security.IsExecutable;
+                r.IsWorldWritable = a.Security.IsWorldWritable;
+                r.EveryoneWriteAllowed = a.Security.EveryoneWriteAllowed;
+                r.AuthenticatedUsersWriteAllowed = a.Security.AuthenticatedUsersWriteAllowed;
+                r.EveryoneReadAllowed = a.Security.EveryoneReadAllowed;
+                r.BuiltinUsersWriteAllowed = a.Security.BuiltinUsersWriteAllowed;
+                r.BuiltinUsersReadAllowed = a.Security.BuiltinUsersReadAllowed;
+                r.AdministratorsWriteAllowed = a.Security.AdministratorsWriteAllowed;
+                r.AdministratorsReadAllowed = a.Security.AdministratorsReadAllowed;
+                r.HasDenyEntries = a.Security.HasDenyEntries;
+                r.TotalAllowCount = a.Security.TotalAllowCount;
+                r.TotalDenyCount = a.Security.TotalDenyCount;
+                r.ExplicitAllowCount = a.Security.ExplicitAllowCount;
+                r.ExplicitDenyCount = a.Security.ExplicitDenyCount;
+            }
         }
         if (a.NameIssues != NameIssues.None)
             r.NameIssuesCsv = FormatNameIssuesCsv(a.NameIssues);

@@ -10,8 +10,9 @@ internal static partial class Program
         Console.WriteLine("[5] Assessment + Policy\n-------------------------");
 
         // Set an allow-list for vendors (package/signers)
-        Settings.AllowedVendors = new[] { "Microsoft", "YourCompany" };
-        Settings.VendorMatchMode = VendorMatchMode.Contains;
+        // Use the exact legal publisher names from signatures you have verified.
+        Settings.AllowedVendors = new[] { "Microsoft Corporation", "Your Company Legal Name" };
+        Settings.VendorMatchMode = VendorMatchMode.Exact;
 
         var a = FileInspector.Analyze(path);
         var assess = a.Assessment ?? FileInspector.Assess(a);
@@ -20,4 +21,3 @@ internal static partial class Program
         foreach (var kv in assess.Factors) Console.WriteLine($"  {kv.Key} => {kv.Value}");
     }
 }
-

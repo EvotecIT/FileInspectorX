@@ -23,6 +23,32 @@ public class ReferencesTests
     }
 
     [Fact]
+    public void Extract_TaskScheduler_DisabledExistenceChecks_ReportUnknown()
+    {
+        var previousExistenceChecks = Settings.ReferencePathExistenceChecksEnabled;
+        var existingPath = Path.GetTempFileName();
+        var taskPath = Path.GetTempFileName() + ".xml";
+        try
+        {
+            Settings.ReferencePathExistenceChecksEnabled = false;
+            File.WriteAllText(taskPath, $"<Task><Actions><Exec><Command>{existingPath}</Command></Exec></Actions></Task>");
+
+            var analysis = FileInspector.Analyze(taskPath);
+            var reference = Assert.Single(
+                analysis.References ?? Array.Empty<Reference>(),
+                item => item.Kind == ReferenceKind.FilePath && item.SourceTag == "task:exec");
+
+            Assert.Null(reference.Exists);
+        }
+        finally
+        {
+            Settings.ReferencePathExistenceChecksEnabled = previousExistenceChecks;
+            try { File.Delete(existingPath); } catch { }
+            try { File.Delete(taskPath); } catch { }
+        }
+    }
+
+    [Fact]
     public void Extract_Gpo_ScriptsIni_CmdAndParams()
     {
         string ini = """
@@ -46,12 +72,14 @@ public class ReferencesTests
     [Fact]
     public void Extract_TaskScheduler_Quoted_Command_Path_Preserves_Existence_And_Issues()
     {
+        var previousExistenceChecks = Settings.ReferencePathExistenceChecksEnabled;
         var dir = Path.Combine(Path.GetTempPath(), "Task Ref Space " + Guid.NewGuid().ToString("N"));
         var exePath = Path.Combine(dir, "tool.exe");
         var xml = $"<Task><Actions><Exec><Command>\"{exePath}\"</Command></Exec></Actions></Task>";
         var p = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
         try
         {
+            Settings.ReferencePathExistenceChecksEnabled = true;
             Directory.CreateDirectory(dir);
             File.WriteAllBytes(exePath, Array.Empty<byte>());
             File.WriteAllText(p, xml);
@@ -66,6 +94,7 @@ public class ReferencesTests
         }
         finally
         {
+            Settings.ReferencePathExistenceChecksEnabled = previousExistenceChecks;
             try { File.Delete(p); } catch { }
             try { File.Delete(exePath); } catch { }
             try { Directory.Delete(dir); } catch { }
@@ -75,6 +104,7 @@ public class ReferencesTests
     [Fact]
     public void Extract_Gpo_ScriptsIni_Quoted_Command_Path_Preserves_Existence_And_Issues()
     {
+        var previousExistenceChecks = Settings.ReferencePathExistenceChecksEnabled;
         var dir = Path.Combine(Path.GetTempPath(), "Gpo Ref Space " + Guid.NewGuid().ToString("N"));
         var exePath = Path.Combine(dir, "login.vbs");
         var ini = $$"""
@@ -84,6 +114,7 @@ public class ReferencesTests
         var p = Path.GetTempFileName() + ".ini";
         try
         {
+            Settings.ReferencePathExistenceChecksEnabled = true;
             Directory.CreateDirectory(dir);
             File.WriteAllText(exePath, "WScript.Echo \"hi\"");
             File.WriteAllText(p, ini);
@@ -98,6 +129,7 @@ public class ReferencesTests
         }
         finally
         {
+            Settings.ReferencePathExistenceChecksEnabled = previousExistenceChecks;
             try { File.Delete(p); } catch { }
             try { File.Delete(exePath); } catch { }
             try { Directory.Delete(dir); } catch { }
@@ -382,9 +414,9 @@ public class ReferencesTests
             Assert.Contains("archive:inner-script-download", findings);
             Assert.Contains("archive:inner-external-hosts", findings);
             Assert.Contains("archive:inner-unc", findings);
-            Assert.Contains(findings, f => f.StartsWith("archive:inner-urls=", StringComparison.OrdinalIgnoreCase) && f.Contains("https://payload.example/stage.ps1", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(findings, f => f.StartsWith("archive:inner-unc-samples=", StringComparison.OrdinalIgnoreCase) && f.Contains("\\\\fileserver\\drop", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(findings, f => f.StartsWith("archive:inner-files=", StringComparison.OrdinalIgnoreCase) && f.Contains("bootstrap.txt (ps1)", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(findings, f => f.StartsWith("archive:inner-urls=", StringComparison.OrdinalIgnoreCase) && f.IndexOf("https://payload.example/stage.ps1", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.Contains(findings, f => f.StartsWith("archive:inner-unc-samples=", StringComparison.OrdinalIgnoreCase) && f.IndexOf("\\\\fileserver\\drop", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.Contains(findings, f => f.StartsWith("archive:inner-files=", StringComparison.OrdinalIgnoreCase) && f.IndexOf("bootstrap.txt (ps1)", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://payload.example/stage.ps1", StringComparison.OrdinalIgnoreCase) && string.Equals(r.SourceTag, "archive:inner", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(refs, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.Value, "\\\\fileserver\\drop", StringComparison.OrdinalIgnoreCase) && string.Equals(r.SourceTag, "archive:inner", StringComparison.OrdinalIgnoreCase));
         }
@@ -499,7 +531,7 @@ public class ReferencesTests
             Assert.Contains("archive:inner-script-download", findings);
             Assert.Contains("archive:inner-external-hosts", findings);
             Assert.Contains("archive:inner-unc", findings);
-            Assert.Contains(findings, f => f.StartsWith("archive:inner-files=", StringComparison.OrdinalIgnoreCase) && f.Contains("payload.zip (zip)", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(findings, f => f.StartsWith("archive:inner-files=", StringComparison.OrdinalIgnoreCase) && f.IndexOf("payload.zip (zip)", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.Contains(refs, r => r.Kind == ReferenceKind.Url && string.Equals(r.Value, "https://nested.example/stage.ps1", StringComparison.OrdinalIgnoreCase) && string.Equals(r.SourceTag, "archive:inner", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(refs, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.Value, "\\\\nestedserver\\drop", StringComparison.OrdinalIgnoreCase) && string.Equals(r.SourceTag, "archive:inner", StringComparison.OrdinalIgnoreCase));
         }
@@ -560,16 +592,16 @@ public class ReferencesTests
     }
 
     [Fact]
-    public void Extract_NestedArchiveInstallerPreview_Is_Promoted_To_OuterArchive()
+    public void Extract_NestedArchive_DoesNotBypass_ConfiguredEntryByteLimit()
     {
         var outer = Path.Combine(Path.GetTempPath(), "archive-nested-msi-outer-" + Guid.NewGuid().ToString("N") + ".zip");
         var nested = Path.Combine(Path.GetTempPath(), "archive-nested-msi-inner-" + Guid.NewGuid().ToString("N") + ".zip");
         bool oldDeep = Settings.DeepContainerScanEnabled;
-        int oldDeepBytes = Settings.DeepContainerMaxEntryBytes;
+        int oldNestedBytes = Settings.DeepContainerMaxNestedArchiveBytes;
         try
         {
             Settings.DeepContainerScanEnabled = true;
-            Settings.DeepContainerMaxEntryBytes = 1_024;
+            Settings.DeepContainerMaxNestedArchiveBytes = 1_024;
 
             using (var fs = File.Create(nested))
             using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
@@ -588,7 +620,7 @@ public class ReferencesTests
                 stream.Write(bytes, 0, bytes.Length);
             }
 
-            Assert.True(new FileInfo(nested).Length > Settings.DeepContainerMaxEntryBytes);
+            Assert.True(new FileInfo(nested).Length > Settings.DeepContainerMaxNestedArchiveBytes);
 
             using (var fs = File.Create(outer))
             using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
@@ -601,18 +633,14 @@ public class ReferencesTests
 
             var a = FileInspector.Analyze(outer);
 
-            Assert.True((a.Flags & ContentFlags.ContainerContainsInstallers) != 0);
-            Assert.NotNull(a.ArchivePreviewEntries);
-            Assert.Contains(a.ArchivePreviewEntries!, p =>
-                string.Equals(p.Name, "payload.zip > setup.msi", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(p.DetectedExtension, "msi", StringComparison.OrdinalIgnoreCase));
-            Assert.NotNull(a.InnerExecutableExtCounts);
-            Assert.True(a.InnerExecutableExtCounts!.TryGetValue("msi", out var msiCount) && msiCount == 1);
+            Assert.True((a.Flags & ContentFlags.ContainerContainsInstallers) == 0);
+            Assert.DoesNotContain(a.ArchivePreviewEntries ?? Array.Empty<InnerEntryPreview>(), p =>
+                p.Name.IndexOf("setup.msi", StringComparison.OrdinalIgnoreCase) >= 0);
         }
         finally
         {
             Settings.DeepContainerScanEnabled = oldDeep;
-            Settings.DeepContainerMaxEntryBytes = oldDeepBytes;
+            Settings.DeepContainerMaxNestedArchiveBytes = oldNestedBytes;
             try { File.Delete(outer); } catch { }
             try { File.Delete(nested); } catch { }
         }

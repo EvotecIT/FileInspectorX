@@ -270,6 +270,14 @@ public class AssessmentTests
                     {
                         CountExe = 1
                     }
+                },
+                Authenticode = new AuthenticodeInfo
+                {
+                    Present = true,
+                    EnvelopeSignatureValid = true,
+                    ChainValid = true,
+                    FileHashMatches = true,
+                    IsTrustedWindowsPolicy = true
                 }
             };
 
@@ -293,7 +301,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Does_Not_Triple_Count_One_SelfSigned_Trust_Failure()
+    public void Assess_SelfSigned_Untrusted_Chain_UsesOnePrimaryTrustFailure()
     {
         var analysis = new FileAnalysis
         {
@@ -379,7 +387,11 @@ public class AssessmentTests
                 Authenticode = new AuthenticodeInfo
                 {
                     Present = true,
-                    SignerSubjectCN = "Contoso"
+                    SignerSubjectCN = "Contoso",
+                    EnvelopeSignatureValid = true,
+                    ChainValid = true,
+                    FileHashMatches = true,
+                    IsTrustedWindowsPolicy = true
                 }
             };
 
@@ -439,6 +451,27 @@ public class AssessmentTests
 
         Assert.Equal(0, assessed.Score);
         Assert.DoesNotContain("Sig.Absent", assessed.Codes);
+        Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
+    }
+
+    [Fact]
+    public void Assess_WinTrustNoSignature_Pe_Gets_SignatureAbsent_InsteadOf_InvalidPenalty()
+    {
+        var analysis = new FileAnalysis
+        {
+            Detection = new ContentTypeDetectionResult { Extension = "exe" },
+            Authenticode = new AuthenticodeInfo
+            {
+                Present = false,
+                IsTrustedWindowsPolicy = false,
+                WinTrustStatusCode = unchecked((int)0x800B0100)
+            }
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Equal(10, assessed.Score);
+        Assert.Contains("Sig.Absent", assessed.Codes);
         Assert.DoesNotContain("Sig.WinTrustInvalid", assessed.Codes);
     }
 
@@ -955,7 +988,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Tool_Indicator_Does_Not_Stack_On_Generic_Archive_Content_Signals()
+    public void Assess_Tool_Indicator_Remains_Independent_In_Risky_Archive()
     {
         var analysis = new FileAnalysis
         {
@@ -965,9 +998,9 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(25, assessed.Score);
+        Assert.Equal(35, assessed.Score);
         Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
-        Assert.DoesNotContain("Tool.Indicator", assessed.Codes);
+        Assert.Contains("Tool.Indicator", assessed.Codes);
     }
 
     [Fact]
@@ -987,7 +1020,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Appx_Container_Does_Not_Stack_Generic_Archive_Content_Penalties_With_Appx_Signals()
+    public void Assess_Appx_Container_Uses_Package_Signals_Without_Generic_Content_Penalties()
     {
         var analysis = new FileAnalysis
         {
@@ -1179,7 +1212,7 @@ public class AssessmentTests
     }
 
     [Fact]
-    public void Assess_Archive_With_Embedded_Installer_Does_Not_Add_Generic_Executable_Container_Penalty()
+    public void Assess_Archive_With_Embedded_Installer_Also_Preserves_Executable_Penalty()
     {
         var analysis = new FileAnalysis
         {
@@ -1188,9 +1221,9 @@ public class AssessmentTests
 
         var assessed = FileInspector.Assess(analysis);
 
-        Assert.Equal(25, assessed.Score);
+        Assert.Equal(50, assessed.Score);
         Assert.Contains("Archive.ContainsInstallers", assessed.Codes);
-        Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
         Assert.Equal(25, assessed.Factors["Archive.ContainsInstallers"]);
     }
 

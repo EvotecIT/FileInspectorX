@@ -2,6 +2,19 @@ namespace FileInspectorX;
 
 internal static partial class Signatures
 {
+    private static bool HasClosedMarkdownFence(string text)
+    {
+        int first = text.IndexOf("```", StringComparison.Ordinal);
+        return first >= 0 && text.IndexOf("```", first + 3, StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool IsActiveScriptExtension(string? extension)
+    {
+        var normalized = (extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        return normalized is "ps1" or "psm1" or "psd1" or "vbs" or "js" or "jse" or
+            "sh" or "bash" or "zsh" or "bat" or "cmd" or "py" or "rb" or "lua";
+    }
+
     private static bool TryDetectScriptsAndPlainText(
         ReadOnlySpan<byte> data,
         ReadOnlySpan<byte> head,
@@ -301,35 +314,12 @@ internal static partial class Signatures
         static bool IsCommonPsVerb(ReadOnlySpan<char> verb)
         {
             if (verb.Length < 3 || verb.Length > 12) return false;
-            return verb.Equals("get", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("set", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("new", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("add", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("remove", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("copy", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("move", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("rename", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("test", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("invoke", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("start", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("stop", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("enable", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("disable", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("import", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("export", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("select", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("convert", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("write", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("read", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("update", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("connect", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("disconnect", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("format", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("register", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("unregister", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("resolve", StringComparison.OrdinalIgnoreCase) ||
-                   verb.Equals("find", StringComparison.OrdinalIgnoreCase);
+            var value = verb.ToString().ToLowerInvariant();
+            return value is "get" or "set" or "new" or "add" or "remove" or "clear" or
+                   "copy" or "move" or "rename" or "test" or "invoke" or "start" or
+                   "stop" or "enable" or "disable" or "import" or "export" or "select" or
+                   "convert" or "write" or "read" or "update" or "connect" or "disconnect" or
+                   "format" or "register" or "unregister" or "resolve" or "find";
         }
 
         static bool IsSep(char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';' || c == '(' || c == '{';

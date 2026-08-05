@@ -163,7 +163,7 @@ internal static partial class Signatures {
                 !reader.TrySkipAttributes(isCdf5) ||
                 !reader.TrySkipVariables(isCdf5, version == 1, dimensionLengths, recordCount, out rangesFullyValidated))
             {
-                if (!reader.BudgetExceeded || reader.StructuralEvidence < 1) return false;
+                if (!reader.BudgetExceeded || reader.StructuralEvidence < 2) return false;
                 result = NetCdfResult(version, complete: false, sampledReason: "validation-budget-exceeded");
                 return true;
             }
@@ -251,6 +251,7 @@ internal static partial class Signatures {
         private bool TryReadName(bool isCdf5, out string name) {
             name = string.Empty;
             if (!TryReadNonNegative(isCdf5, out ulong length) || length == 0 || length > int.MaxValue ||
+                length > (ulong)Math.Max(0, Settings.NetCdfNameMaxBytes) ||
                 !TryScanName(length, out name, out byte last)) return false;
             if (last == (byte)' ') return false;
             int padding = (int)((4 - (length & 3)) & 3);
@@ -584,7 +585,9 @@ internal static partial class Signatures {
     {
         name = string.Empty;
         if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong length) ||
-            length == 0 || length > int.MaxValue || length > (ulong)(src.Length - cursor)) return false;
+            length == 0 || length > int.MaxValue ||
+            length > (ulong)Math.Max(0, Settings.NetCdfNameMaxBytes) ||
+            length > (ulong)(src.Length - cursor)) return false;
         ulong padded = (length + 3) & ~3UL;
         if (padded > (ulong)(src.Length - cursor) || src[cursor] <= 0x20 || src[cursor] == (byte)'/' || src[cursor] == 0x7F) return false;
         for (ulong character = 0; character < length; character++)

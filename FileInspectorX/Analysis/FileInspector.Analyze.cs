@@ -288,6 +288,7 @@ public static partial class FileInspector {
     /// </summary>
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
+        var includeInstaller = ShouldIncludeInstaller(options);
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         var det = Detect(path, options);
@@ -365,7 +366,7 @@ public static partial class FileInspector {
 
             // OOXML macros and ZIP container hints
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
-                TryInspectZip(path, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
+                TryInspectZip(path, options, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
                     out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings,
                     out List<Reference>? archiveReferences,
@@ -387,9 +388,14 @@ public static partial class FileInspector {
                 if (det.Extension is "docx" && hasMacros) res.GuessedExtension ??= "docm";
                 if (det.Extension is "xlsx" && hasMacros) res.GuessedExtension ??= "xlsm";
                 if (det.Extension is "pptx" && hasMacros) res.GuessedExtension ??= "pptm";
-                // Package signature extraction for APPX/MSIX
-                if (subType is "appx" or "msix") { TryPopulateAppxSignature(path, res); TryPopulateAppxManifest(path, res); }
-                if (subType is "vsix") { TryPopulateVsixManifest(path, res); }
+                // Package signature extraction is part of Authenticode analysis, while
+                // installer manifest enrichment remains explicitly opt-in.
+                if (subType is "appx" or "msix")
+                {
+                    TryPopulateAppxSignature(path, res);
+                    if (includeInstaller) TryPopulateAppxManifest(path, res);
+                }
+                if (includeInstaller && subType is "vsix") TryPopulateVsixManifest(path, res);
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
                 if (hasExtLinks) {
@@ -494,6 +500,8 @@ public static partial class FileInspector {
                     bool isRar4 = !isRar5;
                     if (isRar4)
                     {
+                        if (TryInspectRarQuick(path))
+                            res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
                         if (TryCountRar4EncryptedFiles(path, Settings.DeepContainerMaxEntries, out int encCount, out int totalCount))
                         {
                             if (encCount > 0) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
@@ -613,7 +621,7 @@ public static partial class FileInspector {
             // 7z encryption detection is non-trivial; reserved for a deeper pass in future
 
             // MSI metadata enrichment (Windows): product version via msi.dll
-            if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && det.Extension == "msi")
+            if (includeInstaller && det.Extension == "msi")
             {
                 try {
                     Breadcrumbs.Write("MSI_META_BEGIN", path: path);
@@ -625,9 +633,7 @@ public static partial class FileInspector {
                         res.VersionInfo = dict;
                     }
                 } catch (Exception ex) {
-                    // Circuit breaker: disable installer enrichment for the remainder of the process after first failure
                     Breadcrumbs.Write("MSI_META_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path);
-                    Settings.IncludeInstaller = false;
                 }
             }
             // If the file name declares .msi, promote detection to MSI even if the magic stayed at OLE2.
@@ -635,7 +641,8 @@ public static partial class FileInspector {
             try
             {
                 var declaredExtM = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
-                if (string.Equals(declaredExtM, "msi", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(declaredExtM, "msi", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!string.Equals(det.Extension, "msi", StringComparison.OrdinalIgnoreCase))
                     {
@@ -643,13 +650,13 @@ public static partial class FileInspector {
                         det.Reason = string.IsNullOrEmpty(det.Reason) ? "declared:msi" : det.Reason + ";declared:msi";
                     }
                     // MSI property enrichment is optional and may be disabled for stability; only attempt when enabled
-                    if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
+                    if (includeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
                 }
             } catch (Exception ex) { Breadcrumbs.Write("MSI_PROMOTE_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
             try
             {
-                if ((options?.IncludeInstaller != false) && Settings.IncludeInstaller && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
+                if (includeInstaller && res.Installer?.Kind == InstallerKind.Msi && det != null && string.Equals(det.Extension, "ole2", StringComparison.OrdinalIgnoreCase))
                 {
                     det.Extension = "msi";
                     det.MimeType = "application/x-msi";
@@ -701,7 +708,7 @@ public static partial class FileInspector {
                     if (string.IsNullOrEmpty(res.ScriptLanguage)) res.ScriptLanguage = mappedScript;
                     res.Flags |= ContentFlags.IsScript;
                     if (string.IsNullOrEmpty(res.TextSubtype)) res.TextSubtype = mappedScript;
-                    if (detectedExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd" or "vbs" or "js")
+                    if (DangerousExtensions.IsDangerous(detectedExt) || DangerousExtensions.IsDangerous(declaredExt))
                         res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 if (declaredExt == "js" || detectedExt == "js") {
@@ -750,7 +757,10 @@ public static partial class FileInspector {
                     }
                     // Text log detection
                     var log = SecurityHeuristics.ClassifyLogFromText(headTxt);
-                    if (log.isLog)
+                    bool activeScript = psClass.level != SecurityHeuristics.PsClassLevel.None ||
+                        DangerousExtensions.IsDangerous(res.Detection?.Extension) ||
+                        DangerousExtensions.IsDangerous(declaredExt);
+                    if (log.isLog && !activeScript)
                     {
                         res.TextSubtype = "log";
                         var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
@@ -761,7 +771,7 @@ public static partial class FileInspector {
                 } catch { }
 
                 // Potentially dangerous scripts by declared type
-                if (declaredExt is "ps1" or "psm1" or "psd1" or "sh" or "bat" or "cmd") {
+                if (MapScriptLanguageFromExtension(declaredExt) != null && DangerousExtensions.IsDangerous(declaredExt)) {
                     res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 // Set TextSubtype for common text families
@@ -838,8 +848,8 @@ public static partial class FileInspector {
                     res.SecurityFindings = list;
                 }
                 // Cmdlets: best-effort extraction for presentation (PowerShell only)
-                var psLang = res.ScriptLanguage ?? res.TextSubtype;
-                if (string.Equals(psLang, "powershell", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(res.ScriptLanguage, "powershell", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(res.TextSubtype, "powershell", StringComparison.OrdinalIgnoreCase))
                 {
                     var cmdlets = SecurityHeuristics.GetCmdletsFromText(heuristicsText);
                     if (cmdlets != null && cmdlets.Count > 0) res.ScriptCmdlets = cmdlets;
@@ -883,7 +893,7 @@ public static partial class FileInspector {
                 TryParseP7b(path, res);
             }
             // MSI package properties (Windows only)
-            if ((options?.IncludeInstaller != false) && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
+            if (includeInstaller && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
                 if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
             }
@@ -1212,6 +1222,13 @@ public static partial class FileInspector {
         return res;
     }
 
+    /// <summary>
+    /// Resolves installer enrichment from the per-call option when supplied and otherwise
+    /// preserves the process-wide compatibility setting.
+    /// </summary>
+    internal static bool ShouldIncludeInstaller(DetectionOptions? options)
+        => options?.IncludeInstaller ?? Settings.IncludeInstaller;
+
     // Parse OOXML .rels fragments to count external targets and categorize by allowed domains.
     private static void CountOoxmlExternalTargets(string xml, ref int allowed, ref int disallowed, ref int unc)
     {
@@ -1304,7 +1321,12 @@ public static partial class FileInspector {
             // RAR4 blocks: [HEAD_CRC(2)][HEAD_TYPE(1)][HEAD_FLAGS(2)][HEAD_SIZE(2)] ...
             var br = new BinaryReader(fs);
             int filesSeen = 0;
-            while (fs.Position + 7 <= fs.Length && filesSeen < maxFiles)
+            int blocksSeen = 0;
+            int maxBlocks = GetRar4BlockSafetyLimit(maxFiles);
+            long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
+            long walkStart = fs.Position;
+            while (fs.Position + 7 <= fs.Length && filesSeen < maxFiles &&
+                   blocksSeen++ < maxBlocks && fs.Position - walkStart < byteBudget)
             {
                 ushort headCrc = br.ReadUInt16();
                 byte headType = br.ReadByte();
@@ -1321,7 +1343,7 @@ public static partial class FileInspector {
                     // Skip extra fields (pack & unpack sizes already inside header; we just jump to next)
                 }
                 // Move to next block
-                if (next < fs.Position) break;
+                if (next < fs.Position || next > fs.Length || next - walkStart > byteBudget) break;
                 fs.Seek(next, SeekOrigin.Begin);
             }
             if (total == 0) total = filesSeen;
@@ -1354,8 +1376,14 @@ public static partial class FileInspector {
             var localPreviews = new List<InnerEntryPreview>();
             var execExts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             int previewCap = Math.Min(5, Settings.DeepContainerMaxEntries);
+            int entryLimit = Math.Max(1, Settings.DeepContainerMaxEntries);
+            int blocksSeen = 0;
+            int maxBlocks = GetRar4BlockSafetyLimit(entryLimit);
+            long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
+            long walkStart = fs.Position;
 
-            while (fs.Position + 7 <= fs.Length)
+            while (fs.Position + 7 <= fs.Length && count < entryLimit &&
+                   blocksSeen++ < maxBlocks && fs.Position - walkStart < byteBudget)
             {
                 long hdrStart = fs.Position;
                 br.ReadUInt16(); // head crc
@@ -1364,6 +1392,7 @@ public static partial class FileInspector {
                 ushort headSize = br.ReadUInt16();
                 if (headSize < 7) break;
                 long headerEnd = hdrStart + headSize;
+                if (headerEnd <= hdrStart || headerEnd > fs.Length) return false;
 
                 if (headType == 0x74) // FILE_HEADER
                 {
@@ -1429,7 +1458,10 @@ public static partial class FileInspector {
                             localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = string.IsNullOrEmpty(ext) ? null : ext });
                     }
 
-                    long nextBlock = (long)Math.Min((ulong)fs.Length, (ulong)headerEnd + packSize);
+                    ulong remaining = (ulong)(fs.Length - headerEnd);
+                    if (packSize > remaining) return false;
+                    long nextBlock = checked(headerEnd + (long)packSize);
+                    if (nextBlock <= hdrStart) return false;
                     fs.Seek(nextBlock, SeekOrigin.Begin);
                     continue;
                 }
@@ -1444,6 +1476,15 @@ public static partial class FileInspector {
             return true;
         }
         catch { return false; }
+    }
+
+    private static int GetRar4BlockSafetyLimit(int fileLimit)
+    {
+        fileLimit = Math.Max(1, fileLimit);
+        int metadataBlockBudget = Math.Max(1, Settings.ArchiveMaxEntries);
+        return fileLimit > int.MaxValue - metadataBlockBudget
+            ? int.MaxValue
+            : fileLimit + metadataBlockBudget;
     }
 
     /// <summary>
@@ -1572,7 +1613,7 @@ public static partial class FileInspector {
         catch { return false; }
     }
 
-    private static void TryInspectZip(string path, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
+    private static void TryInspectZip(string path, DetectionOptions? options, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
         out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut, out List<Reference>? referencesOut,
         out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts,
@@ -1581,6 +1622,11 @@ public static partial class FileInspector {
         innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; innerPublisherValidCounts = null; innerPublisherSelfCounts = null; previewOut = null; innerExecExtCounts = null;
         inspectionComplete = true; inspectionIssues = null;
         var budget = ArchiveInspectionBudget.FromSettings();
+        int nestedDepth = options?.NestedContainerDepth ?? 0;
+        long nestedByteBudget = (long)Math.Max(0, Settings.DeepContainerMaxEntries) *
+                                Math.Max(0, Settings.DeepContainerMaxEntryBytes);
+        var nestedBudget = options?.NestedContainerBudget ??
+                           new NestedContainerBudgetState(Settings.DeepContainerMaxEntries, nestedByteBudget);
         try {
             using var fs = File.OpenRead(path);
             if (!budget.CheckCentralDirectory(fs, out var declaredEntryCount))
@@ -1822,7 +1868,8 @@ public static partial class FileInspector {
                                     {
                                         fsout.Write(entryBytes, 0, entryBytes.Length);
                                     }
-                                    var ia = FileInspector.Analyze(tmp);
+                                    var ia = FileInspector.Analyze(tmp,
+                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth, includeContainer: false));
                                     innerExecutablesSampled++;
                                     if (ia?.Authenticode?.Present == true)
                                     {
@@ -1858,7 +1905,8 @@ public static partial class FileInspector {
                                         }
                                     }
 
-                                    var ia = FileInspector.Analyze(tmp);
+                                    var ia = FileInspector.Analyze(tmp,
+                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth, includeContainer: false));
                                     if (CollectArchiveInnerSignals(
                                         name,
                                         ia,
@@ -1881,12 +1929,15 @@ public static partial class FileInspector {
                                 } catch { }
                                 finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
-                            else if (e.Length > 0 && e.Length <= GetNestedArchiveDeepScanBytes() && ShouldDeepAnalyzeNestedArchiveEntry(name, declExt, det2?.Extension))
+                            else if (nestedDepth < Math.Max(0, Settings.DeepContainerMaxDepth) &&
+                                     e.Length > 0 && e.Length <= GetNestedArchiveDeepScanBytes() &&
+                                     ShouldDeepAnalyzeNestedArchiveEntry(name, declExt, det2?.Extension))
                             {
                                 string? tmp = null;
                                 try
                                 {
                                     int nestedCap = (int)Math.Min(e.Length, GetNestedArchiveDeepScanBytes());
+                                    if (!nestedBudget.TryConsume(nestedCap)) throw new InvalidDataException("zip:nested-budget");
                                     tmp = System.IO.Path.GetTempFileName();
                                     using (var rs = budget.OpenEntry(e, nestedCap))
                                     using (var outFs = System.IO.File.Create(tmp))
@@ -1903,7 +1954,8 @@ public static partial class FileInspector {
                                         }
                                     }
 
-                                    var ia = FileInspector.Analyze(tmp);
+                                    var ia = FileInspector.Analyze(tmp,
+                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth + 1, includeContainer: true));
                                     MergeNestedArchiveContainerSignals(
                                         name,
                                         ia,
@@ -2165,6 +2217,7 @@ public static partial class FileInspector {
             bool rar4 = sig[0] == 0x52 && sig[1] == 0x61 && sig[2] == 0x72 && sig[3] == 0x21 && sig[4] == 0x1A && sig[5] == 0x07 && sig[6] == 0x00;
             if (rar4)
             {
+                fs.Seek(7, SeekOrigin.Begin);
                 // Read next header: CRC(2), Type(1), Flags(2), Size(2)
                 var hdr = new byte[7];
                 if (fs.Read(hdr, 0, 7) != 7) return false;
@@ -2706,10 +2759,30 @@ public static partial class FileInspector {
         return IsArchiveLikeExtension(declared) || IsArchiveLikeExtension(detected);
     }
 
-    // Nested archives need a larger bounded budget than direct inner text/signer probes,
-    // otherwise realistic installer bundles never recurse past the first payload.zip layer.
     private static int GetNestedArchiveDeepScanBytes()
-        => Math.Max(Settings.DeepContainerMaxEntryBytes, 32 * 1024 * 1024);
+        => Math.Max(0, Settings.DeepContainerMaxNestedArchiveBytes);
+
+    private static DetectionOptions CreateInnerAnalysisOptions(DetectionOptions? source,
+        NestedContainerBudgetState nestedBudget, int nestedDepth, bool includeContainer)
+    {
+        return new DetectionOptions
+        {
+            ComputeSha256 = source?.ComputeSha256 ?? false,
+            MagicHeaderBytes = source?.MagicHeaderBytes ?? 0,
+            DetectOnly = false,
+            IncludeContainer = includeContainer && (source?.IncludeContainer ?? true),
+            IncludePermissions = source?.IncludePermissions ?? true,
+            IncludeAuthenticode = source?.IncludeAuthenticode ?? true,
+            IncludeReferences = source?.IncludeReferences ?? true,
+            IncludeInstaller = source?.IncludeInstaller ?? false,
+            IncludeAssessment = source?.IncludeAssessment ?? true,
+            IncludeShellProperties = source?.IncludeShellProperties ?? false,
+            LearnedClassifier = source?.LearnedClassifier,
+            LearnedClassificationMode = source?.LearnedClassificationMode ?? LearnedClassificationMode.Off,
+            NestedContainerDepth = nestedDepth,
+            NestedContainerBudget = nestedBudget
+        };
+    }
 
     private static bool CollectArchiveInnerSignals(
         string entryName,
@@ -2933,10 +3006,7 @@ public static partial class FileInspector {
     }
 
     private static bool IsScriptLikeExtension(string? extension)
-    {
-        var ext = (extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
-        return ext is "ps1" or "psm1" or "psd1" or "bat" or "cmd" or "sh" or "bash" or "zsh" or "ksh" or "vbs" or "js" or "mjs" or "py" or "rb" or "lua";
-    }
+        => MapScriptLanguageFromExtension(extension) != null;
 
     private static bool IsArchiveLikeExtension(string? extension)
     {
@@ -2944,14 +3014,8 @@ public static partial class FileInspector {
         return ext is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf" or "jar" or "apk";
     }
 
-    private static bool IsScriptName(string name) {
-        var lower = name.ToLowerInvariant();
-        return lower.EndsWith(".ps1") || lower.EndsWith(".psm1") || lower.EndsWith(".psd1") ||
-               lower.EndsWith(".bat") || lower.EndsWith(".cmd") ||
-               lower.EndsWith(".sh") || lower.EndsWith(".bash") || lower.EndsWith(".zsh") || lower.EndsWith(".ksh") ||
-               lower.EndsWith(".vbs") || lower.EndsWith(".js") || lower.EndsWith(".mjs") ||
-               lower.EndsWith(".py") || lower.EndsWith(".rb");
-    }
+    private static bool IsScriptName(string name)
+        => IsScriptLikeExtension(Path.GetExtension(name));
 
     private static bool IsInstallerName(string name)
     {
@@ -3044,7 +3108,7 @@ public static partial class FileInspector {
             "py" or "pyw" => "python",
             "rb" => "ruby",
             "lua" => "lua",
-            "sh" or "bash" or "zsh" => "shell",
+            "sh" or "bash" or "zsh" or "ksh" => "shell",
             "bat" or "cmd" => "batch",
             "pl" => "perl",
             _ => null

@@ -141,13 +141,13 @@ internal static partial class SecurityHeuristics
             totalHits += hitsInLine;
             if (sampleLines.Count < 3)
             {
-                var snippet = rule.CollectSnippets ? SanitizeSnippet(line) : null;
-                if (rule.CollectSnippets && snippet != null)
+                var snippet = rule.CollectSnippets && Settings.FindingEvidenceSnippetsEnabled ? SanitizeSnippet(line) : null;
+                if (rule.CollectSnippets && Settings.FindingEvidenceSnippetsEnabled && snippet != null)
                 {
                     sampleLines.Add(entry.LineNumber);
                     sampleSnippets.Add(snippet);
                 }
-                else if (!rule.CollectSnippets)
+                else
                 {
                     sampleLines.Add(entry.LineNumber);
                 }

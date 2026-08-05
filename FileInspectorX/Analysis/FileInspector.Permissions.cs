@@ -123,7 +123,13 @@ public static partial class FileInspector
                     if (grantsExec) parts.Add("Execute");
                     if (!grantsFull && (rights & System.Security.AccessControl.FileSystemRights.Modify) != 0) parts.Add("Modify");
                     string rightsLabel = grantsFull ? "FullControl" : string.Join(",", parts);
-                    string principalName = sid.Translate(typeof(System.Security.Principal.NTAccount)) is System.Security.Principal.NTAccount nt ? nt.Value : sid.Value;
+                    string principalName = sid.Value;
+                    try
+                    {
+                        if (sid.Translate(typeof(System.Security.Principal.NTAccount)) is System.Security.Principal.NTAccount nt)
+                            principalName = nt.Value;
+                    }
+                    catch (System.Security.Principal.IdentityNotMappedException) { }
                     entries.Add(new FileAce {
                         AccessControlType = isAllow ? "Allow" : "Deny",
                         Principal = principalName,
@@ -172,7 +178,10 @@ public static partial class FileInspector
                 var zonePath = path + ":Zone.Identifier";
                 using var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var sr = new StreamReader(fs, System.Text.Encoding.UTF8, true, 1024);
-            string all = sr.ReadToEnd();
+            int maxChars = Math.Max(1, Settings.MotwMaxCharacters);
+            var buffer = new char[maxChars];
+            int charsRead = sr.ReadBlock(buffer, 0, buffer.Length);
+            string all = new string(buffer, 0, charsRead);
             foreach (var line in all.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var l = line.Trim();

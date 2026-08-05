@@ -31,8 +31,8 @@ internal static partial class Program
         Console.WriteLine($"[lean] hasSec={(lean.Security!=null)} hasRefs={(lean.References!=null)} inst={lean.Installer?.Kind}");
 
         // 5) Assessment + vendor allow-list
-        Settings.AllowedVendors = new[] { "Microsoft", "YourCompany" };
-        Settings.VendorMatchMode = VendorMatchMode.Contains;
+        Settings.AllowedVendors = new[] { "Microsoft Corporation", "Your Company Legal Name" };
+        Settings.VendorMatchMode = VendorMatchMode.Exact;
         var assess = lean.Assessment ?? FileInspector.Assess(lean);
         Console.WriteLine($"[assess] {assess.Decision} score={assess.Score} codes={string.Join(",", assess.Codes)}");
 
@@ -43,4 +43,3 @@ internal static partial class Program
                 Console.WriteLine($"[dir] exec in container: {a.Detection?.Extension}");
     }
 }
-

@@ -874,7 +874,8 @@ internal static partial class Signatures {
                 span[8] != 0x0D || span[9] != 0x0A || span[10] != 0x87 || span[11] != 0x0A ||
                 !span.Slice(16, 4).SequenceEqual("ftyp"u8)) return false;
             uint fileTypeLength = ReadUInt32BigEndian(span, 12);
-            if (fileTypeLength < 20 || (fileTypeLength & 3) != 0 || fileTypeLength > stream.Length - 12) return false;
+            if (fileTypeLength < 20 || (fileTypeLength & 3) != 0 || fileTypeLength > stream.Length - 12 ||
+                fileTypeLength > Math.Max(28, Settings.DetectionReadBudgetBytes)) return false;
             uint brand = ReadUInt32BigEndian(span, 20);
             if (!TryGetJpeg2000Brand(brand, out string extension, out string mime)) return false;
             bool compatible = false;
@@ -1146,13 +1147,13 @@ internal static partial class Signatures {
         if (payload.Length < 47 || payload[0] != 0xFF || payload[1] != 0x4F ||
             payload[2] != 0xFF || payload[3] != 0x51) return false;
         ushort sizLength = ReadUInt16BigEndian(payload, 4);
-        if (sizLength < 41 || 2L + sizLength > payload.Length) return false;
+        if (sizLength < 41 || 4L + sizLength > payload.Length) return false;
         uint xSize = ReadUInt32BigEndian(payload, 8), ySize = ReadUInt32BigEndian(payload, 12);
         uint xOrigin = ReadUInt32BigEndian(payload, 16), yOrigin = ReadUInt32BigEndian(payload, 20);
         uint tileWidth = ReadUInt32BigEndian(payload, 24), tileHeight = ReadUInt32BigEndian(payload, 28);
         uint tileXOrigin = ReadUInt32BigEndian(payload, 32), tileYOrigin = ReadUInt32BigEndian(payload, 36);
         ushort components = ReadUInt16BigEndian(payload, 40);
-        if (components == 0 || sizLength != 38 + components * 3 || xSize <= xOrigin || ySize <= yOrigin ||
+        if (components == 0 || sizLength != 38L + components * 3L || xSize <= xOrigin || ySize <= yOrigin ||
             tileWidth == 0 || tileHeight == 0 || tileXOrigin > xOrigin || tileYOrigin > yOrigin) return false;
         byte[] componentDepths = new byte[components];
         for (int component = 0; component < components; component++)

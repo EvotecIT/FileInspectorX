@@ -138,6 +138,7 @@ internal static partial class Signatures
         uint indexCount = ReadUInt32BigEndian(header, 8);
         uint dataLength = ReadUInt32BigEndian(header, 12);
         int storeOffset = checked(16 + (int)indexCount * 16);
+        int remainingStringScanBytes = Math.Max(256, Settings.DetectionReadBudgetBytes);
         for (uint index = 0; index < indexCount; index++)
         {
             int record = checked(16 + (int)index * 16);
@@ -159,6 +160,7 @@ internal static partial class Signatures
                 int storeEnd = storeOffset + (int)dataLength;
                 while (cursor < storeEnd && strings < count)
                 {
+                    if (--remainingStringScanBytes < 0) return false;
                     if (header[cursor++] == 0) strings++;
                 }
                 if (strings != count) return false;

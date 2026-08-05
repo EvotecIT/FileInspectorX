@@ -594,7 +594,7 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
-    public void Analyze_ReconcilesLearnedOnlyPromotionWithDeclaredInstallerAnalysis()
+    public void Analyze_DeclaredInstallerCannotOverrideLearnedActiveContent()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".msi");
         File.WriteAllBytes(path, Array.Empty<byte>());
@@ -612,16 +612,11 @@ public sealed class LearnedClassificationTests
                     IncludeShellProperties = false
                 });
 
-            Assert.Equal("msi", result.Detection!.Extension);
+            Assert.Equal("js", result.Detection!.Extension);
             Assert.Equal(
-                LearnedClassificationDisposition.Conflict,
+                LearnedClassificationDisposition.Promoted,
                 result.Detection.LearnedClassification!.Disposition);
-            Assert.Equal("msi", result.Detection.LearnedClassification.DeterministicExtension);
-            Assert.Contains(result.Detection.Candidates!, candidate => candidate.Extension == "js");
-            Assert.Null(result.ScriptLanguage);
-            Assert.Null(result.TextSubtype);
-            Assert.True((result.Flags & ContentFlags.IsScript) == 0);
-            Assert.True((result.Flags & ContentFlags.ScriptsPotentiallyDangerous) == 0);
+            Assert.True(result.Detection.IsDangerous);
         }
         finally
         {
@@ -885,7 +880,7 @@ public sealed class LearnedClassificationTests
     }
 
     [Fact]
-    public void Analyze_BinaryLearnedPromotionClearsDeclaredScriptMetadata()
+    public void Analyze_BinaryLearnedPredictionCannotDowngradeDeclaredScriptRisk()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ps1");
         File.WriteAllText(path, "ordinary prose without deterministic script cues");
@@ -907,13 +902,13 @@ public sealed class LearnedClassificationTests
                     IncludeShellProperties = false
                 });
 
-            Assert.Equal("custombin", result.Detection!.Extension);
-            Assert.Equal(
+            Assert.Equal("ps1", result.Detection!.Extension);
+            Assert.NotEqual(
                 LearnedClassificationDisposition.Promoted,
                 result.Detection.LearnedClassification!.Disposition);
-            Assert.Null(result.ScriptLanguage);
-            Assert.Null(result.TextSubtype);
-            Assert.Equal(ContentFlags.None, result.Flags & (ContentFlags.IsScript | ContentFlags.ScriptsPotentiallyDangerous));
+            Assert.Equal("powershell", result.ScriptLanguage);
+            Assert.True((result.Flags & ContentFlags.IsScript) != 0);
+            Assert.True((result.Flags & ContentFlags.ScriptsPotentiallyDangerous) != 0);
         }
         finally
         {

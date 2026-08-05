@@ -49,6 +49,10 @@ public sealed class AnalysisView
     public bool? Authenticode { get; set; }
     /// <summary>True when chain built to a trusted root.</summary>
     public bool? AuthChainValid { get; set; }
+    /// <summary>True when the Authenticode image digest matches the inspected PE bytes.</summary>
+    public bool? AuthFileHashMatches { get; set; }
+    /// <summary>True when Windows WinVerifyTrust policy trusts the file.</summary>
+    public bool? AuthTrustedWindowsPolicy { get; set; }
     /// <summary>True when a timestamp countersignature is present.</summary>
     public bool? AuthTimestamp { get; set; }
     /// <summary>The full analysis object for deep inspection.</summary>
@@ -76,6 +80,8 @@ public sealed class AnalysisView
         PeSubsystem = a.PeSubsystem,
         Authenticode = a.Authenticode?.Present,
         AuthChainValid = a.Authenticode?.ChainValid,
+        AuthFileHashMatches = a.Authenticode?.FileHashMatches,
+        AuthTrustedWindowsPolicy = a.Authenticode?.IsTrustedWindowsPolicy,
         AuthTimestamp = a.Authenticode?.TimestampPresent,
         Raw = a
     };
