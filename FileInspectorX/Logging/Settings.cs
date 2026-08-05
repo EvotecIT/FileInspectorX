@@ -565,6 +565,12 @@ public class Settings {
     public static int DeepContainerMaxEntryBytes { get; set; } = 262_144;
 
     /// <summary>
+    /// Maximum expanded size of one nested archive followed recursively during deep analysis.
+    /// This is separate from the smaller direct-entry sampling cap. Default 8 MB.
+    /// </summary>
+    public static int DeepContainerMaxNestedArchiveBytes { get; set; } = 8 * 1024 * 1024;
+
+    /// <summary>
     /// Maximum nested archive depth followed during deep container analysis. Default 3.
     /// </summary>
     public static int DeepContainerMaxDepth { get; set; } = 3;

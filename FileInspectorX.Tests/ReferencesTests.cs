@@ -597,11 +597,11 @@ public class ReferencesTests
         var outer = Path.Combine(Path.GetTempPath(), "archive-nested-msi-outer-" + Guid.NewGuid().ToString("N") + ".zip");
         var nested = Path.Combine(Path.GetTempPath(), "archive-nested-msi-inner-" + Guid.NewGuid().ToString("N") + ".zip");
         bool oldDeep = Settings.DeepContainerScanEnabled;
-        int oldDeepBytes = Settings.DeepContainerMaxEntryBytes;
+        int oldNestedBytes = Settings.DeepContainerMaxNestedArchiveBytes;
         try
         {
             Settings.DeepContainerScanEnabled = true;
-            Settings.DeepContainerMaxEntryBytes = 1_024;
+            Settings.DeepContainerMaxNestedArchiveBytes = 1_024;
 
             using (var fs = File.Create(nested))
             using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
@@ -620,7 +620,7 @@ public class ReferencesTests
                 stream.Write(bytes, 0, bytes.Length);
             }
 
-            Assert.True(new FileInfo(nested).Length > Settings.DeepContainerMaxEntryBytes);
+            Assert.True(new FileInfo(nested).Length > Settings.DeepContainerMaxNestedArchiveBytes);
 
             using (var fs = File.Create(outer))
             using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
@@ -640,7 +640,7 @@ public class ReferencesTests
         finally
         {
             Settings.DeepContainerScanEnabled = oldDeep;
-            Settings.DeepContainerMaxEntryBytes = oldDeepBytes;
+            Settings.DeepContainerMaxNestedArchiveBytes = oldNestedBytes;
             try { File.Delete(outer); } catch { }
             try { File.Delete(nested); } catch { }
         }

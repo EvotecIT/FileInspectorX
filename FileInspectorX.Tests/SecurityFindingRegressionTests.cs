@@ -381,13 +381,31 @@ public sealed class SecurityFindingRegressionTests
     [Fact]
     public void RestoredActiveContentSignaturesRemainDangerous()
     {
-        var chm = FileInspector.Detect(new byte[] { 0x49, 0x54, 0x53, 0x46, 0, 0, 0, 0 });
-        var swf = FileInspector.Detect(new byte[] { 0x46, 0x57, 0x53, 0, 0, 0, 0, 0 });
+        var chmBytes = new byte[0x60];
+        Encoding.ASCII.GetBytes("ITSF").CopyTo(chmBytes, 0);
+        TestHelpers.WriteUInt32LittleEndian(chmBytes, 4, 3);
+        TestHelpers.WriteUInt32LittleEndian(chmBytes, 8, 0x60);
+        var swfBytes = new byte[] { (byte)'F', (byte)'W', (byte)'S', 9, 14, 0, 0, 0, 0x08, 0, 0, 0, 1, 0 };
+
+        var chm = FileInspector.Detect(chmBytes);
+        var swf = FileInspector.Detect(swfBytes);
 
         Assert.Equal("chm", chm?.Extension);
         Assert.True(chm?.IsDangerous);
         Assert.Equal("swf", swf?.Extension);
         Assert.True(swf?.IsDangerous);
+    }
+
+    [Theory]
+    [InlineData("ITSF ordinary text")]
+    [InlineData("FWS ordinary text")]
+    [InlineData("CWS ordinary text")]
+    public void ShortActiveContentPrefixesRequireStructuralHeaders(string content)
+    {
+        var detection = FileInspector.Detect(Encoding.ASCII.GetBytes(content));
+
+        Assert.NotEqual("chm", detection?.Extension);
+        Assert.NotEqual("swf", detection?.Extension);
     }
 
     [Fact]
@@ -396,7 +414,11 @@ public sealed class SecurityFindingRegressionTests
         string path = Path.GetTempFileName() + ".chm";
         try
         {
-            File.WriteAllBytes(path, new byte[] { 0x49, 0x54, 0x53, 0x46, 0, 0, 0, 0 });
+            var chmBytes = new byte[0x60];
+            Encoding.ASCII.GetBytes("ITSF").CopyTo(chmBytes, 0);
+            TestHelpers.WriteUInt32LittleEndian(chmBytes, 4, 3);
+            TestHelpers.WriteUInt32LittleEndian(chmBytes, 8, 0x60);
+            File.WriteAllBytes(path, chmBytes);
 
             var analysis = FileInspector.Inspect(path, new FileInspector.DetectionOptions { DetectOnly = true });
 
@@ -425,6 +447,97 @@ public sealed class SecurityFindingRegressionTests
         finally
         {
             try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Rar4MetadataBlocksDoNotConsumeTheFileInspectionCap()
+    {
+        string path = Path.GetTempFileName() + ".rar";
+        try
+        {
+            using (var stream = File.Create(path))
+            {
+                stream.Write(new byte[] { (byte)'R', (byte)'a', (byte)'r', (byte)'!', 0x1A, 0x07, 0x00 }, 0, 7);
+                for (int index = 0; index < 321; index++)
+                    WriteRarHeader(stream, 0x73, 0);
+                for (int index = 0; index < 64; index++)
+                    WriteRarHeader(stream, 0x74, index == 63 ? (ushort)0x04 : (ushort)0);
+            }
+
+            var analysis = FileInspector.Analyze(path);
+
+            Assert.True((analysis.Flags & ContentFlags.ArchiveHasEncryptedEntries) != 0);
+            Assert.Equal(1, analysis.EncryptedEntryCount);
+            Assert.Contains("rar4:enc=1/64", analysis.SecurityFindings ?? Array.Empty<string>());
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+
+        static void WriteRarHeader(Stream stream, byte type, ushort flags)
+        {
+            stream.WriteByte(0);
+            stream.WriteByte(0);
+            stream.WriteByte(type);
+            stream.WriteByte((byte)(flags & 0xFF));
+            stream.WriteByte((byte)(flags >> 8));
+            stream.WriteByte(7);
+            stream.WriteByte(0);
+        }
+    }
+
+    [Fact]
+    public void NestedArchiveUsesItsOwnCapInsteadOfTheDirectEntrySampleCap()
+    {
+        var outerPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".zip");
+        bool oldDeep = Settings.DeepContainerScanEnabled;
+        int oldEntryBytes = Settings.DeepContainerMaxEntryBytes;
+        int oldNestedBytes = Settings.DeepContainerMaxNestedArchiveBytes;
+        try
+        {
+            Settings.DeepContainerScanEnabled = true;
+            Settings.DeepContainerMaxEntryBytes = 256 * 1024;
+            Settings.DeepContainerMaxNestedArchiveBytes = 1024 * 1024;
+
+            byte[] nestedBytes;
+            using (var nestedStream = new MemoryStream())
+            {
+                using (var nested = new ZipArchive(nestedStream, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    var executable = nested.CreateEntry("tool.exe", CompressionLevel.NoCompression);
+                    using (var payload = executable.Open()) payload.Write(new byte[] { (byte)'M', (byte)'Z', 0, 0 }, 0, 4);
+                    var padding = nested.CreateEntry("padding.bin", CompressionLevel.NoCompression);
+                    using var paddingStream = padding.Open();
+                    var bytes = new byte[300 * 1024];
+                    using var random = System.Security.Cryptography.RandomNumberGenerator.Create();
+                    random.GetBytes(bytes);
+                    paddingStream.Write(bytes, 0, bytes.Length);
+                }
+                nestedBytes = nestedStream.ToArray();
+            }
+            Assert.True(nestedBytes.Length > Settings.DeepContainerMaxEntryBytes);
+
+            using (var outer = ZipFile.Open(outerPath, ZipArchiveMode.Create))
+            {
+                var entry = outer.CreateEntry("payload.zip", CompressionLevel.NoCompression);
+                using var output = entry.Open();
+                output.Write(nestedBytes, 0, nestedBytes.Length);
+            }
+
+            var analysis = FileInspector.Analyze(outerPath);
+
+            Assert.True((analysis.Flags & ContentFlags.ContainerContainsExecutables) != 0);
+            Assert.Contains(analysis.ArchivePreviewEntries ?? Array.Empty<InnerEntryPreview>(), item =>
+                item.Name.IndexOf("tool.exe", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+        finally
+        {
+            Settings.DeepContainerScanEnabled = oldDeep;
+            Settings.DeepContainerMaxEntryBytes = oldEntryBytes;
+            Settings.DeepContainerMaxNestedArchiveBytes = oldNestedBytes;
+            try { File.Delete(outerPath); } catch { }
         }
     }
 

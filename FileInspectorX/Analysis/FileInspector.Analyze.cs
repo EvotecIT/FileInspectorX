@@ -1322,7 +1322,10 @@ public static partial class FileInspector {
             var br = new BinaryReader(fs);
             int filesSeen = 0;
             int blocksSeen = 0;
-            int maxBlocks = Math.Max(1, maxFiles);
+            int metadataBlockBudget = Math.Max(1, Settings.ArchiveMaxEntries);
+            int maxBlocks = maxFiles > int.MaxValue - metadataBlockBudget
+                ? int.MaxValue
+                : maxFiles + metadataBlockBudget;
             long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
             long walkStart = fs.Position;
             while (fs.Position + 7 <= fs.Length && filesSeen < maxFiles &&
@@ -2746,7 +2749,7 @@ public static partial class FileInspector {
     }
 
     private static int GetNestedArchiveDeepScanBytes()
-        => Math.Max(0, Settings.DeepContainerMaxEntryBytes);
+        => Math.Max(0, Settings.DeepContainerMaxNestedArchiveBytes);
 
     private static DetectionOptions CreateInnerAnalysisOptions(DetectionOptions? source,
         NestedContainerBudgetState nestedBudget, int nestedDepth, bool includeContainer)
