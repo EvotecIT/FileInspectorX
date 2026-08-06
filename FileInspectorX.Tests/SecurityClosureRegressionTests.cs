@@ -52,11 +52,18 @@ public sealed class SecurityClosureRegressionTests
     [Theory]
     [InlineData("appx")]
     [InlineData("msix")]
-    public void AppPackageSubtypeSuppressesExpectedExecutableAndScriptContainerSignals(string subtype)
+    public void ValidatedAppPackageIdentitySuppressesExpectedExecutableAndScriptContainerSignals(string subtype)
     {
         var analysis = new FileAnalysis
         {
             ContainerSubtype = subtype,
+            Installer = new InstallerInfo
+            {
+                Kind = subtype == "appx" ? InstallerKind.Appx : InstallerKind.Msix,
+                IdentityName = "Contoso.App",
+                Publisher = "CN=Contoso",
+                Version = "1.2.3.4"
+            },
             Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerContainsScripts
         };
 
@@ -66,6 +73,51 @@ public sealed class SecurityClosureRegressionTests
         Assert.DoesNotContain("Archive.ContainsExecutables", assessed.Codes);
         Assert.DoesNotContain("Archive.ContainsScripts", assessed.Codes);
         Assert.Contains("Sig.Absent", assessed.Codes);
+    }
+
+    [Fact]
+    public void PropertiesOnlyAppPackageManifestDoesNotSuppressArchiveRiskSignals()
+    {
+        var analysis = new FileAnalysis
+        {
+            ContainerSubtype = "msix",
+            Installer = new InstallerInfo
+            {
+                Kind = InstallerKind.Msix,
+                PublisherDisplayName = "Contoso"
+            },
+            Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerContainsScripts
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.ContainsScripts", assessed.Codes);
+    }
+
+    [Theory]
+    [InlineData("+1.2.3.4")]
+    [InlineData("1. 2.3.4")]
+    [InlineData("1.2.3.4 ")]
+    public void MalformedAppPackageVersionDoesNotSuppressArchiveRiskSignals(string version)
+    {
+        var analysis = new FileAnalysis
+        {
+            ContainerSubtype = "msix",
+            Installer = new InstallerInfo
+            {
+                Kind = InstallerKind.Msix,
+                IdentityName = "Contoso.App",
+                Publisher = "CN=Contoso",
+                Version = version
+            },
+            Flags = ContentFlags.ContainerContainsExecutables | ContentFlags.ContainerContainsScripts
+        };
+
+        var assessed = FileInspector.Assess(analysis);
+
+        Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
+        Assert.Contains("Archive.ContainsScripts", assessed.Codes);
     }
 
     [Fact]

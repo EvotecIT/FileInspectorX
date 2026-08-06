@@ -308,6 +308,37 @@ public sealed class SecurityFindingRegressionTests
     }
 
     [Fact]
+    public void PropertiesOnlyAppPackageManifestDoesNotCreateAValidatedIdentity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".msix");
+        try
+        {
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                var manifest = archive.CreateEntry("AppxManifest.xml");
+                using (var writer = new StreamWriter(manifest.Open()))
+                {
+                    writer.Write("<Package xmlns=\"http://schemas.microsoft.com/appx/manifest/foundation/windows10\"><Properties><PublisherDisplayName>Contoso</PublisherDisplayName></Properties></Package>");
+                }
+
+                archive.CreateEntry("payload.exe");
+                archive.CreateEntry("install.ps1");
+            }
+
+            var analysis = FileInspector.Analyze(path, new FileInspector.DetectionOptions { IncludeInstaller = true });
+            var assessed = FileInspector.Assess(analysis);
+
+            Assert.NotEqual(InstallerKind.Msix, analysis.Installer?.Kind);
+            Assert.Contains("Archive.ContainsExecutables", assessed.Codes);
+            Assert.Contains("Archive.ContainsScripts", assessed.Codes);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
     public void MalformedUtf16DoesNotHidePowerShellContent()
     {
         var valid = new UnicodeEncoding(false, true).GetBytes(
@@ -419,6 +450,20 @@ public sealed class SecurityFindingRegressionTests
         Assert.True(chm?.IsDangerous);
         Assert.Equal("swf", swf?.Extension);
         Assert.True(swf?.IsDangerous);
+    }
+
+    [Fact]
+    public void ChmVersionTwoWithItsValidHeaderLengthRemainsDangerous()
+    {
+        var chmBytes = new byte[0x58];
+        Encoding.ASCII.GetBytes("ITSF").CopyTo(chmBytes, 0);
+        TestHelpers.WriteUInt32LittleEndian(chmBytes, 4, 2);
+        TestHelpers.WriteUInt32LittleEndian(chmBytes, 8, 0x58);
+
+        var detection = FileInspector.Detect(chmBytes);
+
+        Assert.Equal("chm", detection?.Extension);
+        Assert.True(detection?.IsDangerous);
     }
 
     [Theory]

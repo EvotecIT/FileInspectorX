@@ -39,4 +39,25 @@ public class ShellPropertiesTests
         Assert.Equal("Title", rows[0].Property);
         Assert.Equal("Test", rows[0].Value);
     }
+
+    [Fact]
+    public void ShellPropertiesView_DoesNotInvokeNativeParserWhenSnapshotIsUnavailable()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var analysis = new FileAnalysis();
+
+            var rows = analysis.ToShellPropertiesView(
+                path,
+                new ShellPropertiesOptions { IncludeEmpty = true }).ToList();
+
+            Assert.Empty(rows);
+            Assert.Null(analysis.ShellProperties);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
 }

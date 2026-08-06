@@ -152,8 +152,11 @@ public static partial class FileInspector
         // Containers and archives
         bool hasDisguisedExecutables = (a.Flags & ContentFlags.ContainerHasDisguisedExecutables) != 0;
         bool hasAppPackageIdentity =
-            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix;
-        bool isAppPackageContainer =
+            a.Installer?.Kind is InstallerKind.Appx or InstallerKind.Msix &&
+            !string.IsNullOrWhiteSpace(a.Installer.IdentityName) &&
+            !string.IsNullOrWhiteSpace(a.Installer.Publisher) &&
+            IsValidAppPackageVersion(a.Installer.Version);
+        bool hasAppPackageSubtype =
             hasAppPackageIdentity ||
             string.Equals(a.ContainerSubtype, "appx", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(a.ContainerSubtype, "msix", StringComparison.OrdinalIgnoreCase);
@@ -161,8 +164,8 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.ArchiveHasPathTraversal) != 0) Add("Archive.PathTraversal", 40);
         if ((a.Flags & ContentFlags.ArchiveHasSymlinks) != 0) Add("Archive.Symlink", 20);
         if ((a.Flags & ContentFlags.ArchiveHasAbsolutePaths) != 0) Add("Archive.AbsolutePath", 15);
-        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !isAppPackageContainer) Add("Archive.ContainsExecutables", 25);
-        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !isAppPackageContainer) Add("Archive.ContainsScripts", 20);
+        if ((a.Flags & ContentFlags.ContainerContainsExecutables) != 0 && !hasDisguisedExecutables && !hasAppPackageIdentity) Add("Archive.ContainsExecutables", 25);
+        if ((a.Flags & ContentFlags.ContainerContainsScripts) != 0 && !hasAppPackageIdentity) Add("Archive.ContainsScripts", 20);
         if (hasInstallerContainer) Add("Archive.ContainsInstallers", 25);
         if ((a.Flags & ContentFlags.ContainerContainsArchives) != 0) Add("Archive.ContainsArchives", 15);
         if (hasDisguisedExecutables) Add("Archive.DisguisedExecutables", 25);
@@ -242,18 +245,15 @@ public static partial class FileInspector
 
         if (sig != null && hasSignaturePresence)
         {
-            bool hasPrimaryTrustFailure = false;
             bool hasSignatureFailure = false;
             if (sig.IsSelfSigned == true)
             {
                 Add("Sig.SelfSigned", 20);
-                hasPrimaryTrustFailure = true;
                 hasSignatureFailure = true;
             }
-            else if (sig.ChainValid == false)
+            if (sig.ChainValid == false)
             {
                 Add("Sig.ChainInvalid", 25);
-                hasPrimaryTrustFailure = true;
                 hasSignatureFailure = true;
             }
             if (sig.EnvelopeSignatureValid == false)
@@ -261,7 +261,7 @@ public static partial class FileInspector
                 Add("Sig.BadEnvelope", 15);
                 hasSignatureFailure = true;
             }
-            if (!hasPrimaryTrustFailure && sig.IsTrustedWindowsPolicy == false && !winTrustReportsNoSignature)
+            if (sig.IsTrustedWindowsPolicy == false && !winTrustReportsNoSignature)
             {
                 Add("Sig.WinTrustInvalid", 25);
                 hasSignatureFailure = true;
@@ -271,7 +271,7 @@ public static partial class FileInspector
         else
         {
             var ext = a.Detection?.Extension?.ToLowerInvariant();
-            if (ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx" || isAppPackageContainer)
+            if (ext is "exe" or "dll" or "sys" or "ocx" or "cpl" or "scr" or "com" or "pif" or "msi" or "msp" or "msix" or "appx" || hasAppPackageSubtype)
                 Add("Sig.Absent", 10);
         }
 
