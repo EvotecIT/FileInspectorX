@@ -35,19 +35,19 @@
     </ItemGroup>
 
     <ItemGroup Condition=" '$(TargetFramework)' == 'net472' ">
-        <PackageReference Include="System.Memory" Version="4.5.5" />
+        <PackageReference Include="System.Memory" Version="4.6.3" />
         <PackageReference Include="System.IO.Compression" Version="4.3.0" />
     </ItemGroup>
 
     <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
-        <PackageReference Include="System.Memory" Version="4.5.5" />
+        <PackageReference Include="System.Memory" Version="4.6.3" />
         <PackageReference Include="System.IO.Compression" Version="4.3.0" />
     </ItemGroup>
 
     <!-- Authenticode requires SignedCms + ASN.1; reference for all TFMs we target -->
     <ItemGroup>
-        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.1" />
-        <PackageReference Include="System.Formats.Asn1" Version="8.0.1" />
+        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.10" />
+        <PackageReference Include="System.Formats.Asn1" Version="10.0.10" />
     </ItemGroup>
 
     <ItemGroup>
