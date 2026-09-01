@@ -11,7 +11,7 @@ param(
     [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
 )
 
-Import-Module PSPublishModule -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion '3.0.98' -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
