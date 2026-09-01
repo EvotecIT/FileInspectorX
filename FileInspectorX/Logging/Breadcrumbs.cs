@@ -43,7 +43,11 @@ internal static class Breadcrumbs
                 }
             } catch { }
             var now = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fffZ");
+#if NET8_0_OR_GREATER
+            var pid = Environment.ProcessId;
+#else
             var pid = Process.GetCurrentProcess().Id;
+#endif
             var tid = Environment.CurrentManagedThreadId;
             var line = $"{now} PID={pid} TID={tid} TAG={tag}{(path!=null?" PATH="+path:"")}{(message!=null?" MSG="+message:"")}";
             File.AppendAllText(file, line + Environment.NewLine);
@@ -51,4 +55,3 @@ internal static class Breadcrumbs
         catch { /* never throw from breadcrumbs */ }
     }
 }
-
