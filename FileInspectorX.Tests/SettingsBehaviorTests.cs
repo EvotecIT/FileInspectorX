@@ -1,5 +1,9 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+#if NET8_0_OR_GREATER
+using System.Reflection;
+using System.Runtime.Loader;
+#endif
 using System.Threading;
 using FileInspectorX;
 
@@ -8,6 +12,33 @@ namespace FileInspectorX.Tests;
 [Xunit.Collection(nameof(DetectionSettingsCollection))]
 public class SettingsBehaviorTests
 {
+#if NET8_0_OR_GREATER
+    [Xunit.Fact]
+    public void Breadcrumbs_DoNotRequireProcessAssembly()
+    {
+        var logPath = Path.Combine(Path.GetTempPath(), $"FileInspectorX.Breadcrumbs.{Guid.NewGuid():N}.log");
+        var loadContext = new ProcessRejectingLoadContext();
+        try
+        {
+            var assembly = loadContext.LoadFromAssemblyPath(typeof(FileInspector).Assembly.Location);
+            var settings = assembly.GetType("FileInspectorX.Settings", throwOnError: true)!;
+            settings.GetProperty("BreadcrumbsEnabled")!.SetValue(null, true);
+            settings.GetProperty("BreadcrumbsPath")!.SetValue(null, logPath);
+            var breadcrumbs = assembly.GetType("FileInspectorX.Breadcrumbs", throwOnError: true)!;
+            var write = breadcrumbs.GetMethod("Write", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+            write.Invoke(null, new object?[] { "ISOLATED_TEST", null, null });
+
+            Xunit.Assert.Contains($"PID={Environment.ProcessId}", File.ReadAllText(logPath), StringComparison.Ordinal);
+        }
+        finally
+        {
+            loadContext.Unload();
+            File.Delete(logPath);
+        }
+    }
+#endif
+
     [Xunit.Fact]
     public void JsonValidationCore_TimesOut_When_StopwatchExpired()
     {
@@ -94,4 +125,17 @@ public class SettingsBehaviorTests
             Settings.DangerousExtensionsOverrideMode = prevMode;
         }
     }
+
+#if NET8_0_OR_GREATER
+    private sealed class ProcessRejectingLoadContext() : AssemblyLoadContext(isCollectible: true)
+    {
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            if (string.Equals(assemblyName.Name, "System.Diagnostics.Process", StringComparison.Ordinal))
+                throw new FileNotFoundException("Process assembly is unavailable in the isolated test context.", assemblyName.Name);
+
+            return null;
+        }
+    }
+#endif
 }
