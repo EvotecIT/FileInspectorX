@@ -1,4 +1,17 @@
-Import-Module PSPublishModule -MinimumVersion '3.0.98' -MaximumVersion '3.0.98.9999' -Force -ErrorAction Stop
+param(
+    [ValidateSet('Manifest', 'Documentation', 'Build', 'Publish')]
+    [string] $ConfigurationGateMode = 'Build',
+
+    [bool] $SignModule = $true,
+
+    [string] $ProjectBuildConfigPath = '..\Build\project.build.json',
+
+    [string] $PowerShellGalleryApiKeyPath = 'C:\Support\Important\PowerShellGalleryAPI.txt',
+
+    [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
+)
+
+Import-Module PSPublishModule -MinimumVersion '3.0.98' -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
@@ -69,11 +82,11 @@ Build-Module -ModuleName 'FileInspectorX' {
 
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = if ([string]::IsNullOrWhiteSpace($Env:SignModule)) { $true } else { [bool]::Parse($Env:SignModule) }
+        SignModule                        = $SignModule
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
         CertificateThumbprint             = '92E95FB58EFFA6A4A75E77A33CDD6BFE6DD30F1A'
-        NETProjectPath                    = "$PSScriptRoot\..\..\FileInspectorX.PowerShell"
+        NETProjectPath                    = '..\FileInspectorX.PowerShell\FileInspectorX.PowerShell.csproj'
         ResolveBinaryConflicts            = $true
         ResolveBinaryConflictsName        = 'FileInspectorX.PowerShell'
         NETProjectName                    = 'FileInspectorX.PowerShell'
@@ -89,10 +102,14 @@ Build-Module -ModuleName 'FileInspectorX' {
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    New-ConfigurationArtefact -Type Unpacked -Enable -Path "$PSScriptRoot\..\Artefacts\Unpacked" -RequiredModulesPath "$PSScriptRoot\..\Artefacts\Unpacked\Modules"
-    New-ConfigurationArtefact -Type Packed -Enable -Path "$PSScriptRoot\..\Artefacts\Packed" -IncludeTagName -ArtefactName "FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>.zip" -ID 'ToGitHub'
+    New-ConfigurationProjectBuild -Name 'FileInspectorX' -ConfigPath $ProjectBuildConfigPath -Enabled -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget
+    New-ConfigurationRelease -StageRoot '..\Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'FileInspectorX' -SynchronizeModuleVersion -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
-    # global options for publishing to github/psgallery
-    #New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$true
-    #New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'EvotecIT' -Enabled:$true -ID 'ToGitHub' -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
-}
+    New-ConfigurationArtefact -Type Unpacked -Enable -Path '..\Artefacts\Unpacked' -ModulesPath '..\Artefacts\Unpacked\Modules' -RequiredModulesPath '..\Artefacts\Unpacked\Modules'
+    New-ConfigurationArtefact -Type Packed -Enable -Path '..\Artefacts\Packed' -ModulesPath '..\Artefacts\Packed\Modules' -IncludeTagName -ArtefactName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>.zip' -ID 'ToGitHub'
+
+    New-ConfigurationPublish -Type PowerShellGallery -FilePath $PowerShellGalleryApiKeyPath -Enabled:$false
+    New-ConfigurationPublish -Type GitHub -FilePath $GitHubApiKeyPath -UserName 'EvotecIT' -RepositoryName 'FileInspectorX' -Enabled:$false -GenerateReleaseNotes -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
+
+    New-ConfigurationGate -Mode $ConfigurationGateMode
+} -ExitCode

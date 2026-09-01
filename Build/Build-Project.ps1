@@ -8,7 +8,7 @@ param(
     [string] $PlanPath
 )
 
-Import-Module PSPublishModule -MinimumVersion '3.0.98' -MaximumVersion '3.0.98.9999' -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion '3.0.98' -Force -ErrorAction Stop
 
 $invokeParams = @{
     ConfigPath = $ConfigPath
