@@ -15,7 +15,7 @@ public class MsiOleCfDetectionTests
         var tmp = Path.GetTempFileName();
         try
         {
-            // Build a tiny synthetic CFBF structure tailored for our mini-reader
+            // Build a bounded compound-file directory fixture at standard sector offsets.
             // Header 512 bytes
             var header = new byte[512];
             // Signature D0 CF 11 E0 A1 B1 1A E1
@@ -29,19 +29,19 @@ public class MsiOleCfDetectionTests
             // Large files can declare more FAT sectors than fit in the 109 header DIFAT slots.
             // The bounded reader can still use the valid header entries it has available.
             BitConverter.TryWriteBytes(new Span<byte>(header, 0x2C, 4), declaredFatSectorCount);
-            // Directory start SID (0x30) = 2 (will be at offset 512 + (2+1)*512)
+            // Directory start SID (0x30) = 2 (offset 1536).
             BitConverter.TryWriteBytes(new Span<byte>(header, 0x30, 4), 2);
             // DIFAT first entry at 0x4C = FAT sector SID 0
             BitConverter.TryWriteBytes(new Span<byte>(header, 0x4C, 4), 0);
 
-            // FAT sector (512 bytes) placed at sector 0 by our reader's formula => offset 1024
+            // FAT sector (512 bytes) at sector zero => offset 512.
             var fat = new byte[512];
             // Mark directory sector (SID 2) as end of chain
             // Entries are 32-bit LE; place ENDOFCHAIN at index 2
             const int ENDOFCHAIN = unchecked((int)0xFFFFFFFE);
             BitConverter.TryWriteBytes(new Span<byte>(fat, 2*4, 4), ENDOFCHAIN);
 
-            // Directory sector (512 bytes) at SID 2 => offset 512 + (2+1)*512
+            // Directory sector (512 bytes) at SID 2 => offset 1536.
             var dir = new byte[512];
             WriteDirName(dir, 0, "SummaryInformation");
             WriteDirName(dir, 128, "Property");
@@ -50,11 +50,9 @@ public class MsiOleCfDetectionTests
             using (var fs = File.Create(tmp))
             {
                 fs.Write(header, 0, header.Length);
-                // pad to offset 1024 where FAT will be according to our reader
-                fs.Position = 1024;
+                fs.Position = 512;
                 fs.Write(fat, 0, fat.Length);
-                // write dir sector at offset 512 + (2+1)*512 = 2048
-                fs.Position = 2048;
+                fs.Position = 1536;
                 fs.Write(dir, 0, dir.Length);
             }
 
@@ -73,6 +71,7 @@ public class MsiOleCfDetectionTests
             ushort len = (ushort)Math.Min(bytes.Length, 128);
             buf[offset + 0x40] = (byte)(len & 0xFF);
             buf[offset + 0x41] = (byte)((len >> 8) & 0xFF);
+            buf[offset + 0x42] = 2;
         }
     }
 }

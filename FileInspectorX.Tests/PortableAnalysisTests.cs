@@ -82,6 +82,50 @@ public sealed partial class PortableAnalysisTests
         }
     }
 
+    [Theory]
+    [InlineData("doc", "WordDocument", 9)]
+    [InlineData("xls", "Workbook", 9)]
+    [InlineData("ppt", "PowerPoint Document", 9)]
+    [InlineData("msg", "__properties_version1.0", 9)]
+    [InlineData("msg", "__properties_version1.0", 12)]
+    public void CompoundDirectoryFactsUseValidSectorOffsetsAndReleaseFileHandles(string extension, string marker, int sectorShift)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            DetectorTests.WriteSyntheticOleDirectoryFile(path, sectorShift, marker, "VBA");
+            var bytes = File.ReadAllBytes(path);
+            foreach (var result in InspectShapes(bytes, "upload." + extension, Options()))
+            {
+                Assert.Equal(extension, result.Detection!.Extension);
+                if (extension != "msg") Assert.True(result.Flags.HasFlag(ContentFlags.OleHasVbaMacros));
+            }
+            Assert.Equal(extension, FileInspector.Analyze(path, Options()).Detection!.Extension);
+            using var exclusive = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            Assert.Equal(bytes.Length, exclusive.Length);
+        }
+        finally { TestHelpers.SafeDelete(path); }
+    }
+
+    [Theory]
+    [InlineData("name-length")]
+    [InlineData("unallocated")]
+    [InlineData("termination")]
+    public void InvalidCompoundDirectoryEntriesCannotSupplySubtypeNames(string error)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            DetectorTests.WriteSyntheticOleDirectoryFile(path, "__properties_version1.0");
+            var bytes = File.ReadAllBytes(path);
+            if (error == "name-length") bytes[1536 + 0x40] = 126;
+            else if (error == "unallocated") bytes[1536 + 0x42] = 0;
+            else bytes[1536 + bytes[1536 + 0x40] - 2] = 1;
+            Assert.NotEqual("msg", FileInspector.Analyze(bytes, Options()).Detection!.Extension);
+        }
+        finally { TestHelpers.SafeDelete(path); }
+    }
+
     [Fact]
     public void NameHintCannotOpenAnExistingFileAndMissingPathStagesStayExplicit()
     {

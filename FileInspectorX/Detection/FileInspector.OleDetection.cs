@@ -12,7 +12,7 @@ public static partial class FileInspector
             if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
             int cap = Math.Max(8 * 1024, Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024));
             var buf = new byte[cap];
-            int n = stream.Read(buf, 0, buf.Length);
+            int n = ReadAvailable(stream, buf, 0, buf.Length);
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
             var ascii = System.Text.Encoding.ASCII.GetString(buf, 0, n);
             if (ascii.IndexOf("WordDocument", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -34,6 +34,12 @@ public static partial class FileInspector
             // Try mini CFBF directory parse for higher confidence
             if (TryGetOleDirectoryNames(stream, out var names))
             {
+                if (names.Any(nm => nm.Equals("WordDocument", StringComparison.OrdinalIgnoreCase)))
+                    return new ContentTypeDetectionResult { Extension = "doc", MimeType = "application/msword", Confidence = "Medium", Reason = "ole2:word-cfbf;sector-chains-partial" };
+                if (names.Any(nm => nm.Equals("Workbook", StringComparison.OrdinalIgnoreCase) || nm.Equals("Book", StringComparison.OrdinalIgnoreCase)))
+                    return new ContentTypeDetectionResult { Extension = "xls", MimeType = "application/vnd.ms-excel", Confidence = "Medium", Reason = "ole2:xls-cfbf;sector-chains-partial" };
+                if (names.Any(nm => nm.Equals("PowerPoint Document", StringComparison.OrdinalIgnoreCase)))
+                    return new ContentTypeDetectionResult { Extension = "ppt", MimeType = "application/vnd.ms-powerpoint", Confidence = "Medium", Reason = "ole2:ppt-cfbf;sector-chains-partial" };
                 bool hasSummary = names.Any(nm => nm.IndexOf("SummaryInformation", StringComparison.OrdinalIgnoreCase) >= 0 || (nm.Length > 0 && nm[0] == '\u0005' && nm.IndexOf("SummaryInformation", StringComparison.OrdinalIgnoreCase) >= 1));
                 int hits = 0;
                 string[] msiNames = new [] { "Property", "Directory", "Feature", "Media", "Component", "File", "InstallExecuteSequence" };
@@ -53,7 +59,7 @@ public static partial class FileInspector
             if (!stream.CanSeek) return false;
             stream.Seek(0, SeekOrigin.Begin);
             var hdr = new byte[512];
-            if (stream.Read(hdr, 0, hdr.Length) != hdr.Length) return false;
+            if (ReadAvailable(stream, hdr, 0, hdr.Length) != hdr.Length) return false;
             // Signature
             byte[] sig = new byte[] { 0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1 };
             for (int i = 0; i < 8; i++) if (hdr[i] != sig[i]) return false;
@@ -80,11 +86,11 @@ public static partial class FileInspector
             foreach (var sid in fatSids)
             {
                 if (bytesRead > readBudget - sectorSize) break;
-                long off = 512L + ((long)sid + 1) * sectorSize;
+                long off = ((long)sid + 1) * sectorSize;
                 if (off < 0 || off + sectorSize > stream.Length) continue;
                 stream.Seek(off, SeekOrigin.Begin);
                 var sec = new byte[sectorSize];
-                int rn = stream.Read(sec, 0, sec.Length);
+                int rn = ReadAvailable(stream, sec, 0, sec.Length);
                 if (rn != sec.Length) break;
                 bytesRead += rn;
                 // Each FAT sector contains 32-bit entries
@@ -96,16 +102,18 @@ public static partial class FileInspector
             int cur = dirStartSid; int maxSectors = Math.Min(64, Math.Max(1, (readBudget - bytesRead) / sectorSize)); int sectors = 0;
             while (cur >= 0 && cur < fat.Count && sectors < maxSectors)
             {
-                long off = 512L + ((long)cur + 1) * sectorSize;
+                long off = ((long)cur + 1) * sectorSize;
                 if (off < 0 || off + sectorSize > stream.Length) break;
                 stream.Seek(off, SeekOrigin.Begin);
                 var dirSec = new byte[sectorSize];
-                if (stream.Read(dirSec, 0, dirSec.Length) != dirSec.Length) break;
+                if (ReadAvailable(stream, dirSec, 0, dirSec.Length) != dirSec.Length) break;
                 // Parse 128-byte directory entries
                 for (int p = 0; p + 128 <= dirSec.Length; p += 128)
                 {
                     int nameLen = dirSec[p + 0x40] | (dirSec[p + 0x41] << 8); // bytes
-                    if (nameLen >= 2 && nameLen <= 128)
+                    byte objectType = dirSec[p + 0x42];
+                    if (objectType is 1 or 2 or 5 && nameLen >= 2 && nameLen <= 64 && (nameLen & 1) == 0 &&
+                        dirSec[p + nameLen - 2] == 0 && dirSec[p + nameLen - 1] == 0)
                     {
                         int bytes = nameLen - 2; // exclude terminating null
                         if (bytes > 0 && bytes <= 128)

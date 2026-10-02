@@ -491,7 +491,8 @@ public static partial class FileInspector {
             {
                 try
                 {
-                    if (TryGetOleDirectoryNames(input.OpenRead(), out var names))
+                    using var oleInput = input.OpenRead();
+                    if (TryGetOleDirectoryNames(oleInput, out var names))
                     {
                         bool hasVba = names.Any(nm => nm.IndexOf("VBA", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("dir", StringComparison.OrdinalIgnoreCase) >= 0);
                         if (hasVba) { res.Flags |= ContentFlags.OleHasVbaMacros; var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>()); if (!list.Contains("office:vba")) list.Add("office:vba"); res.SecurityFindings = list; }
