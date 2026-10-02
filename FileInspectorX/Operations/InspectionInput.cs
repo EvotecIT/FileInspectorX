@@ -27,10 +27,10 @@ internal sealed class InspectionInput : IDisposable
         return new(null, stream, fileName);
     }
 
-    internal Stream OpenRead()
+    internal Stream OpenRead(FileShare share = FileShare.Read)
     {
         InspectionOperation.CheckCancellation();
-        if (HasPath) return OperationReadStream.Open(Path!);
+        if (HasPath) return OperationReadStream.Open(Path!, share);
         var token = InspectionOperation.Current?.Options.CancellationToken ?? default;
         return _stream!.CanSeek
             ? OperationReadStream.BorrowRetained(_stream, token)

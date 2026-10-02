@@ -2,6 +2,7 @@ $baselineRoot = Get-BenchmarkInput BaselineRoot
 $candidateRoot = Get-BenchmarkInput CandidateRoot
 $corpus = Get-BenchmarkInput CorpusPath
 $calls = Get-BenchmarkInput Calls 3 -Int
+if ($calls -lt 1) { throw 'Calls must be positive so each sample measures inference.' }
 $contextPrefix = Get-BenchmarkInput ContextPrefix 'FileInspectorX-Magika'
 $workloadName = 'FileInspectorX.Magika.BenchmarkWorkloads.dll'
 $hash = (Get-FileHash (Join-Path $baselineRoot $workloadName)).Hash

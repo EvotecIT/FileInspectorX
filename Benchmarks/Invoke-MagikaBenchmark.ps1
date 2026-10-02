@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][string] $CandidateRoot,
     [Parameter(Mandatory)][string] $OutputRoot,
     [string] $CorpusPath = (Join-Path $PSScriptRoot '../FileInspectorX.Magika.Tests/Reference/standard_v3_3-inference_examples_by_content.json.gz'),
-    [int] $Calls = 3
+    [ValidateRange(1, 2147483647)][int] $Calls = 3
 )
 $ErrorActionPreference = 'Stop'
 Import-Module PSPublishModule -MinimumVersion 3.0.153 -ErrorAction Stop

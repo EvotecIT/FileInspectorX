@@ -14,7 +14,8 @@ internal sealed class ZipInspectionContext : IDisposable
 
     internal ZipInspectionContext(InspectionInput input, ArchiveInspectionBudget budget)
     {
-        Stream? stream = input.OpenRead();
+        // ZIP recognition retains the path detector's compatible-writer policy.
+        Stream? stream = input.OpenRead(FileShare.ReadWrite | FileShare.Delete);
         try
         {
             _validDirectory = budget.CheckCentralDirectory(stream, out _declaredEntryCount);

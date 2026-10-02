@@ -16,6 +16,7 @@ public sealed class MagikaWorkload : IDisposable
     /// <summary>Loads identical complete inputs; session construction happens outside measurement.</summary>
     public MagikaWorkload(string corpusPath, string operation, int threads, int calls)
     {
+        if (calls < 1) throw new ArgumentOutOfRangeException(nameof(calls), "Calls must be positive.");
         using var file = File.OpenRead(corpusPath);
         using var gzip = new GZipStream(file, CompressionMode.Decompress);
         using var json = JsonDocument.Parse(gzip);

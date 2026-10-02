@@ -43,10 +43,10 @@ internal sealed class OperationReadStream : Stream
     internal static Stream Borrow(Stream stream, CancellationToken token)
         => new OperationReadStream(stream, token, leaveOpen: true, MetricsFor(stream));
 
-    internal static Stream Open(string path)
+    internal static Stream Open(string path, FileShare share = FileShare.Read)
     {
         InspectionOperation.CheckCancellation();
-        var stream = File.OpenRead(path);
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, share);
         var token = InspectionOperation.Current?.Options.CancellationToken ?? default;
         return Wrap(stream, token, leaveOpen: false);
     }

@@ -48,14 +48,81 @@ public sealed class ZipOperationLifetimeTests
         finally { File.Delete(path); }
     }
 
-    [Fact]
-    public void UnavailableBorrowedPositionRetainsTypedInputFailure()
+    [Theory]
+    [InlineData(0, LearnedClassificationMode.Off)]
+    [InlineData(1, LearnedClassificationMode.Off)]
+    [InlineData(2, LearnedClassificationMode.Off)]
+    [InlineData(0, LearnedClassificationMode.Assist)]
+    [InlineData(1, LearnedClassificationMode.Assist)]
+    [InlineData(2, LearnedClassificationMode.Assist)]
+    public void UnavailableBorrowedPositionRetainsTypedInputFailure(int facade, LearnedClassificationMode mode)
     {
         using var stream = new UnavailablePositionStream(Jar);
-        var result = FileInspector.Analyze(stream, Options());
+        var options = Options();
+        options.LearnedClassificationMode = mode;
+        options.LearnedClassifier = new UnreachableClassifier();
+        var result = InspectUnavailable(stream, options, facade);
         Assert.Equal(InspectionInputStatus.Unreadable, result.InputStatus);
         Assert.Equal(InspectionOutcome.InputUnavailable, result.Outcome);
         Assert.True(stream.CanRead);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void RequiredClassifierTranslatesUnavailableBorrowedPosition(int facade)
+    {
+        using var stream = new UnavailablePositionStream(Jar);
+        var options = Options();
+        options.LearnedClassificationMode = LearnedClassificationMode.Required;
+        options.LearnedClassifier = new UnreachableClassifier();
+        var exception = Assert.Throws<LearnedClassificationException>(() => InspectUnavailable(stream, options, facade));
+        Assert.IsType<IOException>(exception.InnerException);
+        Assert.True(stream.CanRead);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void PathZipDetectionRetainsCompatibleWriterSharing(bool docx, bool includeContainer)
+    {
+        // File sharing is enforced by Windows; Unix permits these handles regardless of FileShare.
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT) return;
+        var bytes = docx ? ZipTestArchive.Create(
+            ("[Content_Types].xml", "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>"),
+            ("word/document.xml", "<document/>")) : Jar;
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+            using var writer = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            var detected = FileInspector.Detect(path)!;
+            Assert.Equal(docx ? "docx" : "jar", docx ? detected.Extension : detected.GuessedExtension);
+            var options = Options();
+            options.IncludeContainer = includeContainer;
+            foreach (var result in new[] { FileInspector.Analyze(path, options), FileInspector.Inspect(path, options) })
+            {
+                Assert.Equal(detected.Extension, result.Detection!.Extension);
+                Assert.Equal(detected.GuessedExtension, result.Detection.GuessedExtension);
+                if (includeContainer) Assert.Equal(docx ? 2 : 3, result.ContainerEntryCount);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
+    private static FileAnalysis InspectUnavailable(Stream stream, FileInspector.DetectionOptions options, int facade)
+    {
+        options.DetectOnly = facade == 2;
+        return facade == 0 ? FileInspector.Analyze(stream, options) : FileInspector.Inspect(stream, options);
+    }
+
+    private sealed class UnreachableClassifier : ILearnedContentClassifier
+    {
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content) => throw new InvalidOperationException("Unreadable input cannot reach the provider.");
+        public LearnedContentPrediction Predict(Stream content) => throw new InvalidOperationException("Unreadable input cannot reach the provider.");
     }
 
     private sealed class UnavailablePositionStream : MemoryStream

@@ -98,10 +98,10 @@ public static partial class FileInspector
 
     private static ContentTypeDetectionResult? DetectInput(InspectionInput input, DetectionOptions options)
     {
-        input.RetainPosition();
         if (input.HasPath) return DetectPathCore(input.Path!, options, propagateReadFailure: true, input);
         try
         {
+            input.RetainPosition();
             using var stream = input.OpenRead();
             return DetectStreamCore(stream, options, System.IO.Path.GetExtension(input.Name).TrimStart('.'), input);
         }
