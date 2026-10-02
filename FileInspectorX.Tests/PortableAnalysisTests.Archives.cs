@@ -48,7 +48,14 @@ public sealed partial class PortableAnalysisTests
         var bytes = Archive(extension, "payload.dll", payload);
         var options = Options();
         options.IncludeAuthenticode = true;
-        options.Settings = options.Settings! with { DeepContainerMaxEntryBytes = 4 * 1024 * 1024, VerifyAuthenticodeWithWinTrust = true };
+        // Coverage instrumentation enlarges the assembly fixture. Both independent
+        // limits must permit the full payload requested by this sampling contract.
+        const int fixtureBudget = 4 * 1024 * 1024;
+        Assert.InRange(payload.Length, 1, fixtureBudget);
+        options.Settings = options.Settings! with {
+            DeepContainerMaxEntryBytes = fixtureBudget, ArchiveMaxEntryReadBytes = fixtureBudget,
+            VerifyAuthenticodeWithWinTrust = true
+        };
         foreach (var result in InspectShapes(bytes, "upload." + extension, options))
         {
             Assert.Equal(extension, result.Detection!.Extension);
