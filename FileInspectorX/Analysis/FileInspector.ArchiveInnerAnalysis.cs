@@ -6,6 +6,58 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
+    // Archive entries have content and a name, but no filesystem permissions or shell identity.
+    // Native trust staging remains limited to explicitly requested signer sampling from path input.
+    private static FileAnalysis AnalyzeArchiveChild(InspectionInput parent, Stream content, string name,
+        DetectionOptions options, ArchiveInspectionBudget budget, bool nativeSignerSampling = false)
+    {
+        options.IncludePermissions = false;
+        options.IncludeShellProperties = false;
+        options.IncludeInstaller = false;
+#if NET8_0_OR_GREATER || NET472
+        if (nativeSignerSampling && parent.HasPath && options.IncludeAuthenticode &&
+            OperationSettings.VerifyAuthenticodeWithWinTrust &&
+            System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+        {
+            string? temporary = null;
+            long position = content.Position;
+            try
+            {
+                temporary = System.IO.Path.GetTempFileName();
+                content.Seek(0, SeekOrigin.Begin);
+                using (var output = File.Create(temporary))
+                using (var source = OperationReadStream.Borrow(content, options.CancellationToken)) source.CopyTo(output);
+                return CompleteArchiveChild(Analyze(temporary, options), budget);
+            }
+            finally
+            {
+                if (temporary != null) { try { File.Delete(temporary); } catch { } }
+                try { content.Seek(position, SeekOrigin.Begin); } catch { }
+            }
+        }
+#endif
+        return CompleteArchiveChild(Analyze(content, options, name), budget);
+    }
+
+    private static FileAnalysis CompleteArchiveChild(FileAnalysis result, ArchiveInspectionBudget budget)
+    {
+        if (!result.AnalysisComplete) budget.AddIssue("archive:inner-analysis:incomplete");
+        if (result.StageOutcomes.Any(stage => stage.Stage == InspectionStage.AuthenticodePolicy &&
+            stage.Status == InspectionStageStatus.Unavailable))
+            budget.AddIssue("archive:authenticode-policy:path-required");
+        foreach (var stage in result.StageOutcomes.Where(stage => stage.Status is InspectionStageStatus.Partial or
+            InspectionStageStatus.Unavailable or InspectionStageStatus.Failed))
+        {
+            if (stage.Stage != InspectionStage.AuthenticodePolicy)
+                budget.AddIssue("archive:inner-" + stage.Stage.ToString().ToLowerInvariant() + ":incomplete");
+        }
+        return result;
+    }
+
+    private static NestedContainerBudgetState GetNestedContainerBudget(DetectionOptions? options)
+        => options?.NestedContainerBudget ?? new NestedContainerBudgetState(OperationSettings.DeepContainerMaxEntries,
+            (long)Math.Max(0, OperationSettings.DeepContainerMaxEntries) * Math.Max(0, OperationSettings.DeepContainerMaxEntryBytes));
+
     private static IReadOnlyList<Reference>? MergeReferences(IReadOnlyList<Reference>? primary, IReadOnlyList<Reference>? secondary)
     {
         if ((primary?.Count ?? 0) == 0) return secondary;

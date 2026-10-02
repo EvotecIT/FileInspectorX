@@ -743,28 +743,33 @@ public class DetectorTests {
         } finally { if (File.Exists(p)) File.Delete(p); if (File.Exists(zip)) File.Delete(zip); }
     }
 
-    private static void WriteSyntheticOleDirectoryFile(string path, params string[] directoryNames)
+    internal static void WriteSyntheticOleDirectoryFile(string path, params string[] directoryNames)
+        => WriteSyntheticOleDirectoryFile(path, 9, directoryNames);
+
+    internal static void WriteSyntheticOleDirectoryFile(string path, int sectorShift, params string[] directoryNames)
     {
+        int sectorSize = 1 << sectorShift;
         var header = new byte[512];
         var sig = new byte[]{0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1};
         Array.Copy(sig, 0, header, 0, sig.Length);
-        header[0x1A] = 0x03;
+        header[0x18] = 0x3E;
+        header[0x1A] = sectorShift == 12 ? (byte)4 : (byte)3;
         header[0x1C] = 0xFE;
         header[0x1D] = 0xFF;
-        header[0x1E] = 0x09;
+        header[0x1E] = (byte)sectorShift;
         header[0x1F] = 0x00;
         header[0x20] = 0x06;
-        // Our mini CFBF reader maps sector N to offset 512 + ((N + 1) * 512),
-        // so FAT sector SID 0 lives at 1024 and directory sector SID 2 lives at 2048.
+        if (sectorShift == 12) WriteLe32(header, 0x28, 1);
+        // Sector zero follows the header sector; directory SID 2 starts at 1536.
         WriteLe32(header, 0x2C, 1);
         WriteLe32(header, 0x30, 2);
         WriteLe32(header, 0x4C, 0);
 
-        var fat = new byte[512];
+        var fat = new byte[sectorSize];
         const int ENDOFCHAIN = unchecked((int)0xFFFFFFFE);
         WriteLe32(fat, 2 * 4, ENDOFCHAIN);
 
-        var dir = new byte[512];
+        var dir = new byte[sectorSize];
         for (int i = 0; i < directoryNames.Length && i < 4; i++)
         {
             WriteDirName(dir, i * 128, directoryNames[i]);
@@ -772,18 +777,19 @@ public class DetectorTests {
 
         using var fs = File.Create(path);
         fs.Write(header, 0, header.Length);
-        fs.Position = 1024;
+        fs.Position = sectorSize;
         fs.Write(fat, 0, fat.Length);
-        fs.Position = 2048;
+        fs.Position = 3L * sectorSize;
         fs.Write(dir, 0, dir.Length);
 
         static void WriteDirName(byte[] buf, int offset, string name)
         {
             var bytes = System.Text.Encoding.Unicode.GetBytes(name + "\0");
             Array.Copy(bytes, 0, buf, offset, Math.Min(bytes.Length, 64));
-            ushort len = (ushort)Math.Min(bytes.Length, 128);
+            ushort len = (ushort)Math.Min(bytes.Length, 64);
             buf[offset + 0x40] = (byte)(len & 0xFF);
             buf[offset + 0x41] = (byte)((len >> 8) & 0xFF);
+            buf[offset + 0x42] = 2; // stream directory entry
         }
 
         static void WriteLe32(byte[] buffer, int offset, int value)

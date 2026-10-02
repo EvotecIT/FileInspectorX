@@ -6,8 +6,9 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static bool TryLoadCertificateFromFile(string path, string ext, out X509Certificate2 cert)
+    private static bool TryLoadCertificateFromFile(InspectionInput input, string ext, out X509Certificate2 cert)
     {
+        var path = input.Name;
         cert = null!;
         try
         {
@@ -15,7 +16,7 @@ public static partial class FileInspector
                 string.Equals(ext, "crt", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(ext, "cer", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryReadPemCertificateBlock(path, out var pemBlock, out var derBytes))
+                if (!TryReadPemCertificateBlock(input, out var pemBlock, out var derBytes))
                 {
                     if (string.Equals(ext, "pem", StringComparison.OrdinalIgnoreCase))
                     {
@@ -42,7 +43,7 @@ public static partial class FileInspector
                 }
             }
 
-            if (!TryReadFileBytesWithinBudget(path, GetCertificateParseReadBudgetBytes(), out var rawBytes))
+            if (!TryReadFileBytesWithinBudget(input, GetCertificateParseReadBudgetBytes(), out var rawBytes))
             {
                 return false;
             }
@@ -61,19 +62,20 @@ public static partial class FileInspector
         return (int)Math.Max(256, budget);
     }
 
-    private static bool TryReadFileBytesWithinBudget(string path, int maxBytes, out byte[] data)
+    private static bool TryReadFileBytesWithinBudget(InspectionInput input, int maxBytes, out byte[] data)
     {
+        var path = input.Name;
         data = Array.Empty<byte>();
         try
         {
-            var fileInfo = new FileInfo(path);
-            if (!fileInfo.Exists || fileInfo.Length <= 0 || fileInfo.Length > maxBytes)
+            using var fs = input.OpenRead();
+            long length = fs.Length;
+            if (length <= 0 || length > maxBytes)
             {
                 return false;
             }
 
-            using var fs = OperationReadStream.Open(path);
-            data = new byte[(int)fileInfo.Length];
+            data = new byte[(int)length];
             var offset = 0;
             while (offset < data.Length)
             {
@@ -102,13 +104,14 @@ public static partial class FileInspector
         }
     }
 
-    private static bool TryReadPemCertificateBlock(string path, out string pemBlock, out byte[] derBytes)
+    private static bool TryReadPemCertificateBlock(InspectionInput input, out string pemBlock, out byte[] derBytes)
     {
+        var path = input.Name;
         pemBlock = string.Empty;
         derBytes = Array.Empty<byte>();
         try
         {
-            var text = ReadHeadText(path, GetCertificateParseReadBudgetBytes());
+            var text = ReadHeadText(input, GetCertificateParseReadBudgetBytes());
             if (string.IsNullOrWhiteSpace(text))
             {
                 return false;

@@ -231,7 +231,7 @@ internal static partial class Signatures {
                 if (s.Length < offset + 5) return false;
                 var arr = new byte[5];
                 s.Seek(offset, SeekOrigin.Begin);
-                var r = s.Read(arr, 0, arr.Length);
+                var r = FileInspector.ReadAvailable(s, arr, 0, arr.Length);
                 return r == 5 && new ReadOnlySpan<byte>(arr).SequenceEqual("CD001"u8);
             }
             // Only accept ISO when CD001 appears at standard Primary/Backup Volume Descriptor offsets.
@@ -260,7 +260,7 @@ internal static partial class Signatures {
                 long off = start + i * sector;
                 if (fs.Length < off + 5) break;
                 fs.Seek(off, SeekOrigin.Begin);
-                if (fs.Read(buf, 0, 5) != 5) break;
+                if (FileInspector.ReadAvailable(fs, buf, 0, 5) != 5) break;
                 var span = new ReadOnlySpan<byte>(buf);
                 if (span.SequenceEqual(ids[2])) bea = i; // BEA01
                 else if (span.SequenceEqual(ids[0]) || span.SequenceEqual(ids[1])) { nsr = i; nsrVer = span.SequenceEqual(ids[0]) ? "nsr02" : "nsr03"; }
@@ -282,7 +282,7 @@ internal static partial class Signatures {
             if (fs.Length < 512) return false;
             fs.Seek(-512, SeekOrigin.End);
             var buf = new byte[4];
-            int n = fs.Read(buf, 0, 4);
+            int n = FileInspector.ReadAvailable(fs, buf, 0, 4);
             if (n == 4 && buf[0] == (byte)'k' && buf[1] == (byte)'o' && buf[2] == (byte)'l' && buf[3] == (byte)'y') {
                 result = new ContentTypeDetectionResult { Extension = "dmg", MimeType = "application/x-apple-diskimage", Confidence = "Medium", Reason = "udif:koly" };
                 return true;

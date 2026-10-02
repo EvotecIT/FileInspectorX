@@ -30,7 +30,7 @@ internal static partial class Signatures {
         try {
             stream.Seek(0, SeekOrigin.Begin);
             var header = new byte[8];
-            if (stream.Read(header, 0, 8) != 8) return false;
+            if (FileInspector.ReadAvailable(stream, header, 0, 8) != 8) return false;
             byte[] ole = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
             for (int i = 0; i < 8; i++) if (header[i] != ole[i]) return false;
             stream.Seek(0, SeekOrigin.Begin);

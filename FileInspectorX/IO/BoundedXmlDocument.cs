@@ -11,9 +11,22 @@ internal static class BoundedXmlDocument
         long maxBytes,
         out XmlDocument document,
         int maxDepth = DefaultMaxDepth)
+        => TryLoad(source, maxBytes, out document, out _, out _, maxDepth);
+
+    // Keep rejected XML distinct from an inspection that could not finish.
+    internal static bool TryLoad(
+        Stream source,
+        long maxBytes,
+        out XmlDocument document,
+        out StructuredValidationOutcome outcome,
+        out string? issue,
+        int maxDepth = DefaultMaxDepth)
     {
         document = null!;
-        if (maxBytes <= 0 || maxDepth < 1) return false;
+        outcome = StructuredValidationOutcome.Skipped;
+        issue = "size-limit";
+        if (maxBytes <= 0) return false;
+        if (maxDepth < 1) { issue = "depth-limit"; return false; }
 
         try
         {
@@ -22,9 +35,9 @@ internal static class BoundedXmlDocument
             long total = 0;
             while (true)
             {
-                var remainingWithSentinel = maxBytes - total + 1;
-                if (remainingWithSentinel <= 0) return false;
-                var requested = (int)Math.Min(buffer.Length, remainingWithSentinel);
+                InspectionOperation.CheckCancellation();
+                var remaining = maxBytes - total;
+                var requested = remaining >= buffer.Length ? buffer.Length : checked((int)remaining + 1);
                 var read = source.Read(buffer, 0, requested);
                 if (read == 0) break;
                 total += read;
@@ -49,7 +62,8 @@ internal static class BoundedXmlDocument
             {
                 while (preflight.Read())
                 {
-                    if (preflight.Depth > maxDepth) return false;
+                    InspectionOperation.CheckCancellation();
+                    if (preflight.Depth > maxDepth) { issue = "depth-limit"; return false; }
                 }
             }
 
@@ -58,14 +72,28 @@ internal static class BoundedXmlDocument
             var loaded = new XmlDocument { XmlResolver = null };
             loaded.Load(reader);
             document = loaded;
+            outcome = StructuredValidationOutcome.Passed;
+            issue = null;
             return true;
         }
         catch (OutOfMemoryException)
         {
             throw;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (XmlException)
+        {
+            outcome = StructuredValidationOutcome.Failed;
+            issue = null;
+            return false;
+        }
         catch
         {
+            outcome = StructuredValidationOutcome.Unavailable;
+            issue = "unavailable";
             return false;
         }
     }

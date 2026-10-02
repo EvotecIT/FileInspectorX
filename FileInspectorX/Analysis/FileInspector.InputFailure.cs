@@ -2,9 +2,10 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static FileAnalysis InputFailureAnalysis(DetectionOptions options, bool detectionOnly = false)
+    private static FileAnalysis InputFailureAnalysis(DetectionOptions options, bool detectionOnly = false, bool hasFileSystemSource = true)
     {
-        var failed = new FileAnalysis { SettingsSnapshot = options.Settings, AnalysisComplete = false, AnalysisIssues = new[] { "input:read-failed" } };
+        var failed = new FileAnalysis { SettingsSnapshot = options.Settings, HasFileSystemSource = hasFileSystemSource,
+            AnalysisComplete = false, AnalysisIssues = new[] { "input:read-failed" } };
         if (options.IncludeAssessment)
         {
             using var timing = InspectionOperation.Current?.Measure(InspectionStage.Assessment);

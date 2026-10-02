@@ -394,7 +394,7 @@ public sealed class InspectionIntegrityTests
         Assert.Equal(34, stream.BytesRead);
     }
 
-    private static void WriteTarHeader(Stream output, string name, string prefix = "", string link = "", int size = 0)
+    internal static void WriteTarHeader(Stream output, string name, string prefix = "", string link = "", int size = 0)
     {
         var header = new byte[512];
         Encoding.ASCII.GetBytes(name).CopyTo(header, 0);

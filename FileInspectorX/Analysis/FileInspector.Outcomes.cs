@@ -30,7 +30,8 @@ public static partial class FileInspector
             options.LearnedClassificationMode == LearnedClassificationMode.Off ? Array.Empty<string>() :
             learned == null ? new[] { "classifier:unavailable" } :
             learned.Disposition == LearnedClassificationDisposition.Failed ? new[] { "classifier:failed" } : Array.Empty<string>()));
-        var archiveIssues = result.AnalysisIssues?.Where(issue => issue.StartsWith("archive:", StringComparison.Ordinal)).ToArray() ?? Array.Empty<string>();
+        var archiveIssues = result.AnalysisIssues?.Where(issue => issue.StartsWith("archive:", StringComparison.Ordinal) ||
+            issue.StartsWith("tar:", StringComparison.Ordinal)).ToArray() ?? Array.Empty<string>();
         bool supportedContainer = result.ContainerEntryCount.HasValue || archiveIssues.Length > 0 || result.Detection?.Extension is "zip" or "docx" or "xlsx" or "pptx" or "tar";
         stages.Add(new InspectionStageResult(InspectionStage.Container,
             detectionOnly || !options.IncludeContainer ? InspectionStageStatus.NotRequested :
@@ -43,6 +44,7 @@ public static partial class FileInspector
             detectionOnly || !options.IncludeAssessment ? InspectionStageStatus.NotRequested : InspectionStageStatus.Unavailable,
             !detectionOnly && options.IncludeAssessment && result.Assessment == null
                 ? new[] { quick ? "assessment:quick-scan" : "assessment:unavailable" } : Array.Empty<string>()));
+        if (!result.HasFileSystemSource) AddPortablePathStageOutcomes(stages, result, options, detectionOnly);
         result.StageOutcomes = Array.AsReadOnly(stages.ToArray());
         result.Metrics = InspectionOperation.Current?.SnapshotMetrics();
         return result;

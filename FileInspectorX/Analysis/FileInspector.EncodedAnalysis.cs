@@ -6,13 +6,14 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static bool TryDecodeEncodedHead(string path, string ext, out byte[] decoded, out string encKind)
+    private static bool TryDecodeEncodedHead(InspectionInput input, string ext, out byte[] decoded, out string encKind)
     {
+        var path = input.Name;
         decoded = Array.Empty<byte>(); encKind = ext switch { "hex" => "hex", "b85" => "base85", "uu" => "uuencode", "qp" => "quoted-printable", _ => "base64" };
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             int toRead = (int)Math.Min(OperationSettings.EncodedProbeReadBytes, fs.Length);
-            var buf = new byte[toRead]; int nr = fs.Read(buf, 0, toRead);
+            var buf = new byte[toRead]; int nr = ReadAvailable(fs, buf, 0, toRead);
             if (nr <= 0) return false;
             ReadOnlySpan<byte> span = new ReadOnlySpan<byte>(buf, 0, nr);
             // Handle UTF-16 BOMs minimally

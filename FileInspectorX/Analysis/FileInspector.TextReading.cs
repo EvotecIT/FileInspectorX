@@ -5,15 +5,16 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static string ReadHeadText(string path, int cap)
+    private static string ReadHeadText(InspectionInput input, int cap)
     {
+        var path = input.Name;
         try
         {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             int len = (int)Math.Min(fs.Length, cap);
             if (len <= 0) return string.Empty;
             var buf = new byte[len];
-            int n = fs.Read(buf, 0, buf.Length);
+            int n = ReadAvailable(fs, buf, 0, buf.Length);
             return ReadHeadTextWithBomDetection(buf, n);
         }
         catch (Exception ex)

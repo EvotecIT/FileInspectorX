@@ -7,17 +7,18 @@ namespace FileInspectorX;
 /// </summary>
 public static partial class FileInspector
 {
-    private static void TryPopulateAuthenticode(string path, FileAnalysis res)
+    private static void TryPopulateAuthenticode(InspectionInput input, FileAnalysis res)
     {
+        var path = input.Name;
         res.Authenticode = null;
         try {
-            if (!PeReader.TryReadPe(path, out var pe) || pe.SecuritySize == 0 || pe.SecurityOffset == 0) return;
+            if (!PeReader.TryReadPe(input, out var pe) || pe.SecuritySize == 0 || pe.SecurityOffset == 0) return;
             var ai = new AuthenticodeInfo { Present = true, VerificationNote = "Envelope + chain only; file hash not recomputed." };
             res.Flags |= ContentFlags.PeHasAuthenticode;
 
 #if NET8_0_OR_GREATER || NET472
             try {
-                using var fs = OperationReadStream.Open(path);
+                using var fs = input.OpenRead();
                 fs.Seek((long)pe.SecurityOffset, SeekOrigin.Begin);
                 using var br = new BinaryReader(fs);
                 uint wclen = br.ReadUInt32();
@@ -84,7 +85,7 @@ public static partial class FileInspector
                         if (TryGetAuthenticodeContentDigest(cms.ContentInfo.Content, out var fileDigestOid, out var fileDigestBytes)) {
                             ai.FileDigestAlgorithmOid = fileDigestOid;
                             ai.FileDigestAlgorithm = OidToFriendly(fileDigestOid);
-                            var recomputed = ComputePeImageDigest(path, pe, fileDigestOid);
+                            var recomputed = ComputePeImageDigest(input, pe, fileDigestOid);
                             if (recomputed != null) ai.FileHashMatches = ByteEquals(recomputed, fileDigestBytes);
                         }
                     }
@@ -162,12 +163,13 @@ public static partial class FileInspector
         } catch { return false; }
     }
 
-    private static byte[]? ComputePeImageDigest(string path, PeInfo pe, string digestOid)
+    private static byte[]? ComputePeImageDigest(InspectionInput input, PeInfo pe, string digestOid)
     {
+        var path = input.Name;
         try {
             using var algo = CreateHashAlgorithm(digestOid);
             if (algo == null) return null;
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             long fileLen = fs.Length;
             long certOff = pe.SecurityOffset;
             long certEnd = certOff + pe.SecuritySize;

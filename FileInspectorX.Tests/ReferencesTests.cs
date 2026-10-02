@@ -349,7 +349,7 @@ public class ReferencesTests
             var buildReferences = typeof(FileInspector).GetMethod("BuildReferences", BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(buildReferences);
 
-            var refs = buildReferences!.Invoke(null, new object?[] { p, det }) as IReadOnlyList<Reference>;
+            var refs = buildReferences!.Invoke(null, new object?[] { InspectionInput.FromPath(p), det }) as IReadOnlyList<Reference>;
             Assert.NotNull(refs);
             Assert.Contains(refs!, r => r.Kind == ReferenceKind.Url && string.Equals(r.SourceTag, "script:js", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(refs!, r => r.Kind == ReferenceKind.FilePath && string.Equals(r.SourceTag, "script:js", StringComparison.OrdinalIgnoreCase));
@@ -381,7 +381,7 @@ public class ReferencesTests
             var buildReferences = typeof(FileInspector).GetMethod("BuildReferences", BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(buildReferences);
 
-            var refs = buildReferences!.Invoke(null, new object?[] { p, det }) as IReadOnlyList<Reference>;
+            var refs = buildReferences!.Invoke(null, new object?[] { InspectionInput.FromPath(p), det }) as IReadOnlyList<Reference>;
             Assert.True(refs == null || refs.Count == 0);
         }
         finally { try { File.Delete(p); } catch { } }

@@ -31,11 +31,12 @@ internal static partial class SecurityHeuristics
         "sig:X1005", // dump-utility family
         "sig:X1006", // credential-dumping family C
     };
-    internal static IReadOnlyList<string> AssessScript(string path, string? declaredExt, int budgetBytes)
+    internal static IReadOnlyList<string> AssessScript(InspectionInput input, string? declaredExt, int budgetBytes)
     {
+        var path = input.Name;
         try
         {
-            string text = ReadTextHead(path, budgetBytes);
+            string text = ReadTextHead(input, budgetBytes);
             return AssessScriptFromText(text, declaredExt);
         }
         catch { return Array.Empty<string>(); }
@@ -237,11 +238,12 @@ internal static partial class SecurityHeuristics
         return (isLog, info, warn, error);
     }
 
-    internal static IReadOnlyList<string> GetCmdlets(string path, int budgetBytes)
+    internal static IReadOnlyList<string> GetCmdlets(InspectionInput input, int budgetBytes)
     {
+        var path = input.Name;
         try
         {
-            string text = ReadTextHead(path, budgetBytes);
+            string text = ReadTextHead(input, budgetBytes);
             return GetCmdletsFromText(text);
         }
         catch { return Array.Empty<string>(); }
@@ -352,11 +354,12 @@ internal static partial class SecurityHeuristics
         => TryRunBoundedLegacyResolver(resolver, timeoutMs);
 #endif
 
-    internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)
+    internal static IReadOnlyList<string> AssessTextGeneric(InspectionInput input, string? declaredExt, int budgetBytes)
     {
+        var path = input.Name;
         try
         {
-            string text = ReadTextHead(path, budgetBytes);
+            string text = ReadTextHead(input, budgetBytes);
             return AssessTextGenericFromText(text, declaredExt);
         }
         catch { return Array.Empty<string>(); }
@@ -524,11 +527,12 @@ internal static partial class SecurityHeuristics
         return true;
     }
 
-    internal static SecretsSummary CountSecrets(string path, int budgetBytes)
+    internal static SecretsSummary CountSecrets(InspectionInput input, int budgetBytes)
     {
+        var path = input.Name;
         try
         {
-            string text = ReadTextHead(path, budgetBytes);
+            string text = ReadTextHead(input, budgetBytes);
             return CountSecretsFromText(text);
         }
         catch { return new SecretsSummary(); }
@@ -646,13 +650,14 @@ internal static partial class SecurityHeuristics
         return false;
     }
 
-    private static string ReadTextHead(string path, int budget)
+    private static string ReadTextHead(InspectionInput input, int budget)
     {
+        var path = input.Name;
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             int cap = Math.Max(8 * 1024, Math.Min(budget, 512 * 1024));
             var buf = new byte[Math.Min(cap, (int)Math.Min(fs.Length, cap))];
-            int n = fs.Read(buf, 0, buf.Length);
+            int n = FileInspector.ReadAvailable(fs, buf, 0, buf.Length);
             if (n <= 0) return string.Empty;
             if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
                 return System.Text.Encoding.UTF8.GetString(buf, 3, n - 3);
@@ -1627,4 +1632,14 @@ internal static partial class SecurityHeuristics
         => string.Equals(code, "sig:mkatz", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(code, "sig:sekurlsa", StringComparison.OrdinalIgnoreCase) ||
            (code != null && code.StartsWith("sig:X100", StringComparison.OrdinalIgnoreCase));
+    private static string ReadTextHead(string path, int budget)
+        => ReadTextHead(InspectionInput.FromPath(path), budget);
+    internal static SecretsSummary CountSecrets(string path, int budgetBytes)
+        => CountSecrets(InspectionInput.FromPath(path), budgetBytes);
+    internal static IReadOnlyList<string> AssessTextGeneric(string path, string? declaredExt, int budgetBytes)
+        => AssessTextGeneric(InspectionInput.FromPath(path), declaredExt, budgetBytes);
+    internal static IReadOnlyList<string> GetCmdlets(string path, int budgetBytes)
+        => GetCmdlets(InspectionInput.FromPath(path), budgetBytes);
+    internal static IReadOnlyList<string> AssessScript(string path, string? declaredExt, int budgetBytes)
+        => AssessScript(InspectionInput.FromPath(path), declaredExt, budgetBytes);
 }

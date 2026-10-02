@@ -14,7 +14,11 @@ public static partial class FileInspector {
     /// Runs a best-effort, dependency-free analysis of the file at <paramref name="path"/>, combining content detection,
     /// container hints, version data and lightweight risk signals into a single result.
     /// </summary>
-    public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
+    public static FileAnalysis Analyze(string path, DetectionOptions? options = null)
+        => AnalyzeCore(InspectionInput.FromPath(path), options);
+
+    private static FileAnalysis AnalyzeCore(InspectionInput input, DetectionOptions? options) {
+        var path = input.Name;
         using var operation = InspectionOperation.Begin(options);
         options = operation.Options;
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
@@ -22,16 +26,18 @@ public static partial class FileInspector {
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         ContentTypeDetectionResult? det;
-        try { using var timing = operation.Measure(InspectionStage.Detection); det = DetectPathCore(path, options, propagateReadFailure: true); }
+        try { using var timing = operation.Measure(InspectionStage.Detection); det = DetectInput(input, options); }
         catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException and not OperationCanceledException)
         {
-            return InputFailureAnalysis(options);
+            return InputFailureAnalysis(options, hasFileSystemSource: input.HasPath);
         }
         var learnedApplied = det?.LearnedClassification != null;
         if (learnedApplied && det != null)
             PrepareDeterministicDetectionForAnalysis(det);
         var res = new FileAnalysis {
             SettingsSnapshot = options.Settings,
+            HasFileSystemSource = input.HasPath,
+            SourceFileName = input.Name,
             Detection = det,
             Kind = KindClassifier.Classify(det),
             Flags = ContentFlags.None,
@@ -39,9 +45,11 @@ public static partial class FileInspector {
         };
         bool msiPropsDone = false;
 
+
         try {
             if (det is null)
             {
+                RecordUnavailablePathStages(res, options);
                 if (options.IncludeAssessment) { using var timing = operation.Measure(InspectionStage.Assessment); res.Assessment = Assess(res); res.AssessmentProfiles = AssessMulti(res.Assessment); }
                 return CompleteAnalysis(res, options);
             }
@@ -52,7 +60,7 @@ public static partial class FileInspector {
                 if (cap <= 0) return string.Empty;
                 if (headTextCached == null || headTextCap < cap)
                 {
-                    headTextCached = ReadHeadText(path, cap);
+                    headTextCached = ReadHeadText(input, cap);
                     headTextCap = cap;
                 }
                 if (headTextCached == null) return string.Empty;
@@ -62,11 +70,12 @@ public static partial class FileInspector {
 
             InspectionOperation.CheckCancellation();
             using (operation.Measure(InspectionStage.Container))
-                AnalyzeContainers(path, options, det, res, includeInstaller);
+                AnalyzeContainers(input, options, det, res);
             InspectionOperation.CheckCancellation();
+            if (includeInstaller) TryPopulateContentInstaller(input, res);
 
             // MSI metadata enrichment (Windows): product version via msi.dll
-            if (includeInstaller && det.Extension == "msi")
+            if (input.HasPath && includeInstaller && det.Extension == "msi")
             {
                 try {
                     Breadcrumbs.Write("MSI_META_BEGIN", path: path);
@@ -95,7 +104,7 @@ public static partial class FileInspector {
                         det.Reason = string.IsNullOrEmpty(det.Reason) ? "declared:msi" : det.Reason + ";declared:msi";
                     }
                     // MSI property enrichment is optional and may be disabled for stability; only attempt when enabled
-                    if (includeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
+                    if (input.HasPath && includeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
                 }
             } catch (Exception ex) { Breadcrumbs.Write("MSI_PROMOTE_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
@@ -113,9 +122,9 @@ public static partial class FileInspector {
             // Best-effort service entry indicator (ASCII scan for 'ServiceMain')
             try
             {
-                using var fsSvc = OperationReadStream.Open(path);
+                using var fsSvc = input.OpenRead();
                 int capSvc = (int)Math.Min(256 * 1024, fsSvc.Length);
-                var bufSvc = new byte[capSvc]; int ns = fsSvc.Read(bufSvc, 0, bufSvc.Length);
+                var bufSvc = new byte[capSvc]; int ns = ReadAvailable(fsSvc, bufSvc, 0, bufSvc.Length);
                 if (ns > 0)
                 {
                     var ascii = System.Text.Encoding.ASCII.GetString(bufSvc, 0, ns);
@@ -138,7 +147,7 @@ public static partial class FileInspector {
                 return false;
             }
             if (IsTextLike(det)) {
-                var first = ReadFirstLine(path, 256);
+                var first = ReadFirstLine(input, 256);
                 if (first.StartsWith("#!")) {
                     res.Flags |= ContentFlags.IsScript;
                     res.ScriptLanguage = MapShebang(first);
@@ -158,7 +167,7 @@ public static partial class FileInspector {
                 }
                 if (declaredExt == "js" || detectedExt == "js") {
                     var jsHead = ReadHeadTextCached(Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024));
-                    if (LooksMinifiedJs(path, OperationSettings.DetectionReadBudgetBytes,
+                    if (LooksMinifiedJs(input, OperationSettings.DetectionReadBudgetBytes,
                         OperationSettings.JsMinifiedMinLength,
                         OperationSettings.JsMinifiedAvgLineThreshold,
                         OperationSettings.JsMinifiedDensityThreshold,
@@ -327,20 +336,20 @@ public static partial class FileInspector {
 
             // Permissions/ownership snapshot (best-effort; cross-platform)
             InspectionOperation.CheckCancellation();
-            if (options?.IncludePermissions != false) res.Security = BuildFileSecurity(path);
+            if (input.HasPath && options?.IncludePermissions != false) res.Security = BuildFileSecurity(input.Path!);
 
             // PE Authenticode (best-effort, cross-platform) for PE files
             InspectionOperation.CheckCancellation();
             if ((options?.IncludeAuthenticode != false) && (det?.Extension is "exe" or "dll" or "sys" or "cpl")) {
-                TryPopulateAuthenticode(path, res);
+                TryPopulateAuthenticode(input, res);
             }
             // PKCS#7 certificate/signature payload (.p7b/.spc/.p7s)
             if (det?.Extension is "p7b" or "spc" or "p7s")
             {
-                TryParseP7b(path, res);
+                TryParseP7b(input, res);
             }
             // MSI package properties (Windows only)
-            if (includeInstaller && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
+            if (input.HasPath && includeInstaller && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
                 if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
             }
@@ -353,10 +362,11 @@ public static partial class FileInspector {
                 declaredExt2 is "exe" or "dll" or "sys" or "cpl" or "ocx" or "scr" or "com" or "pif";
             bool packageFamily =
                 detectedExt2 is "msi" or "msp" or "msix" or "appx" ||
-                declaredExt2 is "msi" or "msp" or "msix" or "appx";
+                declaredExt2 is "msi" or "msp" or "msix" or "appx" ||
+                (res.GuessedExtension ?? det?.GuessedExtension) is "msix" or "appx";
 
             if ((options?.IncludeAuthenticode != false) &&
-                OperationSettings.VerifyAuthenticodeWithWinTrust &&
+                input.HasPath && OperationSettings.VerifyAuthenticodeWithWinTrust &&
                 RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
                 (peOrExecutableFamily || packageFamily))
             {
@@ -374,7 +384,7 @@ public static partial class FileInspector {
                 null;
             if (certificateExt != null)
             {
-                if (TryLoadCertificateFromFile(path, certificateExt, out var cert))
+                if (TryLoadCertificateFromFile(input, certificateExt, out var cert))
                 {
                     var ci = new CertificateInfo();
                     try { ci.Subject = cert.Subject; } catch { }
@@ -438,7 +448,7 @@ public static partial class FileInspector {
                 // PowerShell transcript logs (plain text)
                 if (InspectHelpers.IsText(det))
                 {
-                    var head = ReadFirstLine(path, 256);
+                    var head = ReadFirstLine(input, 256);
                     // Very common header string in transcripts
                     if (head.IndexOf("Windows PowerShell transcript start", StringComparison.OrdinalIgnoreCase) >= 0)
                         if (!list.Contains("ps:transcript")) list.Add("ps:transcript");
@@ -448,7 +458,7 @@ public static partial class FileInspector {
                 if (list.Count > (res.SecurityFindings?.Count ?? 0)) res.SecurityFindings = list;
             } catch { }
 
-            TryPopulateTextMetrics(res, det, path, ReadHeadTextCached);
+            TryPopulateTextMetrics(res, det, input, ReadHeadTextCached);
 
             // PDF heuristics
             if (det != null && det.Extension == "pdf") {
@@ -483,7 +493,8 @@ public static partial class FileInspector {
             {
                 try
                 {
-                    if (TryGetOleDirectoryNames(OperationReadStream.Open(path), out var names))
+                    using var oleInput = input.OpenRead();
+                    if (TryGetOleDirectoryNames(oleInput, out var names))
                     {
                         bool hasVba = names.Any(nm => nm.IndexOf("VBA", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("dir", StringComparison.OrdinalIgnoreCase) >= 0);
                         if (hasVba) { res.Flags |= ContentFlags.OleHasVbaMacros; var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>()); if (!list.Contains("office:vba")) list.Add("office:vba"); res.SecurityFindings = list; }
@@ -496,7 +507,7 @@ public static partial class FileInspector {
             if (options?.IncludeReferences != false)
             {
                 InspectionOperation.CheckCancellation();
-                res.References = MergeReferences(BuildReferences(path, det), res.References);
+                res.References = MergeReferences(BuildReferences(input, det), res.References);
                 // HTML external links summary flag
                 try
                 {
@@ -555,84 +566,16 @@ public static partial class FileInspector {
             }
 
             // Windows shell properties (Explorer Details)
-            if (options?.IncludeShellProperties != false)
+            if (input.HasPath && options?.IncludeShellProperties != false)
             {
                 InspectionOperation.CheckCancellation();
                 res.ShellProperties = ReadShellProperties(path, new ShellPropertiesOptions { IncludeEmpty = false });
             }
 
             // File name/path checks (always cheap)
-            res.NameIssues = AnalyzeName(path, det);
+            res.NameIssues = string.IsNullOrEmpty(path) ? default : AnalyzeName(path, det);
 
-            // PE triage
-            if (IsPe(path, out var peMachine, out var peSubsystem, out bool hasClr, out bool hasSec)) {
-                if (hasSec) res.Flags |= ContentFlags.PeHasAuthenticodeDirectory;
-                if (hasClr) res.Flags |= ContentFlags.PeIsDotNet;
-                res.PeMachine = peMachine;
-                res.PeSubsystem = peSubsystem;
-
-                var ver = PeReader.TryExtractVersionStrings(path);
-                if (ver != null && ver.Count > 0) res.VersionInfo = ver;
-                if (PeReader.TryReadPe(path, out var peInfo)) {
-                    if ((peInfo.Characteristics & IMAGE_FILE_DLL) != 0)
-                        res.PeKind = "dll";
-                    else if (peInfo.Subsystem == 1)
-                        res.PeKind = "sys";
-                    else
-                        res.PeKind = "exe";
-                    if (peInfo.Sections.Any(s => string.Equals(s.Name, "UPX0", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, "UPX1", StringComparison.OrdinalIgnoreCase))) {
-                        res.Flags |= ContentFlags.PeLooksPackedUpx;
-                    }
-                    // Hardening flags from DllCharacteristics
-                    var dc = peInfo.DllCharacteristics;
-                    bool hasAslr = (dc & 0x0040) != 0; // IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
-                    bool hasNx = (dc & 0x0100) != 0;   // IMAGE_DLLCHARACTERISTICS_NX_COMPAT
-                    bool hasCfg = (dc & 0x4000) != 0;  // IMAGE_DLLCHARACTERISTICS_GUARD_CF (may require Win10 toolchain)
-                    bool hasHighEntropy = (dc & 0x0020) != 0; // IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
-                    if (!hasAslr) res.Flags |= ContentFlags.PeNoAslr;
-                    if (!hasNx) res.Flags |= ContentFlags.PeNoNx;
-                    if (!hasCfg) res.Flags |= ContentFlags.PeNoCfg;
-                    if (peInfo.IsPEPlus && !hasHighEntropy) res.Flags |= ContentFlags.PeNoHighEntropyVa;
-                    // .NET strong-name flag
-                    if (peInfo.DotNetStrongNameSigned.HasValue)
-                        res.DotNetStrongNameSigned = peInfo.DotNetStrongNameSigned;
-                }
-
-                // DLL export quick signals: highlight COM registration exports
-                try
-                {
-                    var extLower = System.IO.Path.GetExtension(path)?.TrimStart('.').ToLowerInvariant();
-                    if (extLower is "dll" || extLower is "exe")
-                    {
-                        if (PeReader.TryListExportNames(path, out var expNames) && expNames != null && expNames.Count > 0)
-                        {
-                            var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
-                            list.Add($"pe:exports={expNames.Count}");
-                            // Common COM registration entry points
-                            bool reg = false; foreach (var n in expNames) { var ln = n.ToLowerInvariant(); if (ln == "dllregisterserver" || ln == "dllinstall" || ln == "dllunregisterserver") { reg = true; break; } }
-                            if (reg) list.Add("pe:regsvr");
-                            // Top export names (3 max)
-                            try { var top = string.Join(",", expNames.Take(3)); if (!string.IsNullOrWhiteSpace(top)) list.Add($"pe:top={top}"); } catch { }
-                            res.SecurityFindings = list;
-                        }
-                    }
-                } catch { }
-            }
-
-            // Best-effort .NET TargetFramework detection for managed PE
-            try
-            {
-                if ((res.Flags & ContentFlags.PeIsDotNet) != 0)
-                {
-                    var tfm = TryDetectTargetFramework(path, OperationSettings.DetectionReadBudgetBytes);
-                    if (!string.IsNullOrWhiteSpace(tfm))
-                    {
-                        var dict = res.VersionInfo != null ? new Dictionary<string,string>(res.VersionInfo.ToDictionary(kv => kv.Key, kv => kv.Value)) : new Dictionary<string,string>();
-                        dict["TargetFramework"] = tfm!;
-                        res.VersionInfo = dict;
-                    }
-                }
-            } catch { }
+            AnalyzePe(input, res);
 
             if (options!.LearnedClassificationMode != LearnedClassificationMode.Off)
             {
@@ -646,9 +589,10 @@ public static partial class FileInspector {
                 res.GuessedExtension ??= det?.GuessedExtension;
             }
             if (det != null)
-                RefreshDerivedAnalysisAfterLearnedPromotion(res, path, det);
+                RefreshDerivedAnalysisAfterLearnedPromotion(res, input, det);
 
             PopulateDetectionSummary(res);
+            RecordUnavailablePathStages(res, options);
 
             // Assessment (optional)
             InspectionOperation.CheckCancellation();

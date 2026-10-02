@@ -4,14 +4,15 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static void AnalyzeContainers(string path, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res, bool includeInstaller)
+    private static void AnalyzeContainers(InspectionInput input, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res)
     {
+        var path = input.Name;
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
             if (det.Extension is "b64" or "hex" or "b85" or "uu" or "qp")
             {
                 try
                 {
-                    if (TryDecodeEncodedHead(path, det.Extension!, out var decoded, out var encKind))
+                    if (TryDecodeEncodedHead(input, det.Extension!, out var decoded, out var encKind))
                     {
                         res.EncodedKind = encKind;
                         if (encKind == "base64") res.Flags |= ContentFlags.EncodedBase64;
@@ -45,7 +46,7 @@ public static partial class FileInspector
 
             // OOXML macros and ZIP container hints
             if ((options?.IncludeContainer != false) && (det.Extension is "docx" or "xlsx" or "pptx" || det.Extension == "zip")) {
-                TryInspectZip(path, options, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
+                TryInspectZip(input, options, out bool hasMacros, out var subType, out int? count, out var topExt, out bool hasExec, out bool hasScripts, out bool hasNestedArchives,
                     out bool hasTraversal, out bool hasSymlink, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExtLinks, out int extLinksCount,
                     out bool hasEncryptedEntries, out int encryptedCount, out bool isOoxmlEncrypted, out bool hasDisguisedExec, out List<string>? findings,
                     out List<Reference>? archiveReferences,
@@ -71,10 +72,8 @@ public static partial class FileInspector
                 // installer manifest enrichment remains explicitly opt-in.
                 if (subType is "appx" or "msix")
                 {
-                    TryPopulateAppxSignature(path, res);
-                    if (includeInstaller) TryPopulateAppxManifest(path, res);
+                    TryPopulateAppxSignature(input, res);
                 }
-                if (includeInstaller && subType is "vsix") TryPopulateVsixManifest(path, res);
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
                 if (hasExtLinks) {
@@ -120,8 +119,7 @@ public static partial class FileInspector
 
             // TAR scan hints
             if ((options?.IncludeContainer != false) && det.Extension == "tar") {
-                TryInspectTar(
-                    path,
+                TryInspectTar(input, options,
                     out int? count,
                     out var topExt,
                     out bool hasExec,
@@ -155,15 +153,15 @@ public static partial class FileInspector
             {
                 // Distinguish RAR4 vs RAR5 by signature
                 try {
-                    using var fsr = OperationReadStream.Open(path);
-                    var head = new byte[8]; int nr = fsr.Read(head, 0, head.Length);
+                    using var fsr = input.OpenRead();
+                    var head = new byte[8]; int nr = ReadAvailable(fsr, head, 0, head.Length);
                     bool isRar5 = nr >= 8 && head[0]==0x52 && head[1]==0x61 && head[2]==0x72 && head[3]==0x21 && head[4]==0x1A && head[5]==0x07 && head[6]==0x01 && head[7]==0x00;
                     bool isRar4 = !isRar5;
                     if (isRar4)
                     {
-                        if (TryInspectRarQuick(path))
+                        if (TryInspectRarQuick(input))
                             res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
-                        if (TryCountRar4EncryptedFiles(path, OperationSettings.DeepContainerMaxEntries, out int encCount, out int totalCount))
+                        if (TryCountRar4EncryptedFiles(input, OperationSettings.DeepContainerMaxEntries, out int encCount, out int totalCount))
                         {
                             if (encCount > 0) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
                             res.EncryptedEntryCount = encCount;
@@ -172,7 +170,7 @@ public static partial class FileInspector
                             res.SecurityFindings = list;
                             res.InnerFindings = (res.InnerFindings ?? Array.Empty<string>()).Concat(new[]{ $"rar4:enc={encCount}/{totalCount}" }).ToArray();
                         }
-                        if (TryInspectRar4Entries(path,
+                        if (TryInspectRar4Entries(input,
                             out int? entryCount,
                             out IReadOnlyList<string>? topExt,
                             out bool hasExecutables,
@@ -194,8 +192,8 @@ public static partial class FileInspector
                         // Optional deep signer sampling for uncompressed, non-encrypted entries (store-only), bounded by budgets
                         if (OperationSettings.DeepContainerScanEnabled)
                         {
-                            if (TrySampleRar4InnerSigners(path, OperationSettings.DeepContainerMaxEntries, OperationSettings.DeepContainerMaxEntryBytes,
-                                out int innerExecSampled, out int innerSignedAny, out int innerValid, out var innerPublishers))
+                            if (TrySampleRar4InnerSigners(input, options, OperationSettings.DeepContainerMaxEntries, OperationSettings.DeepContainerMaxEntryBytes,
+                                out int innerExecSampled, out int innerSignedAny, out int innerValid, out var innerPublishers, out var signerBudget))
                             {
                                 if (innerExecSampled > 0)
                                 {
@@ -205,11 +203,12 @@ public static partial class FileInspector
                                     if (innerPublishers != null && innerPublishers.Count > 0) res.InnerPublisherCounts = innerPublishers;
                                 }
                             }
+                            ApplyArchiveInspectionBudget(res, signerBudget);
                         }
                     }
                     else
                     {
-                        if (TryInspectRarQuick(path))
+                        if (TryInspectRarQuick(input))
                         {
                             res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
                             var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
@@ -217,25 +216,25 @@ public static partial class FileInspector
                             res.SecurityFindings = list;
                         }
                     }
-                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
+                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { if (TryInspectRarQuick(input)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
             }
             if ((options?.IncludeContainer != false) && (det.Extension == "7z"))
             {
-                if (TryDetect7zEncryptedHeaders(path))
+                if (TryDetect7zEncryptedHeaders(input))
                 {
                     res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.Add("7z:headers-encrypted");
                     res.SecurityFindings = list;
                 }
-                else if (TryCount7zFilesQuick(path, OperationSettings.DetectionReadBudgetBytes, out int files))
+                else if (TryCount7zFilesQuick(input, OperationSettings.DetectionReadBudgetBytes, out int files))
                 {
                     res.ContainerEntryCount = files;
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.Add($"7z:files={files}");
                     res.SecurityFindings = list;
                     // Best-effort: extract plain entry names from an unencoded Next Header
-                    if (TryRead7zEntryNamesFromHeader(path, OperationSettings.DetectionReadBudgetBytes, out var entryNames))
+                    if (TryRead7zEntryNamesFromHeader(input, OperationSettings.DetectionReadBudgetBytes, out var entryNames))
                     {
                         var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                         var previews = new List<InnerEntryPreview>();

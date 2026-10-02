@@ -753,7 +753,7 @@ public sealed class LearnedClassificationTests
                 }
             };
 
-            FileInspector.RefreshDerivedAnalysisAfterLearnedPromotion(analysis, path, result);
+            FileInspector.RefreshDerivedAnalysisAfterLearnedPromotion(analysis, InspectionInput.FromPath(path), result);
 
             Assert.Equal("powershell", analysis.ScriptLanguage);
             Assert.Contains("get-content", analysis.ScriptCmdlets!);
@@ -787,7 +787,7 @@ public sealed class LearnedClassificationTests
 
         FileInspector.RefreshDerivedAnalysisAfterLearnedPromotion(
             analysis,
-            "unused.txt",
+            InspectionInput.FromPath("unused.txt"),
             result);
 
         Assert.Equal("javascript", analysis.ScriptLanguage);
