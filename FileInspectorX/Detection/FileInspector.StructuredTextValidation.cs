@@ -18,6 +18,7 @@ public static partial class FileInspector
         bool wantsAdmxAdml = detExt == "admx" || detExt == "adml" ||
                              ((decl == "admx" || decl == "adml") && detExt == "xml");
         if (!wantsAdmxAdml) return;
+        using var timing = InspectionOperation.Current?.Measure(InspectionStage.StructuredValidation);
 
         try
         {
@@ -109,6 +110,7 @@ public static partial class FileInspector
         }
 
         const long MaxStructuredValidationBytes = 100L * 1024L * 1024L;
+        using var timing = InspectionOperation.Current?.Measure(InspectionStage.StructuredValidation);
         long budget = OperationSettings.DetectionReadBudgetBytes;
         if (budget <= 0) return;
         if (budget > MaxStructuredValidationBytes) budget = MaxStructuredValidationBytes;

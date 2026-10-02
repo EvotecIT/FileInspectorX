@@ -29,6 +29,7 @@ public static partial class FileInspector
 
     private static string HashCompleteInput(ReadOnlySpan<byte> prefix, Stream? stream)
     {
+        using var timing = InspectionOperation.Current?.Measure(InspectionStage.Sha256);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         long? position = stream?.CanSeek == true ? stream.Position : null;
         try
@@ -45,6 +46,7 @@ public static partial class FileInspector
                 {
                     InspectionOperation.CheckCancellation();
                     hash.AppendData(buffer, 0, read);
+                    InspectionOperation.Current?.Metrics?.Hash(read);
                 }
             }
             return ToLowerHex(hash.GetHashAndReset());
@@ -60,6 +62,7 @@ public static partial class FileInspector
             InspectionOperation.CheckCancellation();
             int count = Math.Min(bytes.Length, 64 * 1024);
             hash.AppendData(bytes.Slice(0, count));
+            InspectionOperation.Current?.Metrics?.Hash(count);
             bytes = bytes.Slice(count);
         }
 #else
@@ -70,6 +73,7 @@ public static partial class FileInspector
             int count = Math.Min(bytes.Length, buffer.Length);
             bytes.Slice(0, count).CopyTo(buffer);
             hash.AppendData(buffer, 0, count);
+            InspectionOperation.Current?.Metrics?.Hash(count);
             bytes = bytes.Slice(count);
         }
 #endif

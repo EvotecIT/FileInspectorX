@@ -11,7 +11,7 @@ Analyzes files and returns a full FileAnalysis object by default, with optional 
 ## SYNTAX
 ### Path (Default)
 ```powershell
-Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -28,6 +28,22 @@ Get-FileInsight -Path @('C:\Path')
 
 
 ## PARAMETERS
+
+### -CollectMetrics
+Capture per-operation read, hash, archive and classifier counters and stage timings.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: Path
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
 
 ### -ComputeSha256
 Compute SHA-256 of the file and include in output.

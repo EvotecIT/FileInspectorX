@@ -51,7 +51,10 @@ internal sealed partial class ArchiveInspectionBudget
         InspectionOperation.CheckCancellation();
         _entriesVisited++;
         if (_entriesVisited <= _maxEntries)
+        {
+            InspectionOperation.Current?.Metrics?.VisitArchiveEntry();
             return true;
+        }
 
         AddIssue("archive:entry-count-limit");
         return false;
@@ -67,7 +70,7 @@ internal sealed partial class ArchiveInspectionBudget
 
         var allowance = GetReadAllowance(entry.Length, requestedMaxBytes);
         return allowance.HasValue
-            ? new BudgetedReadStream(entry.Open(), allowance.Value, bytes => _bytesRead += bytes)
+            ? new BudgetedReadStream(entry.Open(), allowance.Value, CountPayloadRead)
             : null;
     }
 
@@ -75,7 +78,7 @@ internal sealed partial class ArchiveInspectionBudget
     {
         var allowance = GetReadAllowance(payloadLength, requestedMaxBytes);
         return allowance.HasValue
-            ? new BudgetedReadStream(source, Math.Min(payloadLength, allowance.Value), bytes => _bytesRead += bytes, leaveOpen: true)
+            ? new BudgetedReadStream(source, Math.Min(payloadLength, allowance.Value), CountPayloadRead, leaveOpen: true)
             : null;
     }
 
@@ -134,8 +137,14 @@ internal sealed partial class ArchiveInspectionBudget
 
     internal void AddIssue(string issue)
     {
-        if (!string.IsNullOrWhiteSpace(issue))
-            _issues.Add(issue);
+        if (!string.IsNullOrWhiteSpace(issue) && _issues.Add(issue) && issue.EndsWith("-limit", StringComparison.Ordinal))
+            InspectionOperation.Current?.Metrics?.HitArchiveLimit();
+    }
+
+    private void CountPayloadRead(int bytes)
+    {
+        _bytesRead += bytes;
+        InspectionOperation.Current?.Metrics?.ReadArchivePayload(bytes);
     }
 
     private bool HasAcceptableCompressionRatio(ZipArchiveEntry entry)

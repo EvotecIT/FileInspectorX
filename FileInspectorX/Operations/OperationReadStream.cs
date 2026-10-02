@@ -8,19 +8,32 @@ internal sealed class OperationReadStream : Stream
     private readonly Stream _inner;
     private readonly CancellationToken _token;
     private readonly bool _leaveOpen;
+    private readonly OperationMetricCollector? _metrics;
 
-    internal OperationReadStream(Stream inner, CancellationToken token, bool leaveOpen)
-    { _inner = inner; _token = token; _leaveOpen = leaveOpen; }
+    private OperationReadStream(Stream inner, CancellationToken token, bool leaveOpen, OperationMetricCollector? metrics)
+    { _inner = inner; _token = token; _leaveOpen = leaveOpen; _metrics = metrics; }
+
+    internal static Stream Wrap(Stream stream, CancellationToken token, bool leaveOpen)
+    {
+        var metrics = InspectionOperation.Current?.Metrics;
+        // A cancellation wrapper around an already instrumented stream must not count the same read twice.
+        if (metrics != null)
+        {
+            for (var candidate = stream as OperationReadStream; candidate != null; candidate = candidate._inner as OperationReadStream)
+                if (candidate._metrics == metrics) { metrics = null; break; }
+        }
+        return token.CanBeCanceled || metrics != null ? new OperationReadStream(stream, token, leaveOpen, metrics) : stream;
+    }
 
     internal static Stream Borrow(Stream stream, CancellationToken token)
-        => token.CanBeCanceled ? new OperationReadStream(stream, token, leaveOpen: true) : stream;
+        => Wrap(stream, token, leaveOpen: true);
 
     internal static Stream Open(string path)
     {
         InspectionOperation.CheckCancellation();
         var stream = File.OpenRead(path);
         var token = InspectionOperation.Current?.Options.CancellationToken ?? default;
-        return token.CanBeCanceled ? new OperationReadStream(stream, token, leaveOpen: false) : stream;
+        return Wrap(stream, token, leaveOpen: false);
     }
 
     public override bool CanRead => _inner.CanRead;
@@ -33,6 +46,7 @@ internal sealed class OperationReadStream : Stream
     {
         _token.ThrowIfCancellationRequested();
         int read = _inner.Read(buffer, offset, count);
+        _metrics?.Read(read);
         _token.ThrowIfCancellationRequested();
         return read;
     }
@@ -40,6 +54,7 @@ internal sealed class OperationReadStream : Stream
     {
         _token.ThrowIfCancellationRequested();
         int value = _inner.ReadByte();
+        _metrics?.Read(value < 0 ? 0 : 1);
         _token.ThrowIfCancellationRequested();
         return value;
     }
@@ -48,6 +63,7 @@ internal sealed class OperationReadStream : Stream
     {
         _token.ThrowIfCancellationRequested();
         int read = _inner.Read(buffer);
+        _metrics?.Read(read);
         _token.ThrowIfCancellationRequested();
         return read;
     }

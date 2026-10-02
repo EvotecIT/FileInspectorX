@@ -8,6 +8,21 @@ public class FileAnalysis {
     // Retain immutable policy for projections and later assessments without holding an operation/token.
     internal InspectionSettings? SettingsSnapshot { get; init; }
 
+    /// <summary>Distinguishes unreadable input from readable but unrecognized content.</summary>
+    public InspectionInputStatus InputStatus => AnalysisIssues?.Contains("input:read-failed") == true
+        ? InspectionInputStatus.Unreadable : Detection?.InputStatus ?? InspectionInputStatus.Unrecognized;
+
+    /// <summary>Typed completion across the recorded stages and compatibility AnalysisComplete flag.</summary>
+    public InspectionOutcome Outcome => InputStatus == InspectionInputStatus.Unreadable ? InspectionOutcome.InputUnavailable :
+        !AnalysisComplete || StageOutcomes.Any(stage => stage.Status is InspectionStageStatus.Partial or InspectionStageStatus.Unavailable or InspectionStageStatus.Failed)
+            ? InspectionOutcome.Partial : InspectionOutcome.Complete;
+
+    /// <summary>Immutable outcomes for detection, structured validation, hashing, learned classification, supported container inspection and assessment.</summary>
+    public IReadOnlyList<InspectionStageResult> StageOutcomes { get; internal set; } = Array.Empty<InspectionStageResult>();
+
+    /// <summary>Immutable per-operation measurements when CollectMetrics was requested. Null otherwise.</summary>
+    public InspectionMetrics? Metrics { get; internal set; }
+
     /// <summary>True when all requested analyzers completed within their safety budgets.</summary>
     public bool AnalysisComplete { get; set; } = true;
 

@@ -3,7 +3,7 @@ namespace FileInspectorX;
 /// <summary>
 /// Flattened, presentation-friendly summary of a <see cref="FileAnalysis"/>.
 /// </summary>
-public sealed class ReportView
+public sealed partial class ReportView
 {
     /// <summary>True when every requested analyzer completed within its safety budgets.</summary>
     public bool AnalysisComplete { get; set; } = true;
@@ -444,7 +444,11 @@ public sealed class ReportView
         var r = new ReportView
         {
             AnalysisComplete = a.AnalysisComplete,
-            AnalysisIssues = a.AnalysisIssues
+            AnalysisIssues = a.AnalysisIssues,
+            InputStatus = a.InputStatus,
+            Outcome = a.Outcome,
+            StageOutcomes = a.StageOutcomes,
+            Metrics = a.Metrics
         };
         if (a.Detection != null)
         {
@@ -1266,6 +1270,10 @@ public sealed class ReportView
     {
         var d = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         d["AnalysisComplete"] = AnalysisComplete;
+        d["InputStatus"] = InputStatus;
+        d["Outcome"] = Outcome;
+        if (StageOutcomes.Count > 0) d["StageOutcomes"] = StageOutcomes;
+        if (Metrics != null) d["Metrics"] = Metrics;
         if (AnalysisIssues != null && AnalysisIssues.Count > 0) d["AnalysisIssues"] = AnalysisIssues;
         if (DetectedTypeExtension != null) d["DetectedTypeExtension"] = DetectedTypeExtension;
         if (DetectedTypeName != null) d["DetectedTypeName"] = DetectedTypeName;

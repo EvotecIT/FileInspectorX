@@ -76,6 +76,10 @@ namespace FileInspectorX.PowerShell {
         [Parameter()]
         public SwitchParameter ComputeSha256 { get; set; }
 
+        /// <summary>Capture per-operation read, hash, archive and classifier counters and stage timings.</summary>
+        [Parameter()]
+        public SwitchParameter CollectMetrics { get; set; }
+
         /// <summary>Capture first N bytes of the header as uppercase hex.</summary>
         [Parameter()]
         [ValidateRange(0, 1048576)]
@@ -183,6 +187,7 @@ namespace FileInspectorX.PowerShell {
             var options = new FileInspector.DetectionOptions {
                 CancellationToken = CancelToken,
                 ComputeSha256 = ComputeSha256,
+                CollectMetrics = CollectMetrics,
                 MagicHeaderBytes = MagicHeaderBytes,
                 IncludePermissions = !ExcludePermissions,
                 IncludeAuthenticode = !ExcludeSignature,

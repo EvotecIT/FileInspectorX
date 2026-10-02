@@ -98,6 +98,7 @@ public static partial class FileInspector
 
         try
         {
+            using var timing = InspectionOperation.Current?.Measure(InspectionStage.LearnedClassification);
             var prediction = InvokeLearnedClassifier(classifier, predict, options.CancellationToken);
             return ArbitrateLearnedPrediction(deterministic, prediction);
         }
@@ -123,12 +124,12 @@ public static partial class FileInspector
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (classifier is IConcurrentLearnedContentClassifier)
-            return Finish(predict());
+            return Finish(Predict());
 
         var syncRoot = LearnedClassifierLocks.GetValue(classifier, static _ => new object());
         if (!cancellationToken.CanBeCanceled)
         {
-            lock (syncRoot) return predict();
+            lock (syncRoot) return Predict();
         }
         bool entered = false;
         try
@@ -136,7 +137,7 @@ public static partial class FileInspector
             while (!(entered = System.Threading.Monitor.TryEnter(syncRoot, 50)))
                 cancellationToken.ThrowIfCancellationRequested();
             cancellationToken.ThrowIfCancellationRequested();
-            return Finish(predict());
+            return Finish(Predict());
         }
         finally { if (entered) System.Threading.Monitor.Exit(syncRoot); }
 
@@ -144,6 +145,20 @@ public static partial class FileInspector
         {
             cancellationToken.ThrowIfCancellationRequested();
             return result;
+        }
+
+        LearnedContentPrediction Predict()
+        {
+            var metrics = InspectionOperation.Current?.Metrics;
+            metrics?.AttemptClassifier();
+            try
+            {
+                var result = predict();
+                if (result == null) throw new InvalidOperationException("The learned classifier returned no prediction.");
+                return result;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+            { metrics?.FailClassifier(); throw; }
         }
     }
 

@@ -13,6 +13,9 @@ internal sealed class InspectionOperation : IDisposable
     internal static InspectionOperation? Current => _current;
     internal InspectionSettings? Settings { get; }
     internal FileInspector.DetectionOptions Options { get; }
+    internal OperationMetricCollector? Metrics { get; }
+    private readonly long[]? _metricStart;
+    private readonly long _startTime;
 
     private InspectionOperation(FileInspector.DetectionOptions? options)
     {
@@ -20,6 +23,13 @@ internal sealed class InspectionOperation : IDisposable
         Settings = options?.Settings ?? _previous?.Settings;
         Options = options?.Copy() ?? new FileInspector.DetectionOptions { IncludeInstaller = Settings?.IncludeInstaller ?? FileInspectorX.Settings.IncludeInstaller };
         Options.Settings = Settings;
+        Metrics = _previous?.Metrics ?? (Options.CollectMetrics ? new OperationMetricCollector() : null);
+        if (Metrics != null)
+        {
+            Options.CollectMetrics = true;
+            _metricStart = Metrics.Capture();
+            _startTime = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
         var parentToken = _previous?.Options.CancellationToken ?? default;
         if (parentToken.CanBeCanceled && Options.CancellationToken != parentToken)
         {
@@ -46,6 +56,9 @@ internal sealed class InspectionOperation : IDisposable
     }
 
     internal static void CheckCancellation() => _current?.Options.CancellationToken.ThrowIfCancellationRequested();
+
+    internal OperationMetricCollector.MetricScope? Measure(InspectionStage stage) => Metrics?.Measure(stage);
+    internal InspectionMetrics? SnapshotMetrics() => Metrics?.Snapshot(_metricStart!, _startTime);
 
     public void Dispose()
     {

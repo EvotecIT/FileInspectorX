@@ -89,6 +89,19 @@ try {
     if ($null -ne $deterministicOnly.Detection.LearnedClassification) {
         throw 'DisableMagika did not disable learned classification.'
     }
+    if ($null -ne $deterministicOnly.Metrics) {
+        throw 'Operation metrics were collected without being requested.'
+    }
+    $measured = Get-FileInsight -Path $fixturePath -DisableMagika -ComputeSha256 -CollectMetrics
+    if ($measured.InputStatus.ToString() -ne 'Recognized' -or $measured.Outcome.ToString() -ne 'Complete') {
+        throw 'Typed outcomes did not report completed JSON inspection.'
+    }
+    if ($measured.Metrics.HashBytes -ne (Get-Item -LiteralPath $fixturePath).Length -or $measured.Metrics.ReadOperations -le 0) {
+        throw 'Operation metrics did not count the complete input hash and stream reads.'
+    }
+    if ($measured.StageOutcomes.Count -ne 6 -or $measured.Metrics.ClassifierAttempts -ne 0) {
+        throw 'Recorded stage outcomes or deterministic-only classifier counters are incorrect.'
+    }
 
     $requiredFailedClosed = $false
     try {
