@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Buffers;
 using System.Text;
 using System.Security.Cryptography.X509Certificates;
 
@@ -18,7 +19,7 @@ public static partial class FileInspector
         return CompleteDetection(result);
     }
 
-    private static ContentTypeDetectionResult? DetectPathCore(string path, DetectionOptions? options, bool propagateReadFailure) {
+    private static ContentTypeDetectionResult? DetectPathCore(string path, DetectionOptions? options, bool propagateReadFailure, InspectionInput? input = null) {
         try {
             options ??= new DetectionOptions();
             ValidateLearnedClassificationMode(options);
@@ -29,7 +30,7 @@ public static partial class FileInspector
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
             ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? result)
                 => ApplyLearnedClassification(result, fs, options);
-            var det = DetectStreamCore(fs, deterministicOptions, extDeclared);
+            var det = DetectStreamCore(fs, deterministicOptions, extDeclared, input);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
                     // A successful PE parse refines family details, but does not validate every section entry.
@@ -162,7 +163,7 @@ public static partial class FileInspector
     private static ContentTypeDetectionResult? DetectStreamCore(
         Stream stream,
         DetectionOptions? options,
-        string? declaredExtension) {
+        string? declaredExtension, InspectionInput? input = null) {
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         if (!stream.CanSeek && options.LearnedClassificationMode != LearnedClassificationMode.Off)
@@ -174,11 +175,19 @@ public static partial class FileInspector
             var deterministic = DetectStreamCore(
                 stream,
                 WithoutLearnedClassification(options),
-                declaredExtension);
+                declaredExtension, input);
             return AttachLearnedFailure(deterministic, unsupported);
         }
         var headLen = Math.Max(256, Math.Min(OperationSettings.HeaderReadBytes, 1 << 20));
-        var header = new byte[headLen];
+        var header = ArrayPool<byte>.Shared.Rent(headLen);
+        try { return DetectStreamSample(stream, options, declaredExtension, header, headLen, input); }
+        finally { ArrayPool<byte>.Shared.Return(header, clearArray: true); }
+    }
+
+    // Header storage is owned by the synchronous caller; every returned value
+    // contains copied metadata rather than a reference to the pooled bytes.
+    private static ContentTypeDetectionResult? DetectStreamSample(
+        Stream stream, DetectionOptions options, string? declaredExtension, byte[] header, int headLen, InspectionInput? input) {
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = ReadAvailable(stream, header, 0, headLen);
         bool nonSeekableEof = !stream.CanSeek && read < headLen;
@@ -231,7 +240,7 @@ public static partial class FileInspector
         if (Signatures.TryMatchRegistryExport(src, out var registryExport))
             return Finish(Enrich(registryExport, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchZip(stream, out var validatedZip) : Signatures.TryMatchZip(src, completeLength, out validatedZip))) {
-            return Finish(Enrich(RefineZip(stream, validatedZip), src, stream, options));
+            return Finish(Enrich(RefineZip(stream, validatedZip, input), src, stream, options));
         }
         if (Signatures.TryMatchOle2(src, out var validatedOle)) {
             using var sample = stream.CanSeek ? null : new MemoryReadStream(srcMemory);

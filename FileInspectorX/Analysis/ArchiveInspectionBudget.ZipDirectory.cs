@@ -4,6 +4,12 @@ internal sealed partial class ArchiveInspectionBudget
 {
     internal int EncryptedEntryCount { get; private set; }
 
+    internal void RetainZipDirectoryEvidence(int encryptedEntryCount, IReadOnlyList<string> issues)
+    {
+        EncryptedEntryCount = encryptedEntryCount;
+        foreach (var issue in issues) AddIssue(issue);
+    }
+
     internal bool CheckCentralDirectory(Stream stream, out int? declaredEntryCount)
     {
         declaredEntryCount = null;

@@ -19,13 +19,12 @@ public static partial class FileInspector
         int nestedDepth = options?.NestedContainerDepth ?? 0;
         var nestedBudget = GetNestedContainerBudget(options);
         try {
-            using var fs = input.OpenRead();
-            if (!budget.CheckCentralDirectory(fs, out var declaredEntryCount))
+            if (!input.TryOpenZip(budget, out var za, out var declaredEntryCount))
             {
                 entryCount = declaredEntryCount;
                 return;
             }
-            using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
+            if (za == null) throw new InvalidDataException("The ZIP reader is unavailable.");
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int count = 0;
             hasNestedArchives = false;

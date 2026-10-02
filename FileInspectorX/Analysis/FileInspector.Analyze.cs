@@ -18,6 +18,7 @@ public static partial class FileInspector {
         => AnalyzeCore(InspectionInput.FromPath(path), options);
 
     private static FileAnalysis AnalyzeCore(InspectionInput input, DetectionOptions? options) {
+        using var contentLease = input;
         var path = input.Name;
         using var operation = InspectionOperation.Begin(options);
         options = operation.Options;

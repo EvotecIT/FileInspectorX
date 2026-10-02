@@ -48,7 +48,7 @@ public static partial class FileInspector
     {
         using var operation = InspectionOperation.Begin(options);
         options = operation.Options;
-        var input = InspectionInput.FromStream(stream, fileName, requireSeek: !options.DetectOnly);
+        using var input = InspectionInput.FromStream(stream, fileName, requireSeek: !options.DetectOnly);
         if (!options.DetectOnly)
         {
             var result = AnalyzeCore(input, options);
@@ -98,11 +98,12 @@ public static partial class FileInspector
 
     private static ContentTypeDetectionResult? DetectInput(InspectionInput input, DetectionOptions options)
     {
-        if (input.HasPath) return DetectPathCore(input.Path!, options, propagateReadFailure: true);
+        input.RetainPosition();
+        if (input.HasPath) return DetectPathCore(input.Path!, options, propagateReadFailure: true, input);
         try
         {
             using var stream = input.OpenRead();
-            return DetectStreamCore(stream, options, System.IO.Path.GetExtension(input.Name).TrimStart('.'));
+            return DetectStreamCore(stream, options, System.IO.Path.GetExtension(input.Name).TrimStart('.'), input);
         }
         catch (Exception ex) when (options.LearnedClassificationMode == LearnedClassificationMode.Required &&
             ex is IOException or UnauthorizedAccessException)

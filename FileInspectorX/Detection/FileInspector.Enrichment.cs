@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 
 namespace FileInspectorX;
@@ -44,14 +45,18 @@ public static partial class FileInspector
             if (stream == null || !stream.CanSeek) AppendHash(hash, prefix);
             if (stream != null)
             {
-                var buffer = new byte[8192];
-                int read;
-                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+                try
                 {
-                    InspectionOperation.CheckCancellation();
-                    hash.AppendData(buffer, 0, read);
-                    InspectionOperation.Current?.Metrics?.Hash(read);
+                    int read;
+                    while ((read = stream.Read(buffer, 0, 64 * 1024)) > 0)
+                    {
+                        InspectionOperation.CheckCancellation();
+                        hash.AppendData(buffer, 0, read);
+                        InspectionOperation.Current?.Metrics?.Hash(read);
+                    }
                 }
+                finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
             }
             return ToLowerHex(hash.GetHashAndReset());
         }
@@ -70,16 +75,21 @@ public static partial class FileInspector
             bytes = bytes.Slice(count);
         }
 #else
-        var buffer = new byte[Math.Min(bytes.Length, 8192)];
-        while (!bytes.IsEmpty)
+        if (bytes.IsEmpty) return;
+        var buffer = ArrayPool<byte>.Shared.Rent(Math.Min(bytes.Length, 64 * 1024));
+        try
         {
-            InspectionOperation.CheckCancellation();
-            int count = Math.Min(bytes.Length, buffer.Length);
-            bytes.Slice(0, count).CopyTo(buffer);
-            hash.AppendData(buffer, 0, count);
-            InspectionOperation.Current?.Metrics?.Hash(count);
-            bytes = bytes.Slice(count);
+            while (!bytes.IsEmpty)
+            {
+                InspectionOperation.CheckCancellation();
+                int count = Math.Min(bytes.Length, Math.Min(buffer.Length, 64 * 1024));
+                bytes.Slice(0, count).CopyTo(buffer);
+                hash.AppendData(buffer, 0, count);
+                InspectionOperation.Current?.Metrics?.Hash(count);
+                bytes = bytes.Slice(count);
+            }
         }
+        finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
 #endif
     }
 

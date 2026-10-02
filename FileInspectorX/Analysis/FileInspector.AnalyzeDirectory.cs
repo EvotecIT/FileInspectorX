@@ -85,7 +85,8 @@ public static partial class FileInspector {
         if (filter != null) files = files.Where(filter);
 
         var degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
-        var channel = System.Threading.Channels.Channel.CreateBounded<FileAnalysis>(degree * 2);
+        var channel = System.Threading.Channels.Channel.CreateBounded<FileAnalysis>(
+            new System.Threading.Channels.BoundedChannelOptions(degree * 2) { SingleReader = true });
 
         var producer = Task.Run(async () => {
             Exception? failure = null;

@@ -18,8 +18,10 @@ internal static class MagikaFeatureExtractor
         Stream content,
         MagikaModelConfig config,
         out byte[] beginningBlock,
-        out int beginningLength)
+        out int beginningLength,
+        System.Threading.CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!content.CanRead)
             throw new ArgumentException("The content stream must be readable.", nameof(content));
         if (!content.CanSeek)
@@ -29,11 +31,7 @@ internal static class MagikaFeatureExtractor
         try
         {
             var length = content.Length;
-            if (length > int.MaxValue)
-            {
-                return ExtractBlocks(content, length, config, out beginningBlock, out beginningLength);
-            }
-            return ExtractBlocks(content, length, config, out beginningBlock, out beginningLength);
+            return ExtractBlocks(content, length, config, out beginningBlock, out beginningLength, cancellationToken);
         }
         finally
         {
@@ -46,14 +44,15 @@ internal static class MagikaFeatureExtractor
         long length,
         MagikaModelConfig config,
         out byte[] beginning,
-        out int beginningLength)
+        out int beginningLength,
+        System.Threading.CancellationToken cancellationToken)
     {
         var blockLength = (int)Math.Min(config.BlockSize, length);
         beginning = new byte[blockLength];
         var ending = new byte[blockLength];
 
         content.Seek(0, SeekOrigin.Begin);
-        beginningLength = ReadExactlyAvailable(content, beginning);
+        beginningLength = ReadExactlyAvailable(content, beginning, cancellationToken);
         int endingLength;
         if (beginningLength < blockLength)
         {
@@ -63,7 +62,7 @@ internal static class MagikaFeatureExtractor
         else
         {
             content.Seek(Math.Max(0, length - blockLength), SeekOrigin.Begin);
-            endingLength = ReadExactlyAvailable(content, ending);
+            endingLength = ReadExactlyAvailable(content, ending, cancellationToken);
             if (endingLength < blockLength)
             {
                 Array.Clear(ending, 0, ending.Length);
@@ -71,7 +70,7 @@ internal static class MagikaFeatureExtractor
                 content.Seek(
                     Math.Max(0, actualLength - blockLength),
                     SeekOrigin.Begin);
-                endingLength = ReadExactlyAvailable(content, ending);
+                endingLength = ReadExactlyAvailable(content, ending, cancellationToken);
             }
         }
 
@@ -86,6 +85,20 @@ internal static class MagikaFeatureExtractor
         ReadOnlySpan<byte> endBlock,
         MagikaModelConfig config)
     {
+        var features = new int[config.BeginningSize + config.MiddleSize + config.EndSize];
+        FillBlocks(beginningBlock, endBlock, config, features.AsSpan());
+        return features;
+    }
+
+    internal static void Fill(ReadOnlyMemory<byte> content, MagikaModelConfig config, Span<int> features)
+    {
+        var bytes = content.Span;
+        var blockLength = Math.Min(config.BlockSize, bytes.Length);
+        FillBlocks(bytes.Slice(0, blockLength), bytes.Slice(bytes.Length - blockLength, blockLength), config, features);
+    }
+
+    private static void FillBlocks(ReadOnlySpan<byte> beginningBlock, ReadOnlySpan<byte> endBlock, MagikaModelConfig config, Span<int> features)
+    {
         var beginning = TrimLeftAsciiWhitespace(beginningBlock);
         var ending = TrimRightAsciiWhitespace(endBlock);
         if (beginning.Length > config.BeginningSize)
@@ -93,7 +106,6 @@ internal static class MagikaFeatureExtractor
         if (ending.Length > config.EndSize)
             ending = ending.Slice(ending.Length - config.EndSize, config.EndSize);
 
-        var features = new int[config.BeginningSize + config.MiddleSize + config.EndSize];
         for (var i = 0; i < features.Length; i++)
             features[i] = config.PaddingToken;
         for (var i = 0; i < beginning.Length; i++)
@@ -102,15 +114,16 @@ internal static class MagikaFeatureExtractor
         var endOffset = config.BeginningSize + config.MiddleSize + config.EndSize - ending.Length;
         for (var i = 0; i < ending.Length; i++)
             features[endOffset + i] = ending[i];
-        return features;
     }
 
-    private static int ReadExactlyAvailable(Stream stream, byte[] buffer)
+    private static int ReadExactlyAvailable(Stream stream, byte[] buffer, System.Threading.CancellationToken cancellationToken)
     {
         var offset = 0;
         while (offset < buffer.Length)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var read = stream.Read(buffer, offset, buffer.Length - offset);
+            cancellationToken.ThrowIfCancellationRequested();
             if (read == 0)
                 break;
             offset += read;

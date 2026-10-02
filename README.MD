@@ -104,6 +104,29 @@ generic low-confidence result, but validated magic and structural evidence stays
 When they disagree, `LearnedClassification.Disposition` is `Conflict` and both results remain
 available for policy decisions.
 
+Reuse a classifier across predictions and dispose it after all active calls finish.
+`IntraOpThreadCount` is captured at construction: zero preserves ONNX Runtime's default,
+and a positive value configures parallelism within native inference. Concurrent callers
+can use additional threads. Measure with the application's workload before tuning it.
+
+The provider accepts ordered batches of complete memory inputs and uses at most 32
+feature rows in each native call. Empty and tiny inputs retain their scalar rules.
+Native batch kernels can produce different probabilities, so labels and confidence
+decisions near a cutoff can also differ from scalar inference.
+
+```csharp
+ReadOnlyMemory<byte>[] inputs = {
+    File.ReadAllBytes("first.bin"),
+    File.ReadAllBytes("second.bin")
+};
+var predictions = magika.PredictBatch(inputs, cancellationToken);
+```
+
+For large files, `Predict(stream, cancellationToken)` reads bounded beginning/end blocks
+and preserves borrowed stream position. Scalar and batch cancellation can interrupt
+in-flight native inference; each call owns its termination flag, so canceling one call
+does not terminate another prediction using the same classifier.
+
 The integration is typed end to end: `MagikaContentClassifier` implements
 `ILearnedContentClassifier`, the prediction and arbitration evidence are normal C# models, and
 the deterministic detector always runs before learned arbitration. Optional hosts compile the

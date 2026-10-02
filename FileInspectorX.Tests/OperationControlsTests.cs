@@ -255,7 +255,9 @@ public sealed class OperationControlsTests
         public override int Read(byte[] buffer, int offset, int count)
         {
             int read = base.Read(buffer, offset, count);
-            if (count == 8192 && ++HashReadCount == 12) _cancel.Cancel();
+            // Cancel after actual input progress, independently of the hash
+            // implementation's buffer size or number of Read calls.
+            if (read > 0 && Position >= 128 * 1024) { HashReadCount++; _cancel.Cancel(); }
             return read;
         }
     }

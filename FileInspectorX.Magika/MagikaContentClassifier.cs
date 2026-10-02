@@ -9,7 +9,7 @@ namespace FileInspectorX.Magika;
 /// Runs Google's pinned Magika <c>standard_v3_3</c> ONNX model through ONNX Runtime.
 /// The classifier is safe for concurrent prediction and should be reused and disposed.
 /// </summary>
-public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifier, IDisposable
+public sealed partial class MagikaContentClassifier : IConcurrentLearnedContentClassifier, ICancellableLearnedContentClassifier, IDisposable
 {
     /// <summary>Identifier for the bundled upstream model and source revision.</summary>
     public const string BundledModelId = "google-magika/standard_v3_3@5e2f437fb7b7452368c8c1fa9354858f5487a5c4";
@@ -36,13 +36,17 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
     {
         if (options is null)
             throw new ArgumentNullException(nameof(options));
-        if (!Enum.IsDefined(typeof(MagikaPredictionMode), options.PredictionMode))
+        var predictionMode = options.PredictionMode;
+        var intraOpThreadCount = options.IntraOpThreadCount;
+        if (intraOpThreadCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "IntraOpThreadCount must be zero or positive.");
+        if (!Enum.IsDefined(typeof(MagikaPredictionMode), predictionMode))
             throw new ArgumentOutOfRangeException(
                 nameof(options),
-                options.PredictionMode,
+                predictionMode,
                 "The prediction mode is not defined.");
 
-        _predictionMode = options.PredictionMode;
+        _predictionMode = predictionMode;
         _config = JsonSerializer.Deserialize(
             ReadResourceBytes(ConfigResourceName),
             MagikaJsonContext.Default.MagikaModelConfig)
@@ -52,28 +56,47 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
             MagikaJsonContext.Default.DictionaryStringMagikaContentType)
             ?? throw new InvalidOperationException("Unable to parse the embedded Magika content-type knowledge base.");
         ValidateConfig(_config);
-        _session = new InferenceSession(ReadResourceBytes(ModelResourceName));
+        var model = ReadResourceBytes(ModelResourceName);
+        if (intraOpThreadCount == 0)
+            _session = new InferenceSession(model);
+        else
+        {
+            using var sessionOptions = new SessionOptions { IntraOpNumThreads = intraOpThreadCount };
+            _session = new InferenceSession(model, sessionOptions);
+        }
+        try { ValidateModelShape(); }
+        catch { _session.Dispose(); throw; }
     }
 
     /// <inheritdoc />
-    public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+    public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content) => Predict(content, default);
+
+    /// <inheritdoc />
+    public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content, System.Threading.CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
+        cancellationToken.ThrowIfCancellationRequested();
         if (content.Length == 0)
             return CreateRulePrediction("empty", 1);
 
         if (content.Length < _config.MinimumFileSizeForModel)
             return CreateRulePrediction(IsValidUtf8(content.Span) ? "txt" : "unknown", 1);
         var features = MagikaFeatureExtractor.Extract(content, _config);
-        return RunModel(features);
+        return RunModel(features, cancellationToken);
     }
 
     /// <inheritdoc />
-    public LearnedContentPrediction Predict(Stream content)
+    public LearnedContentPrediction Predict(Stream content) => Predict(content, default);
+
+    /// <inheritdoc />
+    public LearnedContentPrediction Predict(Stream content, System.Threading.CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
+        cancellationToken.ThrowIfCancellationRequested();
         if (content is null)
             throw new ArgumentNullException(nameof(content));
+        if (!content.CanRead)
+            throw new ArgumentException("The content stream must be readable.", nameof(content));
         if (!content.CanSeek)
             throw new NotSupportedException("Magika classification requires a seekable stream.");
         if (content.Length == 0)
@@ -89,7 +112,9 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
                 var read = 0;
                 while (read < sample.Length)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var current = content.Read(sample, read, sample.Length - read);
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (current == 0)
                         break;
                     read += current;
@@ -107,7 +132,8 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
             content,
             _config,
             out var beginningBlock,
-            out var beginningLength);
+            out var beginningLength,
+            cancellationToken);
         if (beginningLength == 0)
             return CreateRulePrediction("empty", 1);
         if (beginningLength < _config.MinimumFileSizeForModel)
@@ -118,7 +144,7 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
                     : "unknown",
                 1);
         }
-        return RunModel(features);
+        return RunModel(features, cancellationToken);
     }
 
     /// <summary>Releases the ONNX inference session and its native resources.</summary>
@@ -128,43 +154,6 @@ public sealed class MagikaContentClassifier : IConcurrentLearnedContentClassifie
             return;
         _session.Dispose();
         _disposed = true;
-    }
-
-    private LearnedContentPrediction RunModel(int[] features)
-    {
-        var tensor = new DenseTensor<int>(features, new[] { 1, features.Length });
-        var input = NamedOnnxValue.CreateFromTensor("bytes", tensor);
-        using var results = _session.Run(new[] { input });
-        var output = results.FirstOrDefault(result => result.Name == "target_label")
-            ?? throw new InvalidOperationException("The Magika model did not return target_label.");
-        var probabilities = output.AsTensor<float>();
-        if (probabilities.Length != _config.TargetLabels.Length)
-            throw new InvalidOperationException("The Magika model returned an unexpected label count.");
-
-        var bestIndex = 0;
-        for (var index = 1; index < probabilities.Length; index++)
-        {
-            if (probabilities.GetValue(index) > probabilities.GetValue(bestIndex))
-                bestIndex = index;
-        }
-
-        var rawLabel = _config.TargetLabels[bestIndex];
-        var probability = probabilities.GetValue(bestIndex);
-        var threshold = ThresholdFor(rawLabel);
-        var thresholdMet = _predictionMode == MagikaPredictionMode.BestGuess || probability >= threshold;
-        var outputLabel = _config.OverwriteMap.TryGetValue(rawLabel, out var overwritten)
-            ? overwritten
-            : rawLabel;
-        string? overwriteReason = outputLabel == rawLabel ? null : "overwrite_map";
-
-        if (!thresholdMet)
-        {
-            outputLabel = ContentType(rawLabel).IsText ? "txt" : "unknown";
-            if (!outputLabel.Equals(rawLabel, StringComparison.Ordinal))
-                overwriteReason = "low_confidence";
-        }
-
-        return CreatePrediction(rawLabel, outputLabel, probability, threshold, thresholdMet, overwriteReason);
     }
 
     private LearnedContentPrediction CreateRulePrediction(string outputLabel, double probability)

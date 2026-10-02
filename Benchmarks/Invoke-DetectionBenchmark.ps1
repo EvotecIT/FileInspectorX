@@ -4,14 +4,16 @@ param(
     [Parameter(Mandatory)] [string] $OutputRoot,
     [ValidateRange(1, 100000)] [int] $Calls = 200,
     [string[]] $Case,
+    [ValidateSet('detection', 'directory')] [string] $Suite = 'detection',
+    [string] $FixtureRoot,
     [switch] $Plan
 )
 
 Import-Module PSPublishModule -MinimumVersion 3.0.153 -ErrorAction Stop
 $contextPrefix = 'FileInspectorX-' + [guid]::NewGuid().ToString('N')
 try {
-    $result = Invoke-BenchmarkSuite -Path (Join-Path $PSScriptRoot 'detection.benchmark.ps1') -OutputRoot $OutputRoot -Variable @{
-        BaselineRoot = $BaselineRoot; CandidateRoot = $CandidateRoot; Calls = $Calls; ContextPrefix = $contextPrefix
+    $result = Invoke-BenchmarkSuite -Path (Join-Path $PSScriptRoot "$Suite.benchmark.ps1") -OutputRoot $OutputRoot -Variable @{
+        BaselineRoot = $BaselineRoot; CandidateRoot = $CandidateRoot; Calls = $Calls; ContextPrefix = $contextPrefix; FixtureRoot = $FixtureRoot
     } -Case $Case -Plan:$Plan -ErrorAction Stop
 } finally {
     foreach ($context in [Runtime.Loader.AssemblyLoadContext]::All) {
