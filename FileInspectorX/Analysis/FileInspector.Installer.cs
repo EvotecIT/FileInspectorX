@@ -30,6 +30,19 @@ public static partial class FileInspector
         ApplyArchiveInspectionBudget(result, budget);
     }
 
+    private static bool TryLoadInstallerManifest(Stream source, long maxBytes, FileAnalysis result,
+        ArchiveInspectionBudget budget, out XmlDocument document)
+    {
+        if (BoundedXmlDocument.TryLoad(source, maxBytes, out document, out var outcome, out var issue)) return true;
+        if (outcome is StructuredValidationOutcome.Skipped or StructuredValidationOutcome.Unavailable)
+        {
+            result.ContentInstallerStatus = outcome == StructuredValidationOutcome.Unavailable
+                ? InspectionStageStatus.Unavailable : InspectionStageStatus.Partial;
+            budget.AddIssue("archive:installer-manifest-" + issue);
+        }
+        return false;
+    }
+
     private static void TryPopulateAppxManifest(InspectionInput input, FileAnalysis res)
     {
         res.ContentInstallerStatus = InspectionStageStatus.Completed;
@@ -43,7 +56,7 @@ public static partial class FileInspector
             var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, OperationSettings.ArchiveMaxEntryReadBytes));
             using var s = budget.OpenEntry(entry, checked((int)manifestMaxBytes));
             if (s == null) return;
-            if (!BoundedXmlDocument.TryLoad(s, manifestMaxBytes, out var doc)) return;
+            if (!TryLoadInstallerManifest(s, manifestMaxBytes, res, budget, out var doc)) return;
             var nsm = new XmlNamespaceManager(doc.NameTable);
             var ns = doc.DocumentElement?.NamespaceURI ?? string.Empty;
             if (!string.IsNullOrEmpty(ns)) nsm.AddNamespace("a", ns);
@@ -147,7 +160,7 @@ public static partial class FileInspector
             var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, OperationSettings.ArchiveMaxEntryReadBytes));
             using var s = budget.OpenEntry(entry, checked((int)manifestMaxBytes));
             if (s == null) return;
-            if (!BoundedXmlDocument.TryLoad(s, manifestMaxBytes, out var doc)) return;
+            if (!TryLoadInstallerManifest(s, manifestMaxBytes, res, budget, out var doc)) return;
             var nsm = new XmlNamespaceManager(doc.NameTable);
             var ns = doc.DocumentElement?.NamespaceURI ?? string.Empty;
             if (!string.IsNullOrEmpty(ns)) nsm.AddNamespace("v", ns);
