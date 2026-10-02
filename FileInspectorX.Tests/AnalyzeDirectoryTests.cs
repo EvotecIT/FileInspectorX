@@ -5,6 +5,57 @@ namespace FileInspectorX.Tests;
 
 public class AnalyzeDirectoryTests {
     [Fact]
+    public async Task EarlyDisposalCancelsAndObservesProducer()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        var classifier = new PausingClassifier();
+        var options = new FileInspector.DetectionOptions { LearnedClassifier = classifier, LearnedClassificationMode = LearnedClassificationMode.Required, IncludePermissions = false, IncludeAuthenticode = false };
+        try
+        {
+            for (int i = 0; i < 10; i++) File.WriteAllText(Path.Combine(dir.FullName, $"{i}.txt"), "hello");
+            var enumerator = FileInspector.AnalyzeDirectoryAsync(dir.FullName, options: options, maxDegreeOfParallelism: 1).GetAsyncEnumerator();
+            try
+            {
+                Assert.True(await enumerator.MoveNextAsync());
+                await classifier.SecondEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                var disposal = enumerator.DisposeAsync().AsTask();
+                classifier.ReleaseSecond.TrySetResult();
+                await disposal.WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.Equal(2, classifier.Calls);
+            }
+            finally { classifier.ReleaseSecond.TrySetResult(); await enumerator.DisposeAsync(); }
+        }
+        finally { classifier.ReleaseSecond.TrySetResult(); dir.Delete(true); }
+    }
+
+    [Fact]
+    public void RecursiveScanSkipsDirectoryLinkCycles()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        string link = Path.Combine(dir.FullName, "again");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir.FullName, "one.txt"), "hello");
+            Directory.CreateSymbolicLink(link, dir.FullName);
+            Assert.Single(FileInspector.AnalyzeDirectory(dir.FullName, SearchOption.AllDirectories).Take(10));
+        }
+        finally { if (Directory.Exists(link)) Directory.Delete(link); dir.Delete(true); }
+    }
+
+    private sealed class PausingClassifier : IConcurrentLearnedContentClassifier
+    {
+        internal int Calls;
+        internal readonly TaskCompletionSource SecondEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource ReleaseSecond = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public LearnedContentPrediction Predict(Stream content) => Predict(ReadOnlyMemory<byte>.Empty);
+        public LearnedContentPrediction Predict(ReadOnlyMemory<byte> content)
+        {
+            if (Interlocked.Increment(ref Calls) == 2) { SecondEntered.TrySetResult(); ReleaseSecond.Task.GetAwaiter().GetResult(); }
+            return new LearnedContentPrediction { Provider = "test", Extension = "txt", OutputLabel = "txt", MimeType = "text/plain", Probability = 1, ThresholdMet = true };
+        }
+    }
+
+    [Fact]
     public void AnalyzeDirectory_Basic_And_Filter() {
         var dir = Directory.CreateTempSubdirectory();
         try {
