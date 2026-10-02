@@ -22,7 +22,7 @@ public sealed class ReferencesView
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
-    internal static IEnumerable<ReferencesView> From(string path, IReadOnlyList<Reference>? refs)
+    internal static IEnumerable<ReferencesView> From(string path, IReadOnlyList<Reference>? refs, bool includeExpandedValues)
     {
         if (refs is null || refs.Count == 0) yield break;
         foreach (var r in refs)
@@ -32,7 +32,7 @@ public sealed class ReferencesView
                 Path = path,
                 Kind = r.Kind,
                 Value = r.Value,
-                ExpandedValue = OperationSettings.ReferenceFullListsEnabled ? r.ExpandedValue : null,
+                ExpandedValue = includeExpandedValues ? r.ExpandedValue : null,
                 Exists = r.Exists,
                 Issues = r.Issues,
                 Source = r.SourceTag,

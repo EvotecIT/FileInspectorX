@@ -19,10 +19,12 @@ internal static class FrozenSettingsCollections
     internal static IReadOnlyDictionary<string, T> CopyDictionary<T>(IEnumerable<KeyValuePair<string, T>> values, IEqualityComparer<string>? explicitComparer = null)
     {
         if (values == null) throw new ArgumentNullException(nameof(values));
-        if (values is DictionarySnapshot<T>) return (IReadOnlyDictionary<string, T>)values;
+        if (explicitComparer == null && values is DictionarySnapshot<T>) return (IReadOnlyDictionary<string, T>)values;
         if (explicitComparer == null && values is SortedDictionary<string, T> sorted)
             return new DictionarySnapshot<T>(new SortedDictionary<string, T>(sorted, sorted.Comparer));
-        var comparer = explicitComparer ?? (values is Dictionary<string, T> dictionary ? dictionary.Comparer : StringComparer.Ordinal);
+        if (explicitComparer == null && values is SortedList<string, T> sortedList)
+            return new DictionarySnapshot<T>(new SortedDictionary<string, T>(sortedList, sortedList.Comparer));
+        var comparer = explicitComparer ?? (values is Dictionary<string, T> dictionary ? dictionary.Comparer : null);
         if (values is System.Collections.Concurrent.ConcurrentDictionary<string, T> concurrent)
         {
 #if NET8_0_OR_GREATER
@@ -32,9 +34,11 @@ internal static class FrozenSettingsCollections
             // replacing the built-in dictionary provide its comparer when explicitly capturing.
             comparer = explicitComparer ?? (ReferenceEquals(values, Settings.DefaultScoreAdjustments)
                 ? StringComparer.OrdinalIgnoreCase
-                : throw new ArgumentException("Supply the score comparer when capturing a custom ConcurrentDictionary on this target.", nameof(values)));
+                : throw new ArgumentException("Supply the comparer when capturing a custom ConcurrentDictionary on this target.", nameof(values)));
 #endif
         }
+        if (comparer == null)
+            throw new ArgumentException("Supply an explicit comparer for a dictionary whose comparer is not exposed.", nameof(values));
         var copy = new Dictionary<string, T>(comparer);
         foreach (var pair in values) copy.Add(pair.Key, pair.Value);
         return new DictionarySnapshot<T>(copy);
@@ -51,11 +55,18 @@ internal static class FrozenSettingsCollections
     {
         private readonly ISet<string> _values;
 
-        internal StringSet(IEnumerable<string> values)
+        internal StringSet(IEnumerable<string> values, IEqualityComparer<string>? explicitComparer = null)
         {
-            _values = values is StringSet frozen ? frozen._values : values is SortedSet<string> sorted
-                ? new SortedSet<string>(sorted, sorted.Comparer)
-                : new HashSet<string>(values, values is HashSet<string> hash ? hash.Comparer : StringComparer.OrdinalIgnoreCase);
+            if (values == null) throw new ArgumentNullException(nameof(values));
+            if (explicitComparer == null && values is StringSet frozen) _values = frozen._values;
+            else if (explicitComparer == null && values is SortedSet<string> sorted) _values = new SortedSet<string>(sorted, sorted.Comparer);
+            else
+            {
+                var comparer = explicitComparer ?? (values is HashSet<string> hash ? hash.Comparer :
+                    values is ISet<string> ? throw new ArgumentException("Supply an explicit comparer for a set whose comparer is not exposed.", nameof(values)) :
+                    StringComparer.OrdinalIgnoreCase);
+                _values = new HashSet<string>(values, comparer);
+            }
         }
 
         public int Count => _values.Count;

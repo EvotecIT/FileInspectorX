@@ -28,7 +28,15 @@ public static class ViewExtensions
     /// <summary>Projects extracted references into <see cref="ReferencesView"/> rows; attaches the original object to <c>Raw</c>.</summary>
     public static IEnumerable<ReferencesView> ToReferencesView(this FileAnalysis a, string path)
     {
-        foreach (var rv in ReferencesView.From(path, a.References)) { rv.Raw = a; yield return rv; }
+        if (a == null) throw new ArgumentNullException(nameof(a));
+        var includeExpandedValues = (a.SettingsSnapshot ?? InspectionOperation.Current?.Settings)?.ReferenceFullListsEnabled
+            ?? Settings.ReferenceFullListsEnabled;
+        return ProjectReferences(a, path, includeExpandedValues);
+    }
+
+    private static IEnumerable<ReferencesView> ProjectReferences(FileAnalysis a, string path, bool includeExpandedValues)
+    {
+        foreach (var rv in ReferencesView.From(path, a.References, includeExpandedValues)) { rv.Raw = a; yield return rv; }
     }
     /// <summary>Projects assessment into an <see cref="AssessmentView"/>; attaches the original object to <c>Raw</c>.</summary>
     public static AssessmentView ToAssessmentView(this FileAnalysis a, string path)

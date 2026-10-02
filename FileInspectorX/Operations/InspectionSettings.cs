@@ -12,8 +12,12 @@ public sealed partial record InspectionSettings
     private InspectionSettings() { }
 
     /// <summary>Captures all current global settings, defensively copying their collections.</summary>
-    /// <param name="scoreComparer">Comparer for a custom concurrent score dictionary on older targets that do not expose its comparer.</param>
-    public static InspectionSettings CaptureDefaults(IEqualityComparer<string>? scoreComparer = null)
+    /// <param name="scoreComparer">Comparer for an opaque score dictionary, or a custom concurrent dictionary on older targets.</param>
+    /// <param name="toolHashComparer">Comparer for an opaque known-tool hash dictionary.</param>
+    /// <param name="dangerousExtensionComparer">Comparer for an opaque dangerous-extension set.</param>
+    /// <remarks>Known dictionary and set implementations retain their exposed comparers. Opaque implementations require an explicit comparer.</remarks>
+    public static InspectionSettings CaptureDefaults(IEqualityComparer<string>? scoreComparer = null,
+        IEqualityComparer<string>? toolHashComparer = null, IEqualityComparer<string>? dangerousExtensionComparer = null)
     {
 #pragma warning disable CS0618 // Preserve obsolete compatibility values without using them for caching.
         return new InspectionSettings
@@ -48,7 +52,7 @@ public sealed partial record InspectionSettings
             PlainTextSampleBytes = Settings.PlainTextSampleBytes,
             PlainTextPrintableMinRatio = Settings.PlainTextPrintableMinRatio,
             PlainTextControlMaxRatio = Settings.PlainTextControlMaxRatio,
-            DangerousExtensionsOverride = Settings.DangerousExtensionsOverride == null ? null : new FrozenSettingsCollections.StringSet(Settings.DangerousExtensionsOverride),
+            DangerousExtensionsOverride = Settings.DangerousExtensionsOverride == null ? null : new FrozenSettingsCollections.StringSet(Settings.DangerousExtensionsOverride, dangerousExtensionComparer),
             DangerousExtensionsOverrideMode = Settings.DangerousExtensionsOverrideMode,
             ZipSubtypeMaxEntries = Settings.ZipSubtypeMaxEntries,
             AdmxAdmlXmlWellFormednessValidationEnabled = Settings.AdmxAdmlXmlWellFormednessValidationEnabled,
@@ -111,7 +115,7 @@ public sealed partial record InspectionSettings
             ArchiveMaxTotalReadBytes = Settings.ArchiveMaxTotalReadBytes,
             ArchiveMaxCompressionRatio = Settings.ArchiveMaxCompressionRatio,
             KnownToolNameIndicators = Settings.KnownToolNameIndicators ?? Array.Empty<string>(),
-            KnownToolHashes = Settings.KnownToolHashes,
+            KnownToolHashes = FrozenSettingsCollections.CopyDictionary(Settings.KnownToolHashes, toolHashComparer),
             EncodedBase64MinBlock = Settings.EncodedBase64MinBlock,
             EncodedBase64ProbeChars = Settings.EncodedBase64ProbeChars,
             EncodedBase64AllowedRatio = Settings.EncodedBase64AllowedRatio,

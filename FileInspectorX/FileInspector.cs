@@ -485,6 +485,7 @@ public static partial class FileInspector {
                             }
                             var quick = new FileAnalysis
                             {
+                                SettingsSnapshot = options.Settings,
                                 Detection = det,
                                 DetectedExtension = det.Extension,
                                 DetectedMimeType = det.MimeType,
@@ -512,6 +513,7 @@ public static partial class FileInspector {
                 catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException and not OperationCanceledException)
                 { return InputFailureAnalysis(options); }
                 var detectedOnly = new FileAnalysis {
+                    SettingsSnapshot = options.Settings,
                     Detection = det,
                     Kind = ClassifyKindWithLearnedText(det),
                     Flags = ContentFlags.None

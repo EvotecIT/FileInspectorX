@@ -92,7 +92,9 @@ public static partial class FileInspector {
             try {
                 await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = operation.Token }, async (file, token) => {
                     FileAnalysis? result = null;
-                    try { result = Analyze(file, options); }
+                    var workerOptions = options.Copy();
+                    workerOptions.CancellationToken = token;
+                    try { result = Analyze(file, workerOptions); }
                     catch (LearnedClassificationException) { throw; }
                     catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException) { }
                     if (result != null)

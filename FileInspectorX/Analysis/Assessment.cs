@@ -78,7 +78,8 @@ public static partial class FileInspector
     /// <summary>Computes all assessment profiles using the supplied immutable policy settings.</summary>
     public static MultiAssessmentResult AssessMulti(FileAnalysis a, InspectionSettings? settings)
     {
-        using var operation = InspectionOperation.Begin(new DetectionOptions { Settings = settings });
+        if (a == null) throw new ArgumentNullException(nameof(a));
+        using var operation = InspectionOperation.Begin(new DetectionOptions { Settings = settings ?? InspectionOperation.Current?.Settings ?? a.SettingsSnapshot });
         var balanced = Assess(a);
         return AssessMulti(balanced);
     }
@@ -108,8 +109,8 @@ public static partial class FileInspector
     /// <summary>Computes an assessment using the supplied immutable policy settings.</summary>
     public static AssessmentResult Assess(FileAnalysis a, InspectionSettings? settings)
     {
-        using var operation = InspectionOperation.Begin(new DetectionOptions { Settings = settings });
         if (a == null) throw new ArgumentNullException(nameof(a));
+        using var operation = InspectionOperation.Begin(new DetectionOptions { Settings = settings ?? InspectionOperation.Current?.Settings ?? a.SettingsSnapshot });
         int score = 0; var codes = new List<string>(32); var factors = new Dictionary<string,int>(32);
         var securityFindings = a.SecurityFindings ?? Array.Empty<string>();
 

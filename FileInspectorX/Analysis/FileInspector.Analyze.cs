@@ -31,6 +31,7 @@ public static partial class FileInspector {
         if (learnedApplied && det != null)
             PrepareDeterministicDetectionForAnalysis(det);
         var res = new FileAnalysis {
+            SettingsSnapshot = options.Settings,
             Detection = det,
             Kind = KindClassifier.Classify(det),
             Flags = ContentFlags.None,

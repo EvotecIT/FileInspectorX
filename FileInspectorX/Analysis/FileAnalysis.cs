@@ -5,6 +5,9 @@ namespace FileInspectorX;
 /// Produced by <see cref="FileInspector.Analyze(string, FileInspector.DetectionOptions?)"/>.
 /// </summary>
 public class FileAnalysis {
+    // Retain immutable policy for projections and later assessments without holding an operation/token.
+    internal InspectionSettings? SettingsSnapshot { get; init; }
+
     /// <summary>True when all requested analyzers completed within their safety budgets.</summary>
     public bool AnalysisComplete { get; set; } = true;
 

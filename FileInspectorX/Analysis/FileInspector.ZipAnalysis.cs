@@ -120,7 +120,7 @@ public static partial class FileInspector
                         var rels2 = budget.ReadText(e) ?? string.Empty;
                         CountOoxmlExternalTargets(rels2, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
                     }
-                } catch { }
+                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
 
                 // Safety preflight: traversal/absolute
                 if (ArchivePathSafety.HasTraversal(name)) hasTraversal = true;
@@ -135,7 +135,7 @@ public static partial class FileInspector
                     const int IFMT = 0xF000, IFLNK = 0xA000;
                     if ((unixMode & IFMT) == IFLNK) hasSymlinks = true;
 #endif
-                } catch { }
+                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
 
                 // Light inner-archive sampler: detect nested archives by magic (bounded by samples and size)
                 if (!hasNestedArchives && sampled < maxSamples && e.Length >= 4) {
@@ -154,7 +154,7 @@ public static partial class FileInspector
                                 }
                             }
                         }
-                    } catch { /* ignore per-entry errors */ }
+                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { /* ignore per-entry errors */ }
                     sampled++;
                 }
 
@@ -232,7 +232,7 @@ public static partial class FileInspector
                                     {
                                         if (string.Equals(kv.Value, hex, StringComparison.OrdinalIgnoreCase)) { localFindings.Add($"toolhash:{kv.Key}"); break; }
                                     }
-                                } catch { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                             }
                             // Inner signer sampling for executables
                             if (looksExe && e.Length > 0 && e.Length <= deepBytes)
@@ -275,7 +275,7 @@ public static partial class FileInspector
                                         if (v) { if (innerPublisherValid.TryGetValue(pub, out var pv)) innerPublisherValid[pub] = pv + 1; else innerPublisherValid[pub] = 1; }
                                         if (ia.Authenticode.IsSelfSigned == true) { if (innerPublisherSelf.TryGetValue(pub, out var ps)) innerPublisherSelf[pub] = ps + 1; else innerPublisherSelf[pub] = 1; }
                                     }
-                                } catch { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                                 finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                             else if (e.Length > 0 && e.Length <= deepBytes && ShouldDeepAnalyzeArchiveInnerTextEntry(name, declExt, det2?.Extension))
@@ -320,7 +320,7 @@ public static partial class FileInspector
                                             DetectedExtension = ia?.DetectedExtension ?? ia?.Detection?.Extension ?? det2?.Extension ?? declExt
                                         });
                                     }
-                                } catch { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                                 finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                             else if (nestedDepth < Math.Max(0, OperationSettings.DeepContainerMaxDepth) &&
@@ -383,11 +383,11 @@ public static partial class FileInspector
                                             DetectedExtension = ia?.DetectedExtension ?? ia?.Detection?.Extension ?? det2?.Extension ?? declExt
                                         });
                                     }
-                                } catch { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                                 finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                         }
-                    } catch { }
+                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                     deepScanned++;
                 }
             }
@@ -398,7 +398,7 @@ public static partial class FileInspector
                 var execExts = new [] { "exe","dll","msi","sys","com","scr","cpl" };
                 foreach (var k in execExts) { if (exts.TryGetValue(k, out var c) && c > 0) aggregateInnerExecExtCounts[k] = aggregateInnerExecExtCounts.TryGetValue(k, out var existing) ? existing + c : c; }
                 if (aggregateInnerExecExtCounts.Count > 0) innerExecExtCounts = new Dictionary<string,int>(aggregateInnerExecExtCounts, StringComparer.OrdinalIgnoreCase);
-            } catch { }
+            } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
             var guess = GuessZipSubtype(za, budget, out var _, visitEntries: false);
             containerSubtype = guess;
             // Refine subtype based on cues collected
@@ -475,7 +475,7 @@ public static partial class FileInspector
             if (previews.Count > 0) previewOut = previews;
             // Attach inner findings via the caller's FileAnalysis when available (handled by Analyze caller)
         } catch (OutOfMemoryException) { throw; }
-        catch { budget.AddIssue("archive:inspection-error"); }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:inspection-error"); }
         finally
         {
             inspectionComplete = budget.IsComplete;
@@ -536,7 +536,7 @@ public static partial class FileInspector
                     break;
                 }
             }
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return false;
     }
 
@@ -593,7 +593,7 @@ public static partial class FileInspector
                     break;
                 }
             }
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return count;
     }
 

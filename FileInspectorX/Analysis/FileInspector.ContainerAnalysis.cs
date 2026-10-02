@@ -29,7 +29,7 @@ public static partial class FileInspector
                                 var buf = new byte[8192]; int read; int left = OperationSettings.EncodedDecodeMaxBytes;
                                 while (left > 0 && (read = gz.Read(buf, 0, Math.Min(buf.Length, left))) > 0) { outMs.Write(buf, 0, read); left -= read; }
                                 toDetect = outMs.ToArray();
-                            } catch { }
+                            } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                         }
                         var detInner = Detect(new ReadOnlySpan<byte>(toDetect, 0, Math.Min(toDetect.Length, OperationSettings.EncodedDecodeMaxBytes)), null);
                         if (detInner != null) { res.EncodedInnerDetection = detInner; }
@@ -40,7 +40,7 @@ public static partial class FileInspector
                         res.SecurityFindings = list;
                     }
                 }
-                catch { }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
             }
 
             // OOXML macros and ZIP container hints
@@ -217,7 +217,7 @@ public static partial class FileInspector
                             res.SecurityFindings = list;
                         }
                     }
-                } catch { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
+                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
             }
             if ((options?.IncludeContainer != false) && (det.Extension == "7z"))
             {

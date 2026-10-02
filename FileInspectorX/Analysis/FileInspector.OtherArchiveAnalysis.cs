@@ -34,7 +34,7 @@ public static partial class FileInspector
                     unc++;
                 }
             }
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
     }
 
     // Overload: also captures up to 5 unique hosts encountered (order of first appearance)
@@ -66,7 +66,7 @@ public static partial class FileInspector
                     unc++;
                 }
             }
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
     }
 
     private static string? TryGetHost(string url)
@@ -75,7 +75,7 @@ public static partial class FileInspector
         {
             if (url.StartsWith("//")) url = "http:" + url;
             if (Uri.TryCreate(url, UriKind.Absolute, out var u)) return u.Host;
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return null;
     }
 
@@ -125,7 +125,7 @@ public static partial class FileInspector
             }
             if (total == 0) total = filesSeen;
             return true;
-        } catch { return false; }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static bool TryInspectRar4Entries(
@@ -213,7 +213,7 @@ public static partial class FileInspector
                             name = Latin1String(nb);
                         }
                     }
-                    catch { }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
 
                     fs.Seek(headerEnd, SeekOrigin.Begin);
 
@@ -252,7 +252,7 @@ public static partial class FileInspector
             if (execExts.Count > 0) innerExecExtCounts = execExts;
             return true;
         }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static int GetRar4BlockSafetyLimit(int fileLimit)
@@ -324,7 +324,7 @@ public static partial class FileInspector
                             var nb = br.ReadBytes(toRead);
                             name = Latin1String(nb);
                         }
-                    } catch { }
+                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                     // Skip any remaining header fields to reach data start
                     fs.Seek(headerEnd, SeekOrigin.Begin);
 
@@ -365,7 +365,7 @@ public static partial class FileInspector
                                 }
                             }
                         }
-                        catch { /* ignore per-entry errors */ }
+                        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { /* ignore per-entry errors */ }
                         finally
                         {
                             try { System.IO.File.Delete(tmp); } catch { }
@@ -387,7 +387,7 @@ public static partial class FileInspector
             if (publishers == null && pubs.Count > 0) publishers = pubs;
             return true;
         }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static bool TryInspectRarQuick(string path)
@@ -431,7 +431,7 @@ public static partial class FileInspector
             const byte RAR5_MAIN = 0x01;
             if (bType == RAR5_MAIN && (bFlags & 0x0004) != 0) return true;
             // Read next header: CRC(2), Type(1), Flags(2), Size(2)
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return false;
     }
 
@@ -456,7 +456,7 @@ public static partial class FileInspector
             if (n <= 0) return false;
             // Search for property id 0x17 (kEncodedHeader) in the next header region
             for (int i = 0; i < n; i++) if (buf[i] == 0x17) return true;
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return false;
     }
 
@@ -487,7 +487,7 @@ public static partial class FileInspector
             if (!TryRead7zVarUInt(span, ref idx, out ulong files)) return false;
             if (files == 0 || files > 10_000_000) return false;
             fileCount = (int)files; return true;
-        } catch { return false; }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static bool TryRead7zVarUInt(ReadOnlySpan<byte> s, ref int idx, out ulong value)
@@ -529,7 +529,7 @@ public static partial class FileInspector
                 {
                     decoded = System.Text.Encoding.Unicode.GetString(buf, offset, usable);
                 }
-                catch
+                catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException)
                 {
                     continue;
                 }
@@ -543,7 +543,7 @@ public static partial class FileInspector
                 }
             }
             return entryNames.Count > 0;
-        } catch { return false; }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     // Backward-compatible helper for callers that only need executable-ish names.
