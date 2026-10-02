@@ -2,9 +2,12 @@ namespace FileInspectorX;
 
 internal sealed partial class ArchiveInspectionBudget
 {
+    internal int EncryptedEntryCount { get; private set; }
+
     internal bool CheckCentralDirectory(Stream stream, out int? declaredEntryCount)
     {
         declaredEntryCount = null;
+        EncryptedEntryCount = 0;
         InspectionOperation.CheckCancellation();
         if (!stream.CanSeek)
         {
@@ -29,16 +32,11 @@ internal sealed partial class ArchiveInspectionBudget
             // ZipArchive selects the last end-record signature. If a comment
             // contains a later decoy, never validate an earlier directory and
             // then let the framework materialize a different one.
-            bool ignoredEndRecord = false;
             for (var offset = tail.Length - 22; offset >= 0; offset--)
             {
                 if ((offset & 1023) == 0) InspectionOperation.CheckCancellation();
                 if (ReadUInt32(tail, offset) != 0x06054b50) continue;
-                if (offset + 22 + ReadUInt16(tail, offset + 20) != tail.Length)
-                {
-                    ignoredEndRecord = true;
-                    continue;
-                }
+                if (offset + 22 + ReadUInt16(tail, offset + 20) != tail.Length) return InvalidDirectory();
 
                 var eocdPosition = length - tail.Length + offset;
                 if (!TryReadDirectory(stream, tail, offset, eocdPosition, out var directory))
@@ -51,12 +49,8 @@ internal sealed partial class ArchiveInspectionBudget
                 if (directory.Bytes > (ulong)_maxCentralDirectoryBytes) AddIssue("archive:directory-size-limit");
                 if (!IsComplete) return false;
 
-                if (!ValidateCentralDirectoryLayout(stream, directory))
-                {
-                    ignoredEndRecord = true;
-                    continue;
-                }
-                if (ignoredEndRecord) return InvalidDirectory();
+                if (!ValidateCentralDirectoryLayout(stream, directory, out var encryptedEntries)) return InvalidDirectory();
+                EncryptedEntryCount = encryptedEntries;
                 return true;
             }
             return InvalidDirectory();
@@ -153,8 +147,9 @@ internal sealed partial class ArchiveInspectionBudget
 
     private static bool MatchesClassic(ulong classic, ulong wide, ulong sentinel) => classic == sentinel || classic == wide;
 
-    private static bool ValidateCentralDirectoryLayout(Stream stream, ZipDirectory directory)
+    private static bool ValidateCentralDirectoryLayout(Stream stream, ZipDirectory directory, out int encryptedEntries)
     {
+        encryptedEntries = 0;
         // Validate the same offset ZipArchive will use, and require the exact
         // directory range to end at its following end record. Subtractions keep
         // hostile unsigned offsets from overflowing signed stream positions.
@@ -163,6 +158,7 @@ internal sealed partial class ArchiveInspectionBudget
         if (directory.Bytes == 0) return directory.Entries == 0;
         if (directory.Entries == 0) return false;
         var header = new byte[46];
+        var extraHeader = new byte[4];
         ulong consumed = 0;
         stream.Position = (long)directory.Start;
         for (ulong index = 0; index < directory.Entries; index++)
@@ -171,10 +167,21 @@ internal sealed partial class ArchiveInspectionBudget
             if (directory.Bytes - consumed < (ulong)header.Length || ReadFully(stream, header) != header.Length)
                 return false;
             if (ReadUInt32(header, 0) != 0x02014b50) return false;
-            var variableLength = (ulong)ReadUInt16(header, 28) + ReadUInt16(header, 30) + ReadUInt16(header, 32);
+            var nameLength = ReadUInt16(header, 28);
+            var extraLength = ReadUInt16(header, 30);
+            var commentLength = ReadUInt16(header, 32);
+            var variableLength = (ulong)nameLength + extraLength + commentLength;
             consumed += (ulong)header.Length + variableLength;
             if (consumed > directory.Bytes) return false;
-            stream.Seek((long)variableLength, SeekOrigin.Current);
+            bool encrypted = (ReadUInt16(header, 8) & 1) != 0;
+            if (encrypted || extraLength == 0) stream.Seek((long)variableLength, SeekOrigin.Current);
+            else
+            {
+                stream.Seek(nameLength, SeekOrigin.Current);
+                if (!TryReadEncryptionExtra(stream, extraLength, extraHeader, out encrypted)) return false;
+                stream.Seek(commentLength, SeekOrigin.Current);
+            }
+            if (encrypted) encryptedEntries++;
         }
         if (consumed == directory.Bytes) return true;
 
@@ -185,6 +192,22 @@ internal sealed partial class ArchiveInspectionBudget
         if (ReadUInt32(signatureHeader, 0) != 0x05054b50) return false;
         consumed += (ulong)signatureHeader.Length + ReadUInt16(signatureHeader, 4);
         return consumed == directory.Bytes;
+    }
+
+    private static bool TryReadEncryptionExtra(Stream stream, int remaining, byte[] header, out bool encrypted)
+    {
+        encrypted = false;
+        while (remaining > 0)
+        {
+            if (remaining < header.Length || ReadFully(stream, header) != header.Length) return false;
+            int payloadLength = ReadUInt16(header, 2);
+            remaining -= header.Length;
+            if (payloadLength > remaining) return false;
+            if (ReadUInt16(header, 0) == 0x9901) encrypted = true; // WinZip AES cue
+            stream.Seek(payloadLength, SeekOrigin.Current);
+            remaining -= payloadLength;
+        }
+        return true;
     }
 
     private static int ReadFully(Stream stream, byte[] buffer)

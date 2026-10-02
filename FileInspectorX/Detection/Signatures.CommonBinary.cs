@@ -196,6 +196,8 @@ internal static partial class Signatures
 
         if (localOffset != 0) return false;
 
+        if (src.Length >= 4 && ReadUInt32LittleEndian(src, 0) == 0x06064B50)
+            return TryMatchEmptyZip64(src, completeLength, out result);
         if (!completeLength.HasValue || src.Length < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
         ushort disk = ReadUInt16LittleEndian(src, 4);
         ushort centralDisk = ReadUInt16LittleEndian(src, 6);
@@ -249,6 +251,8 @@ internal static partial class Signatures
                 return true;
             }
             if (localOffset != 0) return false;
+            if (read >= 4 && ReadUInt32LittleEndian(src, 0) == 0x06064B50)
+                return TryMatchEmptyZip64(stream, out result);
             if (read < 22 || ReadUInt32LittleEndian(src, 0) != 0x06054B50) return false;
             ushort disk = ReadUInt16LittleEndian(src, 4);
             ushort centralDisk = ReadUInt16LittleEndian(src, 6);

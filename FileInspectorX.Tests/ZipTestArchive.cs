@@ -68,4 +68,14 @@ internal static class ZipTestArchive
     {
         for (var index = 0; index < 4; index++) bytes[offset + index] = (byte)(value >> (index * 8));
     }
+
+    internal static int LastSignature(byte[] bytes, uint signature)
+    {
+        for (var index = bytes.Length - 4; index >= 0; index--)
+        {
+            if ((uint)(bytes[index] | bytes[index + 1] << 8 | bytes[index + 2] << 16 | bytes[index + 3] << 24) == signature)
+                return index;
+        }
+        throw new InvalidOperationException("Fixture signature not found.");
+    }
 }

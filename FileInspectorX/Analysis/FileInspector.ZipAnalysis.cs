@@ -459,7 +459,7 @@ public static partial class FileInspector
                 }
             }
             // Check encryption flags and count by scanning central directory
-            int encCount = ZipEncryptedEntryCount(fs);
+            int encCount = budget.EncryptedEntryCount;
             if (encCount > 0) { hasEncryptedEntries = true; encryptedEntryCount = encCount; }
             // OOXML encrypted packages present these two entries at root
             isOoxmlEncrypted = sawEncryptionInfo && sawEncryptedPackage;
@@ -482,122 +482,5 @@ public static partial class FileInspector
             inspectionIssues = budget.IsComplete ? null : budget.Issues;
         }
     }
-
-    private static bool ZipCentralDirectoryHasEncryptedEntries(Stream fs)
-    {
-        try {
-            if (!fs.CanSeek || fs.Length < 22) return false;
-            long maxScan = Math.Min(fs.Length, 1 << 16); // EOCD must be within last 64KB
-            var buf = new byte[maxScan];
-            fs.Seek(fs.Length - maxScan, SeekOrigin.Begin);
-            int n = fs.Read(buf, 0, buf.Length);
-            if (n <= 0) return false;
-            int eocdSig = 0x06054b50;
-            int cdSig = 0x02014b50;
-            for (int i = n - 22; i >= 0; i--)
-            {
-                if (ReadLe32(buf, i) == eocdSig)
-                {
-                    int entries = ReadLe16(buf, i + 10);
-                    int cdOffset = ReadLe32(buf, i + 16);
-                    // Seek to central directory and scan flags per entry
-                    long abs = cdOffset;
-                    if (abs < 0 || abs >= fs.Length) break;
-                    long remain = fs.Length - abs;
-                    fs.Seek(abs, SeekOrigin.Begin);
-                    var cdbuf = new byte[Math.Min(remain, 1 << 20)];
-                    int m = fs.Read(cdbuf, 0, cdbuf.Length);
-                    int p = 0; int scanned = 0;
-                    while (p + 46 <= m && scanned < entries)
-                    {
-                        if (ReadLe32(cdbuf, p) != cdSig) break;
-                        int flags = ReadLe16(cdbuf, p + 8);
-                        if ((flags & 0x1) != 0) return true; // encrypted
-                        int fnLen = ReadLe16(cdbuf, p + 28);
-                        int exLen = ReadLe16(cdbuf, p + 30);
-                        int cmLen = ReadLe16(cdbuf, p + 32);
-                        // Extra field scan for AES (0x9901)
-                        if (exLen > 4 && p + 46 + fnLen + exLen <= m)
-                        {
-                            int exOff = p + 46 + fnLen; int exEnd = exOff + exLen;
-                            int q = exOff;
-                            while (q + 4 <= exEnd)
-                            {
-                                int headerId = ReadLe16(cdbuf, q);
-                                int dataSize = ReadLe16(cdbuf, q + 2);
-                                q += 4;
-                                if (headerId == 0x9901) return true; // AES extra field
-                                q += dataSize;
-                            }
-                        }
-                        p += 46 + fnLen + exLen + cmLen;
-                        scanned++;
-                    }
-                    break;
-                }
-            }
-        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
-        return false;
-    }
-
-    private static int ZipEncryptedEntryCount(Stream fs)
-    {
-        int count = 0;
-        try {
-            if (!fs.CanSeek || fs.Length < 22) return 0;
-            long maxScan = Math.Min(fs.Length, 1 << 16);
-            var buf = new byte[maxScan];
-            fs.Seek(fs.Length - maxScan, SeekOrigin.Begin);
-            int n = fs.Read(buf, 0, buf.Length);
-            if (n <= 0) return 0;
-            int eocdSig = 0x06054b50;
-            int cdSig = 0x02014b50;
-            for (int i = n - 22; i >= 0; i--)
-            {
-                if (ReadLe32(buf, i) == eocdSig)
-                {
-                    int entries = ReadLe16(buf, i + 10);
-                    int cdOffset = ReadLe32(buf, i + 16);
-                    long abs = cdOffset;
-                    if (abs < 0 || abs >= fs.Length) break;
-                    long remain = fs.Length - abs;
-                    fs.Seek(abs, SeekOrigin.Begin);
-                    var cdbuf = new byte[Math.Min(remain, 1 << 20)];
-                    int m = fs.Read(cdbuf, 0, cdbuf.Length);
-                    int p = 0; int scanned = 0;
-                    while (p + 46 <= m && scanned < entries)
-                    {
-                        if (ReadLe32(cdbuf, p) != cdSig) break;
-                        int flags = ReadLe16(cdbuf, p + 8);
-                        bool encrypted = (flags & 0x1) != 0;
-                        int fnLen = ReadLe16(cdbuf, p + 28);
-                        int exLen = ReadLe16(cdbuf, p + 30);
-                        int cmLen = ReadLe16(cdbuf, p + 32);
-                        if (!encrypted && exLen > 4 && p + 46 + fnLen + exLen <= m)
-                        {
-                            int exOff = p + 46 + fnLen; int exEnd = exOff + exLen;
-                            int q = exOff;
-                            while (q + 4 <= exEnd)
-                            {
-                                int headerId = ReadLe16(cdbuf, q);
-                                int dataSize = ReadLe16(cdbuf, q + 2);
-                                q += 4;
-                                if (headerId == 0x9901) { encrypted = true; break; }
-                                q += dataSize;
-                            }
-                        }
-                        if (encrypted) count++;
-                        p += 46 + fnLen + exLen + cmLen;
-                        scanned++;
-                    }
-                    break;
-                }
-            }
-        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
-        return count;
-    }
-
-    private static int ReadLe16(byte[] a, int o) => a[o] | (a[o+1] << 8);
-    private static int ReadLe32(byte[] a, int o) => a[o] | (a[o+1] << 8) | (a[o+2] << 16) | (a[o+3] << 24);
 
 }
