@@ -9,37 +9,37 @@ internal static class JsonStructureValidator
     {
         skipped = false;
         if (string.IsNullOrWhiteSpace(s)) return false;
-        if (!Settings.JsonStructuralValidationEnabled)
+        if (!OperationSettings.JsonStructuralValidationEnabled)
         {
             skipped = true;
-            if (Settings.DetectionLogCandidates)
+            if (OperationSettings.DetectionLogCandidates)
                 Settings.Logger.WriteDebug("json:validate skipped (disabled)");
             return false;
         }
-        int max = Settings.JsonStructuralValidationMaxBytes;
+        int max = OperationSettings.JsonStructuralValidationMaxBytes;
         if (max > 0)
         {
             int size = byteCount > 0 ? byteCount : s.Length;
             if (size > max)
             {
                 skipped = true;
-                if (Settings.DetectionLogCandidates)
+                if (OperationSettings.DetectionLogCandidates)
                     Settings.Logger.WriteDebug($"json:validate skipped (size {size} > {max})");
                 return false;
             }
         }
-        int timeoutMs = Settings.JsonStructuralValidationTimeoutMs;
+        int timeoutMs = OperationSettings.JsonStructuralValidationTimeoutMs;
         long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
         System.Diagnostics.Stopwatch? sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
         bool ok = TryValidateCore(s, sw, timeoutTicks, out bool timedOut);
         if (timedOut)
         {
             skipped = true;
-            if (Settings.DetectionLogCandidates)
+            if (OperationSettings.DetectionLogCandidates)
                 Settings.Logger.WriteDebug("json:validate skipped (timeout)");
             return false;
         }
-        if (!ok && Settings.DetectionLogCandidates)
+        if (!ok && OperationSettings.DetectionLogCandidates)
             Settings.Logger.WriteDebug("json:validate failed");
         return ok;
     }
@@ -86,10 +86,10 @@ internal static class JsonStructureValidator
         switch (text[i])
         {
             case '{':
-                return depth < Settings.JsonStructuralValidationMaxDepth &&
+                return depth < OperationSettings.JsonStructuralValidationMaxDepth &&
                        ParseObject(ref i, text, sw, timeoutTicks, depth + 1, ref timedOut);
             case '[':
-                return depth < Settings.JsonStructuralValidationMaxDepth &&
+                return depth < OperationSettings.JsonStructuralValidationMaxDepth &&
                        ParseArray(ref i, text, sw, timeoutTicks, depth + 1, ref timedOut);
             case '"':
                 return ParseString(ref i, text, sw, timeoutTicks, ref timedOut);

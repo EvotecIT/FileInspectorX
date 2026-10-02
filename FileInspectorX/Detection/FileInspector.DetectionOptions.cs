@@ -6,6 +6,14 @@ public static partial class FileInspector
     /// Options controlling enrichment of detection output (hashes, magic header capture).
     /// </summary>
     public sealed class DetectionOptions {
+        /// <summary>Immutable operation settings. Null retains the legacy global settings; use InspectionSettings.CaptureDefaults() for isolation.</summary>
+        public InspectionSettings? Settings { get; set; }
+
+        /// <summary>Cooperative cancellation checked at library computation and I/O boundaries.</summary>
+        public System.Threading.CancellationToken CancellationToken { get; set; }
+
+        internal DetectionOptions Copy() => (DetectionOptions)MemberwiseClone();
+
         /// <summary>When true, computes a SHA-256 hash of the full stream/file and exposes it on <see cref="ContentTypeDetectionResult.Sha256Hex"/>.</summary>
         public bool ComputeSha256 { get; set; } = false;
         /// <summary>When &gt; 0, captures the first N bytes of the header as uppercase hex into <see cref="ContentTypeDetectionResult.MagicHeaderHex"/>.</summary>

@@ -162,7 +162,7 @@ internal static partial class Signatures
         if (footerLength == 0 || footerLength > stream.Length - 12) return false;
         if (!encrypted)
         {
-            if (footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes))
+            if (footerLength > Math.Max(256, OperationSettings.DetectionReadBudgetBytes))
             {
                 result = BinaryResult("parquet", "application/vnd.apache.parquet", "parquet:framed;footer-budget");
                 result.Confidence = "Medium";
@@ -195,7 +195,7 @@ internal static partial class Signatures
         if (footerLength < 8 || footerLength > stream.Length - 18) return false;
         long footerStart = stream.Length - 10 - footerLength;
         if (footerStart < 8) return false;
-        if (footerLength > Math.Max(256, Settings.DetectionReadBudgetBytes))
+        if (footerLength > Math.Max(256, OperationSettings.DetectionReadBudgetBytes))
         {
             result = BinaryResult("arrow", "application/vnd.apache.arrow.file", "arrow-ipc:framed;footer-budget");
             result.Confidence = "Medium";
@@ -306,7 +306,7 @@ internal static partial class Signatures
         long cursor = 0;
         bool sawHeader = false;
         bool sawRequiredMember = requiredMember == null;
-        int remainingBudget = Math.Max(1536, Settings.DetectionReadBudgetBytes);
+        int remainingBudget = Math.Max(1536, OperationSettings.DetectionReadBudgetBytes);
         while (cursor <= archive.Length - 512)
         {
             if (remainingBudget < 512) return sawHeader && sawRequiredMember;
@@ -348,7 +348,7 @@ internal static partial class Signatures
         long cursor = 0;
         bool sawHeader = false;
         bool sawRequiredMember = requiredMember == null;
-        int remainingBudget = Math.Max(1536, Settings.DetectionReadBudgetBytes);
+        int remainingBudget = Math.Max(1536, OperationSettings.DetectionReadBudgetBytes);
         while (cursor <= length - 512)
         {
             if (remainingBudget < 512) return sawHeader && sawRequiredMember;
@@ -472,7 +472,7 @@ internal static partial class Signatures
                       TryReadAt(stream, 256 * 1024, 64 * 1024, out var region2) &&
                           TryValidateVhdxRegionTable(new ReadOnlySpan<byte>(region2), stream.Length, out regions);
         if (!header || !region) return false;
-        bool metadataValidated = regions.MetadataLength <= Math.Max(1024 * 1024, Settings.DetectionReadBudgetBytes) &&
+        bool metadataValidated = regions.MetadataLength <= Math.Max(1024 * 1024, OperationSettings.DetectionReadBudgetBytes) &&
                                  TryReadAt(stream, checked((long)regions.MetadataOffset), checked((int)regions.MetadataLength), out var metadata) &&
                                  TryValidateVhdxMetadata(new ReadOnlySpan<byte>(metadata), regions.BatLength);
         result = BinaryResult("vhdx", "application/x-vhdx", "vhdx:file+header+region");

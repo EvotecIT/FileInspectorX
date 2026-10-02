@@ -15,13 +15,15 @@ public static partial class FileInspector {
     /// container hints, version data and lightweight risk signals into a single result.
     /// </summary>
     public static FileAnalysis Analyze(string path, DetectionOptions? options = null) {
+        using var operation = InspectionOperation.Begin(options);
+        options = operation.Options;
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
         var includeInstaller = ShouldIncludeInstaller(options);
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         ContentTypeDetectionResult? det;
         try { det = DetectPathCore(path, options, propagateReadFailure: true); }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException and not OperationCanceledException)
         {
             return InputFailureAnalysis(options);
         }
@@ -57,7 +59,9 @@ public static partial class FileInspector {
                 return headTextCached;
             }
 
+            InspectionOperation.CheckCancellation();
             AnalyzeContainers(path, options, det, res, includeInstaller);
+            InspectionOperation.CheckCancellation();
 
             // MSI metadata enrichment (Windows): product version via msi.dll
             if (includeInstaller && det.Extension == "msi")
@@ -107,7 +111,7 @@ public static partial class FileInspector {
             // Best-effort service entry indicator (ASCII scan for 'ServiceMain')
             try
             {
-                using var fsSvc = File.OpenRead(path);
+                using var fsSvc = OperationReadStream.Open(path);
                 int capSvc = (int)Math.Min(256 * 1024, fsSvc.Length);
                 var bufSvc = new byte[capSvc]; int ns = fsSvc.Read(bufSvc, 0, bufSvc.Length);
                 if (ns > 0)
@@ -151,18 +155,18 @@ public static partial class FileInspector {
                         res.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
                 }
                 if (declaredExt == "js" || detectedExt == "js") {
-                    var jsHead = ReadHeadTextCached(Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
-                    if (LooksMinifiedJs(path, Settings.DetectionReadBudgetBytes,
-                        Settings.JsMinifiedMinLength,
-                        Settings.JsMinifiedAvgLineThreshold,
-                        Settings.JsMinifiedDensityThreshold,
+                    var jsHead = ReadHeadTextCached(Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024));
+                    if (LooksMinifiedJs(path, OperationSettings.DetectionReadBudgetBytes,
+                        OperationSettings.JsMinifiedMinLength,
+                        OperationSettings.JsMinifiedAvgLineThreshold,
+                        OperationSettings.JsMinifiedDensityThreshold,
                         jsHead)) {
                         res.Flags |= ContentFlags.JsLooksMinified;
                     }
                 }
                 // PowerShell classification for plain text files (avoid false positives on changelogs)
                 try {
-                    var headTxt = ReadHeadTextCached(Math.Min(Settings.DetectionReadBudgetBytes, 256*1024));
+                    var headTxt = ReadHeadTextCached(Math.Min(OperationSettings.DetectionReadBudgetBytes, 256*1024));
                     var psClass = SecurityHeuristics.ClassifyPowerShellFromText(headTxt);
                     if (psClass.level == SecurityHeuristics.PsClassLevel.Strong)
                     {
@@ -262,7 +266,7 @@ public static partial class FileInspector {
                     }
                 } catch { }
 
-                int heuristicsCap = Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
+                int heuristicsCap = Math.Max(8 * 1024, Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024));
                 var heuristicsText = ReadHeadTextCached(heuristicsCap);
 
                 // Lightweight script security assessment
@@ -301,7 +305,7 @@ public static partial class FileInspector {
                     foreach (var x in tf) if (!list.Contains(x, StringComparer.OrdinalIgnoreCase)) list.Add(x);
                     res.SecurityFindings = list;
                 }
-                if (Settings.SecretsScanEnabled)
+                if (OperationSettings.SecretsScanEnabled)
                 {
                     var ss = SecurityHeuristics.CountSecretsFromText(heuristicsText);
                     if (ss.PrivateKeyCount > 0 || ss.JwtLikeCount > 0 || ss.KeyPatternCount > 0 || ss.TokenFamilyCount > 0)
@@ -320,9 +324,11 @@ public static partial class FileInspector {
             }
 
             // Permissions/ownership snapshot (best-effort; cross-platform)
+            InspectionOperation.CheckCancellation();
             if (options?.IncludePermissions != false) res.Security = BuildFileSecurity(path);
 
             // PE Authenticode (best-effort, cross-platform) for PE files
+            InspectionOperation.CheckCancellation();
             if ((options?.IncludeAuthenticode != false) && (det?.Extension is "exe" or "dll" or "sys" or "cpl")) {
                 TryPopulateAuthenticode(path, res);
             }
@@ -348,7 +354,7 @@ public static partial class FileInspector {
                 declaredExt2 is "msi" or "msp" or "msix" or "appx";
 
             if ((options?.IncludeAuthenticode != false) &&
-                Settings.VerifyAuthenticodeWithWinTrust &&
+                OperationSettings.VerifyAuthenticodeWithWinTrust &&
                 RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
                 (peOrExecutableFamily || packageFamily))
             {
@@ -475,7 +481,7 @@ public static partial class FileInspector {
             {
                 try
                 {
-                    if (TryGetOleDirectoryNames(File.OpenRead(path), out var names))
+                    if (TryGetOleDirectoryNames(OperationReadStream.Open(path), out var names))
                     {
                         bool hasVba = names.Any(nm => nm.IndexOf("VBA", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("dir", StringComparison.OrdinalIgnoreCase) >= 0);
                         if (hasVba) { res.Flags |= ContentFlags.OleHasVbaMacros; var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>()); if (!list.Contains("office:vba")) list.Add("office:vba"); res.SecurityFindings = list; }
@@ -487,6 +493,7 @@ public static partial class FileInspector {
             // Extract generic references (optional)
             if (options?.IncludeReferences != false)
             {
+                InspectionOperation.CheckCancellation();
                 res.References = MergeReferences(BuildReferences(path, det), res.References);
                 // HTML external links summary flag
                 try
@@ -495,7 +502,7 @@ public static partial class FileInspector {
                     int htmlExtLinks = htmlUrls.Count;
                     int uncCount = res.References?.Count(r => r.Kind == ReferenceKind.FilePath && (r.SourceTag?.StartsWith("html:", StringComparison.OrdinalIgnoreCase) ?? false) && (r.Issues & ReferenceIssue.UncPath) != 0) ?? 0;
                     int allowed = 0;
-                    if (htmlExtLinks > 0 && Settings.HtmlAllowedDomains.Length > 0)
+                    if (htmlExtLinks > 0 && OperationSettings.HtmlAllowedDomains.Count > 0)
                     {
                         foreach (var uref in htmlUrls)
                         {
@@ -505,7 +512,7 @@ public static partial class FileInspector {
                                 if (Uri.TryCreate(v, UriKind.Absolute, out var u) && !string.IsNullOrEmpty(u.Host))
                                 {
                                     var host = u.Host.ToLowerInvariant();
-                                    if (SecurityHeuristics.IsHostAllowedByDomains(host, Settings.HtmlAllowedDomains)) allowed++;
+                                    if (SecurityHeuristics.IsHostAllowedByDomains(host, OperationSettings.HtmlAllowedDomains)) allowed++;
                                 }
                             } catch { }
                         }
@@ -547,7 +554,10 @@ public static partial class FileInspector {
 
             // Windows shell properties (Explorer Details)
             if (options?.IncludeShellProperties != false)
+            {
+                InspectionOperation.CheckCancellation();
                 res.ShellProperties = ReadShellProperties(path, new ShellPropertiesOptions { IncludeEmpty = false });
+            }
 
             // File name/path checks (always cheap)
             res.NameIssues = AnalyzeName(path, det);
@@ -612,7 +622,7 @@ public static partial class FileInspector {
             {
                 if ((res.Flags & ContentFlags.PeIsDotNet) != 0)
                 {
-                    var tfm = TryDetectTargetFramework(path, Settings.DetectionReadBudgetBytes);
+                    var tfm = TryDetectTargetFramework(path, OperationSettings.DetectionReadBudgetBytes);
                     if (!string.IsNullOrWhiteSpace(tfm))
                     {
                         var dict = res.VersionInfo != null ? new Dictionary<string,string>(res.VersionInfo.ToDictionary(kv => kv.Key, kv => kv.Value)) : new Dictionary<string,string>();
@@ -639,6 +649,7 @@ public static partial class FileInspector {
             PopulateDetectionSummary(res);
 
             // Assessment (optional)
+            InspectionOperation.CheckCancellation();
             if (options?.IncludeAssessment != false)
             {
                 res.Assessment = Assess(res);
@@ -648,6 +659,7 @@ public static partial class FileInspector {
         }
         catch (OutOfMemoryException) { throw; }
         catch (LearnedClassificationException) { throw; }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             res.AnalysisComplete = false;
@@ -666,7 +678,7 @@ public static partial class FileInspector {
     /// preserves the process-wide compatibility setting.
     /// </summary>
     internal static bool ShouldIncludeInstaller(DetectionOptions? options)
-        => options?.IncludeInstaller ?? Settings.IncludeInstaller;
+        => options?.IncludeInstaller ?? OperationSettings.IncludeInstaller;
 
     private static string GetExtension(string name) {
         var i = name.LastIndexOf('.');

@@ -18,15 +18,19 @@ public static partial class FileInspector {
         SearchOption searchOption = SearchOption.TopDirectoryOnly,
         Func<string, bool>? filter = null,
         DetectionOptions? options = null) {
-        if (options != null) ValidateLearnedClassificationMode(options);
+        options = InspectionOperation.Capture(options);
+        options.CancellationToken.ThrowIfCancellationRequested();
+        ValidateLearnedClassificationMode(options);
         if (!Directory.Exists(path)) yield break;
-        var files = EnumerateFilesSafe(path, searchOption);
+        var files = EnumerateFilesSafe(path, searchOption, options.CancellationToken);
         foreach (var f in files) {
+            options.CancellationToken.ThrowIfCancellationRequested();
             if (filter != null && !filter(f)) continue;
+            options.CancellationToken.ThrowIfCancellationRequested();
             FileAnalysis? analysis = null;
             try { analysis = Analyze(f, options); }
             catch (LearnedClassificationException) { throw; }
-            catch (Exception ex) when (ex is not OutOfMemoryException) { }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException) { }
             if (analysis != null) yield return analysis;
         }
     }
@@ -42,8 +46,12 @@ public static partial class FileInspector {
         IEnumerable<string> paths,
         DetectionOptions? options = null,
         [EnumeratorCancellation] CancellationToken ct = default) {
+        options = InspectionOperation.Capture(options);
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(ct, options.CancellationToken);
+        options.CancellationToken = operation.Token;
+        operation.Token.ThrowIfCancellationRequested();
         foreach (var p in paths) {
-            ct.ThrowIfCancellationRequested();
+            operation.Token.ThrowIfCancellationRequested();
             // Synchronous compute; returned as async stream for ergonomic consumption.
             yield return Analyze(p, options);
             await Task.Yield();
@@ -66,15 +74,18 @@ public static partial class FileInspector {
         DetectionOptions? options = null,
         int maxDegreeOfParallelism = 0,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) {
-        if (options != null) ValidateLearnedClassificationMode(options);
+        options = InspectionOperation.Capture(options);
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(ct, options.CancellationToken);
+        options.CancellationToken = operation.Token;
+        operation.Token.ThrowIfCancellationRequested();
+        ValidateLearnedClassificationMode(options);
         if (!Directory.Exists(path)) yield break;
 
-        var files = EnumerateFilesSafe(path, searchOption);
+        var files = EnumerateFilesSafe(path, searchOption, operation.Token);
         if (filter != null) files = files.Where(filter);
 
         var degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
         var channel = System.Threading.Channels.Channel.CreateBounded<FileAnalysis>(degree * 2);
-        using var operation = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         var producer = Task.Run(async () => {
             Exception? failure = null;
@@ -97,7 +108,7 @@ public static partial class FileInspector {
         });
 
         try {
-            await foreach (var item in channel.Reader.ReadAllAsync(ct)) yield return item;
+            await foreach (var item in channel.Reader.ReadAllAsync(operation.Token)) yield return item;
         } finally {
             operation.Cancel();
             await producer;
@@ -105,12 +116,13 @@ public static partial class FileInspector {
     }
 #endif
 
-    private static IEnumerable<string> EnumerateFilesSafe(string path, SearchOption searchOption)
+    private static IEnumerable<string> EnumerateFilesSafe(string path, SearchOption searchOption, System.Threading.CancellationToken cancellationToken = default)
         => EnumerateFilesSafeCore(
             path,
             searchOption,
             current => Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly),
-            current => Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly).Where(IsOrdinaryDirectory));
+            current => Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly).Where(IsOrdinaryDirectory),
+            cancellationToken);
 
     private static bool IsOrdinaryDirectory(string path)
     {
@@ -129,16 +141,19 @@ public static partial class FileInspector {
         string path,
         SearchOption searchOption,
         Func<string, IEnumerable<string>> enumerateFiles,
-        Func<string, IEnumerable<string>> enumerateDirectories)
+        Func<string, IEnumerable<string>> enumerateDirectories,
+        System.Threading.CancellationToken cancellationToken = default)
     {
         var pending = new Stack<string>();
         pending.Push(path);
 
         while (pending.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = pending.Pop();
             foreach (var file in EnumerateSafely(() => enumerateFiles(current)))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 yield return file;
             }
 
@@ -146,6 +161,7 @@ public static partial class FileInspector {
 
             foreach (var directory in EnumerateSafely(() => enumerateDirectories(current)))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 pending.Push(directory);
             }
         }

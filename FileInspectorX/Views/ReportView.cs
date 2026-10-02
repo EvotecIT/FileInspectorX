@@ -737,7 +737,7 @@ public sealed class ReportView
             r.MotwReferrerUrl = a.Security.MotwReferrerUrl;
             r.MotwHostUrl = a.Security.MotwHostUrl;
             r.AlternateStreamCount = a.Security.AlternateStreamCount;
-            if (Settings.ReportHostFileMetadataEnabled)
+            if (OperationSettings.ReportHostFileMetadataEnabled)
             {
                 r.IsSymlink = a.Security.IsSymlink;
                 r.IsHidden = a.Security.IsHidden;
@@ -824,7 +824,7 @@ public sealed class ReportView
                 var sUnc  = JoinTop(scrUnc, 3);   if (!string.IsNullOrWhiteSpace(sUnc))  r.ScriptUncSample = sUnc;
 
                 // Full lists (optional)
-                if (Settings.ReferenceFullListsEnabled)
+                if (OperationSettings.ReferenceFullListsEnabled)
                 {
                     string JoinAll(IEnumerable<string> items)
                     {
@@ -832,7 +832,7 @@ public sealed class ReportView
                         var arr = new List<string>();
                         foreach (var it in items) { if (string.IsNullOrWhiteSpace(it)) continue; if (uniq.Add(it)) arr.Add(it); }
                         var joined = string.Join("\n", arr);
-                        if (joined.Length > Settings.ReferenceFullListsMaxChars) joined = joined.Substring(0, Settings.ReferenceFullListsMaxChars) + "…";
+                        if (joined.Length > OperationSettings.ReferenceFullListsMaxChars) joined = joined.Substring(0, OperationSettings.ReferenceFullListsMaxChars) + "…";
                         return joined;
                     }
                     var htmlAll = JoinAll(htmlUrls);

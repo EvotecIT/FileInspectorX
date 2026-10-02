@@ -87,7 +87,7 @@ internal static partial class Signatures
 
             if (headerEnd < 12 || headerEnd + 30L > stream.Length) return false;
             bool signedHeaderValidated = version != 3;
-            if (version == 3 && headerEnd - 12 <= Math.Max(256, Settings.DetectionReadBudgetBytes))
+            if (version == 3 && headerEnd - 12 <= Math.Max(256, OperationSettings.DetectionReadBudgetBytes))
             {
                 if (!TryReadAt(stream, 12, (int)(headerEnd - 12), out var signedHeader) ||
                     !TryValidateCrx3Header(new ReadOnlySpan<byte>(signedHeader))) return false;

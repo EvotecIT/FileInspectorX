@@ -55,7 +55,7 @@ public static partial class FileInspector
 
     private static int GetCertificateParseReadBudgetBytes()
     {
-        long budget = Settings.DetectionReadBudgetBytes;
+        long budget = OperationSettings.DetectionReadBudgetBytes;
         if (budget <= 0) budget = 1_000_000;
         if (budget > 8L * 1024L * 1024L) budget = 8L * 1024L * 1024L;
         return (int)Math.Max(256, budget);
@@ -72,7 +72,7 @@ public static partial class FileInspector
                 return false;
             }
 
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             data = new byte[(int)fileInfo.Length];
             var offset = 0;
             while (offset < data.Length)

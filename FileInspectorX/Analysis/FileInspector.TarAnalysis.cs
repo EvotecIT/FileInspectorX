@@ -21,9 +21,9 @@ public static partial class FileInspector
         var localPreviews = new List<InnerEntryPreview>();
         int innerExecutablesSampled = 0, innerSignedExecutables = 0, innerValidSignedExecutables = 0;
         var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
-        int deepScanned = 0; int deepMax = Settings.DeepContainerMaxEntries; int deepBytes = Settings.DeepContainerMaxEntryBytes; bool deep = Settings.DeepContainerScanEnabled;
+        int deepScanned = 0; int deepMax = OperationSettings.DeepContainerMaxEntries; int deepBytes = OperationSettings.DeepContainerMaxEntryBytes; bool deep = OperationSettings.DeepContainerScanEnabled;
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int count = 0;
             var reader = new TarInspectionReader(fs, budget);

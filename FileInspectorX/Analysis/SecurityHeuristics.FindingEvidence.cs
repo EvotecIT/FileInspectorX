@@ -10,7 +10,7 @@ internal static partial class SecurityHeuristics
         var evidence = new List<FindingEvidence>(16);
         try
         {
-            if (!Settings.SecurityScanScripts || string.IsNullOrEmpty(text))
+            if (!OperationSettings.SecurityScanScripts || string.IsNullOrEmpty(text))
             {
                 return evidence;
             }
@@ -141,8 +141,8 @@ internal static partial class SecurityHeuristics
             totalHits += hitsInLine;
             if (sampleLines.Count < 3)
             {
-                var snippet = rule.CollectSnippets && Settings.FindingEvidenceSnippetsEnabled ? SanitizeSnippet(line) : null;
-                if (rule.CollectSnippets && Settings.FindingEvidenceSnippetsEnabled && snippet != null)
+                var snippet = rule.CollectSnippets && OperationSettings.FindingEvidenceSnippetsEnabled ? SanitizeSnippet(line) : null;
+                if (rule.CollectSnippets && OperationSettings.FindingEvidenceSnippetsEnabled && snippet != null)
                 {
                     sampleLines.Add(entry.LineNumber);
                     sampleSnippets.Add(snippet);

@@ -10,7 +10,10 @@ public static partial class FileInspector
     /// Detects content type from a file path and enriches the result using <paramref name="options"/>.
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path, DetectionOptions? options)
-        => DetectPathCore(path, options, propagateReadFailure: false);
+    {
+        using var operation = InspectionOperation.Begin(options);
+        return DetectPathCore(path, operation.Options, propagateReadFailure: false);
+    }
 
     private static ContentTypeDetectionResult? DetectPathCore(string path, DetectionOptions? options, bool propagateReadFailure) {
         try {
@@ -22,7 +25,7 @@ public static partial class FileInspector
             using var fs = OpenReadShared(path);
             ContentTypeDetectionResult? FinishPathOnly(ContentTypeDetectionResult? result)
             {
-                var header = new byte[Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20))];
+                var header = new byte[Math.Max(256, Math.Min(OperationSettings.HeaderReadBytes, 1 << 20))];
                 fs.Position = 0;
                 int read = ReadAvailable(fs, header, 0, header.Length);
                 return ApplyLearnedClassification(Enrich(result, header.AsSpan(0, read), fs, options), fs, options);
@@ -69,7 +72,7 @@ public static partial class FileInspector
                         detEtl.Confidence = "Medium";
                         detEtl.Reason = "etl:magic";
 
-                        var mode = Settings.EtlValidation;
+                        var mode = OperationSettings.EtlValidation;
                         if (mode == Settings.EtlValidationMode.Off || mode == Settings.EtlValidationMode.MagicOnly)
                         {
                             Breadcrumbs.Write("ETL_VALIDATE_END", message: "magic-ok", path: path);
@@ -93,7 +96,7 @@ public static partial class FileInspector
                         if (mode == Settings.EtlValidationMode.TracerptOnly || mode == Settings.EtlValidationMode.NativeThenTracerpt)
                         {
                             bool? okTr = null;
-                            try { okTr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs); }
+                            try { okTr = EtlProbe.TryValidate(path, OperationSettings.EtlProbeTimeoutMs); }
                             catch (Exception ex) { Breadcrumbs.Write("ETL_TRACERPT_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path); }
                             if (okTr == true)
                             {
@@ -117,7 +120,7 @@ public static partial class FileInspector
                     return Finish(new ContentTypeDetectionResult { Extension = "etl", MimeType = mime, Confidence = "Low", Reason = "etl:validation-error" });
                 }
                 catch (Exception ex) when (
-                    ex is not OutOfMemoryException and not LearnedClassificationException)
+                    ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException)
                 {
                     Breadcrumbs.Write("ETL_VALIDATE_ERROR", message: ex.GetType().Name + ":" + ex.Message, path: path);
                     var mime = MimeMaps.Default.TryGetValue("etl", out var mm) ? mm : "application/octet-stream";
@@ -131,6 +134,7 @@ public static partial class FileInspector
         } catch (OutOfMemoryException) { throw; }
         catch (LearnedClassificationException) { throw; }
         catch (ArgumentOutOfRangeException) { throw; }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex) when (
             options?.LearnedClassificationMode == LearnedClassificationMode.Required &&
             ex is IOException or UnauthorizedAccessException) {
@@ -146,10 +150,11 @@ public static partial class FileInspector
     /// </summary>
     public static ContentTypeDetectionResult? Detect(Stream stream, DetectionOptions? options = null, string? declaredExtension = null) {
         if (stream == null) throw new ArgumentNullException(nameof(stream));
+        using var operation = InspectionOperation.Begin(options);
         var originalPosition = stream.CanSeek ? stream.Position : (long?)null;
         try
         {
-            return DetectStreamCore(stream, options, declaredExtension);
+            return DetectStreamCore(OperationReadStream.Borrow(stream, operation.Options.CancellationToken), operation.Options, declaredExtension);
         }
         finally
         {
@@ -178,7 +183,7 @@ public static partial class FileInspector
                 declaredExtension);
             return AttachLearnedFailure(deterministic, unsupported);
         }
-        var headLen = Math.Max(256, Math.Min(Settings.HeaderReadBytes, 1 << 20));
+        var headLen = Math.Max(256, Math.Min(OperationSettings.HeaderReadBytes, 1 << 20));
         var header = new byte[headLen];
         if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
         var read = ReadAvailable(stream, header, 0, headLen);
@@ -313,6 +318,7 @@ public static partial class FileInspector
         var total = 0;
         while (total < count)
         {
+            InspectionOperation.CheckCancellation();
             var read = stream.Read(buffer, offset + total, count - total);
             if (read <= 0) break;
             total += read;

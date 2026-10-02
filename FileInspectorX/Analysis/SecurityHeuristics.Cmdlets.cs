@@ -16,13 +16,13 @@ internal static partial class SecurityHeuristics
             using var sr = new StringReader(text);
             string? line;
             int lines = 0;
-            int maxLines = Settings.ScriptHintMaxLines;
+            int maxLines = OperationSettings.ScriptHintMaxLines;
             if (maxLines <= 0) return;
             while (lines < maxLines && (line = sr.ReadLine()) != null)
             {
                 lines++;
                 if (!canAdd()) break;
-                if (line.Length > Settings.ScriptHintMaxLineLength) continue;
+                if (line.Length > OperationSettings.ScriptHintMaxLineLength) continue;
                 var trimmed = line.TrimStart();
                 if (trimmed.Length == 0 || trimmed[0] == '#') continue;
 

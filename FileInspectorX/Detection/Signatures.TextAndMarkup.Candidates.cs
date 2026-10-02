@@ -11,10 +11,10 @@ internal static partial class Signatures
             return det;
         }
 
-        if (Settings.DetectionMaxAlternatives <= 0 &&
-            Settings.DetectionPrimaryScoreMargin <= 0 &&
-            Settings.DetectionDeclaredTieBreakerMargin <= 0 &&
-            !Settings.DetectionLogCandidates)
+        if (OperationSettings.DetectionMaxAlternatives <= 0 &&
+            OperationSettings.DetectionPrimaryScoreMargin <= 0 &&
+            OperationSettings.DetectionDeclaredTieBreakerMargin <= 0 &&
+            !OperationSettings.DetectionLogCandidates)
         {
             det.IsDangerous = DangerousExtensions.IsDangerous(det.Extension);
             return det;
@@ -69,8 +69,8 @@ internal static partial class Signatures
             det.IsDangerous = DangerousExtensions.IsDangerous(det.Extension);
         }
 
-        int scoreMargin = Math.Max(0, Settings.DetectionPrimaryScoreMargin);
-        int tieMargin = Math.Max(0, Settings.DetectionDeclaredTieBreakerMargin);
+        int scoreMargin = Math.Max(0, OperationSettings.DetectionPrimaryScoreMargin);
+        int tieMargin = Math.Max(0, OperationSettings.DetectionDeclaredTieBreakerMargin);
         bool allowReplace = !IsStructuredPrimary(det.Reason) &&
                             (det.Reason == null ||
                              (det.Reason.IndexOf("malformed", StringComparison.OrdinalIgnoreCase) < 0 &&
@@ -108,12 +108,12 @@ internal static partial class Signatures
         if (alternatives.Count > 0)
         {
             alternatives.Sort((a, b) => b.Score.CompareTo(a.Score));
-            int maxAlt = Math.Max(0, Settings.DetectionMaxAlternatives);
+            int maxAlt = Math.Max(0, OperationSettings.DetectionMaxAlternatives);
             if (maxAlt == 0) alternatives.Clear();
             else if (alternatives.Count > maxAlt) alternatives.RemoveRange(maxAlt, alternatives.Count - maxAlt);
             if (alternatives.Count > 0) det.Alternatives = alternatives;
         }
-        if (Settings.DetectionLogCandidates)
+        if (OperationSettings.DetectionLogCandidates)
         {
             var sb = new System.Text.StringBuilder();
             sb.Append("detect:text primary=").Append(det.Extension)
@@ -200,7 +200,7 @@ internal static partial class Signatures
 
     static int GetScoreAdjustment(string ext, string reason, string? details)
     {
-        var map = Settings.DetectionScoreAdjustments;
+        var map = OperationSettings.DetectionScoreAdjustments;
         if (map == null || map.Count == 0) return 0;
         int adjust = 0;
         if (!string.IsNullOrEmpty(ext))

@@ -10,8 +10,8 @@ public static partial class FileInspector
     {
         decoded = Array.Empty<byte>(); encKind = ext switch { "hex" => "hex", "b85" => "base85", "uu" => "uuencode", "qp" => "quoted-printable", _ => "base64" };
         try {
-            using var fs = File.OpenRead(path);
-            int toRead = (int)Math.Min(Settings.EncodedProbeReadBytes, fs.Length);
+            using var fs = OperationReadStream.Open(path);
+            int toRead = (int)Math.Min(OperationSettings.EncodedProbeReadBytes, fs.Length);
             var buf = new byte[toRead]; int nr = fs.Read(buf, 0, toRead);
             if (nr <= 0) return false;
             ReadOnlySpan<byte> span = new ReadOnlySpan<byte>(buf, 0, nr);
@@ -89,7 +89,7 @@ public static partial class FileInspector
                 int mod = b64.Length % 4; if (mod != 0) b64 = b64.PadRight(b64.Length + (4 - mod), '=');
                 try {
                     var raw = Convert.FromBase64String(b64);
-                    decoded = raw.Length > Settings.EncodedDecodeMaxBytes ? raw.Take(Settings.EncodedDecodeMaxBytes).ToArray() : raw;
+                    decoded = raw.Length > OperationSettings.EncodedDecodeMaxBytes ? raw.Take(OperationSettings.EncodedDecodeMaxBytes).ToArray() : raw;
                     return decoded.Length > 0;
                 } catch { return false; }
             }
@@ -133,8 +133,8 @@ public static partial class FileInspector
                 if (bestLen < 160) return false; // need at least 80 bytes
                 string hex = best.ToString();
                 // Decode pairs
-                List<byte> outBytes = new List<byte>(Math.Min(Settings.EncodedDecodeMaxBytes, hex.Length/2));
-                int j = 0; int maxOut = Settings.EncodedDecodeMaxBytes;
+                List<byte> outBytes = new List<byte>(Math.Min(OperationSettings.EncodedDecodeMaxBytes, hex.Length/2));
+                int j = 0; int maxOut = OperationSettings.EncodedDecodeMaxBytes;
                 for (int i = 0; i + 1 < hex.Length && j < maxOut; )
                 {
                     char a = hex[i++]; char b = hex[i++];
@@ -153,7 +153,7 @@ public static partial class FileInspector
                 string core = headStr.Substring(a + 2, b - (a + 2));
                 try {
                     var raw = DecodeAscii85(core);
-                    decoded = raw.Length > Settings.EncodedDecodeMaxBytes ? raw.Take(Settings.EncodedDecodeMaxBytes).ToArray() : raw;
+                    decoded = raw.Length > OperationSettings.EncodedDecodeMaxBytes ? raw.Take(OperationSettings.EncodedDecodeMaxBytes).ToArray() : raw;
                     return decoded.Length > 0;
                 } catch { return false; }
             }
@@ -163,8 +163,8 @@ public static partial class FileInspector
                 var lines = headStr.Replace("\r", string.Empty).Split('\n');
                 int i = Array.FindIndex(lines, l => l.StartsWith("begin ", StringComparison.OrdinalIgnoreCase));
                 if (i < 0) return false;
-                var outBytes = new List<byte>(Settings.EncodedDecodeMaxBytes);
-                for (int k = i + 1; k < lines.Length && outBytes.Count < Settings.EncodedDecodeMaxBytes; k++)
+                var outBytes = new List<byte>(OperationSettings.EncodedDecodeMaxBytes);
+                for (int k = i + 1; k < lines.Length && outBytes.Count < OperationSettings.EncodedDecodeMaxBytes; k++)
                 {
                     var line = lines[k];
                     if (line.Equals("end", StringComparison.OrdinalIgnoreCase)) break;
@@ -173,7 +173,7 @@ public static partial class FileInspector
                     if (len <= 0) continue;
                     int pos = 1;
                     int lineWritten = 0;
-                    while (pos + 3 < line.Length && outBytes.Count < Settings.EncodedDecodeMaxBytes)
+                    while (pos + 3 < line.Length && outBytes.Count < OperationSettings.EncodedDecodeMaxBytes)
                     {
                         int v1 = (line[pos++] - 32) & 63;
                         int v2 = (line[pos++] - 32) & 63;
@@ -182,9 +182,9 @@ public static partial class FileInspector
                         byte b1 = (byte)((v1 << 2) | (v2 >> 4));
                         byte b2 = (byte)(((v2 & 0xF) << 4) | (v3 >> 2));
                         byte b3 = (byte)(((v3 & 0x3) << 6) | v4);
-                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b1); lineWritten++; }
-                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b2); lineWritten++; }
-                        if (outBytes.Count < Settings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b3); lineWritten++; }
+                        if (outBytes.Count < OperationSettings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b1); lineWritten++; }
+                        if (outBytes.Count < OperationSettings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b2); lineWritten++; }
+                        if (outBytes.Count < OperationSettings.EncodedDecodeMaxBytes && lineWritten < len) { outBytes.Add(b3); lineWritten++; }
                     }
                 }
                 decoded = outBytes.ToArray();
@@ -192,8 +192,8 @@ public static partial class FileInspector
             }
             else if (ext == "qp")
             {
-                var outBytes = new List<byte>(Math.Min(Settings.EncodedDecodeMaxBytes, headStr.Length));
-                for (int i = 0; i < headStr.Length && outBytes.Count < Settings.EncodedDecodeMaxBytes; i++)
+                var outBytes = new List<byte>(Math.Min(OperationSettings.EncodedDecodeMaxBytes, headStr.Length));
+                for (int i = 0; i < headStr.Length && outBytes.Count < OperationSettings.EncodedDecodeMaxBytes; i++)
                 {
                     char ch = headStr[i];
                     if (ch == '=')
@@ -232,7 +232,7 @@ public static partial class FileInspector
                     {
                         foreach (var b in System.Text.Encoding.UTF8.GetBytes(new[] { ch }))
                         {
-                            if (outBytes.Count >= Settings.EncodedDecodeMaxBytes) break;
+                            if (outBytes.Count >= OperationSettings.EncodedDecodeMaxBytes) break;
                             outBytes.Add(b);
                         }
                     }

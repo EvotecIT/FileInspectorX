@@ -31,6 +31,7 @@ internal sealed class TarInspectionReader
         {
             while (true)
             {
+                InspectionOperation.CheckCancellation();
                 _stream.Position = _nextHeader;
                 if (ReadFully(_header) != 512) return Fail("tar:truncated-header");
                 if (_header.All(b => b == 0))

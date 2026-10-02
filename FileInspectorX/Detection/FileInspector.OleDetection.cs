@@ -10,7 +10,7 @@ public static partial class FileInspector
         try {
             long pos = stream.CanSeek ? stream.Position : 0;
             if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
-            int cap = Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024));
+            int cap = Math.Max(8 * 1024, Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024));
             var buf = new byte[cap];
             int n = stream.Read(buf, 0, buf.Length);
             if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
@@ -63,7 +63,7 @@ public static partial class FileInspector
             int sectorSize = 1 << secShift;
             int dirStartSid = BitConverter.ToInt32(hdr, 0x30);
             int fatCount = BitConverter.ToInt32(hdr, 0x2C);
-            int readBudget = Math.Max(512, Settings.DetectionReadBudgetBytes);
+            int readBudget = Math.Max(512, OperationSettings.DetectionReadBudgetBytes);
             int maxFatSectorsByBudget = Math.Max(1, readBudget / sectorSize);
             if (dirStartSid < 0 || fatCount <= 0) return false;
             // Read FAT sector SIDs from DIFAT in header (109 entries)

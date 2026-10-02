@@ -5,7 +5,7 @@ namespace FileInspectorX;
 /// </summary>
 internal static partial class Signatures {
     private const int BINARY_SCAN_LIMIT = 2048; // 2 KB: doubled from 1024 to reduce UTF-16 false negatives
-    private const int HEADER_BYTES_FALLBACK = 4096; // align with default Settings.HeaderReadBytes for deeper text heuristics
+    private const int HEADER_BYTES_FALLBACK = 4096; // align with default OperationSettings.HeaderReadBytes for deeper text heuristics
     private const double UTF_NUL_RATIO_MIN = 0.2;
     private const double UTF32_NUL_RATIO_MIN = 0.6;
     private const double UTF32_NONNULL_POS_DOMINANCE = 0.7;
@@ -15,7 +15,7 @@ internal static partial class Signatures {
 
     internal static bool TryMatchMsg(string path, out ContentTypeDetectionResult? result) {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             return TryMatchMsg(fs, out result);
         } catch {
             result = null;

@@ -16,12 +16,12 @@ public static partial class FileInspector
         inspectionComplete = true; inspectionIssues = null;
         var budget = ArchiveInspectionBudget.FromSettings();
         int nestedDepth = options?.NestedContainerDepth ?? 0;
-        long nestedByteBudget = (long)Math.Max(0, Settings.DeepContainerMaxEntries) *
-                                Math.Max(0, Settings.DeepContainerMaxEntryBytes);
+        long nestedByteBudget = (long)Math.Max(0, OperationSettings.DeepContainerMaxEntries) *
+                                Math.Max(0, OperationSettings.DeepContainerMaxEntryBytes);
         var nestedBudget = options?.NestedContainerBudget ??
-                           new NestedContainerBudgetState(Settings.DeepContainerMaxEntries, nestedByteBudget);
+                           new NestedContainerBudgetState(OperationSettings.DeepContainerMaxEntries, nestedByteBudget);
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (!budget.CheckCentralDirectory(fs, out var declaredEntryCount))
             {
                 entryCount = declaredEntryCount;
@@ -36,9 +36,9 @@ public static partial class FileInspector
             int ooxmlAllowed = 0, ooxmlDisallowed = 0, ooxmlUnc = 0;
             var ooxmlHosts = new List<string>(5);
             bool sawEncryptionInfo = false; bool sawEncryptedPackage = false;
-            int deepScanned = 0; int deepMax = Settings.DeepContainerMaxEntries;
-            int deepBytes = Settings.DeepContainerMaxEntryBytes;
-            bool deep = Settings.DeepContainerScanEnabled;
+            int deepScanned = 0; int deepMax = OperationSettings.DeepContainerMaxEntries;
+            int deepBytes = OperationSettings.DeepContainerMaxEntryBytes;
+            bool deep = OperationSettings.DeepContainerScanEnabled;
             var localFindings = new List<string>(8);
             var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
             var innerPublisherValid = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
@@ -75,7 +75,7 @@ public static partial class FileInspector
                 if (low == "classes.dex") hasDex = true;
 
                 // GPO/SYSVOL indicators within archives
-                if (Settings.DeepContainerScanEnabled)
+                if (OperationSettings.DeepContainerScanEnabled)
                 {
                     var nlow = name.ToLowerInvariant();
                     if (nlow.EndsWith("/gpt.ini") || nlow.EndsWith("\\gpt.ini") || nlow.Contains("/policies/") || nlow.Contains("\\policies\\") || nlow.EndsWith("registry.pol", StringComparison.OrdinalIgnoreCase))
@@ -164,7 +164,7 @@ public static partial class FileInspector
                     try {
                         // Known tool names by filename
                         var lowerName = name.ToLowerInvariant();
-                        foreach (var ind in Settings.KnownToolNameIndicators)
+                        foreach (var ind in OperationSettings.KnownToolNameIndicators)
                         {
                             if (!string.IsNullOrWhiteSpace(ind) && lowerName.Contains(ind))
                             {
@@ -203,7 +203,7 @@ public static partial class FileInspector
                             }
 
                             // Optional hash match for known tools (only when entry small enough)
-                            if (Settings.KnownToolHashes.Count > 0 && nn > 0 && e.Length <= deepBytes)
+                            if (OperationSettings.KnownToolHashes.Count > 0 && nn > 0 && e.Length <= deepBytes)
                             {
                                 try {
                                     byte[] ReadEntryBytesBounded()
@@ -228,7 +228,7 @@ public static partial class FileInspector
                                     if (hashBytes.Length == 0) throw new InvalidDataException("zip:empty-entry");
                                     var hash = sha.ComputeHash(hashBytes);
                                     var hex = ToLowerHex(hash);
-                                    foreach (var kv in Settings.KnownToolHashes)
+                                    foreach (var kv in OperationSettings.KnownToolHashes)
                                     {
                                         if (string.Equals(kv.Value, hex, StringComparison.OrdinalIgnoreCase)) { localFindings.Add($"toolhash:{kv.Key}"); break; }
                                     }
@@ -323,7 +323,7 @@ public static partial class FileInspector
                                 } catch { }
                                 finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
-                            else if (nestedDepth < Math.Max(0, Settings.DeepContainerMaxDepth) &&
+                            else if (nestedDepth < Math.Max(0, OperationSettings.DeepContainerMaxDepth) &&
                                      e.Length > 0 && e.Length <= GetNestedArchiveDeepScanBytes() &&
                                      ShouldDeepAnalyzeNestedArchiveEntry(name, declExt, det2?.Extension))
                             {

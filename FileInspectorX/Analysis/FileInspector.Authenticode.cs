@@ -17,7 +17,7 @@ public static partial class FileInspector
 
 #if NET8_0_OR_GREATER || NET472
             try {
-                using var fs = File.OpenRead(path);
+                using var fs = OperationReadStream.Open(path);
                 fs.Seek((long)pe.SecurityOffset, SeekOrigin.Begin);
                 using var br = new BinaryReader(fs);
                 uint wclen = br.ReadUInt32();
@@ -167,7 +167,7 @@ public static partial class FileInspector
         try {
             using var algo = CreateHashAlgorithm(digestOid);
             if (algo == null) return null;
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             long fileLen = fs.Length;
             long certOff = pe.SecurityOffset;
             long certEnd = certOff + pe.SecuritySize;
@@ -186,7 +186,7 @@ public static partial class FileInspector
         } catch { return null; }
     }
 
-    private static void HashRange(FileStream fs, System.Security.Cryptography.HashAlgorithm algo, long start, long length)
+    private static void HashRange(Stream fs, System.Security.Cryptography.HashAlgorithm algo, long start, long length)
     {
         if (length <= 0) return;
         fs.Seek(start, SeekOrigin.Begin);

@@ -344,7 +344,7 @@ internal static partial class Signatures
     {
         strippedBytes = null;
         strippedLength = 0;
-        source = source.Slice(0, Math.Min(source.Length, Math.Max(256, Settings.DetectionReadBudgetBytes)));
+        source = source.Slice(0, Math.Min(source.Length, Math.Max(256, OperationSettings.DetectionReadBudgetBytes)));
         int nulCount = 0;
         for (int i = 0; i < source.Length; i++)
         {

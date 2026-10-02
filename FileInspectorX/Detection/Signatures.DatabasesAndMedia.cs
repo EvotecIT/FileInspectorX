@@ -107,7 +107,7 @@ internal static partial class Signatures {
         if (hiveBinsSize > int.MaxValue || bins.Length != (int)hiveBinsSize) return false;
         uint cursor = 0;
         bool rootFound = false;
-        int remainingBudget = Math.Max(112, Settings.DetectionReadBudgetBytes);
+        int remainingBudget = Math.Max(112, OperationSettings.DetectionReadBudgetBytes);
         while (cursor < hiveBinsSize)
         {
             if (remainingBudget < 32) return cursor > 0;
@@ -137,7 +137,7 @@ internal static partial class Signatures {
         complete = false;
         uint cursor = 0;
         bool rootFound = false;
-        int remainingBudget = Math.Max(112, Settings.DetectionReadBudgetBytes);
+        int remainingBudget = Math.Max(112, OperationSettings.DetectionReadBudgetBytes);
         while (cursor < hiveBinsSize)
         {
             if (remainingBudget < 32) return cursor > 0;
@@ -252,7 +252,7 @@ internal static partial class Signatures {
         try {
             if (stream.Length < 4104 || !TryReadAt(stream, 0, 128, out var header) ||
                 !TryReadEvtxHeader(new ReadOnlySpan<byte>(header), stream.Length, out ushort chunkCount, out _)) return false;
-            int maxChunks = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            int maxChunks = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 64);
             int validatedChunks = Math.Min(chunkCount, maxChunks);
             for (int index = 0; index < validatedChunks; index++)
             {
@@ -344,7 +344,7 @@ internal static partial class Signatures {
                 directoryRva + streams * 12L > stream.Length) return false;
             if (streams == 0) return TryMatchMinidump(src, stream.Length, out result);
             long directoryLength = streams * 12L;
-            if (directoryLength > Math.Max(32, Settings.DetectionReadBudgetBytes))
+            if (directoryLength > Math.Max(32, OperationSettings.DetectionReadBudgetBytes))
             {
                 result = new ContentTypeDetectionResult { Extension = "dmp", MimeType = "application/x-ms-minidump", Confidence = "Medium", Reason = "dmp:minidump-header;directory-budget" };
                 return true;

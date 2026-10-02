@@ -41,7 +41,8 @@ public static partial class FileInspector
     }
 
     private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
-        options ??= new DetectionOptions();
+        using var operation = InspectionOperation.Begin(options);
+        options = operation.Options;
         ValidateLearnedClassificationMode(options);
         var learnedData = options.LearnedClassificationMode != LearnedClassificationMode.Off
             ? dataMemory ?? new ReadOnlyMemory<byte>(data.ToArray())

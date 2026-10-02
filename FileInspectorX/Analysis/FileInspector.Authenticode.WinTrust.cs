@@ -36,7 +36,7 @@ public static partial class FileInspector
             var data = new WINTRUST_DATA();
             data.cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_DATA));
             data.dwUIChoice = WTD_UI_NONE;
-            data.fdwRevocationChecks = Settings.VerifyAuthenticodeRevocation ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
+            data.fdwRevocationChecks = OperationSettings.VerifyAuthenticodeRevocation ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
             data.dwUnionChoice = WTD_CHOICE_FILE;
             data.dwStateAction = WTD_STATEACTION_IGNORE;
             // Allocate unmanaged WINTRUST_FILE_INFO and ensure cleanup afterward
@@ -44,7 +44,7 @@ public static partial class FileInspector
             Marshal.StructureToPtr(fileInfo, pFile, fDeleteOld: false);
             data.pFile = pFile;
             data.dwProvFlags = WTD_SAFER_FLAG | WTD_REVOCATION_CHECK_NONE | WTD_HASH_ONLY_FLAG | WTD_CACHE_ONLY_URL_RETRIEVAL;
-            if (Settings.VerifyAuthenticodeRevocation) data.dwProvFlags &= ~WTD_REVOCATION_CHECK_NONE;
+            if (OperationSettings.VerifyAuthenticodeRevocation) data.dwProvFlags &= ~WTD_REVOCATION_CHECK_NONE;
 
             int status = WinVerifyTrust(IntPtr.Zero, ref guidAction, ref data);
             res.Authenticode.WinTrustStatusCode = status;

@@ -63,7 +63,7 @@ internal static partial class Signatures
         bool sawPlte = false;
         int paletteEntries = 0;
         bool ancillarySemanticsNotValidated = false;
-        int idatBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int idatBudget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         using var idat = new MemoryStream();
         bool idatBudgetExceeded = false;
         int cursor = 8;
@@ -227,7 +227,7 @@ internal static partial class Signatures
             if (read >= localOffset + 30 && ReadUInt32LittleEndian(src, localOffset) == 0x04034B50)
             {
                 int variableEnd = localOffset + 30 + ReadUInt16LittleEndian(src, localOffset + 26) + ReadUInt16LittleEndian(src, localOffset + 28);
-                int budget = Math.Max(34, Settings.DetectionReadBudgetBytes);
+                int budget = Math.Max(34, OperationSettings.DetectionReadBudgetBytes);
                 if (variableEnd > read && variableEnd <= budget && variableEnd <= stream.Length && TryReadAt(stream, 0, variableEnd, out var completeHeader))
                 {
                     header = completeHeader;
@@ -728,7 +728,7 @@ internal static partial class Signatures
             bool linkLayerValidated = IsValidatedPcapLinkLayer(ReadUInt32(global, 20, littleEndian));
             if (snapLength == 0 || snapLength > 0x10000000) return false;
             long cursor = 24;
-            int remainingRecords = Math.Max(1, Settings.DetectionReadBudgetBytes / 16);
+            int remainingRecords = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 16);
             while (cursor < stream.Length)
             {
                 if (remainingRecords-- == 0)
@@ -955,7 +955,7 @@ internal static partial class Signatures
             ushort count = ReadUInt16LittleEndian(header, 4);
             if (count is < 1 or > 1024) return false;
             int directoryLength = checked(6 + count * 16);
-            if (stream.Length <= Settings.DetectionReadBudgetBytes)
+            if (stream.Length <= OperationSettings.DetectionReadBudgetBytes)
                 return TryReadAt(stream, 0, (int)stream.Length, out var completeBytes) &&
                        TryMatchIcon(new ReadOnlySpan<byte>(completeBytes), stream.Length, out result);
             if (!TryReadAt(stream, 0, directoryLength, out var directoryBytes) ||

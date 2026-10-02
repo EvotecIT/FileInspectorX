@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(FileInspectorXReferencePath)' == ''">
+    <ProjectReference Include="../../FileInspectorX/FileInspectorX.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FileInspectorXReferencePath)' != ''">
+    <Reference Include="FileInspectorX">
+      <HintPath>$(FileInspectorXReferencePath)</HintPath>
+    </Reference>
+    <Reference Include="System.Formats.Asn1">
+      <HintPath>$([System.IO.Path]::GetDirectoryName('$(FileInspectorXReferencePath)'))/System.Formats.Asn1.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

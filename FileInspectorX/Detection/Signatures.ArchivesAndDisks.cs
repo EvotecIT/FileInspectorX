@@ -87,7 +87,7 @@ internal static partial class Signatures {
         var uniqueDataOffsets = new System.Collections.Generic.HashSet<uint>();
         bool payloadIntegrityNotValidated = false;
         var folderDataRanges = new System.Collections.Generic.List<CabDataRange>(folderCount);
-        int remainingDataBlocks = Math.Max(1, Settings.DetectionReadBudgetBytes / (8 + dataReserve));
+        int remainingDataBlocks = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / (8 + dataReserve));
         for (int folder = 0; folder < folderCount; folder++) {
             int record = checked(cursor + (int)(folder * folderRecordSize));
             uint dataOffset = ReadUInt32LittleEndian(src, record);

@@ -73,7 +73,12 @@ public static partial class FileInspector
     /// Computes assessment results for strict/balanced/lenient profiles using one shared score/factors baseline.
     /// </summary>
     public static MultiAssessmentResult AssessMulti(FileAnalysis a)
+        => AssessMulti(a, null);
+
+    /// <summary>Computes all assessment profiles using the supplied immutable policy settings.</summary>
+    public static MultiAssessmentResult AssessMulti(FileAnalysis a, InspectionSettings? settings)
     {
+        using var operation = InspectionOperation.Begin(new DetectionOptions { Settings = settings });
         var balanced = Assess(a);
         return AssessMulti(balanced);
     }
@@ -98,7 +103,13 @@ public static partial class FileInspector
     /// The mapping is intentionally generic; consumers can layer their own policy thresholds.
     /// </summary>
     public static AssessmentResult Assess(FileAnalysis a)
+        => Assess(a, null);
+
+    /// <summary>Computes an assessment using the supplied immutable policy settings.</summary>
+    public static AssessmentResult Assess(FileAnalysis a, InspectionSettings? settings)
     {
+        using var operation = InspectionOperation.Begin(new DetectionOptions { Settings = settings });
+        if (a == null) throw new ArgumentNullException(nameof(a));
         int score = 0; var codes = new List<string>(32); var factors = new Dictionary<string,int>(32);
         var securityFindings = a.SecurityFindings ?? Array.Empty<string>();
 
@@ -548,9 +559,9 @@ public static partial class FileInspector
         if (score < 0) score = 0; if (score > 100) score = 100;
         var decision = !a.AnalysisComplete
             ? AssessmentDecision.Defer
-            : score >= Settings.AssessmentBlockThreshold
+            : score >= OperationSettings.AssessmentBlockThreshold
                 ? AssessmentDecision.Block
-                : (score >= Settings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
+                : (score >= OperationSettings.AssessmentWarnThreshold ? AssessmentDecision.Warn : AssessmentDecision.Allow);
 
         return new AssessmentResult { Score = score, Decision = decision, Codes = codes, Factors = factors };
 
@@ -591,8 +602,8 @@ public static partial class FileInspector
 
     private static (int warn, int block) GetThresholds(AssessmentProfile profile)
     {
-        int warn = Settings.AssessmentWarnThreshold;
-        int block = Settings.AssessmentBlockThreshold;
+        int warn = OperationSettings.AssessmentWarnThreshold;
+        int block = OperationSettings.AssessmentBlockThreshold;
         switch (profile)
         {
             case AssessmentProfile.Strict:
@@ -626,11 +637,11 @@ public static partial class FileInspector
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
         try {
-            var list = Settings.AllowedVendors ?? Array.Empty<string>();
+            var list = OperationSettings.AllowedVendors ?? Array.Empty<string>();
             foreach (var v in list)
             {
                 if (string.IsNullOrWhiteSpace(v)) continue;
-                if (Settings.VendorMatchMode == VendorMatchMode.Exact)
+                if (OperationSettings.VendorMatchMode == VendorMatchMode.Exact)
                 {
                     if (string.Equals(name, v, StringComparison.OrdinalIgnoreCase)) return true;
                 }

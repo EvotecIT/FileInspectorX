@@ -4,23 +4,23 @@ internal static partial class Signatures
 {
     static List<ContentTypeDetectionCandidate> CollectCandidates(ReadOnlySpan<byte> head, string headStr, string headLower, string decl)
     {
-        int declaredExtensionBoost = Math.Max(0, Settings.DetectionDeclaredExtensionBoost);
-        int jsonValidBoost = Math.Max(0, Settings.DetectionJsonValidBoost);
-        int xmlWellFormedBoost = Math.Max(0, Settings.DetectionXmlWellFormedBoost);
-        int scriptPenaltyDeclaredMd = Settings.DetectionMarkdownDeclaredPenalty;
-        int scriptPenaltyStructuralMd = Settings.DetectionMarkdownStructuralPenalty;
-        int scriptPenaltyMd = Settings.DetectionMarkdownPenalty;
-        int logPenaltyFromScriptValue = Settings.DetectionLogPenaltyFromScript;
-        int scriptPenaltyFromLogValue = Settings.DetectionScriptPenaltyFromLog;
-        int logPenaltyFromMarkdownValue = Settings.DetectionLogPenaltyFromMarkdown;
-        int jsonPenaltyFromScript = Settings.DetectionJsonPenaltyFromScript;
-        int jsonPenaltyFromLog = Settings.DetectionJsonPenaltyFromLog;
-        int yamlPenaltyFromLog = Settings.DetectionYamlPenaltyFromLog;
-        int yamlPenaltyFromScript = Settings.DetectionYamlPenaltyFromScript;
-        int markdownPenaltyFromIni = Settings.DetectionMarkdownPenaltyFromIni;
-        int plainTextPenaltyFromScript = Settings.DetectionPlainTextPenaltyFromScript;
-        int plainTextPenaltyFromLog = Settings.DetectionPlainTextPenaltyFromLog;
-        int plainTextPenaltyFromMarkdown = Settings.DetectionPlainTextPenaltyFromMarkdown;
+        int declaredExtensionBoost = Math.Max(0, OperationSettings.DetectionDeclaredExtensionBoost);
+        int jsonValidBoost = Math.Max(0, OperationSettings.DetectionJsonValidBoost);
+        int xmlWellFormedBoost = Math.Max(0, OperationSettings.DetectionXmlWellFormedBoost);
+        int scriptPenaltyDeclaredMd = OperationSettings.DetectionMarkdownDeclaredPenalty;
+        int scriptPenaltyStructuralMd = OperationSettings.DetectionMarkdownStructuralPenalty;
+        int scriptPenaltyMd = OperationSettings.DetectionMarkdownPenalty;
+        int logPenaltyFromScriptValue = OperationSettings.DetectionLogPenaltyFromScript;
+        int scriptPenaltyFromLogValue = OperationSettings.DetectionScriptPenaltyFromLog;
+        int logPenaltyFromMarkdownValue = OperationSettings.DetectionLogPenaltyFromMarkdown;
+        int jsonPenaltyFromScript = OperationSettings.DetectionJsonPenaltyFromScript;
+        int jsonPenaltyFromLog = OperationSettings.DetectionJsonPenaltyFromLog;
+        int yamlPenaltyFromLog = OperationSettings.DetectionYamlPenaltyFromLog;
+        int yamlPenaltyFromScript = OperationSettings.DetectionYamlPenaltyFromScript;
+        int markdownPenaltyFromIni = OperationSettings.DetectionMarkdownPenaltyFromIni;
+        int plainTextPenaltyFromScript = OperationSettings.DetectionPlainTextPenaltyFromScript;
+        int plainTextPenaltyFromLog = OperationSettings.DetectionPlainTextPenaltyFromLog;
+        int plainTextPenaltyFromMarkdown = OperationSettings.DetectionPlainTextPenaltyFromMarkdown;
         var byExt = new Dictionary<string, ContentTypeDetectionCandidate>(24, StringComparer.OrdinalIgnoreCase);
         void AddCandidate(string ext, string mime, string confidence, string reason, string? details = null, int scoreAdjust = 0, bool? dangerousOverride = null)
         {

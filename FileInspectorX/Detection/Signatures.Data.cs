@@ -150,7 +150,7 @@ internal static partial class Signatures {
         {
             stream.Seek(0, SeekOrigin.Begin);
             var reader = new NetCdfStreamReader(stream, stream.Length, sampleMayContinue: false,
-                Math.Max(256, Settings.DetectionReadBudgetBytes));
+                Math.Max(256, OperationSettings.DetectionReadBudgetBytes));
             if (!reader.TryReadByte(out byte c) || c != (byte)'C' ||
                 !reader.TryReadByte(out byte d) || d != (byte)'D' ||
                 !reader.TryReadByte(out byte f) || f != (byte)'F' ||
@@ -251,7 +251,7 @@ internal static partial class Signatures {
         private bool TryReadName(bool isCdf5, out string name) {
             name = string.Empty;
             if (!TryReadNonNegative(isCdf5, out ulong length) || length == 0 || length > int.MaxValue ||
-                length > (ulong)Math.Max(0, Settings.NetCdfNameMaxBytes) ||
+                length > (ulong)Math.Max(0, OperationSettings.NetCdfNameMaxBytes) ||
                 !TryScanName(length, out name, out byte last)) return false;
             if (last == (byte)' ') return false;
             int padding = (int)((4 - (length & 3)) & 3);
@@ -586,7 +586,7 @@ internal static partial class Signatures {
         name = string.Empty;
         if (!TryReadNetCdfNonNegative(src, ref cursor, isCdf5, out ulong length) ||
             length == 0 || length > int.MaxValue ||
-            length > (ulong)Math.Max(0, Settings.NetCdfNameMaxBytes) ||
+            length > (ulong)Math.Max(0, OperationSettings.NetCdfNameMaxBytes) ||
             length > (ulong)(src.Length - cursor)) return false;
         ulong padded = (length + 3) & ~3UL;
         if (padded > (ulong)(src.Length - cursor) || src[cursor] <= 0x20 || src[cursor] == (byte)'/' || src[cursor] == 0x7F) return false;

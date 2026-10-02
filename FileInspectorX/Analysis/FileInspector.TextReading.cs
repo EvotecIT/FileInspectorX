@@ -9,7 +9,7 @@ public static partial class FileInspector
     {
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             int len = (int)Math.Min(fs.Length, cap);
             if (len <= 0) return string.Empty;
             var buf = new byte[len];

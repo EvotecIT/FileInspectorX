@@ -11,7 +11,7 @@ public static partial class FileInspector
 #if NET8_0_OR_GREATER || NET472
         var budget = ArchiveInspectionBudget.FromSettings();
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var sigEntry = za.GetEntry("AppxSignature.p7x") ?? za.GetEntry("AppxSignature.p7s");
@@ -42,7 +42,7 @@ public static partial class FileInspector
 
     private static string ReadFirstLine(string path, int max) {
         try {
-            using var sr = new StreamReader(File.OpenRead(path));
+            using var sr = new StreamReader(OperationReadStream.Open(path));
             char[] buf = new char[Math.Max(2, max)];
             int n = sr.Read(buf, 0, buf.Length);
             var s = new string(buf, 0, n);
@@ -97,7 +97,7 @@ public static partial class FileInspector
 
     private static int? EstimateLines(string path, int cap) {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             long len = Math.Min(fs.Length, cap);
             var buf = new byte[(int)len];
             int n = fs.Read(buf, 0, buf.Length);
@@ -119,7 +119,7 @@ public static partial class FileInspector
     private static bool IsPe(string path, out string? machine, out string? subsystem, out bool hasClr, out bool hasSec) {
         machine = null; subsystem = null; hasClr = false; hasSec = false;
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var br = new BinaryReader(fs);
             if (fs.Length < 0x40) return false;
             if (br.ReadByte() != 0x4D || br.ReadByte() != 0x5A) return false; // MZ

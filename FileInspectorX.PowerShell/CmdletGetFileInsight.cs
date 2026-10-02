@@ -181,6 +181,7 @@ namespace FileInspectorX.PowerShell {
         private Task ProcessFilesAsync()
         {
             var options = new FileInspector.DetectionOptions {
+                CancellationToken = CancelToken,
                 ComputeSha256 = ComputeSha256,
                 MagicHeaderBytes = MagicHeaderBytes,
                 IncludePermissions = !ExcludePermissions,
@@ -198,6 +199,7 @@ namespace FileInspectorX.PowerShell {
 
             // Resolve each incoming path through PS provider
             foreach (var input in Path ?? Array.Empty<string>()) {
+                CancelToken.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(input)) continue;
 
                 try {
@@ -271,6 +273,7 @@ namespace FileInspectorX.PowerShell {
                         }
                     }
                 } catch (PipelineStoppedException) { throw; }
+                catch (OperationCanceledException) { throw; }
                 catch (LearnedClassificationException ex) {
                     ThrowTerminatingError(new ErrorRecord(
                         ex,
