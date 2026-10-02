@@ -309,6 +309,8 @@ Unreadable or missing input produces the stable issue `input:read-failed`; asses
 
 `ComputeSha256` hashes complete byte arrays, memory, spans, files, and streams. A forward-only stream is consumed from its current position through EOF; seekable streams retain their original position. Complete in-memory ZIP inputs use the same bounded subtype checks as files and seekable streams. ZIP subtype recognition borrows spans for the synchronous read without copying the complete archive.
 
+Classic ZIP and ZIP64 inspection validates the directory offset, entry count and directory size before loading entries. ZIP64 uses its locator and 64-bit end record under the same `ArchiveMaxEntries` and `ArchiveMaxCentralDirectoryBytes` limits. Invalid metadata and split archives produce partial analysis; exceeding a limit reports `archive:entry-count-limit` or `archive:directory-size-limit`. Subtype detection keeps the base ZIP type when this preflight cannot safely inspect the directory.
+
 Recursive directory scans skip directory links and Windows junctions while retaining cloud placeholder directories. Disposing `AnalyzeDirectoryAsync` cancels its workers and waits for the producer to finish; an already-running synchronous analysis finishes before disposal returns.
 
 TAR analysis checks full USTAR names, PAX/GNU name overrides, and link targets under the archive entry and metadata budgets. Truncated records, invalid checksums, missing or invalid second end-marker blocks, and unsupported sparse or numeric encodings produce partial analysis with reason codes.
