@@ -142,6 +142,56 @@ public sealed class InspectionIntegrityTests
     }
 
     [Theory]
+    [InlineData(128, 4096, "archive:entry-read-limit")]
+    [InlineData(4096, 128, "archive:total-read-limit")]
+    public void TarDeepPayloadHonorsArchiveByteLimits(long entryLimit, long totalLimit, string issue)
+    {
+        string path = Path.GetTempFileName();
+        bool deep = Settings.DeepContainerScanEnabled;
+        long entryBytes = Settings.ArchiveMaxEntryReadBytes, totalBytes = Settings.ArchiveMaxTotalReadBytes;
+        try
+        {
+            Settings.DeepContainerScanEnabled = true;
+            Settings.ArchiveMaxEntryReadBytes = entryLimit;
+            Settings.ArchiveMaxTotalReadBytes = totalLimit;
+            using (var output = File.Create(path))
+            {
+                WriteTarHeader(output, "payload.exe", size: 1024);
+                output.Write(new byte[1024], 0, 1024);
+                output.Write(new byte[1024], 0, 1024);
+            }
+            var result = FileInspector.Analyze(path, Options());
+            Assert.False(result.AnalysisComplete);
+            Assert.Contains(issue, result.AnalysisIssues!);
+            Assert.Equal("Defer", result.Assessment!.Decision.ToString());
+            Assert.Equal(0, result.InnerExecutablesSampled ?? 0);
+        }
+        finally { Settings.DeepContainerScanEnabled = deep; Settings.ArchiveMaxEntryReadBytes = entryBytes; Settings.ArchiveMaxTotalReadBytes = totalBytes; TestHelpers.SafeDelete(path); }
+    }
+
+    [Fact]
+    public void TarQuickSamplesShareTotalReadBudget()
+    {
+        string path = Path.GetTempFileName();
+        long original = Settings.ArchiveMaxTotalReadBytes;
+        try
+        {
+            Settings.ArchiveMaxTotalReadBytes = 128;
+            using (var output = File.Create(path))
+            {
+                for (int i = 0; i < 3; i++) { WriteTarHeader(output, $"file{i}.bin", size: 64); output.Write(new byte[512], 0, 512); }
+                output.Write(new byte[1024], 0, 1024);
+            }
+            var result = FileInspector.Analyze(path, Options());
+            Assert.Equal(3, result.ContainerEntryCount);
+            Assert.False(result.AnalysisComplete);
+            Assert.Contains("archive:total-read-limit", result.AnalysisIssues!);
+            Assert.Equal("Defer", result.Assessment!.Decision.ToString());
+        }
+        finally { Settings.ArchiveMaxTotalReadBytes = original; TestHelpers.SafeDelete(path); }
+    }
+
+    [Theory]
     [InlineData("safe/../../escape.txt", "", "")]
     [InlineData("escape.txt", "safe/../..", "")]
     [InlineData("link", "", "safe/../../escape.txt")]
@@ -186,6 +236,29 @@ public sealed class InspectionIntegrityTests
     }
 
 #if NET8_0_OR_GREATER
+    [Fact]
+    public void TarGlobalVendorAttributesDoNotChangeEffectiveEntryNames()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            var attributes = Enumerable.Range(0, 5000).Select(i => new KeyValuePair<string, string>($"VENDOR.attribute{i}", "value"));
+            using (var output = File.Create(path))
+            using (var writer = new System.Formats.Tar.TarWriter(output, System.Formats.Tar.TarEntryFormat.Pax))
+            {
+                writer.WriteEntry(new System.Formats.Tar.PaxGlobalExtendedAttributesTarEntry(attributes));
+                for (int i = 0; i < 300; i++) writer.WriteEntry(new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile, $"file{i}.txt"));
+                writer.WriteEntry(new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "last.ps1"));
+            }
+            var result = FileInspector.Analyze(path, Options());
+            Assert.True(result.AnalysisComplete);
+            Assert.Equal(301, result.ContainerEntryCount);
+            Assert.True(result.Flags.HasFlag(ContentFlags.ContainerContainsScripts));
+            Assert.Contains("txt", result.ContainerTopExtensions!);
+        }
+        finally { TestHelpers.SafeDelete(path); }
+    }
+
     [Theory]
     [InlineData(System.Formats.Tar.TarEntryFormat.Pax)]
     [InlineData(System.Formats.Tar.TarEntryFormat.Gnu)]
@@ -220,11 +293,11 @@ public sealed class InspectionIntegrityTests
         Assert.Equal(34, stream.BytesRead);
     }
 
-    private static void WriteTarHeader(Stream output, string name, string prefix = "", string link = "")
+    private static void WriteTarHeader(Stream output, string name, string prefix = "", string link = "", int size = 0)
     {
         var header = new byte[512];
         Encoding.ASCII.GetBytes(name).CopyTo(header, 0);
-        Encoding.ASCII.GetBytes("00000000000").CopyTo(header, 124);
+        Encoding.ASCII.GetBytes(Convert.ToString(size, 8).PadLeft(11, '0')).CopyTo(header, 124);
         Encoding.ASCII.GetBytes("ustar").CopyTo(header, 257);
         Encoding.ASCII.GetBytes(prefix).CopyTo(header, 345);
         if (link.Length > 0) { header[156] = (byte)'2'; Encoding.ASCII.GetBytes(link).CopyTo(header, 157); }

@@ -57,7 +57,7 @@ public static partial class FileInspector {
                 return headTextCached;
             }
 
-            AnalyzeContainers(path, options, det, res);
+            AnalyzeContainers(path, options, det, res, includeInstaller);
 
             // MSI metadata enrichment (Windows): product version via msi.dll
             if (includeInstaller && det.Extension == "msi")

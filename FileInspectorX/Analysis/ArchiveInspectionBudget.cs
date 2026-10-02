@@ -140,6 +140,31 @@ internal sealed class ArchiveInspectionBudget
             return null;
         }
 
+        var allowance = GetReadAllowance(entry.Length, requestedMaxBytes);
+        return allowance.HasValue
+            ? new BudgetedReadStream(entry.Open(), allowance.Value, bytes => _bytesRead += bytes)
+            : null;
+    }
+
+    internal Stream? OpenTarPayload(Stream source, long payloadLength, int requestedMaxBytes)
+    {
+        var allowance = GetReadAllowance(payloadLength, requestedMaxBytes);
+        return allowance.HasValue
+            ? new BudgetedReadStream(source, Math.Min(payloadLength, allowance.Value), bytes => _bytesRead += bytes, leaveOpen: true)
+            : null;
+    }
+
+    internal byte[]? ReadTarMetadata(Stream source, long payloadLength)
+    {
+        using var stream = OpenTarPayload(source, payloadLength, (int)Math.Min(int.MaxValue, payloadLength));
+        if (stream == null) return null;
+        using var output = new MemoryStream();
+        stream.CopyTo(output);
+        return output.ToArray();
+    }
+
+    private long? GetReadAllowance(long payloadLength, int requestedMaxBytes)
+    {
         var remainingTotal = _maxTotalReadBytes - _bytesRead;
         if (remainingTotal <= 0)
         {
@@ -152,7 +177,7 @@ internal sealed class ArchiveInspectionBudget
         if (allowance <= 0)
             return null;
 
-        if (entry.Length > allowance)
+        if (payloadLength > allowance)
         {
             if (allowance == remainingTotal)
                 AddIssue("archive:total-read-limit");
@@ -160,7 +185,7 @@ internal sealed class ArchiveInspectionBudget
                 AddIssue("archive:entry-read-limit");
         }
 
-        return new BudgetedReadStream(entry.Open(), allowance, bytes => _bytesRead += bytes);
+        return allowance;
     }
 
     internal string? ReadText(ZipArchiveEntry entry)
@@ -266,13 +291,15 @@ internal sealed class ArchiveInspectionBudget
     {
         private readonly Stream _inner;
         private readonly Action<int> _onRead;
+        private readonly bool _leaveOpen;
         private long _remaining;
 
-        internal BudgetedReadStream(Stream inner, long allowance, Action<int> onRead)
+        internal BudgetedReadStream(Stream inner, long allowance, Action<int> onRead, bool leaveOpen = false)
         {
             _inner = inner;
             _remaining = allowance;
             _onRead = onRead;
+            _leaveOpen = leaveOpen;
         }
 
         public override bool CanRead => true;
@@ -301,7 +328,7 @@ internal sealed class ArchiveInspectionBudget
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
+            if (disposing && !_leaveOpen)
                 _inner.Dispose();
             base.Dispose(disposing);
         }

@@ -50,7 +50,8 @@ public static partial class FileInspector
                         {
                             int sample = (int)Math.Min(64, size);
                             var head = new byte[sample];
-                            int nhead = fs.Read(head, 0, head.Length);
+                            using var payload = budget.OpenTarPayload(fs, size, sample);
+                            int nhead = payload == null ? 0 : ReadAvailable(payload, head, 0, head.Length);
                             if (nhead > 0)
                             {
                                 var span = new ReadOnlySpan<byte>(head, 0, nhead);
@@ -76,14 +77,16 @@ public static partial class FileInspector
                             try
                             {
                                 int cap = (int)Math.Min(size, deepBytes);
+                                using var payload = budget.OpenTarPayload(fs, size, cap);
+                                if (payload == null) continue;
                                 tmp = System.IO.Path.GetTempFileName();
+                                int left = cap;
                                 using (var outFs = System.IO.File.Create(tmp))
                                 {
-                                    int left = cap;
                                     var buf = new byte[Math.Min(8192, cap)];
                                     while (left > 0)
                                     {
-                                        int r = fs.Read(buf, 0, Math.Min(buf.Length, left));
+                                        int r = payload.Read(buf, 0, Math.Min(buf.Length, left));
                                         if (r <= 0) break;
                                         outFs.Write(buf, 0, r);
                                         left -= r;
@@ -91,6 +94,8 @@ public static partial class FileInspector
                                 }
                                 if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
                                 else fs.Seek(0, SeekOrigin.End);
+
+                                if (left > 0) continue;
 
                                 var ia = FileInspector.Analyze(tmp);
                                 deepScanned++;

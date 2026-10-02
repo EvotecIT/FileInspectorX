@@ -14,9 +14,7 @@ internal sealed class TarInspectionReader
     private readonly byte[] _header = new byte[512];
     private readonly Dictionary<string, string> _global = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _local = new(StringComparer.Ordinal);
-    private readonly long _metadataLimit = Math.Max(1, Settings.ArchiveMaxEntryReadBytes);
-    private readonly long _totalMetadataLimit = Math.Max(1, Settings.ArchiveMaxTotalReadBytes);
-    private long _metadataBytes;
+    private bool _hasSparseMetadata;
     private long _nextHeader;
     private bool _ended;
 
@@ -52,31 +50,22 @@ internal sealed class TarInspectionReader
                 if (Type is (byte)'x' or (byte)'g' or (byte)'L' or (byte)'K')
                 {
                     SetNextHeader();
-                    if (Size > _metadataLimit || Size > _totalMetadataLimit - _metadataBytes || Size > int.MaxValue)
-                        return Fail("tar:metadata-read-limit");
-                    var bytes = new byte[(int)Size];
-                    if (ReadFully(bytes) != bytes.Length) return Fail("tar:truncated-metadata");
-                    _metadataBytes += Size;
+                    var bytes = _budget.ReadTarMetadata(_stream, Size);
+                    if (bytes == null || bytes.LongLength != Size) return Fail("tar:metadata-read-limit");
                     if (Type == (byte)'L') _local["path"] = CString(bytes);
                     else if (Type == (byte)'K') _local["linkpath"] = CString(bytes);
                     else ReadPax(bytes, Type == (byte)'g' ? _global : _local);
                     continue;
                 }
-                var effective = new Dictionary<string, string>(_global, StringComparer.Ordinal);
-                foreach (var pair in _local)
-                {
-                    if (pair.Value.Length == 0) effective.Remove(pair.Key);
-                    else effective[pair.Key] = pair.Value;
-                }
-                _local.Clear();
-                if (effective.TryGetValue("path", out var name)) Name = name;
-                if (effective.TryGetValue("linkpath", out var link)) LinkName = link;
-                if (effective.TryGetValue("size", out var size))
+                if (EffectiveValue("path") is string name) Name = name;
+                if (EffectiveValue("linkpath") is string link) LinkName = link;
+                if (EffectiveValue("size") is string size)
                 {
                     if (!long.TryParse(size, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)) return Fail("tar:invalid-size");
                     Size = parsed;
                 }
-                if (Type == (byte)'S' || effective.Keys.Any(key => key.StartsWith("GNU.sparse", StringComparison.Ordinal)))
+                _local.Clear();
+                if (Type == (byte)'S' || _hasSparseMetadata)
                     return Fail("tar:sparse-unsupported");
                 SetNextHeader();
                 return true;
@@ -93,6 +82,12 @@ internal sealed class TarInspectionReader
     }
 
     private bool Fail(string issue) { _budget.AddIssue(issue); _ended = true; return false; }
+
+    private string? EffectiveValue(string key)
+    {
+        if (_local.TryGetValue(key, out var local)) return local.Length == 0 ? null : local;
+        return _global.TryGetValue(key, out var global) && global.Length > 0 ? global : null;
+    }
 
     private int ReadFully(byte[] buffer)
     {
@@ -125,7 +120,7 @@ internal sealed class TarInspectionReader
         return value;
     }
 
-    private static void ReadPax(byte[] bytes, Dictionary<string, string> target)
+    private void ReadPax(byte[] bytes, Dictionary<string, string> target)
     {
         int offset = 0;
         while (offset < bytes.Length)
@@ -138,7 +133,9 @@ internal sealed class TarInspectionReader
             int equals = record.IndexOf('=');
             if (equals <= 0) throw new InvalidDataException("Invalid PAX key.");
             string key = record.Substring(0, equals), value = record.Substring(equals + 1);
-            target[key] = value;
+            if (key.StartsWith("GNU.sparse", StringComparison.Ordinal)) _hasSparseMetadata = true;
+            // Unused vendor attributes do not accumulate or multiply work per file entry.
+            if (key is "path" or "linkpath" or "size") target[key] = value;
             offset += length;
         }
     }

@@ -4,9 +4,8 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static void AnalyzeContainers(string path, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res)
+    private static void AnalyzeContainers(string path, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res, bool includeInstaller)
     {
-        bool includeInstaller = ShouldIncludeInstaller(options);
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
             if (det.Extension is "b64" or "hex" or "b85" or "uu" or "qp")
             {

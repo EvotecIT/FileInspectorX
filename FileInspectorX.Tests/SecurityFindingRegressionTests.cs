@@ -300,6 +300,14 @@ public sealed class SecurityFindingRegressionTests
 
             Assert.Null(excluded.Installer);
             Assert.Equal(expectedKind, included.Installer?.Kind);
+            var previous = Settings.IncludeInstaller;
+            try
+            {
+                Settings.IncludeInstaller = true;
+                Assert.Equal(expectedKind, FileInspector.Analyze(path).Installer?.Kind);
+                Assert.Null(FileInspector.Analyze(path, new FileInspector.DetectionOptions { IncludeInstaller = false }).Installer);
+            }
+            finally { Settings.IncludeInstaller = previous; }
         }
         finally
         {
