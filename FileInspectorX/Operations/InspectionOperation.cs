@@ -13,13 +13,27 @@ internal sealed class InspectionOperation : IDisposable
     internal static InspectionOperation? Current => _current;
     internal InspectionSettings? Settings { get; }
     internal FileInspector.DetectionOptions Options { get; }
+    internal bool RetainUnknownDetection { get; }
+    internal OperationMetricCollector? Metrics { get; }
+    private readonly long[]? _metricStart;
+    private readonly long _startTime;
 
-    private InspectionOperation(FileInspector.DetectionOptions? options)
+    private InspectionOperation(FileInspector.DetectionOptions? options, bool retainUnknownDetection)
     {
+        // Inherited instrumentation must not change the nullable results of nested callers
+        // that did not themselves request metrics.
+        RetainUnknownDetection = retainUnknownDetection && options?.CollectMetrics == true;
         _previous = _current;
         Settings = options?.Settings ?? _previous?.Settings;
         Options = options?.Copy() ?? new FileInspector.DetectionOptions { IncludeInstaller = Settings?.IncludeInstaller ?? FileInspectorX.Settings.IncludeInstaller };
         Options.Settings = Settings;
+        Metrics = _previous?.Metrics ?? (Options.CollectMetrics ? new OperationMetricCollector() : null);
+        if (Metrics != null)
+        {
+            Options.CollectMetrics = true;
+            _metricStart = Metrics.Capture();
+            _startTime = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
         var parentToken = _previous?.Options.CancellationToken ?? default;
         if (parentToken.CanBeCanceled && Options.CancellationToken != parentToken)
         {
@@ -35,7 +49,7 @@ internal sealed class InspectionOperation : IDisposable
         _current = this;
     }
 
-    internal static InspectionOperation Begin(FileInspector.DetectionOptions? options) => new(options);
+    internal static InspectionOperation Begin(FileInspector.DetectionOptions? options, bool retainUnknownDetection = false) => new(options, retainUnknownDetection);
 
     internal static FileInspector.DetectionOptions Capture(FileInspector.DetectionOptions? options)
     {
@@ -46,6 +60,9 @@ internal sealed class InspectionOperation : IDisposable
     }
 
     internal static void CheckCancellation() => _current?.Options.CancellationToken.ThrowIfCancellationRequested();
+
+    internal OperationMetricCollector.MetricScope? Measure(InspectionStage stage) => Metrics?.Measure(stage);
+    internal InspectionMetrics? SnapshotMetrics() => Metrics?.Snapshot(_metricStart!, _startTime);
 
     public void Dispose()
     {

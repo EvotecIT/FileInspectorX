@@ -35,6 +35,12 @@ public sealed class DetectionView
     public string? MagicHeaderHex { get; set; }
     /// <summary>Optional learned-classification evidence when explicitly enabled.</summary>
     public LearnedClassificationEvidence? LearnedClassification { get; set; }
+    /// <summary>Typed content recognition status.</summary>
+    public InspectionInputStatus InputStatus { get; set; }
+    /// <summary>Typed structured validation outcome.</summary>
+    public StructuredValidationOutcome StructuredValidation { get; set; }
+    /// <summary>Opt-in immutable detection measurements.</summary>
+    public InspectionMetrics? Metrics { get; set; }
     /// <summary>The full analysis object for deep inspection.</summary>
     public FileAnalysis? Raw { get; set; }
 
@@ -57,6 +63,9 @@ public sealed class DetectionView
         Sha256Hex = r.Sha256Hex,
         MagicHeaderHex = r.MagicHeaderHex,
         LearnedClassification = r.LearnedClassification,
+        InputStatus = r.InputStatus,
+        StructuredValidation = r.StructuredValidation,
+        Metrics = r.Metrics,
         Raw = null
     };
 }

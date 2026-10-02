@@ -3,9 +3,6 @@ using System.Threading;
 namespace FileInspectorX;
 
 /// <summary>
-/// Lightweight, process-wide metrics for instrumentation. Public so hosts can read counters in heartbeats.
-/// </summary>
-/// <summary>
 /// Lightweight, process-wide metrics for instrumentation. Hosts may read these in heartbeats.
 /// </summary>
 public static class InspectorMetrics

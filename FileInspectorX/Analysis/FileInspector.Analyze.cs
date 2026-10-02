@@ -22,7 +22,7 @@ public static partial class FileInspector {
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         ContentTypeDetectionResult? det;
-        try { det = DetectPathCore(path, options, propagateReadFailure: true); }
+        try { using var timing = operation.Measure(InspectionStage.Detection); det = DetectPathCore(path, options, propagateReadFailure: true); }
         catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException and not OperationCanceledException)
         {
             return InputFailureAnalysis(options);
@@ -42,8 +42,8 @@ public static partial class FileInspector {
         try {
             if (det is null)
             {
-                if (options.IncludeAssessment) { res.Assessment = Assess(res); res.AssessmentProfiles = AssessMulti(res.Assessment); }
-                return res;
+                if (options.IncludeAssessment) { using var timing = operation.Measure(InspectionStage.Assessment); res.Assessment = Assess(res); res.AssessmentProfiles = AssessMulti(res.Assessment); }
+                return CompleteAnalysis(res, options);
             }
             string? headTextCached = null;
             int headTextCap = 0;
@@ -61,7 +61,8 @@ public static partial class FileInspector {
             }
 
             InspectionOperation.CheckCancellation();
-            AnalyzeContainers(path, options, det, res, includeInstaller);
+            using (operation.Measure(InspectionStage.Container))
+                AnalyzeContainers(path, options, det, res, includeInstaller);
             InspectionOperation.CheckCancellation();
 
             // MSI metadata enrichment (Windows): product version via msi.dll
@@ -653,6 +654,7 @@ public static partial class FileInspector {
             InspectionOperation.CheckCancellation();
             if (options?.IncludeAssessment != false)
             {
+                using var timing = operation.Measure(InspectionStage.Assessment);
                 res.Assessment = Assess(res);
                 res.AssessmentProfiles = AssessMulti(res.Assessment);
             }
@@ -671,7 +673,7 @@ public static partial class FileInspector {
         {
             Breadcrumbs.Write("ANALYZE_END", path: path);
         }
-        return res;
+        return CompleteAnalysis(res, operation.Options);
     }
 
     /// <summary>

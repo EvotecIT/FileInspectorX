@@ -16,6 +16,18 @@
     <command:syntax>
       <command:syntaxItem parameterSetName="Path">
         <maml:name>Get-FileInsight</maml:name>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>CollectMetrics</maml:name>
+          <maml:description>
+            <maml:para>Capture per-operation read, hash, archive and classifier counters and stage timings.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>ComputeSha256</maml:name>
           <maml:description>
@@ -247,6 +259,18 @@ Required reports a terminating per-file error.</maml:para>
       </command:syntaxItem>
     </command:syntax>
     <command:parameters>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+        <maml:name>CollectMetrics</maml:name>
+        <maml:description>
+          <maml:para>Capture per-operation read, hash, archive and classifier counters and stage timings.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>ComputeSha256</maml:name>
         <maml:description>

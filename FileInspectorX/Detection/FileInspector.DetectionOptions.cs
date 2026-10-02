@@ -12,6 +12,9 @@ public static partial class FileInspector
         /// <summary>Cooperative cancellation checked at library computation and I/O boundaries.</summary>
         public System.Threading.CancellationToken CancellationToken { get; set; }
 
+        /// <summary>Capture per-operation read/hash/archive/classifier counters and inclusive stage timings. Default false.</summary>
+        public bool CollectMetrics { get; set; }
+
         internal DetectionOptions Copy() => (DetectionOptions)MemberwiseClone();
 
         /// <summary>When true, computes a SHA-256 hash of the full stream/file and exposes it on <see cref="ContentTypeDetectionResult.Sha256Hex"/>.</summary>

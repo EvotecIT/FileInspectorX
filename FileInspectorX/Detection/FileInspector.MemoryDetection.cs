@@ -41,7 +41,8 @@ public static partial class FileInspector
     }
 
     private static ContentTypeDetectionResult? DetectCore(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? dataMemory, DetectionOptions? options, string? declaredExtension) {
-        using var operation = InspectionOperation.Begin(options);
+        using var operation = InspectionOperation.Begin(options, retainUnknownDetection: true);
+        using var timing = operation.Measure(InspectionStage.Detection);
         options = operation.Options;
         ValidateLearnedClassificationMode(options);
         var learnedData = options.LearnedClassificationMode != LearnedClassificationMode.Off
@@ -50,9 +51,11 @@ public static partial class FileInspector
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
         {
             var biased = ApplyDeclaredBias(det, declaredExtension);
-            return learnedData.HasValue
+            var result = learnedData.HasValue
                 ? ApplyLearnedClassification(biased, learnedData.Value, options)
                 : biased;
+            timing?.Dispose();
+            return CompleteDetection(result);
         }
         if (Signatures.TryMatchCompleteContainers(data, out var completeContainer)) return Finish(Enrich(completeContainer, data, null, options));
         if (Signatures.TryMatchCommonBinary(data, data.Length, out var commonBinary)) return Finish(Enrich(commonBinary, data, null, options));

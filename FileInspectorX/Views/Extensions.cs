@@ -22,6 +22,8 @@ public static class ViewExtensions
     {
         var d = a.Detection ?? new ContentTypeDetectionResult();
         var v = DetectionView.From(path, d);
+        v.InputStatus = a.InputStatus;
+        v.Metrics = a.Metrics;
         v.Raw = a;
         return v;
     }

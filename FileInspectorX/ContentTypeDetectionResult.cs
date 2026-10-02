@@ -4,6 +4,23 @@ namespace FileInspectorX;
 /// Result of content type detection using built-in FileInspector.
 /// </summary>
 public class ContentTypeDetectionResult {
+    /// <summary>Typed recognition status. Unknown content may still have a hash or header capture.</summary>
+    public InspectionInputStatus InputStatus => string.IsNullOrWhiteSpace(Extension) ? InspectionInputStatus.Unrecognized : InspectionInputStatus.Recognized;
+
+    /// <summary>Typed counterpart of <see cref="ValidationStatus"/>. Failed validation is a negative validation result.</summary>
+    public StructuredValidationOutcome StructuredValidation => ValidationStatus?.ToLowerInvariant() switch
+    {
+        "passed" => StructuredValidationOutcome.Passed,
+        "failed" => StructuredValidationOutcome.Failed,
+        "skipped" => StructuredValidationOutcome.Skipped,
+        "timeout" => StructuredValidationOutcome.TimedOut,
+        "unavailable" => StructuredValidationOutcome.Unavailable,
+        _ => StructuredValidationOutcome.NotAttempted
+    };
+
+    /// <summary>Immutable measurements for a public Detect call when CollectMetrics was requested. Use FileAnalysis.Metrics for analysis calls.</summary>
+    public InspectionMetrics? Metrics { get; internal set; }
+
     /// <summary>Detected canonical extension (without leading dot), e.g., "png".</summary>
     public string Extension { get; set; } = string.Empty;
 
@@ -23,7 +40,7 @@ public class ContentTypeDetectionResult {
     /// </summary>
     public string? ReasonDetails { get; set; }
     /// <summary>
-    /// Structured validation status when applicable: "passed", "timeout", "skipped", "failed".
+    /// Structured validation status when applicable: "passed", "timeout", "skipped", "failed", "unavailable".
     /// Null when validation was not attempted.
     /// </summary>
     public string? ValidationStatus { get; set; }

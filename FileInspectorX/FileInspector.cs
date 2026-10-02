@@ -263,7 +263,7 @@ public static partial class FileInspector {
         InspectionOperation.CheckCancellation();
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var token = InspectionOperation.Current?.Options.CancellationToken ?? default;
-        return token.CanBeCanceled ? new OperationReadStream(stream, token, leaveOpen: false) : stream;
+        return OperationReadStream.Wrap(stream, token, leaveOpen: false);
     }
 
     private static void ValidateLearnedClassificationMode(DetectionOptions options) {
@@ -449,6 +449,7 @@ public static partial class FileInspector {
                     bool allowQuick = threshold > 0 && len >= threshold;
                     if (allowQuick)
                     {
+                        using var quickTiming = operation.Measure(InspectionStage.Detection);
                         using var quickStream = OpenReadShared(path);
                         if (TryMatchEtlMagic(quickStream))
                         {
@@ -496,7 +497,8 @@ public static partial class FileInspector {
                             };
                             PopulateDetectionSummary(quick);
                             Breadcrumbs.Write("ETL_QUICK_END", message: reason, path: path);
-                            return quick;
+                            quickTiming?.Dispose();
+                            return CompleteAnalysis(quick, options, quick: true);
                         }
                     }
                 }
@@ -509,9 +511,9 @@ public static partial class FileInspector {
             if (options.DetectOnly)
             {
                 ContentTypeDetectionResult? det;
-                try { det = DetectPathCore(path, options, propagateReadFailure: true); }
+                try { using var timing = operation.Measure(InspectionStage.Detection); det = DetectPathCore(path, options, propagateReadFailure: true); }
                 catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException and not OperationCanceledException)
-                { return InputFailureAnalysis(options); }
+                { return InputFailureAnalysis(options, detectionOnly: true); }
                 var detectedOnly = new FileAnalysis {
                     SettingsSnapshot = options.Settings,
                     Detection = det,
@@ -519,9 +521,11 @@ public static partial class FileInspector {
                     Flags = ContentFlags.None
                 };
                 PopulateDetectionSummary(detectedOnly);
-                return detectedOnly;
+                return CompleteAnalysis(detectedOnly, options, detectionOnly: true);
             }
-        return Analyze(path, options);
+        var analysis = Analyze(path, options);
+        analysis.Metrics = operation.SnapshotMetrics();
+        return analysis;
     }
 
     private static string NormalizeMime(string ext, string mime) {
