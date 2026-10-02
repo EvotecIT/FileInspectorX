@@ -19,14 +19,15 @@ public static partial class FileInspector
     private static void TryPopulateTextMetrics(
         FileAnalysis res,
         ContentTypeDetectionResult? det,
-        string path,
+        InspectionInput input,
         Func<int, string>? readHeadText = null)
     {
+        var path = input.Name;
         try
         {
             if (det == null) return;
             if (res.EstimatedLineCount == null && InspectHelpers.IsText(det))
-                res.EstimatedLineCount = EstimateLines(path, OperationSettings.DetectionReadBudgetBytes);
+                res.EstimatedLineCount = EstimateLines(input, OperationSettings.DetectionReadBudgetBytes);
 
             if (!OperationSettings.TopTokensEnabled) return;
             int max = Math.Max(0, OperationSettings.TopTokensMax);
@@ -43,7 +44,7 @@ public static partial class FileInspector
             int maxBytes = OperationSettings.TopTokensMaxBytes;
             if (maxBytes <= 0) maxBytes = OperationSettings.DetectionReadBudgetBytes;
             int cap = Math.Min(OperationSettings.DetectionReadBudgetBytes, maxBytes);
-            var text = readHeadText != null ? readHeadText(cap) : ReadHeadText(path, cap);
+            var text = readHeadText != null ? readHeadText(cap) : ReadHeadText(input, cap);
             if (string.IsNullOrEmpty(text)) return;
 
             var tokens = ExtractTopTokens(text, max, minLen, minCount, maxUnique);

@@ -43,6 +43,7 @@ public static partial class FileInspector
             detectionOnly || !options.IncludeAssessment ? InspectionStageStatus.NotRequested : InspectionStageStatus.Unavailable,
             !detectionOnly && options.IncludeAssessment && result.Assessment == null
                 ? new[] { quick ? "assessment:quick-scan" : "assessment:unavailable" } : Array.Empty<string>()));
+        if (!result.HasFileSystemSource) AddPortablePathStageOutcomes(stages, result, options, detectionOnly);
         result.StageOutcomes = Array.AsReadOnly(stages.ToArray());
         result.Metrics = InspectionOperation.Current?.SnapshotMetrics();
         return result;

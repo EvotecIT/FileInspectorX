@@ -3,7 +3,7 @@ namespace FileInspectorX;
 public static partial class FileInspector
 {
     private static void TryInspectTar(
-        string path,
+        InspectionInput input, DetectionOptions? options,
         out int? entryCount,
         out IReadOnlyList<string>? topExtensions,
         out bool hasExecutables,
@@ -14,6 +14,7 @@ public static partial class FileInspector
         out int innerSignedSampled,
         out int innerValidSignedSampled,
         out Dictionary<string, int>? innerPublisherSample, out ContentFlags safetyFlags, out ArchiveInspectionBudget budget) {
+        var path = input.Name;
         safetyFlags = ContentFlags.None;
         budget = ArchiveInspectionBudget.FromSettings();
         entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null;
@@ -23,7 +24,7 @@ public static partial class FileInspector
         var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
         int deepScanned = 0; int deepMax = OperationSettings.DeepContainerMaxEntries; int deepBytes = OperationSettings.DeepContainerMaxEntryBytes; bool deep = OperationSettings.DeepContainerScanEnabled;
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int count = 0;
             var reader = new TarInspectionReader(fs, budget);
@@ -73,22 +74,20 @@ public static partial class FileInspector
                         // 2) Deep signers sampling for executable entries within budget
                         if (deep && IsExecutableName(name) && size <= deepBytes && deepScanned < deepMax)
                         {
-                            string? tmp = null;
                             try
                             {
                                 int cap = (int)Math.Min(size, deepBytes);
                                 using var payload = budget.OpenTarPayload(fs, size, cap);
                                 if (payload == null) continue;
-                                tmp = System.IO.Path.GetTempFileName();
                                 int left = cap;
-                                using (var outFs = System.IO.File.Create(tmp))
+                                using var entryInput = new MemoryStream();
                                 {
                                     var buf = new byte[Math.Min(8192, cap)];
                                     while (left > 0)
                                     {
                                         int r = payload.Read(buf, 0, Math.Min(buf.Length, left));
                                         if (r <= 0) break;
-                                        outFs.Write(buf, 0, r);
+                                        entryInput.Write(buf, 0, r);
                                         left -= r;
                                     }
                                 }
@@ -97,7 +96,8 @@ public static partial class FileInspector
 
                                 if (left > 0) continue;
 
-                                var ia = FileInspector.Analyze(tmp);
+                                var childOptions = CreateInnerAnalysisOptions(options, GetNestedContainerBudget(options), options?.NestedContainerDepth ?? 0, includeContainer: false);
+                                var ia = AnalyzeArchiveChild(input, entryInput, name, childOptions, budget, nativeSignerSampling: true);
                                 deepScanned++;
                                 innerExecutablesSampled++;
                                 if (ia?.Authenticode?.Present == true)
@@ -116,13 +116,6 @@ public static partial class FileInspector
                                 if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
                                 else fs.Seek(0, SeekOrigin.End);
                                 continue;
-                            }
-                            finally
-                            {
-                                if (!string.IsNullOrEmpty(tmp))
-                                {
-                                    try { System.IO.File.Delete(tmp); } catch { }
-                                }
                             }
                         }
                         // 3) Not sampled – skip entire entry payload to next header

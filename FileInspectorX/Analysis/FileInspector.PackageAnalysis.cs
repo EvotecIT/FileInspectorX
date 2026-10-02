@@ -6,12 +6,13 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static void TryPopulateAppxSignature(string path, FileAnalysis res)
+    private static void TryPopulateAppxSignature(InspectionInput input, FileAnalysis res)
     {
+        var path = input.Name;
 #if NET8_0_OR_GREATER || NET472
         var budget = ArchiveInspectionBudget.FromSettings();
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var sigEntry = za.GetEntry("AppxSignature.p7x") ?? za.GetEntry("AppxSignature.p7s");
@@ -40,11 +41,12 @@ public static partial class FileInspector
 #endif
     }
 
-    private static string ReadFirstLine(string path, int max) {
+    private static string ReadFirstLine(InspectionInput input, int max) {
+        var path = input.Name;
         try {
-            using var sr = new StreamReader(OperationReadStream.Open(path));
+            using var sr = new StreamReader(input.OpenRead());
             char[] buf = new char[Math.Max(2, max)];
-            int n = sr.Read(buf, 0, buf.Length);
+            int n = sr.ReadBlock(buf, 0, buf.Length);
             var s = new string(buf, 0, n);
             int nl = s.IndexOf('\n');
             return nl >= 0 ? s.Substring(0, nl) : s;
@@ -82,9 +84,10 @@ public static partial class FileInspector
         };
     }
 
-    private static bool LooksMinifiedJs(string path, int cap, int minLen, int avgLineThreshold, double densityThreshold, string? headText = null) {
+    private static bool LooksMinifiedJs(InspectionInput input, int cap, int minLen, int avgLineThreshold, double densityThreshold, string? headText = null) {
+        var path = input.Name;
         try {
-            var text = headText ?? ReadHeadText(path, Math.Min(cap, 512 * 1024));
+            var text = headText ?? ReadHeadText(input, Math.Min(cap, 512 * 1024));
             if (string.IsNullOrEmpty(text) || text.Length < minLen) return false;
             int lines = 1; for (int i = 0; i < text.Length; i++) if (text[i] == '\n') lines++;
             int nonWs = 0; for (int i = 0; i < text.Length; i++) { char c = text[i]; if (!char.IsWhiteSpace(c)) nonWs++; }
@@ -95,12 +98,13 @@ public static partial class FileInspector
         } catch { return false; }
     }
 
-    private static int? EstimateLines(string path, int cap) {
+    private static int? EstimateLines(InspectionInput input, int cap) {
+        var path = input.Name;
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             long len = Math.Min(fs.Length, cap);
             var buf = new byte[(int)len];
-            int n = fs.Read(buf, 0, buf.Length);
+            int n = ReadAvailable(fs, buf, 0, buf.Length);
             if (n <= 0) return 0;
             int lines = 0; for (int i = 0; i < n; i++) if (buf[i] == (byte)'\n') lines++;
             if (fs.Length > n && n > 0) {
@@ -116,10 +120,11 @@ public static partial class FileInspector
         return s.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    private static bool IsPe(string path, out string? machine, out string? subsystem, out bool hasClr, out bool hasSec) {
+    private static bool IsPe(InspectionInput input, out string? machine, out string? subsystem, out bool hasClr, out bool hasSec) {
+        var path = input.Name;
         machine = null; subsystem = null; hasClr = false; hasSec = false;
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             var br = new BinaryReader(fs);
             if (fs.Length < 0x40) return false;
             if (br.ReadByte() != 0x4D || br.ReadByte() != 0x5A) return false; // MZ

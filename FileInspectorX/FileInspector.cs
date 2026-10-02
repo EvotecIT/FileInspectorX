@@ -253,7 +253,7 @@ public static partial class FileInspector {
         try {
             using var fs = OpenReadShared(path);
             var buf = new byte[Math.Min(bytes, 1 << 20)]; // cap at 1MB for safety
-            var read = fs.Read(buf, 0, buf.Length);
+            var read = ReadAvailable(fs, buf, 0, buf.Length);
             return MagicHeaderHex(new ReadOnlySpan<byte>(buf, 0, read), bytes);
         } catch { return string.Empty; }
     }
@@ -374,14 +374,15 @@ public static partial class FileInspector {
     /// Best-effort scan for TargetFramework moniker in managed binaries by searching ASCII/UTF-16 strings.
     /// Returns a compact TFM like ".NETFramework,Version=v4.7.2" or ".NETCoreApp,Version=v8.0" when found.
     /// </summary>
-    internal static string? TryDetectTargetFramework(string path, int byteBudget)
+    internal static string? TryDetectTargetFramework(InspectionInput input, int byteBudget)
     {
+        var path = input.Name;
         try
         {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             int cap = (int)Math.Min(Math.Max(64 * 1024, byteBudget), Math.Min(fs.Length, (long)byteBudget));
             var buf = new byte[cap];
-            int n = fs.Read(buf, 0, buf.Length); if (n <= 0) return null;
+            int n = ReadAvailable(fs, buf, 0, buf.Length); if (n <= 0) return null;
             string ascii = System.Text.Encoding.ASCII.GetString(buf, 0, n);
             string uni = n >= 2 ? System.Text.Encoding.Unicode.GetString(buf, 0, n - (n % 2)) : string.Empty;
             string? Extract(string s)
@@ -400,11 +401,12 @@ public static partial class FileInspector {
             return Extract(ascii) ?? Extract(uni);
         } catch { return null; }
     }
-    private static void TryParseP7b(string path, FileAnalysis res)
+    private static void TryParseP7b(InspectionInput input, FileAnalysis res)
     {
+        var path = input.Name;
         try
         {
-            if (!TryReadFileBytesWithinBudget(path, GetCertificateParseReadBudgetBytes(), out var raw)) return;
+            if (!TryReadFileBytesWithinBudget(input, GetCertificateParseReadBudgetBytes(), out var raw)) return;
             var cms = new System.Security.Cryptography.Pkcs.SignedCms();
             cms.Decode(raw);
             var certs = cms.Certificates;
@@ -665,5 +667,7 @@ public static partial class FileInspector {
     }
 
     private static char NibbleToHexLower(int v) => (char)(v < 10 ? ('0' + v) : ('a' + (v - 10)));
+    internal static string? TryDetectTargetFramework(string path, int byteBudget)
+        => TryDetectTargetFramework(InspectionInput.FromPath(path), byteBudget);
 }
 

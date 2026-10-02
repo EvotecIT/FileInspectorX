@@ -53,7 +53,17 @@ public enum InspectionStage
     /// <summary>Supported ZIP/OOXML and TAR container inspection.</summary>
     Container,
     /// <summary>Risk assessment and assessment profiles.</summary>
-    Assessment
+    Assessment,
+    /// <summary>Filesystem permissions, ownership and alternate-stream enrichment.</summary>
+    Permissions,
+    /// <summary>Native installer metadata that requires a filesystem path.</summary>
+    Installer,
+    /// <summary>Operating-system trust policy verification that requires a filesystem path.</summary>
+    AuthenticodePolicy,
+    /// <summary>Filesystem shell-property enrichment.</summary>
+    ShellProperties,
+    /// <summary>Native or external ETL trace validation that requires a filesystem path.</summary>
+    EtlValidation
 }
 
 /// <summary>Completion of one inspection boundary.</summary>

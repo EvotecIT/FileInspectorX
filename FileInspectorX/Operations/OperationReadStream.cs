@@ -9,11 +9,19 @@ internal sealed class OperationReadStream : Stream
     private readonly CancellationToken _token;
     private readonly bool _leaveOpen;
     private readonly OperationMetricCollector? _metrics;
+    private readonly long? _restorePosition;
+    private bool _disposed;
 
-    private OperationReadStream(Stream inner, CancellationToken token, bool leaveOpen, OperationMetricCollector? metrics)
-    { _inner = inner; _token = token; _leaveOpen = leaveOpen; _metrics = metrics; }
+    private OperationReadStream(Stream inner, CancellationToken token, bool leaveOpen, OperationMetricCollector? metrics, long? restorePosition = null)
+    { _inner = inner; _token = token; _leaveOpen = leaveOpen; _metrics = metrics; _restorePosition = restorePosition; }
 
     internal static Stream Wrap(Stream stream, CancellationToken token, bool leaveOpen)
+    {
+        var metrics = MetricsFor(stream);
+        return token.CanBeCanceled || metrics != null ? new OperationReadStream(stream, token, leaveOpen, metrics) : stream;
+    }
+
+    private static OperationMetricCollector? MetricsFor(Stream stream)
     {
         var metrics = InspectionOperation.Current?.Metrics;
         // A cancellation wrapper around an already instrumented stream must not count the same read twice.
@@ -22,7 +30,14 @@ internal sealed class OperationReadStream : Stream
             for (var candidate = stream as OperationReadStream; candidate != null; candidate = candidate._inner as OperationReadStream)
                 if (candidate._metrics == metrics) { metrics = null; break; }
         }
-        return token.CanBeCanceled || metrics != null ? new OperationReadStream(stream, token, leaveOpen, metrics) : stream;
+        return metrics;
+    }
+
+    internal static Stream BorrowRetained(Stream stream, CancellationToken token)
+    {
+        long position = stream.Position;
+        stream.Seek(0, SeekOrigin.Begin);
+        return new OperationReadStream(stream, token, leaveOpen: true, MetricsFor(stream), position);
     }
 
     internal static Stream Borrow(Stream stream, CancellationToken token)
@@ -70,7 +85,15 @@ internal sealed class OperationReadStream : Stream
 #endif
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !_leaveOpen) _inner.Dispose();
+        if (disposing && !_disposed)
+        {
+            _disposed = true;
+            if (_restorePosition.HasValue)
+            {
+                try { _inner.Seek(_restorePosition.Value, SeekOrigin.Begin); } catch { }
+            }
+            if (!_leaveOpen) _inner.Dispose();
+        }
         base.Dispose(disposing);
     }
     public override void Flush() { }

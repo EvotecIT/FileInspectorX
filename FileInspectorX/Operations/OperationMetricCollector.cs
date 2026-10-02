@@ -8,7 +8,7 @@ namespace FileInspectorX;
 internal sealed class OperationMetricCollector
 {
     private const int CounterCount = 8;
-    private const int StageCount = 6;
+    private const int StageCount = (int)InspectionStage.EtlValidation + 1;
     private readonly long[] _counts = new long[CounterCount + StageCount * 2];
 
     internal void Read(int bytes) { Interlocked.Increment(ref _counts[0]); Interlocked.Add(ref _counts[1], bytes); }

@@ -305,6 +305,25 @@ if (!full.AnalysisComplete) {
 Assessments return `Defer` in that case, across all assessment profiles, so automation cannot
 treat partial evidence as an allow decision.
 
+`Analyze` and `Inspect` also accept `Stream`, `byte[]`, `ReadOnlyMemory<byte>` and `ReadOnlySpan<byte>` inputs. They use the same content analyzers for archives, PE metadata, certificates, scripts, references and structured text. The optional `fileName` supplies a name or extension hint; it is never opened as a path.
+
+```csharp
+var options = new FileInspector.DetectionOptions {
+    Settings = InspectionSettings.CaptureDefaults(),
+    IncludePermissions = false,
+    IncludeShellProperties = false,
+    IncludeInstaller = false,
+    ComputeSha256 = true,
+    CollectMetrics = true
+};
+var uploaded = FileInspector.Analyze(uploadBytes.AsMemory(), options, fileName: "upload.docx");
+var streamed = FileInspector.Inspect(seekableUploadStream, options, fileName: "upload.zip");
+```
+
+Full stream analysis requires readable, seekable input, reads complete content from offset zero under the configured limits, and restores the caller's position without closing the stream. Detection-only `Inspect` also accepts forward-only input. Array and memory analysis borrow the content; span analysis finishes within the synchronous call and uses a memory bridge when learned classification is requested. Callers must keep borrowed content stable during inspection.
+
+Portable input has no filesystem identity. Requested permissions, shell properties, MSI installer metadata, native Authenticode policy verification and native/external ETL validation report an explicit unavailable stage with a `:path-required` issue when applicable. Embedded signatures and certificate metadata can still be read from content. Disable path-dependent options when those checks are outside the requested inspection; the default permissions option otherwise makes portable analysis partial. Portable archive children use bounded memory input, and missing native trust evidence or incomplete child analysis propagates to the parent archive. Native signer sampling from a real path may use a temporary child file for Windows trust verification.
+
 Unreadable or missing input produces the stable issue `input:read-failed`; assessment defers instead of treating it as a completed inspection. A readable file whose type is unknown remains distinct from a read failure.
 
 `InputStatus` distinguishes `Recognized`, `Unrecognized`, and `Unreadable` input. `Outcome` reports `Complete`, `Partial`, or `InputUnavailable`; `StageOutcomes` records detection, structured validation, SHA-256, learned classification, supported container inspection, and assessment. A validation failure means the validator rejected the content; a skipped or timed-out validation means its evidence is partial. Optional classifier failures and stages skipped by the large-ETL quick scan are also visible in the typed outcome. These properties supplement the compatibility `AnalysisComplete` flag and do not change assessment policy. Callers that require every requested boundary to finish can require `Outcome == InspectionOutcome.Complete` before using the evidence.

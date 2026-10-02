@@ -7,6 +7,8 @@ namespace FileInspectorX;
 public class FileAnalysis {
     // Retain immutable policy for projections and later assessments without holding an operation/token.
     internal InspectionSettings? SettingsSnapshot { get; init; }
+    internal bool HasFileSystemSource { get; init; } = true;
+    internal string SourceFileName { get; init; } = string.Empty;
 
     /// <summary>Distinguishes unreadable input from readable but unrecognized content.</summary>
     public InspectionInputStatus InputStatus => AnalysisIssues?.Contains("input:read-failed") == true

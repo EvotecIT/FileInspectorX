@@ -495,13 +495,14 @@ public static partial class FileInspector
 
     internal static void RefreshDerivedAnalysisAfterLearnedPromotion(
         FileAnalysis analysis,
-        string path,
+        InspectionInput input,
         ContentTypeDetectionResult result)
     {
+        var path = input.Name;
         if (result.LearnedClassification?.Disposition != LearnedClassificationDisposition.Promoted)
             return;
 
-        analysis.NameIssues = AnalyzeName(path, result);
+        analysis.NameIssues = string.IsNullOrEmpty(path) ? default : AnalyzeName(path, result);
         var scriptLanguage = MapScriptLanguageFromExtension(result.Extension);
         analysis.TextSubtype = MapTextSubtypeFromExtension(result.Extension);
         analysis.Flags &= ~ContentFlags.JsLooksMinified;
@@ -522,8 +523,7 @@ public static partial class FileInspector
         if (scriptLanguage is "powershell" or "javascript" or "vbscript" or "shell" or "batch")
             analysis.Flags |= ContentFlags.ScriptsPotentiallyDangerous;
         if (scriptLanguage == "javascript" &&
-            LooksMinifiedJs(
-                path,
+            LooksMinifiedJs(input,
                 OperationSettings.DetectionReadBudgetBytes,
                 OperationSettings.JsMinifiedMinLength,
                 OperationSettings.JsMinifiedAvgLineThreshold,
@@ -533,8 +533,7 @@ public static partial class FileInspector
         }
         if (scriptLanguage == "powershell")
         {
-            var cmdlets = SecurityHeuristics.GetCmdlets(
-                path,
+            var cmdlets = SecurityHeuristics.GetCmdlets(input,
                 Math.Max(8 * 1024, Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024)));
             analysis.ScriptCmdlets = cmdlets.Count > 0 ? cmdlets : null;
         }

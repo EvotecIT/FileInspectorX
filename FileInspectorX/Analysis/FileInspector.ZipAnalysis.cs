@@ -6,22 +6,20 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static void TryInspectZip(string path, DetectionOptions? options, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
+    private static void TryInspectZip(InspectionInput input, DetectionOptions? options, out bool hasMacros, out string? containerSubtype, out int? entryCount, out IReadOnlyList<string>? topExtensions, out bool hasExecutables, out bool hasScripts, out bool hasNestedArchives,
         out bool hasTraversal, out bool hasSymlinks, out bool hasAbs, out bool hasInstallers, out bool hasRemoteTemplate, out bool hasDde, out bool hasExternalLinks, out int externalLinksCount,
         out bool hasEncryptedEntries, out int encryptedEntryCount, out bool isOoxmlEncrypted, out bool hasDisguisedExecutables, out List<string>? findingsOut, out List<Reference>? referencesOut,
         out int innerExecutablesSampled, out int innerSignedExecutables, out int innerValidSignedExecutables, out Dictionary<string,int>? innerPublisherCounts, out Dictionary<string,int>? innerPublisherValidCounts, out Dictionary<string,int>? innerPublisherSelfCounts, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts,
         out bool inspectionComplete, out IReadOnlyList<string>? inspectionIssues) {
+        var path = input.Name;
         hasMacros = false; containerSubtype = null; entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; hasTraversal = false; hasSymlinks = false; hasAbs = false; hasInstallers = false; hasRemoteTemplate = false; hasDde = false; hasExternalLinks = false; externalLinksCount = 0; hasEncryptedEntries = false; encryptedEntryCount = 0; isOoxmlEncrypted = false; hasDisguisedExecutables = false; findingsOut = null; referencesOut = null;
         innerExecutablesSampled = 0; innerSignedExecutables = 0; innerValidSignedExecutables = 0; innerPublisherCounts = null; innerPublisherValidCounts = null; innerPublisherSelfCounts = null; previewOut = null; innerExecExtCounts = null;
         inspectionComplete = true; inspectionIssues = null;
         var budget = ArchiveInspectionBudget.FromSettings();
         int nestedDepth = options?.NestedContainerDepth ?? 0;
-        long nestedByteBudget = (long)Math.Max(0, OperationSettings.DeepContainerMaxEntries) *
-                                Math.Max(0, OperationSettings.DeepContainerMaxEntryBytes);
-        var nestedBudget = options?.NestedContainerBudget ??
-                           new NestedContainerBudgetState(OperationSettings.DeepContainerMaxEntries, nestedByteBudget);
+        var nestedBudget = GetNestedContainerBudget(options);
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             if (!budget.CheckCentralDirectory(fs, out var declaredEntryCount))
             {
                 entryCount = declaredEntryCount;
@@ -237,10 +235,8 @@ public static partial class FileInspector
                             // Inner signer sampling for executables
                             if (looksExe && e.Length > 0 && e.Length <= deepBytes)
                             {
-                                string? tmp = null;
                                 try
                                 {
-                                    tmp = System.IO.Path.GetTempFileName();
                                     byte[] entryBytes;
                                     using (var rs = budget.OpenEntry(e, cap))
                                     using (var ms = new System.IO.MemoryStream())
@@ -258,12 +254,10 @@ public static partial class FileInspector
                                         entryBytes = ms.ToArray();
                                     }
                                     if (entryBytes.Length == 0) throw new InvalidDataException("zip:empty-entry");
-                                    using (var fsout = System.IO.File.Create(tmp))
-                                    {
-                                        fsout.Write(entryBytes, 0, entryBytes.Length);
-                                    }
-                                    var ia = FileInspector.Analyze(tmp,
-                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth, includeContainer: false));
+                                    using var entryInput = new MemoryReadStream(entryBytes);
+                                    var ia = AnalyzeArchiveChild(input, entryInput, name,
+                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth, includeContainer: false), budget,
+                                        nativeSignerSampling: true);
                                     innerExecutablesSampled++;
                                     if (ia?.Authenticode?.Present == true)
                                     {
@@ -276,16 +270,13 @@ public static partial class FileInspector
                                         if (ia.Authenticode.IsSelfSigned == true) { if (innerPublisherSelf.TryGetValue(pub, out var ps)) innerPublisherSelf[pub] = ps + 1; else innerPublisherSelf[pub] = 1; }
                                     }
                                 } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
-                                finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                             else if (e.Length > 0 && e.Length <= deepBytes && ShouldDeepAnalyzeArchiveInnerTextEntry(name, declExt, det2?.Extension))
                             {
-                                string? tmp = null;
                                 try
                                 {
-                                    tmp = System.IO.Path.GetTempFileName();
+                                    using var entryInput = new MemoryStream();
                                     using (var rs = budget.OpenEntry(e, cap))
-                                    using (var outFs = System.IO.File.Create(tmp))
                                     {
                                         if (rs == null) throw new InvalidDataException("zip:entry-budget");
                                         int left = cap;
@@ -294,13 +285,13 @@ public static partial class FileInspector
                                         {
                                             int r2 = rs.Read(tmpbuf, 0, Math.Min(tmpbuf.Length, left));
                                             if (r2 <= 0) break;
-                                            outFs.Write(tmpbuf, 0, r2);
+                                            entryInput.Write(tmpbuf, 0, r2);
                                             left -= r2;
                                         }
                                     }
 
-                                    var ia = FileInspector.Analyze(tmp,
-                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth, includeContainer: false));
+                                    var ia = AnalyzeArchiveChild(input, entryInput, name,
+                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth, includeContainer: false), budget);
                                     if (CollectArchiveInnerSignals(
                                         name,
                                         ia,
@@ -321,20 +312,17 @@ public static partial class FileInspector
                                         });
                                     }
                                 } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
-                                finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                             else if (nestedDepth < Math.Max(0, OperationSettings.DeepContainerMaxDepth) &&
                                      e.Length > 0 && e.Length <= GetNestedArchiveDeepScanBytes() &&
                                      ShouldDeepAnalyzeNestedArchiveEntry(name, declExt, det2?.Extension))
                             {
-                                string? tmp = null;
                                 try
                                 {
                                     int nestedCap = (int)Math.Min(e.Length, GetNestedArchiveDeepScanBytes());
                                     if (!nestedBudget.TryConsume(nestedCap)) throw new InvalidDataException("zip:nested-budget");
-                                    tmp = System.IO.Path.GetTempFileName();
+                                    using var entryInput = new MemoryStream();
                                     using (var rs = budget.OpenEntry(e, nestedCap))
-                                    using (var outFs = System.IO.File.Create(tmp))
                                     {
                                         if (rs == null) throw new InvalidDataException("zip:entry-budget");
                                         int left = nestedCap;
@@ -343,13 +331,13 @@ public static partial class FileInspector
                                         {
                                             int r2 = rs.Read(tmpbuf, 0, Math.Min(tmpbuf.Length, left));
                                             if (r2 <= 0) break;
-                                            outFs.Write(tmpbuf, 0, r2);
+                                            entryInput.Write(tmpbuf, 0, r2);
                                             left -= r2;
                                         }
                                     }
 
-                                    var ia = FileInspector.Analyze(tmp,
-                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth + 1, includeContainer: true));
+                                    var ia = AnalyzeArchiveChild(input, entryInput, name,
+                                        CreateInnerAnalysisOptions(options, nestedBudget, nestedDepth + 1, includeContainer: true), budget);
                                     MergeNestedArchiveContainerSignals(
                                         name,
                                         ia,
@@ -384,7 +372,6 @@ public static partial class FileInspector
                                         });
                                     }
                                 } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
-                                finally { if (!string.IsNullOrEmpty(tmp)) { try { System.IO.File.Delete(tmp); } catch { } } }
                             }
                         }
                     } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }

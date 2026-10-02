@@ -26,21 +26,9 @@ public static partial class FileInspector
                 ? options
                 : WithoutLearnedClassification(options);
             using var fs = OpenReadShared(path);
-            ContentTypeDetectionResult? FinishPathOnly(ContentTypeDetectionResult? result)
-            {
-                var header = new byte[Math.Max(256, Math.Min(OperationSettings.HeaderReadBytes, 1 << 20))];
-                fs.Position = 0;
-                int read = ReadAvailable(fs, header, 0, header.Length);
-                return ApplyLearnedClassification(Enrich(result, header.AsSpan(0, read), fs, options), fs, options);
-            }
             var extDeclared = System.IO.Path.GetExtension(path)?.Trim('.').ToLowerInvariant();
-            if (Signatures.TryMatchUdf(fs, out var udf)) return FinishPathOnly(udf);
-            if (Signatures.TryMatchIso(fs, out var iso)) return FinishPathOnly(iso);
-            if (Signatures.TryMatchDmg(fs, out var dmg)) return FinishPathOnly(dmg);
             ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? result)
                 => ApplyLearnedClassification(result, fs, options);
-            if (Signatures.TryMatchMsg(fs, out var msg))
-                return FinishPathOnly(msg);
             var det = DetectStreamCore(fs, deterministicOptions, extDeclared);
             try {
                 if (det != null && det.Extension != null && det.Extension.Equals("exe", StringComparison.OrdinalIgnoreCase) && PeReader.TryReadPe(fs, out var pe)) {
@@ -202,6 +190,18 @@ public static partial class FileInspector
         ContentTypeDetectionResult? Finish(ContentTypeDetectionResult? det)
             => ApplyLearnedClassification(ApplyDeclaredBias(det, declaredExtension), stream!, options);
 
+        if (stream.CanSeek)
+        {
+            if (Signatures.TryMatchUdf(stream, out var udf)) return Finish(Enrich(udf, src, stream, options));
+            if (Signatures.TryMatchIso(stream, out var iso)) return Finish(Enrich(iso, src, stream, options));
+            if (Signatures.TryMatchDmg(stream, out var dmg)) return Finish(Enrich(dmg, src, stream, options));
+            if (Signatures.TryMatchMsg(stream, out var msg)) return Finish(Enrich(msg, src, stream, options));
+            if (TryMatchEtlMagic(stream)) return Finish(Enrich(new ContentTypeDetectionResult {
+                Extension = "etl", MimeType = MimeMaps.Default.TryGetValue("etl", out var mime) ? mime : "application/octet-stream",
+                Confidence = "Medium", Reason = "etl:magic"
+            }, src, stream, options));
+        }
+
         if (stream.CanSeek && Signatures.TryMatchSeekableContainers(stream, out var seekableContainer))
             return Finish(Enrich(seekableContainer, src, stream, options));
         if (!stream.CanSeek && completeLength.HasValue && Signatures.TryMatchCompleteContainers(src, out var completeContainer))
@@ -270,9 +270,10 @@ public static partial class FileInspector
             return Finish(Enrich(photoshop, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchJpeg2000(stream, out var jpeg2000) : Signatures.TryMatchJpeg2000(src, completeLength, out jpeg2000)))
             return Finish(Enrich(jpeg2000, src, stream, options));
-        if (Signatures.TryMatchPkcs12(srcMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
-        if (Signatures.TryMatchPkcs7SignedData(srcMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
-        if (Signatures.TryMatchDerCertificate(srcMemory, out var der)) return Finish(Enrich(der, src, stream, options));
+        var cryptoMemory = ReadCryptoSample(stream, srcMemory);
+        if (Signatures.TryMatchPkcs12(cryptoMemory, out var p12)) return Finish(Enrich(p12, src, stream, options));
+        if (Signatures.TryMatchPkcs7SignedData(cryptoMemory, out var pkcs7)) return Finish(Enrich(pkcs7, src, stream, options));
+        if (Signatures.TryMatchDerCertificate(cryptoMemory, out var der)) return Finish(Enrich(der, src, stream, options));
         if (Signatures.TryMatchOpenPgpBinary(src, out var pgpbin)) return Finish(Enrich(pgpbin, src, stream, options));
         if (Signatures.TryMatchKeePassKdbx(src, out var kdbx)) return Finish(Enrich(kdbx, src, stream, options));
         if (Signatures.TryMatch7z(src, out var _7z)) return Finish(Enrich(_7z, src, stream, options));
@@ -290,7 +291,6 @@ public static partial class FileInspector
             return Finish(Enrich(glb, src, stream, options));
         if ((stream.CanSeek ? Signatures.TryMatchTiff(stream, out var tiff) : Signatures.TryMatchTiff(src, completeLength, out tiff)))
             return Finish(Enrich(tiff, src, stream, options));
-        // ISO requires file path offsets; skip here
 
         foreach (var sig in Signatures.All()) {
             if (Signatures.Match(src, sig)) {
@@ -319,7 +319,24 @@ public static partial class FileInspector
         return Finish(Enrich(null, src, stream, options));
     }
 
-    private static int ReadAvailable(Stream stream, byte[] buffer, int offset, int count)
+    // ASN.1 import needs complete content, rather than a truncated recognition prefix.
+    // Only candidate inputs within the existing certificate read budget receive a bridge.
+    private static ReadOnlyMemory<byte> ReadCryptoSample(Stream stream, ReadOnlyMemory<byte> header)
+    {
+        if (header.IsEmpty || header.Span[0] != 0x30 || !stream.CanSeek) return header;
+        long length = stream.Length;
+        if (length <= header.Length || length > GetCertificateParseReadBudgetBytes()) return header;
+        long position = stream.Position;
+        try
+        {
+            stream.Seek(0, SeekOrigin.Begin);
+            var complete = new byte[(int)length];
+            return ReadAvailable(stream, complete, 0, complete.Length) == complete.Length ? complete : header;
+        }
+        finally { stream.Seek(position, SeekOrigin.Begin); }
+    }
+
+    internal static int ReadAvailable(Stream stream, byte[] buffer, int offset, int count)
     {
         var total = 0;
         while (total < count)

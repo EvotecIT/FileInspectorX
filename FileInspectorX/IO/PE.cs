@@ -8,11 +8,12 @@ namespace FileInspectorX;
 /// </summary>
 internal static class PeReader {
     /// <summary>
-    /// Attempts to parse a PE image from <paramref name="path"/> and populate <see cref="PeInfo"/>.
+    /// Attempts to parse a PE image from <paramref name="input"/> and populate <see cref="PeInfo"/>.
     /// </summary>
-    public static bool TryReadPe(string path, out PeInfo info) {
+    public static bool TryReadPe(InspectionInput input, out PeInfo info) {
+        var path = input.Name;
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             return TryReadPe(fs, out info);
         } catch {
             info = new PeInfo();
@@ -110,14 +111,15 @@ internal static class PeReader {
     /// <summary>
     /// Attempts to list export names for PE image. Returns false when export directory is missing or invalid.
     /// </summary>
-    public static bool TryListExportNames(string path, out IReadOnlyList<string> names)
+    public static bool TryListExportNames(InspectionInput input, out IReadOnlyList<string> names)
     {
+        var path = input.Name;
         names = Array.Empty<string>();
-        if (!TryReadPe(path, out var pe)) return false;
+        if (!TryReadPe(input, out var pe)) return false;
         if (pe.ExportRva == 0 || pe.ExportSize == 0) return false;
         try
         {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             using var br = new BinaryReader(fs);
             if (!RvaToFileOffset(pe, pe.ExportRva, out var expOff)) return false;
             fs.Seek(expOff, SeekOrigin.Begin);
@@ -174,11 +176,12 @@ internal static class PeReader {
     /// Extracts selected string version fields from the VS_VERSIONINFO resource when present.
     /// Returns a dictionary of common keys (CompanyName, FileVersion, ProductVersion, etc.) or null.
     /// </summary>
-    public static Dictionary<string, string>? TryExtractVersionStrings(string path) {
-        if (!TryReadPe(path, out var pe)) return null;
+    public static Dictionary<string, string>? TryExtractVersionStrings(InspectionInput input) {
+        var path = input.Name;
+        if (!TryReadPe(input, out var pe)) return null;
         if (pe.ResourceRva == 0 || pe.ResourceSize == 0) return null;
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             using var br = new BinaryReader(fs);
             if (!RvaToFileOffset(pe, pe.ResourceRva, out var resRoot)) return null;
             fs.Seek(resRoot, SeekOrigin.Begin);
@@ -238,4 +241,10 @@ internal static class PeReader {
             }
         }
     }
+    public static Dictionary<string, string>? TryExtractVersionStrings(string path)
+        => TryExtractVersionStrings(InspectionInput.FromPath(path));
+    public static bool TryListExportNames(string path, out IReadOnlyList<string> names)
+        => TryListExportNames(InspectionInput.FromPath(path), out names);
+    public static bool TryReadPe(string path, out PeInfo info)
+        => TryReadPe(InspectionInput.FromPath(path), out info);
 }
