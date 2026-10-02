@@ -36,6 +36,7 @@ public sealed class InspectionOutcomesTests
     [InlineData("failed", StructuredValidationOutcome.Failed)]
     [InlineData("skipped", StructuredValidationOutcome.Skipped)]
     [InlineData("timeout", StructuredValidationOutcome.TimedOut)]
+    [InlineData("unavailable", StructuredValidationOutcome.Unavailable)]
     [InlineData(null, StructuredValidationOutcome.NotAttempted)]
     public void TypedValidationKeepsTheCompatibilityStatus(string? status, StructuredValidationOutcome expected)
     {

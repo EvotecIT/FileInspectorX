@@ -11,7 +11,7 @@ public static partial class FileInspector
     /// </summary>
     public static ContentTypeDetectionResult? Detect(string path, DetectionOptions? options)
     {
-        using var operation = InspectionOperation.Begin(options);
+        using var operation = InspectionOperation.Begin(options, retainUnknownDetection: true);
         ContentTypeDetectionResult? result;
         using (operation.Measure(InspectionStage.Detection))
             result = DetectPathCore(path, operation.Options, propagateReadFailure: false);
@@ -153,7 +153,7 @@ public static partial class FileInspector
     /// </summary>
     public static ContentTypeDetectionResult? Detect(Stream stream, DetectionOptions? options = null, string? declaredExtension = null) {
         if (stream == null) throw new ArgumentNullException(nameof(stream));
-        using var operation = InspectionOperation.Begin(options);
+        using var operation = InspectionOperation.Begin(options, retainUnknownDetection: true);
         var originalPosition = stream.CanSeek ? stream.Position : (long?)null;
         try
         {

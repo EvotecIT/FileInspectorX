@@ -102,6 +102,12 @@ try {
     if ($measured.StageOutcomes.Count -ne 6 -or $measured.Metrics.ClassifierAttempts -ne 0) {
         throw 'Recorded stage outcomes or deterministic-only classifier counters are incorrect.'
     }
+    $detectionView = Get-FileInsight -Path $fixturePath -DisableMagika -View Detection -CollectMetrics
+    $detectionOnly = Get-FileInsight -Path $fixturePath -DisableMagika -DetectOnly -CollectMetrics
+    if ($null -eq $detectionView.Metrics -or $null -eq $detectionOnly.Metrics -or
+        $detectionView.InputStatus.ToString() -ne 'Recognized') {
+        throw 'Detection view did not retain analysis-owned metrics and input status.'
+    }
 
     $requiredFailedClosed = $false
     try {

@@ -6,6 +6,10 @@ public static partial class FileInspector
 {
     private static ContentTypeDetectionResult? Enrich(ContentTypeDetectionResult? result, ReadOnlySpan<byte> header, Stream? stream, DetectionOptions options) {
         int inspected = header.Length;
+        // Public Detect calls retain readable unknown input when metrics were requested.
+        // Private analysis detection keeps its existing nullable flow and enrichment policy.
+        if (options.CollectMetrics && InspectionOperation.Current?.RetainUnknownDetection == true)
+            result ??= CreateUnknownDetection();
         if (options.MagicHeaderBytes > 0) {
             result ??= new ContentTypeDetectionResult { Extension = string.Empty, MimeType = string.Empty, Confidence = "Low", Reason = "unknown" };
             result.MagicHeaderHex = MagicHeaderHex(header, Math.Min(options.MagicHeaderBytes, header.Length));

@@ -62,7 +62,12 @@ public static partial class FileInspector
                     if (TimeoutHelpers.IsExpired(sw, timeoutTicks))
                         throw new TimeoutException("XML well-formedness validation timed out.");
                     if (reader.Depth > 256)
-                        throw new System.Xml.XmlException("XML nesting depth exceeds the safe validation limit.");
+                    {
+                        det.Confidence = "Low";
+                        det.Reason = AppendReason(det.Reason, "xml:validation-depth-limit");
+                        det.ValidationStatus = "skipped";
+                        return;
+                    }
                 }
                 det.ValidationStatus = "passed";
             }
@@ -85,11 +90,10 @@ public static partial class FileInspector
             det.Reason = AppendReason(det.Reason, "xml:validation-timeout");
             det.ValidationStatus = "timeout";
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
             // Ignore validation failures (I/O, access, etc.). Detection must remain best-effort.
-            if (string.IsNullOrEmpty(det.ValidationStatus))
-                det.ValidationStatus = "failed";
+            MarkValidationUnavailable(det);
         }
     }
 
@@ -131,8 +135,9 @@ public static partial class FileInspector
             stream.Seek(0, SeekOrigin.Begin);
             n = ReadAvailable(stream, buffer, 0, buffer.Length);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
+            MarkValidationUnavailable(det);
             return;
         }
         finally
@@ -186,11 +191,18 @@ public static partial class FileInspector
                 det.ValidationStatus = "skipped";
             return;
         }
-        if (!TryXmlWellFormed(sample, out _))
+        var xmlValidation = ValidateXmlWellFormed(sample, out var validationReason);
+        if (xmlValidation != StructuredValidationOutcome.Passed)
         {
             det.Confidence = "Low";
-            det.Reason = AppendReason(det.Reason, "xml:validation-error");
-            det.ValidationStatus = "failed";
+            det.Reason = AppendReason(det.Reason, validationReason!);
+            det.ValidationStatus = xmlValidation switch
+            {
+                StructuredValidationOutcome.TimedOut => "timeout",
+                StructuredValidationOutcome.Skipped => "skipped",
+                StructuredValidationOutcome.Unavailable => "unavailable",
+                _ => "failed"
+            };
             if (det.Score.HasValue) det.Score = ScoreFromConfidence(det.Confidence);
         }
         else
@@ -314,38 +326,11 @@ public static partial class FileInspector
         return null;
     }
 
-    private static bool TryXmlWellFormed(string xml, out string? rootName)
+    private static void MarkValidationUnavailable(ContentTypeDetectionResult detection)
     {
-        rootName = null;
-        if (string.IsNullOrWhiteSpace(xml)) return false;
-        try
-        {
-            var settings = new System.Xml.XmlReaderSettings
-            {
-                DtdProcessing = System.Xml.DtdProcessing.Prohibit,
-                XmlResolver = null,
-                MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
-                MaxCharactersFromEntities = 1024
-            };
-            int timeoutMs = Math.Max(0, OperationSettings.XmlWellFormednessTimeoutMs);
-            long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
-            var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
-            using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);
-            while (reader.Read())
-            {
-                if (TimeoutHelpers.IsExpired(sw, timeoutTicks)) return false;
-                if (reader.NodeType == System.Xml.XmlNodeType.Element)
-                {
-                    rootName ??= reader.Name;
-                    if (reader.Depth > 256) return false;
-                }
-            }
-            return !string.IsNullOrEmpty(rootName);
-        }
-        catch
-        {
-            return false;
-        }
+        detection.ValidationStatus = "unavailable";
+        detection.Confidence = "Low";
+        detection.Reason = AppendReason(detection.Reason, "structured:validation-unavailable");
     }
 
 }

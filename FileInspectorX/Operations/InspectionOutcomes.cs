@@ -34,7 +34,9 @@ public enum StructuredValidationOutcome
     /// <summary>Validation was skipped or incomplete within its configured read budget.</summary>
     Skipped,
     /// <summary>Validation exceeded its time budget.</summary>
-    TimedOut
+    TimedOut,
+    /// <summary>Validation could not execute, for example because a validation read failed.</summary>
+    Unavailable
 }
 
 /// <summary>Observable inspection boundaries. Format-specific best-effort enrichers are not separate stages.</summary>

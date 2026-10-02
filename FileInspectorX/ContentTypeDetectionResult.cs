@@ -14,6 +14,7 @@ public class ContentTypeDetectionResult {
         "failed" => StructuredValidationOutcome.Failed,
         "skipped" => StructuredValidationOutcome.Skipped,
         "timeout" => StructuredValidationOutcome.TimedOut,
+        "unavailable" => StructuredValidationOutcome.Unavailable,
         _ => StructuredValidationOutcome.NotAttempted
     };
 
@@ -39,7 +40,7 @@ public class ContentTypeDetectionResult {
     /// </summary>
     public string? ReasonDetails { get; set; }
     /// <summary>
-    /// Structured validation status when applicable: "passed", "timeout", "skipped", "failed".
+    /// Structured validation status when applicable: "passed", "timeout", "skipped", "failed", "unavailable".
     /// Null when validation was not attempted.
     /// </summary>
     public string? ValidationStatus { get; set; }

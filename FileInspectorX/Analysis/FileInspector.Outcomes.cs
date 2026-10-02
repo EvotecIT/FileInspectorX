@@ -15,6 +15,7 @@ public static partial class FileInspector
         {
             StructuredValidationOutcome.NotAttempted => InspectionStageStatus.NotApplicable,
             StructuredValidationOutcome.Skipped or StructuredValidationOutcome.TimedOut => InspectionStageStatus.Partial,
+            StructuredValidationOutcome.Unavailable => InspectionStageStatus.Unavailable,
             _ => InspectionStageStatus.Completed
         }, validation == StructuredValidationOutcome.NotAttempted ? Array.Empty<string>() : new[] { "validation:" + result.Detection!.ValidationStatus }));
         stages.Add(new InspectionStageResult(InspectionStage.Sha256,
