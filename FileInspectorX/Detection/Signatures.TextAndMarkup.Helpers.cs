@@ -23,7 +23,7 @@ internal static partial class Signatures
 
     private static int GetHeaderBytes()
     {
-        int hb = Settings.HeaderReadBytes;
+        int hb = OperationSettings.HeaderReadBytes;
         if (hb <= 0) hb = HEADER_BYTES_FALLBACK;
         return Math.Max(256, Math.Min(hb, 1 << 20));
     }
@@ -48,7 +48,7 @@ internal static partial class Signatures
         const int SmallSampleMinTextLike = 4;
         const double SmallSamplePrintableFloor = 0.8;
 
-        int sampleLimit = Settings.PlainTextSampleBytes;
+        int sampleLimit = OperationSettings.PlainTextSampleBytes;
         if (sampleLimit <= 0) sampleLimit = 2048;
         int sample = Math.Min(sampleLimit, data.Length);
         if (sample <= 0) return false;
@@ -69,9 +69,9 @@ internal static partial class Signatures
         printableRatio = textLike / (double)sample;
         double controlRatio = control / (double)sample;
 
-        double minPrintable = Settings.PlainTextPrintableMinRatio;
+        double minPrintable = OperationSettings.PlainTextPrintableMinRatio;
         if (minPrintable <= 0 || minPrintable > 1) minPrintable = 0.85;
-        double maxControl = Settings.PlainTextControlMaxRatio;
+        double maxControl = OperationSettings.PlainTextControlMaxRatio;
         if (maxControl < 0 || maxControl > 1) maxControl = 0.02;
         if (sample < SmallSampleThreshold)
         {
@@ -748,7 +748,7 @@ internal static partial class Signatures
                 MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
                 MaxCharactersFromEntities = 1024
             };
-            int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+            int timeoutMs = Math.Max(0, OperationSettings.XmlWellFormednessTimeoutMs);
             long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
             var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);

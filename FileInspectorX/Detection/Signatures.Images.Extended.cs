@@ -215,7 +215,7 @@ internal static partial class Signatures {
         if (tableEnd > (ulong)src.Length)
             return !completeLength.HasValue || completeLength.Value > src.Length;
 
-        ulong offsetBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
+        ulong offsetBudget = (ulong)Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 8);
         ulong inspectedOffsetCount = Math.Min(chunkCount, offsetBudget);
         var offsets = new System.Collections.Generic.HashSet<ulong>();
         for (ulong index = 0; index < inspectedOffsetCount; index++) {
@@ -225,7 +225,7 @@ internal static partial class Signatures {
                     (ulong)(multipart ? 4 : 8) > (ulong)completeLength.Value - offset)) return false;
         }
         if (inspectedOffsetCount != chunkCount) return true;
-        ulong chunkBudget = (ulong)Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
+        ulong chunkBudget = (ulong)Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 8);
         if (chunkCount > chunkBudget) return true;
         var ranges = new System.Collections.Generic.List<(ulong Start, ulong End)>((int)chunkCount);
         var partChunkCounts = new ulong[partLayouts.Count];
@@ -620,7 +620,7 @@ internal static partial class Signatures {
         ulong tableLength = rowCount * (uint)rowLengthSize;
         ulong tableEnd = (ulong)dataOffset + tableLength;
         if (tableEnd >= (ulong)stream.Length) return false;
-        if (tableLength > (ulong)Math.Max(256, Settings.DetectionReadBudgetBytes)) return true;
+        if (tableLength > (ulong)Math.Max(256, OperationSettings.DetectionReadBudgetBytes)) return true;
         if (!TryReadAt(stream, dataOffset, checked((int)tableLength), out var table)) return false;
 
         ulong compressedLength = 0;
@@ -636,7 +636,7 @@ internal static partial class Signatures {
         }
         ulong requiredEnd = tableEnd + compressedLength;
         if (requiredEnd < tableEnd || requiredEnd != (ulong)stream.Length) return false;
-        int budget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int budget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         if (compressedLength > (ulong)budget) return true;
         if (!TryReadAt(stream, (long)tableEnd, checked((int)compressedLength), out var compressedRows)) return false;
         int compressedOffset = 0;
@@ -875,7 +875,7 @@ internal static partial class Signatures {
                 !span.Slice(16, 4).SequenceEqual("ftyp"u8)) return false;
             uint fileTypeLength = ReadUInt32BigEndian(span, 12);
             if (fileTypeLength < 20 || (fileTypeLength & 3) != 0 || fileTypeLength > stream.Length - 12 ||
-                fileTypeLength > Math.Max(28, Settings.DetectionReadBudgetBytes)) return false;
+                fileTypeLength > Math.Max(28, OperationSettings.DetectionReadBudgetBytes)) return false;
             uint brand = ReadUInt32BigEndian(span, 20);
             if (!TryGetJpeg2000Brand(brand, out string extension, out string mime)) return false;
             bool compatible = false;
@@ -893,7 +893,7 @@ internal static partial class Signatures {
             bool sawHeaderBox = false;
             Jpeg2000ImageInfo headerInfo = default;
             long cursor = 12L + fileTypeLength;
-            int remainingBoxHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
+            int remainingBoxHeaders = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 8);
             while (cursor < stream.Length)
             {
                 if (remainingBoxHeaders-- == 0)
@@ -930,7 +930,7 @@ internal static partial class Signatures {
                         if (sawHeaderBox) return false;
                         sawHeaderBox = true;
                         long payloadLength = boxLength - headerLength;
-                        if (payloadLength > Settings.DetectionReadBudgetBytes) sampledMj2 = true;
+                        if (payloadLength > OperationSettings.DetectionReadBudgetBytes) sampledMj2 = true;
                         else if (!TryReadAt(stream, cursor + headerLength, (int)payloadLength, out var movieBytes) ||
                                  !TryValidateMj2MovieBox(new ReadOnlySpan<byte>(movieBytes))) return false;
                         else header = true;
@@ -1055,7 +1055,7 @@ internal static partial class Signatures {
         bool sawBitsPerComponent = false;
         bool sawColourSpecification = false;
         long cursor = 22;
-        int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 8);
+        int remainingHeaders = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 8);
         while (cursor < length)
         {
             if (remainingHeaders-- == 0 || cursor > length - 8 || !TryReadAt(stream, offset + cursor, 8, out var childHeader)) return false;
@@ -1133,7 +1133,7 @@ internal static partial class Signatures {
         sampled = false;
         imageInfo = default;
         if (length < 61 || !TryReadAt(stream, offset + length - 2, 2, out var end) || end[0] != 0xFF || end[1] != 0xD9) return false;
-        int budget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int budget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         int readLength = (int)Math.Min(length, budget);
         if (!TryReadAt(stream, offset, readLength, out var bytes)) return false;
         sampled = readLength < length;

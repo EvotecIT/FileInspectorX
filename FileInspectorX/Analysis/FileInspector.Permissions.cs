@@ -178,7 +178,7 @@ public static partial class FileInspector
                 var zonePath = path + ":Zone.Identifier";
                 using var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var sr = new StreamReader(fs, System.Text.Encoding.UTF8, true, 1024);
-            int maxChars = Math.Max(1, Settings.MotwMaxCharacters);
+            int maxChars = Math.Max(1, OperationSettings.MotwMaxCharacters);
             var buffer = new char[maxChars];
             int charsRead = sr.ReadBlock(buffer, 0, buffer.Length);
             string all = new string(buffer, 0, charsRead);

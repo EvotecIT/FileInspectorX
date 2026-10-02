@@ -65,7 +65,7 @@ internal static partial class Signatures
                 out long directoryOffset, out uint directorySize, out ushort entryCount)) return StructuredValidationStatus.Invalid;
         long directoryEnd = directoryOffset + directorySize;
         long cursor = directoryOffset;
-        int remainingBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int remainingBudget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         bool allPayloadsVerified = true;
         for (int entry = 0; entry < entryCount; entry++)
         {
@@ -372,7 +372,7 @@ internal static partial class Signatures
         long cursor = 0;
         long sectionEnd = -1;
         bool littleEndian = false;
-        int remainingBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int remainingBudget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         while (cursor < stream.Length)
         {
             if (remainingBudget < 32) return StructuredValidationStatus.Sampled;

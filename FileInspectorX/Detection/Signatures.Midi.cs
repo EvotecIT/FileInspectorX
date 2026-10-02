@@ -59,7 +59,7 @@ internal static partial class Signatures
             if (stream.Length < 26 || !TryReadAt(stream, 0, 14, out var header) ||
                 !TryReadMidiHeader(new ReadOnlySpan<byte>(header), out ushort format, out ushort tracks)) return false;
             stream.Seek(14, SeekOrigin.Begin);
-            long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+            long remainingValidationBudget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
             int remainingChunkHeaders = Math.Max(32, Math.Min(4096, (int)Math.Min(int.MaxValue, remainingValidationBudget / 8)));
             bool budgetExceeded = false;
             int foundTracks = 0;

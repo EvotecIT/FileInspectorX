@@ -146,7 +146,7 @@ public static partial class FileInspector
 
     private static bool IsStrongCandidate(ContentTypeDetectionCandidate candidate)
     {
-        if (candidate.Score >= Settings.DetectionStrongCandidateScoreThreshold) return true;
+        if (candidate.Score >= OperationSettings.DetectionStrongCandidateScoreThreshold) return true;
         if (!string.IsNullOrEmpty(candidate.Confidence) &&
             candidate.Confidence.Equals("High", StringComparison.OrdinalIgnoreCase))
             return true;

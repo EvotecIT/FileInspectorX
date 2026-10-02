@@ -23,7 +23,7 @@ internal static partial class Signatures
 
     private static StructuredValidationStatus TryValidateVhdBat(Stream stream, VhdBatInfo bat)
     {
-        int budget = Math.Max(4096, Settings.DetectionReadBudgetBytes);
+        int budget = Math.Max(4096, OperationSettings.DetectionReadBudgetBytes);
         if (bat.TableLength <= (ulong)budget)
         {
             if (!TryReadAt(stream, checked((long)bat.TableOffset), checked((int)bat.TableLength), out var table))

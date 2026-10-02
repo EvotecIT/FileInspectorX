@@ -9,7 +9,7 @@ public static partial class FileInspector
     private static void TryValidateAdmxAdmlXmlWellFormedness(Stream stream, string path, ContentTypeDetectionResult? det, string? declaredExt)
     {
         if (det is null) return;
-        if (!Settings.AdmxAdmlXmlWellFormednessValidationEnabled) return;
+        if (!OperationSettings.AdmxAdmlXmlWellFormednessValidationEnabled) return;
 
         var detExt = (det.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
         var decl = (declaredExt ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
@@ -21,7 +21,7 @@ public static partial class FileInspector
 
         try
         {
-            var max = Settings.AdmxAdmlXmlWellFormednessMaxBytes;
+            var max = OperationSettings.AdmxAdmlXmlWellFormednessMaxBytes;
             if (max > 0)
             {
                 long len = -1;
@@ -46,13 +46,13 @@ public static partial class FileInspector
                 {
                     DtdProcessing = System.Xml.DtdProcessing.Prohibit,
                     XmlResolver = null,
-                    MaxCharactersInDocument = Math.Min(Settings.AdmxAdmlXmlWellFormednessMaxBytes > 0
-                        ? Settings.AdmxAdmlXmlWellFormednessMaxBytes
+                    MaxCharactersInDocument = Math.Min(OperationSettings.AdmxAdmlXmlWellFormednessMaxBytes > 0
+                        ? OperationSettings.AdmxAdmlXmlWellFormednessMaxBytes
                         : 100L * 1024L * 1024L, 100L * 1024L * 1024L),
                     MaxCharactersFromEntities = 1024,
                     CloseInput = false
                 };
-                int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+                int timeoutMs = Math.Max(0, OperationSettings.XmlWellFormednessTimeoutMs);
                 long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
                 var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
                 using var reader = System.Xml.XmlReader.Create(stream, settings);
@@ -109,7 +109,7 @@ public static partial class FileInspector
         }
 
         const long MaxStructuredValidationBytes = 100L * 1024L * 1024L;
-        long budget = Settings.DetectionReadBudgetBytes;
+        long budget = OperationSettings.DetectionReadBudgetBytes;
         if (budget <= 0) return;
         if (budget > MaxStructuredValidationBytes) budget = MaxStructuredValidationBytes;
 
@@ -325,7 +325,7 @@ public static partial class FileInspector
                 MaxCharactersInDocument = Math.Min(10_000_000L, Math.Max(1024L, (long)xml.Length * 4L)),
                 MaxCharactersFromEntities = 1024
             };
-            int timeoutMs = Math.Max(0, Settings.XmlWellFormednessTimeoutMs);
+            int timeoutMs = Math.Max(0, OperationSettings.XmlWellFormednessTimeoutMs);
             long timeoutTicks = TimeoutHelpers.GetTimeoutTicks(timeoutMs);
             var sw = timeoutTicks > 0 ? System.Diagnostics.Stopwatch.StartNew() : null;
             using var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings);

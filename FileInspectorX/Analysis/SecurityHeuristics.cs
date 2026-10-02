@@ -45,7 +45,7 @@ internal static partial class SecurityHeuristics
     {
         var findings = new List<string>(8);
         try {
-            if (!Settings.SecurityScanScripts) return findings;
+            if (!OperationSettings.SecurityScanScripts) return findings;
             if (string.IsNullOrEmpty(text)) return findings;
             var source = text ?? string.Empty;
             var lower = source.ToLowerInvariant();
@@ -135,23 +135,23 @@ internal static partial class SecurityHeuristics
                 if (externalCount > 0) findings.Add($"net:hosts-ext={externalCount}");
             }
 
-            if (Settings.ResolveNetworkHostsInHeuristics && hosts.Count > 0)
+            if (OperationSettings.ResolveNetworkHostsInHeuristics && hosts.Count > 0)
             {
-                int max = Math.Max(1, Settings.NetworkHostResolveMax);
+                int max = Math.Max(1, OperationSettings.NetworkHostResolveMax);
                 int ok = 0, fail = 0, pingOk = 0, pingFail = 0, taken = 0;
                 foreach (var h in hosts)
                 {
                     if (taken++ >= max) break;
-                    bool resolved = TryResolveHost(h, Settings.NetworkHostResolveTimeoutMs);
+                    bool resolved = TryResolveHost(h, OperationSettings.NetworkHostResolveTimeoutMs);
                     if (resolved) ok++; else fail++;
-                    if (Settings.PingHostsInHeuristics && resolved)
+                    if (OperationSettings.PingHostsInHeuristics && resolved)
                     {
-                        if (TryPingHost(h, Settings.NetworkHostResolveTimeoutMs)) pingOk++; else pingFail++;
+                        if (TryPingHost(h, OperationSettings.NetworkHostResolveTimeoutMs)) pingOk++; else pingFail++;
                     }
                 }
                 if (ok > 0) findings.Add($"net:dns-ok={ok}");
                 if (fail > 0) findings.Add($"net:dns-fail={fail}");
-                if (Settings.PingHostsInHeuristics)
+                if (OperationSettings.PingHostsInHeuristics)
                 {
                     if (pingOk > 0) findings.Add($"net:ping-ok={pingOk}");
                     if (pingFail > 0) findings.Add($"net:ping-fail={pingFail}");
@@ -159,7 +159,7 @@ internal static partial class SecurityHeuristics
             }
 
             // Lightweight secrets (privacy-safe): only categories, never values
-            if (includeSecrets && Settings.SecretsScanEnabled)
+            if (includeSecrets && OperationSettings.SecretsScanEnabled)
             {
                 var secrets = CountSecretsFromText(source);
                 foreach (var code in GetSecretFindingCodes(secrets))
@@ -321,7 +321,7 @@ internal static partial class SecurityHeuristics
 
     private static bool IsAllowedHost(string host)
     {
-        return IsHostAllowedByDomains(host, Settings.HtmlAllowedDomains);
+        return IsHostAllowedByDomains(host, OperationSettings.HtmlAllowedDomains);
     }
 
     internal static bool IsHostAllowedByDomains(string host, IEnumerable<string>? allowedDomains)
@@ -439,7 +439,7 @@ internal static partial class SecurityHeuristics
             }
 
             // Secrets categories (privacy-safe; same as script path)
-            if (includeSecrets && Settings.SecretsScanEnabled)
+            if (includeSecrets && OperationSettings.SecretsScanEnabled)
             {
                 var secrets = CountSecretsFromText(source);
                 foreach (var code in GetSecretFindingCodes(secrets))
@@ -538,7 +538,7 @@ internal static partial class SecurityHeuristics
     {
         var s = new SecretsSummary();
         try {
-            if (!Settings.SecretsScanEnabled) return s;
+            if (!OperationSettings.SecretsScanEnabled) return s;
             if (string.IsNullOrEmpty(text)) return s;
             var source = text ?? string.Empty;
             s.PrivateKeyCount = CountPrivateKeyIndicators(source);
@@ -649,7 +649,7 @@ internal static partial class SecurityHeuristics
     private static string ReadTextHead(string path, int budget)
     {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             int cap = Math.Max(8 * 1024, Math.Min(budget, 512 * 1024));
             var buf = new byte[Math.Min(cap, (int)Math.Min(fs.Length, cap))];
             int n = fs.Read(buf, 0, buf.Length);

@@ -7,21 +7,12 @@ public static partial class FileInspector
         object> LearnedClassifierLocks = new();
 
     private static DetectionOptions WithoutLearnedClassification(DetectionOptions options)
-        => new()
-        {
-            ComputeSha256 = options.ComputeSha256,
-            MagicHeaderBytes = options.MagicHeaderBytes,
-            DetectOnly = options.DetectOnly,
-            IncludeContainer = options.IncludeContainer,
-            IncludePermissions = options.IncludePermissions,
-            IncludeAuthenticode = options.IncludeAuthenticode,
-            IncludeReferences = options.IncludeReferences,
-            IncludeInstaller = options.IncludeInstaller,
-            IncludeAssessment = options.IncludeAssessment,
-            IncludeShellProperties = options.IncludeShellProperties,
-            LearnedClassificationMode = LearnedClassificationMode.Off,
-            LearnedClassifier = null
-        };
+    {
+        var copy = options.Copy();
+        copy.LearnedClassificationMode = LearnedClassificationMode.Off;
+        copy.LearnedClassifier = null;
+        return copy;
+    }
 
     private static ContentTypeDetectionResult? ApplyLearnedClassification(
         ContentTypeDetectionResult? deterministic,
@@ -33,7 +24,9 @@ public static partial class FileInspector
             deterministic,
             options,
             classifier,
-            () => classifier!.Predict(content));
+            () => classifier is ICancellableLearnedContentClassifier cancellable
+                ? cancellable.Predict(content, options.CancellationToken)
+                : classifier!.Predict(content));
     }
 
     private static ContentTypeDetectionResult? ApplyLearnedClassification(
@@ -46,7 +39,9 @@ public static partial class FileInspector
             deterministic,
             options,
             classifier,
-            () => classifier!.Predict(content));
+            () => classifier is ICancellableLearnedContentClassifier cancellable
+                ? cancellable.Predict(content, options.CancellationToken)
+                : classifier!.Predict(content));
     }
 
     private static ContentTypeDetectionResult? ApplyLearnedClassificationFromPath(
@@ -72,7 +67,7 @@ public static partial class FileInspector
                 throw;
             return AttachLearnedFailure(deterministic, ex);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
             {
@@ -103,7 +98,7 @@ public static partial class FileInspector
 
         try
         {
-            var prediction = InvokeLearnedClassifier(classifier, predict);
+            var prediction = InvokeLearnedClassifier(classifier, predict, options.CancellationToken);
             return ArbitrateLearnedPrediction(deterministic, prediction);
         }
         catch (LearnedClassificationException ex)
@@ -112,7 +107,7 @@ public static partial class FileInspector
                 throw;
             return AttachLearnedFailure(deterministic, ex);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
             if (options.LearnedClassificationMode == LearnedClassificationMode.Required)
                 throw new LearnedClassificationException(
@@ -123,14 +118,33 @@ public static partial class FileInspector
 
     private static LearnedContentPrediction InvokeLearnedClassifier(
         ILearnedContentClassifier classifier,
-        Func<LearnedContentPrediction> predict)
+        Func<LearnedContentPrediction> predict,
+        System.Threading.CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (classifier is IConcurrentLearnedContentClassifier)
-            return predict();
+            return Finish(predict());
 
         var syncRoot = LearnedClassifierLocks.GetValue(classifier, static _ => new object());
-        lock (syncRoot)
-            return predict();
+        if (!cancellationToken.CanBeCanceled)
+        {
+            lock (syncRoot) return predict();
+        }
+        bool entered = false;
+        try
+        {
+            while (!(entered = System.Threading.Monitor.TryEnter(syncRoot, 50)))
+                cancellationToken.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Finish(predict());
+        }
+        finally { if (entered) System.Threading.Monitor.Exit(syncRoot); }
+
+        LearnedContentPrediction Finish(LearnedContentPrediction result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }
     }
 
     private static ContentTypeDetectionResult AttachLearnedFailure(
@@ -495,10 +509,10 @@ public static partial class FileInspector
         if (scriptLanguage == "javascript" &&
             LooksMinifiedJs(
                 path,
-                Settings.DetectionReadBudgetBytes,
-                Settings.JsMinifiedMinLength,
-                Settings.JsMinifiedAvgLineThreshold,
-                Settings.JsMinifiedDensityThreshold))
+                OperationSettings.DetectionReadBudgetBytes,
+                OperationSettings.JsMinifiedMinLength,
+                OperationSettings.JsMinifiedAvgLineThreshold,
+                OperationSettings.JsMinifiedDensityThreshold))
         {
             analysis.Flags |= ContentFlags.JsLooksMinified;
         }
@@ -506,7 +520,7 @@ public static partial class FileInspector
         {
             var cmdlets = SecurityHeuristics.GetCmdlets(
                 path,
-                Math.Max(8 * 1024, Math.Min(Settings.DetectionReadBudgetBytes, 512 * 1024)));
+                Math.Max(8 * 1024, Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024)));
             analysis.ScriptCmdlets = cmdlets.Count > 0 ? cmdlets : null;
         }
     }

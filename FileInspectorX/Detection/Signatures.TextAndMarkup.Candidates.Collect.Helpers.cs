@@ -10,8 +10,8 @@ internal static partial class Signatures
         ReadOnlySpan<byte> line3,
         CandidateAdder addCandidate)
     {
-        int ndjsonLines2Boost = Math.Max(0, Settings.DetectionNdjsonLines2Boost);
-        int ndjsonLines3Boost = Math.Max(0, Settings.DetectionNdjsonLines3Boost);
+        int ndjsonLines2Boost = Math.Max(0, OperationSettings.DetectionNdjsonLines2Boost);
+        int ndjsonLines3Boost = Math.Max(0, OperationSettings.DetectionNdjsonLines3Boost);
 
         static bool LooksJsonLine(ReadOnlySpan<byte> l)
         {

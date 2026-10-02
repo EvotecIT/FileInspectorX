@@ -106,13 +106,15 @@ public class Settings {
     /// </summary>
     public static int DetectionStrongCandidateScoreThreshold { get; set; } = 80;
 
+    internal static readonly IDictionary<string, int> DefaultScoreAdjustments =
+        new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Optional score adjustments for detection candidates keyed by extension or reason.
     /// Keys can be plain (e.g., "ps1") or prefixed (e.g., "ext:ps1", "reason:text:ps1").
     /// Note: Configure at startup; avoid concurrent mutation during detection.
     /// </summary>
-    public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } =
-        new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public static IDictionary<string, int> DetectionScoreAdjustments { get; set; } = DefaultScoreAdjustments;
 
     /// <summary>
     /// Score boost applied when a candidate matches the declared extension.

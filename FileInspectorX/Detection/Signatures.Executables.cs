@@ -211,7 +211,7 @@ internal static partial class Signatures {
                 !TryReadJavaU2(stream, out ushort constantPoolCount) ||
                 !IsDefinedJavaClassVersion(major, minor) || constantPoolCount < 2) return false;
 
-            long readBudget = Math.Max(10, Settings.DetectionReadBudgetBytes);
+            long readBudget = Math.Max(10, OperationSettings.DetectionReadBudgetBytes);
             if (constantPoolCount * 20L > readBudget)
             {
                 if (!TryInspectJavaConstantPoolPrefix(stream, constantPoolCount, readBudget)) return false;
@@ -330,7 +330,7 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try
         {
-            if (stream.Length <= Math.Max(0x78, Settings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
+            if (stream.Length <= Math.Max(0x78, OperationSettings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
                 TryReadAt(stream, 0, (int)stream.Length, out var complete))
                 return TryMatchDex(new ReadOnlySpan<byte>(complete), stream.Length, out result);
             if (!TryReadAt(stream, 0, 0x78, out var header) ||
@@ -527,7 +527,7 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try
         {
-            int prefixLength = (int)Math.Min(stream.Length, Math.Max(32, Settings.HeaderReadBytes));
+            int prefixLength = (int)Math.Min(stream.Length, Math.Max(32, OperationSettings.HeaderReadBytes));
             if (prefixLength < 4 || !TryReadAt(stream, 0, prefixLength, out var prefix) ||
                 !TryMatchMachO(new ReadOnlySpan<byte>(prefix), stream.Length, out result)) return false;
             uint magic = ReadUInt32BigEndian(new ReadOnlySpan<byte>(prefix), 0);
@@ -638,7 +638,7 @@ internal static partial class Signatures {
         long cursor = headerSize;
         long commandEnd = headerSize + (long)commandBytes;
         if ((ulong)commandEnd > declaredSize || baseOffset < 0 || baseOffset > stream.Length - commandEnd) return false;
-        int commandBudget = Math.Max(32, Math.Min(4096, Math.Max(256, Settings.DetectionReadBudgetBytes) / 8));
+        int commandBudget = Math.Max(32, Math.Min(4096, Math.Max(256, OperationSettings.DetectionReadBudgetBytes) / 8));
         for (uint index = 0; index < commandCount; index++)
         {
             if (index >= commandBudget)

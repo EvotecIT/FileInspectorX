@@ -98,7 +98,7 @@ public static partial class FileInspector
     {
         try
         {
-            string text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            string text = ReadTextForReferences(path, OperationSettings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
 
             var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -161,7 +161,7 @@ public static partial class FileInspector
     {
         try
         {
-            string text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            string text = ReadTextForReferences(path, OperationSettings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             int dataUriCount = 0;
             int dataB64 = 0;
@@ -315,7 +315,7 @@ public static partial class FileInspector
     private static void TryExtractHtmlReferences(string path, List<Reference> refs)
     {
         try {
-            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            var text = ReadTextForReferences(path, OperationSettings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             int cap = Math.Min(text.Length, 512 * 1024);
             var head = text.AsSpan(0, cap);
@@ -363,7 +363,7 @@ public static partial class FileInspector
                         var expanded = ExpandEnv(v);
                         var issues = ReferenceIssue.UncPath;
                         bool? exists = null;
-                        if (Settings.CheckNetworkPathsInReferences)
+                        if (OperationSettings.CheckNetworkPathsInReferences)
                         {
                             try { exists = Directory.Exists(GetUncShareRoot(v)); } catch { exists = null; }
                         }
@@ -405,7 +405,7 @@ public static partial class FileInspector
                 else if (LooksLikeUnc(raw) || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
                 {
                     var expanded = ExpandEnv(raw);
-                    bool? exists = null; if (Settings.CheckNetworkPathsInReferences) { try { exists = Directory.Exists(GetUncShareRoot(raw)); } catch { exists = null; } }
+                    bool? exists = null; if (OperationSettings.CheckNetworkPathsInReferences) { try { exists = Directory.Exists(GetUncShareRoot(raw)); } catch { exists = null; } }
                     refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = raw, ExpandedValue = expanded, Exists = exists, Issues = ReferenceIssue.UncPath, SourceTag = "html:css-url" });
                 }
             }
@@ -559,7 +559,7 @@ public static partial class FileInspector
             {
                 try
                 {
-                    var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, Settings.EncodedDecodeMaxBytes)), null);
+                    var det = FileInspector.Detect(new ReadOnlySpan<byte>(sample, 0, Math.Min(sample.Length, OperationSettings.EncodedDecodeMaxBytes)), null);
                     var ext = (det?.Extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
                     if (!string.IsNullOrWhiteSpace(ext) && ext is not "txt" and not "log")
                         innerExt = ext;
@@ -981,7 +981,7 @@ public static partial class FileInspector
             if (sc > 0) mediaType = header.Substring(0, sc).Trim();
             else if (!string.IsNullOrWhiteSpace(header)) mediaType = header.Trim();
             string payload = uri.Substring(comma + 1);
-            int maxDecodedBytes = Math.Max(1, Settings.EncodedDecodeMaxBytes);
+            int maxDecodedBytes = Math.Max(1, OperationSettings.EncodedDecodeMaxBytes);
             isBase64 = lower.Contains(";base64");
             if (isBase64)
             {
@@ -1055,7 +1055,7 @@ public static partial class FileInspector
     {
         try
         {
-            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            var text = ReadTextForReferences(path, OperationSettings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
@@ -1074,7 +1074,7 @@ public static partial class FileInspector
     {
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var hdr = new byte[Math.Min(4096, fs.Length)];
             int n = fs.Read(hdr, 0, hdr.Length);
             if (n < 32) return;
@@ -1110,7 +1110,7 @@ public static partial class FileInspector
     private static bool LooksLikeTaskXml(string path)
     {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var head = new byte[Math.Min(8192, (int)Math.Min(fs.Length, 8192))];
             int n = fs.Read(head, 0, head.Length);
             var s = System.Text.Encoding.UTF8.GetString(head, 0, n);
@@ -1121,7 +1121,7 @@ public static partial class FileInspector
     private static void TryExtractGpoScriptsXml(string path, List<Reference> refs)
     {
         try {
-            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            var text = ReadTextForReferences(path, OperationSettings.ReferenceExtractionMaxBytes);
             // Look for <Scripts> ... <Script ...> or <PowerShellScript ...>
             if (IndexOfCI(text, "<Scripts") < 0 && IndexOfCI(text, "<PowerShellScript") < 0) return;
 
@@ -1177,10 +1177,10 @@ public static partial class FileInspector
     private static bool TryExtractTaskSchedulerXmlDoc(string path, List<Reference> refs)
     {
         try {
-            var maxBytes = Settings.ReferenceExtractionMaxBytes > 0
-                ? Settings.ReferenceExtractionMaxBytes
+            var maxBytes = OperationSettings.ReferenceExtractionMaxBytes > 0
+                ? OperationSettings.ReferenceExtractionMaxBytes
                 : 512 * 1024;
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (!BoundedXmlDocument.TryLoad(fs, maxBytes, out var doc)) return false;
 
             var root = doc.DocumentElement; if (root == null || !root.Name.EndsWith("Task", StringComparison.OrdinalIgnoreCase)) return false;
@@ -1268,7 +1268,7 @@ public static partial class FileInspector
     private static void TryExtractGpoScriptsIni(string path, List<Reference> refs)
     {
         try {
-            var text = ReadTextForReferences(path, Settings.ReferenceExtractionMaxBytes);
+            var text = ReadTextForReferences(path, OperationSettings.ReferenceExtractionMaxBytes);
             if (string.IsNullOrWhiteSpace(text)) return;
             // Very small INI parser: look for lines like nCmd=..., nParameters=...
             // See MS-GPSCR for scripts.ini/psscripts.ini layout.
@@ -1371,7 +1371,7 @@ public static partial class FileInspector
 
     private static bool? FileExistsSafe(string? p)
     {
-        if (!Settings.ReferencePathExistenceChecksEnabled) return null;
+        if (!OperationSettings.ReferencePathExistenceChecksEnabled) return null;
         try
         {
             var normalized = NormalizePathToken(p);

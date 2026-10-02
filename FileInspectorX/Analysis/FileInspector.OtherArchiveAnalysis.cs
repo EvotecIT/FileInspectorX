@@ -34,7 +34,7 @@ public static partial class FileInspector
                     unc++;
                 }
             }
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
     }
 
     // Overload: also captures up to 5 unique hosts encountered (order of first appearance)
@@ -66,7 +66,7 @@ public static partial class FileInspector
                     unc++;
                 }
             }
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
     }
 
     private static string? TryGetHost(string url)
@@ -75,13 +75,13 @@ public static partial class FileInspector
         {
             if (url.StartsWith("//")) url = "http:" + url;
             if (Uri.TryCreate(url, UriKind.Absolute, out var u)) return u.Host;
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return null;
     }
 
     private static bool IsAllowedDomain(string host)
     {
-        return SecurityHeuristics.IsHostAllowedByDomains(host, Settings.HtmlAllowedDomains);
+        return SecurityHeuristics.IsHostAllowedByDomains(host, OperationSettings.HtmlAllowedDomains);
     }
 
     // Counts RAR4 encrypted files by walking file headers quickly under a simple budget.
@@ -90,7 +90,7 @@ public static partial class FileInspector
     {
         enc = 0; total = 0;
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var sig = new byte[]{ (byte)'R',(byte)'a',(byte)'r', (byte)'!', 0x1A, 0x07, 0x00 };
             var head = new byte[sig.Length];
             if (fs.Read(head, 0, head.Length) != head.Length) return false;
@@ -100,7 +100,7 @@ public static partial class FileInspector
             int filesSeen = 0;
             int blocksSeen = 0;
             int maxBlocks = GetRar4BlockSafetyLimit(maxFiles);
-            long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
+            long byteBudget = Math.Max(7, OperationSettings.DetectionReadBudgetBytes);
             long walkStart = fs.Position;
             while (fs.Position + 7 <= fs.Length && filesSeen < maxFiles &&
                    blocksSeen++ < maxBlocks && fs.Position - walkStart < byteBudget)
@@ -125,7 +125,7 @@ public static partial class FileInspector
             }
             if (total == 0) total = filesSeen;
             return true;
-        } catch { return false; }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static bool TryInspectRar4Entries(
@@ -141,7 +141,7 @@ public static partial class FileInspector
         entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null; innerExecExtCounts = null;
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var sig = new byte[]{ (byte)'R',(byte)'a',(byte)'r', (byte)'!', 0x1A, 0x07, 0x00 };
             var head = new byte[sig.Length];
             if (fs.Read(head, 0, head.Length) != head.Length) return false;
@@ -152,11 +152,11 @@ public static partial class FileInspector
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var localPreviews = new List<InnerEntryPreview>();
             var execExts = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
-            int previewCap = Math.Min(5, Settings.DeepContainerMaxEntries);
-            int entryLimit = Math.Max(1, Settings.DeepContainerMaxEntries);
+            int previewCap = Math.Min(5, OperationSettings.DeepContainerMaxEntries);
+            int entryLimit = Math.Max(1, OperationSettings.DeepContainerMaxEntries);
             int blocksSeen = 0;
             int maxBlocks = GetRar4BlockSafetyLimit(entryLimit);
-            long byteBudget = Math.Max(7, Settings.DetectionReadBudgetBytes);
+            long byteBudget = Math.Max(7, OperationSettings.DetectionReadBudgetBytes);
             long walkStart = fs.Position;
 
             while (fs.Position + 7 <= fs.Length && count < entryLimit &&
@@ -213,7 +213,7 @@ public static partial class FileInspector
                             name = Latin1String(nb);
                         }
                     }
-                    catch { }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
 
                     fs.Seek(headerEnd, SeekOrigin.Begin);
 
@@ -252,13 +252,13 @@ public static partial class FileInspector
             if (execExts.Count > 0) innerExecExtCounts = execExts;
             return true;
         }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static int GetRar4BlockSafetyLimit(int fileLimit)
     {
         fileLimit = Math.Max(1, fileLimit);
-        int metadataBlockBudget = Math.Max(1, Settings.ArchiveMaxEntries);
+        int metadataBlockBudget = Math.Max(1, OperationSettings.ArchiveMaxEntries);
         return fileLimit > int.MaxValue - metadataBlockBudget
             ? int.MaxValue
             : fileLimit + metadataBlockBudget;
@@ -273,7 +273,7 @@ public static partial class FileInspector
         innerExecutablesSampled = 0; innerSigned = 0; innerValid = 0; publishers = null;
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             // Verify RAR4 signature
             var sig = new byte[]{ (byte)'R',(byte)'a',(byte)'r', (byte)'!', 0x1A, 0x07, 0x00 };
             var head = new byte[sig.Length];
@@ -324,7 +324,7 @@ public static partial class FileInspector
                             var nb = br.ReadBytes(toRead);
                             name = Latin1String(nb);
                         }
-                    } catch { }
+                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                     // Skip any remaining header fields to reach data start
                     fs.Seek(headerEnd, SeekOrigin.Begin);
 
@@ -365,7 +365,7 @@ public static partial class FileInspector
                                 }
                             }
                         }
-                        catch { /* ignore per-entry errors */ }
+                        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { /* ignore per-entry errors */ }
                         finally
                         {
                             try { System.IO.File.Delete(tmp); } catch { }
@@ -387,14 +387,14 @@ public static partial class FileInspector
             if (publishers == null && pubs.Count > 0) publishers = pubs;
             return true;
         }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static bool TryInspectRarQuick(string path)
     {
         // Best-effort: detect RAR4 header-encryption flag in main header (not extraction)
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var sig = new byte[8];
             int r = fs.Read(sig, 0, sig.Length);
             if (r < 7) return false;
@@ -431,7 +431,7 @@ public static partial class FileInspector
             const byte RAR5_MAIN = 0x01;
             if (bType == RAR5_MAIN && (bFlags & 0x0004) != 0) return true;
             // Read next header: CRC(2), Type(1), Flags(2), Size(2)
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return false;
     }
 
@@ -439,7 +439,7 @@ public static partial class FileInspector
     {
         // Heuristic: parse Start Header to locate Next Header region, then check for kEncodedHeader (0x17)
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (fs.Length < 32) return false;
             var head = new byte[32];
             if (fs.Read(head, 0, head.Length) != head.Length) return false;
@@ -450,13 +450,13 @@ public static partial class FileInspector
             long nextSz  = System.BitConverter.ToInt64(head, 20);
             if (nextOff < 0 || nextSz <= 0 || nextOff + nextSz > fs.Length) return false;
             fs.Seek(nextOff + 32, SeekOrigin.Begin); // Next Header is offset from after the 32-byte Start Header
-            int toRead = (int)System.Math.Min(nextSz, Settings.DetectionReadBudgetBytes);
+            int toRead = (int)System.Math.Min(nextSz, OperationSettings.DetectionReadBudgetBytes);
             var buf = new byte[toRead];
             int n = fs.Read(buf, 0, toRead);
             if (n <= 0) return false;
             // Search for property id 0x17 (kEncodedHeader) in the next header region
             for (int i = 0; i < n; i++) if (buf[i] == 0x17) return true;
-        } catch { }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
         return false;
     }
 
@@ -465,7 +465,7 @@ public static partial class FileInspector
     {
         fileCount = 0;
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (fs.Length < 32) return false;
             var head = new byte[32];
             if (fs.Read(head, 0, head.Length) != head.Length) return false;
@@ -487,7 +487,7 @@ public static partial class FileInspector
             if (!TryRead7zVarUInt(span, ref idx, out ulong files)) return false;
             if (files == 0 || files > 10_000_000) return false;
             fileCount = (int)files; return true;
-        } catch { return false; }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     private static bool TryRead7zVarUInt(ReadOnlySpan<byte> s, ref int idx, out ulong value)
@@ -506,7 +506,7 @@ public static partial class FileInspector
         entryNames = new List<string>();
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (fs.Length < 32) return false;
             var head = new byte[32]; if (fs.Read(head, 0, head.Length) != head.Length) return false;
             if (!(head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC && head[3] == 0xAF && head[4] == 0x27 && head[5] == 0x1C)) return false;
@@ -529,7 +529,7 @@ public static partial class FileInspector
                 {
                     decoded = System.Text.Encoding.Unicode.GetString(buf, offset, usable);
                 }
-                catch
+                catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException)
                 {
                     continue;
                 }
@@ -543,7 +543,7 @@ public static partial class FileInspector
                 }
             }
             return entryNames.Count > 0;
-        } catch { return false; }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
     }
 
     // Backward-compatible helper for callers that only need executable-ish names.

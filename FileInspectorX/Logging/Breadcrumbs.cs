@@ -10,7 +10,7 @@ internal static class Breadcrumbs
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(Settings.BreadcrumbsPath)) return Settings.BreadcrumbsPath!;
+            if (!string.IsNullOrWhiteSpace(OperationSettings.BreadcrumbsPath)) return OperationSettings.BreadcrumbsPath!;
             var baseDir = Environment.ExpandEnvironmentVariables("%ProgramData%/TierBridge");
             Directory.CreateDirectory(baseDir);
             return Path.Combine(baseDir, "FileInspectorX.Breadcrumbs.log");
@@ -26,7 +26,7 @@ internal static class Breadcrumbs
         try
         {
             // Allow env var to force-enable regardless of Settings
-            if (!Settings.BreadcrumbsEnabled)
+            if (!OperationSettings.BreadcrumbsEnabled)
             {
                 var env = Environment.GetEnvironmentVariable("TIERBRIDGE_BREADCRUMBS");
                 if (!string.Equals(env, "1", StringComparison.Ordinal)) return;
@@ -35,7 +35,7 @@ internal static class Breadcrumbs
             try
             {
                 var fi = new FileInfo(file);
-                if (fi.Exists && fi.Length > Settings.BreadcrumbsMaxBytes)
+                if (fi.Exists && fi.Length > OperationSettings.BreadcrumbsMaxBytes)
                 {
                     var bak = file + ".1";
                     try { if (File.Exists(bak)) File.Delete(bak); } catch { }

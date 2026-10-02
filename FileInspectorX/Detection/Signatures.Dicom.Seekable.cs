@@ -23,7 +23,7 @@ internal static partial class Signatures
             long metaEnd = 144L + metaLength;
             if (metaLength < 48 || metaEnd < 144 || metaEnd > stream.Length) return false;
 
-            int budget = Math.Max(144, Settings.DetectionReadBudgetBytes);
+            int budget = Math.Max(144, OperationSettings.DetectionReadBudgetBytes);
             long validationEnd = Math.Min(stream.Length, metaEnd + 12);
             if (validationEnd <= budget && validationEnd <= int.MaxValue)
             {

@@ -220,10 +220,10 @@ public static class DangerousExtensions {
     public static bool IsDangerous(string? extension) {
         if (string.IsNullOrWhiteSpace(extension)) return false;
         var key = extension!.Trim().TrimStart('.');
-        var custom = Settings.DangerousExtensionsOverride;
+        var custom = OperationSettings.DangerousExtensionsOverride;
         if (custom != null && custom.Count > 0)
         {
-            if (Settings.DangerousExtensionsOverrideMode == DangerousExtensionsOverrideMode.Merge)
+            if (OperationSettings.DangerousExtensionsOverrideMode == DangerousExtensionsOverrideMode.Merge)
                 return custom.Contains(key) || Default.Contains(key);
             return custom.Contains(key);
         }

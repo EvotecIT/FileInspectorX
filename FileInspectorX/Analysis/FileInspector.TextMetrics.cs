@@ -26,23 +26,23 @@ public static partial class FileInspector
         {
             if (det == null) return;
             if (res.EstimatedLineCount == null && InspectHelpers.IsText(det))
-                res.EstimatedLineCount = EstimateLines(path, Settings.DetectionReadBudgetBytes);
+                res.EstimatedLineCount = EstimateLines(path, OperationSettings.DetectionReadBudgetBytes);
 
-            if (!Settings.TopTokensEnabled) return;
-            int max = Math.Max(0, Settings.TopTokensMax);
+            if (!OperationSettings.TopTokensEnabled) return;
+            int max = Math.Max(0, OperationSettings.TopTokensMax);
             if (max == 0) return;
-            int maxUnique = Math.Max(0, Settings.TopTokensMaxUniqueTokens);
+            int maxUnique = Math.Max(0, OperationSettings.TopTokensMaxUniqueTokens);
             if (maxUnique == 0) maxUnique = TopTokensHardMaxUniqueTokens;
 
             bool isLog = string.Equals(res.TextSubtype, "log", StringComparison.OrdinalIgnoreCase);
             bool isScript = IsScriptTextSubtype(res.TextSubtype) || IsScriptTextSubtype(res.ScriptLanguage);
             if (!isLog && !isScript) return;
 
-            int minLen = Math.Max(2, Settings.TopTokensMinLength);
-            int minCount = Math.Max(1, Settings.TopTokensMinCount);
-            int maxBytes = Settings.TopTokensMaxBytes;
-            if (maxBytes <= 0) maxBytes = Settings.DetectionReadBudgetBytes;
-            int cap = Math.Min(Settings.DetectionReadBudgetBytes, maxBytes);
+            int minLen = Math.Max(2, OperationSettings.TopTokensMinLength);
+            int minCount = Math.Max(1, OperationSettings.TopTokensMinCount);
+            int maxBytes = OperationSettings.TopTokensMaxBytes;
+            if (maxBytes <= 0) maxBytes = OperationSettings.DetectionReadBudgetBytes;
+            int cap = Math.Min(OperationSettings.DetectionReadBudgetBytes, maxBytes);
             var text = readHeadText != null ? readHeadText(cap) : ReadHeadText(path, cap);
             if (string.IsNullOrEmpty(text)) return;
 
@@ -104,9 +104,9 @@ public static partial class FileInspector
 
     private static bool ShouldRedactToken(string token)
     {
-        var patterns = Settings.TopTokensRedactPatterns;
-        if (patterns == null || patterns.Length == 0) return false;
-        for (int i = 0; i < patterns.Length; i++)
+        var patterns = OperationSettings.TopTokensRedactPatterns;
+        if (patterns == null || patterns.Count == 0) return false;
+        for (int i = 0; i < patterns.Count; i++)
         {
             var p = patterns[i];
             if (string.IsNullOrWhiteSpace(p)) continue;

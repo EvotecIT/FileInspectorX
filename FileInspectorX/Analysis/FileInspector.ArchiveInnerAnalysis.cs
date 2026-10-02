@@ -59,13 +59,15 @@ public static partial class FileInspector
     }
 
     private static int GetNestedArchiveDeepScanBytes()
-        => Math.Max(0, Settings.DeepContainerMaxNestedArchiveBytes);
+        => Math.Max(0, OperationSettings.DeepContainerMaxNestedArchiveBytes);
 
     private static DetectionOptions CreateInnerAnalysisOptions(DetectionOptions? source,
         NestedContainerBudgetState nestedBudget, int nestedDepth, bool includeContainer)
     {
         return new DetectionOptions
         {
+            Settings = source?.Settings,
+            CancellationToken = source?.CancellationToken ?? default,
             ComputeSha256 = source?.ComputeSha256 ?? false,
             MagicHeaderBytes = source?.MagicHeaderBytes ?? 0,
             DetectOnly = false,

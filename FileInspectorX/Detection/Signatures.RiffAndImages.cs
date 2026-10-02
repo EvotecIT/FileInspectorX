@@ -54,7 +54,7 @@ internal static partial class Signatures {
             if (stream.Length < 20 || stream.Length > uint.MaxValue) return false;
             if (!TryReadAt(stream, 0, 20, out var glbHeader) ||
                 !new ReadOnlySpan<byte>(glbHeader, 0, 4).SequenceEqual("glTF"u8)) return false;
-            int prefixLength = (int)Math.Min(stream.Length, Math.Max(20, Settings.DetectionReadBudgetBytes));
+            int prefixLength = (int)Math.Min(stream.Length, Math.Max(20, OperationSettings.DetectionReadBudgetBytes));
             if (!TryReadAt(stream, 0, prefixLength, out var prefix)) return false;
             var src = new ReadOnlySpan<byte>(prefix);
             if (!TryMatchGlb(src, completeLength: null, out var sampled)) return false;
@@ -64,7 +64,7 @@ internal static partial class Signatures {
             if (version == 1)
             {
                 uint jsonLength = ReadUInt32LittleEndian(src, 12);
-                if (jsonLength > Settings.DetectionReadBudgetBytes)
+                if (jsonLength > OperationSettings.DetectionReadBudgetBytes)
                 {
                     result = sampled;
                     result!.Reason += ";json-scan-budget";
@@ -77,7 +77,7 @@ internal static partial class Signatures {
             }
 
             long cursor = 12;
-            int remainingHeaders = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            int remainingHeaders = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 64);
             bool sawJson = false;
             bool sawBin = false;
             bool jsonValidated = false;
@@ -98,7 +98,7 @@ internal static partial class Signatures {
                 {
                     if (sawJson || cursor != 12) return false;
                     sawJson = true;
-                    if (chunkLength <= Settings.DetectionReadBudgetBytes)
+                    if (chunkLength <= OperationSettings.DetectionReadBudgetBytes)
                     {
                         if (!TryReadAt(stream, cursor + 8, (int)chunkLength, out var jsonBytes) ||
                             !TryValidateGlbJson(new ReadOnlySpan<byte>(jsonBytes), allowSpacePadding: true)) return false;
@@ -370,8 +370,8 @@ internal static partial class Signatures {
         if (completeLength < 0) return TiffDirectoryStatus.Invalid;
         ulong totalLength = completeLength.HasValue ? (ulong)completeLength.Value : (ulong)src.Length;
         var visited = new System.Collections.Generic.HashSet<ulong>();
-        int remainingEntries = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
-        int remainingDirectories = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 16 : 6));
+        int remainingEntries = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
+        int remainingDirectories = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / (isBigTiff ? 16 : 6));
         ulong current = firstIfd;
         bool usableImageDirectory = false;
         while (current != 0) {
@@ -423,8 +423,8 @@ internal static partial class Signatures {
 
     private static TiffDirectoryStatus InspectTiffDirectories(Stream stream, bool littleEndian, bool isBigTiff, ulong firstIfd) {
         var visited = new System.Collections.Generic.HashSet<ulong>();
-        int remainingEntries = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
-        int remainingDirectories = Math.Max(1, Settings.DetectionReadBudgetBytes / (isBigTiff ? 16 : 6));
+        int remainingEntries = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / (isBigTiff ? 20 : 12));
+        int remainingDirectories = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / (isBigTiff ? 16 : 6));
         ulong current = firstIfd;
         bool usableImageDirectory = false;
         while (current != 0) {

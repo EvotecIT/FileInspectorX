@@ -54,7 +54,7 @@ public static partial class FileInspector
     private static string? GuessZipSubtype(ZipArchive za, ArchiveInspectionBudget budget, out string? mime, bool visitEntries = true) {
         mime = null;
         try {
-            int entryLimit = Math.Max(0, Settings.ZipSubtypeMaxEntries);
+            int entryLimit = Math.Max(0, OperationSettings.ZipSubtypeMaxEntries);
             if (entryLimit == 0)
             {
                 return null;

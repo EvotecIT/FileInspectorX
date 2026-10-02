@@ -21,9 +21,9 @@ public static partial class FileInspector
         var localPreviews = new List<InnerEntryPreview>();
         int innerExecutablesSampled = 0, innerSignedExecutables = 0, innerValidSignedExecutables = 0;
         var innerPublishers = new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
-        int deepScanned = 0; int deepMax = Settings.DeepContainerMaxEntries; int deepBytes = Settings.DeepContainerMaxEntryBytes; bool deep = Settings.DeepContainerScanEnabled;
+        int deepScanned = 0; int deepMax = OperationSettings.DeepContainerMaxEntries; int deepBytes = OperationSettings.DeepContainerMaxEntryBytes; bool deep = OperationSettings.DeepContainerScanEnabled;
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int count = 0;
             var reader = new TarInspectionReader(fs, budget);
@@ -110,7 +110,7 @@ public static partial class FileInspector
                                 }
                                 continue;
                             }
-                            catch
+                            catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException)
                             {
                                 // On error, seek to next padded header position to keep parser stable.
                                 if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
@@ -142,7 +142,7 @@ public static partial class FileInspector
             innerValidSignedSampled = innerValidSignedExecutables;
             if (innerPublishers.Count > 0) innerPublisherSample = innerPublishers;
             // TAR is not a JAR/APK container; subtype/signing hints handled in ZIP logic.
-        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException) { budget.AddIssue("tar:inspection-failed"); }
+        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("tar:inspection-failed"); }
     }
 
 }

@@ -76,7 +76,7 @@ internal static partial class Signatures
                 int softBreaks = 0;
                 int printable = 0;
                 int nonWs = 0;
-                int limit = Math.Min(headStr.Length, Settings.EncodedBase64ProbeChars);
+                int limit = Math.Min(headStr.Length, OperationSettings.EncodedBase64ProbeChars);
                 for (int i = 0; i < limit; i++)
                 {
                     char ch = headStr[i];
@@ -138,7 +138,7 @@ internal static partial class Signatures
             else
             {
                 int allowed = 0, total = 0, eq = 0, contig = 0, maxContig = 0, urlSafe = 0, hexish = 0;
-                int limit = Math.Min(head.Length, Settings.EncodedBase64ProbeChars);
+                int limit = Math.Min(head.Length, OperationSettings.EncodedBase64ProbeChars);
                 for (int i = 0; i < limit; i++)
                 {
                     byte c = head[i];
@@ -166,7 +166,7 @@ internal static partial class Signatures
                 if (contig > maxContig) maxContig = contig;
                 // Prefer hex classification when the run is almost pure hex and lacks '=' and URL-safe tokens
                 if (total > 0 && hexish >= (int)(total * 0.95) && eq == 0 && urlSafe == 0) { }
-                else if (total >= Settings.EncodedBase64MinBlock && allowed >= (int)(total * Settings.EncodedBase64AllowedRatio) && (maxContig >= Settings.EncodedBase64MinBlock))
+                else if (total >= OperationSettings.EncodedBase64MinBlock && allowed >= (int)(total * OperationSettings.EncodedBase64AllowedRatio) && (maxContig >= OperationSettings.EncodedBase64MinBlock))
                 {
                     // Avoid trivial JSON with many base64-like tokens by requiring some '=' padding or long continuous chunk
                     bool acceptRaw = eq > 0 || urlSafe > 0 || (maxContig >= 256 && (allowed >= (int)(total * 0.98)));
@@ -188,7 +188,7 @@ internal static partial class Signatures
                 else
                 {
                 int hex = 0, other = 0, contigHex = 0, maxContigHex = 0;
-                int limit = Math.Min(head.Length, Settings.EncodedBase64ProbeChars);
+                int limit = Math.Min(head.Length, OperationSettings.EncodedBase64ProbeChars);
                 for (int i = 0; i < limit; i++)
                 {
                     byte c = head[i];
@@ -201,7 +201,7 @@ internal static partial class Signatures
                     }
                 }
                 if (contigHex > maxContigHex) maxContigHex = contigHex;
-                if (hex >= Settings.EncodedHexMinChars && maxContigHex >= Settings.EncodedHexMinChars && hex > other * 4)
+                if (hex >= OperationSettings.EncodedHexMinChars && maxContigHex >= OperationSettings.EncodedHexMinChars && hex > other * 4)
                 {
                     result = new ContentTypeDetectionResult { Extension = "hex", MimeType = "text/plain", Confidence = "Low", Reason = "text:hex" };
                     return true;

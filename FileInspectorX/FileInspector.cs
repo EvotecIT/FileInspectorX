@@ -258,8 +258,13 @@ public static partial class FileInspector {
         } catch { return string.Empty; }
     }
 
-    private static FileStream OpenReadShared(string path)
-        => new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+    private static Stream OpenReadShared(string path)
+    {
+        InspectionOperation.CheckCancellation();
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var token = InspectionOperation.Current?.Options.CancellationToken ?? default;
+        return token.CanBeCanceled ? new OperationReadStream(stream, token, leaveOpen: false) : stream;
+    }
 
     private static void ValidateLearnedClassificationMode(DetectionOptions options) {
         if (!Enum.IsDefined(typeof(LearnedClassificationMode), options.LearnedClassificationMode))
@@ -373,7 +378,7 @@ public static partial class FileInspector {
     {
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             int cap = (int)Math.Min(Math.Max(64 * 1024, byteBudget), Math.Min(fs.Length, (long)byteBudget));
             var buf = new byte[cap];
             int n = fs.Read(buf, 0, buf.Length); if (n <= 0) return null;
@@ -428,7 +433,8 @@ public static partial class FileInspector {
         /// </summary>
         public static FileAnalysis Inspect(string path, DetectionOptions? options = null)
         {
-            options ??= new DetectionOptions();
+            using var operation = InspectionOperation.Begin(options ?? new DetectionOptions());
+            options = operation.Options;
             ValidateLearnedClassificationMode(options);
 
             // Fast-path ETL: avoid full analysis (which can be expensive/fragile on multi‑GB traces).
@@ -438,8 +444,8 @@ public static partial class FileInspector {
                 {
                     long len = -1;
                     try { len = new FileInfo(path).Length; } catch { len = -1; }
-                    var threshold = Settings.EtlLargeFileQuickScanBytes;
-                    var mode = Settings.EtlValidation;
+                    var threshold = OperationSettings.EtlLargeFileQuickScanBytes;
+                    var mode = OperationSettings.EtlValidation;
                     bool allowQuick = threshold > 0 && len >= threshold;
                     if (allowQuick)
                     {
@@ -459,7 +465,7 @@ public static partial class FileInspector {
                                 // Tracerpt-only (safe) or native+tracerpt (native currently disabled)
                                 try
                                 {
-                                    var tr = EtlProbe.TryValidate(path, Settings.EtlProbeTimeoutMs);
+                                    var tr = EtlProbe.TryValidate(path, OperationSettings.EtlProbeTimeoutMs);
                                     if (tr == true) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-ok" : reason + ";tracerpt-ok"; confidence = "High"; }
                                     else if (tr == false) { reason = string.IsNullOrEmpty(reason) ? "tracerpt-fail" : reason + ";tracerpt-fail"; }
                                     else { reason = string.IsNullOrEmpty(reason) ? "tracerpt-n/a" : reason + ";tracerpt-n/a"; }
@@ -479,6 +485,7 @@ public static partial class FileInspector {
                             }
                             var quick = new FileAnalysis
                             {
+                                SettingsSnapshot = options.Settings,
                                 Detection = det,
                                 DetectedExtension = det.Extension,
                                 DetectedMimeType = det.MimeType,
@@ -496,15 +503,17 @@ public static partial class FileInspector {
             }
             catch (OutOfMemoryException) { throw; }
             catch (LearnedClassificationException) { throw; }
+            catch (OperationCanceledException) { throw; }
             catch { /* non-fatal */ }
 
             if (options.DetectOnly)
             {
                 ContentTypeDetectionResult? det;
                 try { det = DetectPathCore(path, options, propagateReadFailure: true); }
-                catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException)
+                catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not ArgumentOutOfRangeException and not OperationCanceledException)
                 { return InputFailureAnalysis(options); }
                 var detectedOnly = new FileAnalysis {
+                    SettingsSnapshot = options.Settings,
                     Detection = det,
                     Kind = ClassifyKindWithLearnedText(det),
                     Flags = ContentFlags.None

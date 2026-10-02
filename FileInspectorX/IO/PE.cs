@@ -12,7 +12,7 @@ internal static class PeReader {
     /// </summary>
     public static bool TryReadPe(string path, out PeInfo info) {
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             return TryReadPe(fs, out info);
         } catch {
             info = new PeInfo();
@@ -117,7 +117,7 @@ internal static class PeReader {
         if (pe.ExportRva == 0 || pe.ExportSize == 0) return false;
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             using var br = new BinaryReader(fs);
             if (!RvaToFileOffset(pe, pe.ExportRva, out var expOff)) return false;
             fs.Seek(expOff, SeekOrigin.Begin);
@@ -178,7 +178,7 @@ internal static class PeReader {
         if (!TryReadPe(path, out var pe)) return null;
         if (pe.ResourceRva == 0 || pe.ResourceSize == 0) return null;
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             using var br = new BinaryReader(fs);
             if (!RvaToFileOffset(pe, pe.ResourceRva, out var resRoot)) return null;
             fs.Seek(resRoot, SeekOrigin.Begin);

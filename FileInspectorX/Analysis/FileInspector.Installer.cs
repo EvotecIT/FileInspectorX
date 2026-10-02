@@ -15,12 +15,12 @@ public static partial class FileInspector
 #if NET8_0_OR_GREATER || NET472
         var budget = ArchiveInspectionBudget.FromSettings();
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("AppxManifest.xml");
             if (entry == null) return;
-            var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes));
+            var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, OperationSettings.ArchiveMaxEntryReadBytes));
             using var s = budget.OpenEntry(entry, checked((int)manifestMaxBytes));
             if (s == null) return;
             if (!BoundedXmlDocument.TryLoad(s, manifestMaxBytes, out var doc)) return;
@@ -119,12 +119,12 @@ public static partial class FileInspector
 #if NET8_0_OR_GREATER || NET472
         var budget = ArchiveInspectionBudget.FromSettings();
         try {
-            using var fs = File.OpenRead(path);
+            using var fs = OperationReadStream.Open(path);
             if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("extension.vsixmanifest");
             if (entry == null) return;
-            var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, Settings.ArchiveMaxEntryReadBytes));
+            var manifestMaxBytes = Math.Max(1L, Math.Min(int.MaxValue, OperationSettings.ArchiveMaxEntryReadBytes));
             using var s = budget.OpenEntry(entry, checked((int)manifestMaxBytes));
             if (s == null) return;
             if (!BoundedXmlDocument.TryLoad(s, manifestMaxBytes, out var doc)) return;
@@ -213,12 +213,12 @@ public static partial class FileInspector
                 }
 
                 // SummaryInformation can trigger unstable native behavior on some real-world MSI packages.
-                if (Settings.EnableMsiSummaryInfo)
+                if (OperationSettings.EnableMsiSummaryInfo)
                 {
                     TryPopulateMsiSummary(hDb, res);
                 }
-                // CustomActions summary (Windows-only) — opt-in via Settings.EnableMsiCustomActions for stability
-                try { if (Settings.EnableMsiCustomActions && HasTable(hDb, "CustomAction")) TryPopulateMsiCustomActions(hDb, res); } catch { }
+                // CustomActions summary (Windows-only) — opt-in via OperationSettings.EnableMsiCustomActions for stability
+                try { if (OperationSettings.EnableMsiCustomActions && HasTable(hDb, "CustomAction")) TryPopulateMsiCustomActions(hDb, res); } catch { }
                 InspectorMetrics.Msi.IncSuccess();
             }
             Breadcrumbs.Write("MSI_PROPS_END", path: path);

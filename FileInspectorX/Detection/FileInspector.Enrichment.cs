@@ -41,7 +41,11 @@ public static partial class FileInspector
             {
                 var buffer = new byte[8192];
                 int read;
-                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0) hash.AppendData(buffer, 0, read);
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    InspectionOperation.CheckCancellation();
+                    hash.AppendData(buffer, 0, read);
+                }
             }
             return ToLowerHex(hash.GetHashAndReset());
         }
@@ -51,11 +55,18 @@ public static partial class FileInspector
     private static void AppendHash(IncrementalHash hash, ReadOnlySpan<byte> bytes)
     {
 #if NET8_0_OR_GREATER
-        hash.AppendData(bytes);
+        while (!bytes.IsEmpty)
+        {
+            InspectionOperation.CheckCancellation();
+            int count = Math.Min(bytes.Length, 64 * 1024);
+            hash.AppendData(bytes.Slice(0, count));
+            bytes = bytes.Slice(count);
+        }
 #else
         var buffer = new byte[Math.Min(bytes.Length, 8192)];
         while (!bytes.IsEmpty)
         {
+            InspectionOperation.CheckCancellation();
             int count = Math.Min(bytes.Length, buffer.Length);
             bytes.Slice(0, count).CopyTo(buffer);
             hash.AppendData(buffer, 0, count);

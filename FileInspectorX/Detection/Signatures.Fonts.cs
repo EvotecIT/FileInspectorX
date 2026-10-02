@@ -25,7 +25,7 @@ internal static partial class Signatures {
         long originalPosition = stream.Position;
         try {
             if (stream.Length < 4 || !TryReadAt(stream, 0, (int)Math.Min(64, stream.Length), out var prefix)) return false;
-            if (stream.Length <= Math.Max(64, Settings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
+            if (stream.Length <= Math.Max(64, OperationSettings.DetectionReadBudgetBytes) && stream.Length <= int.MaxValue &&
                 TryReadAt(stream, 0, (int)stream.Length, out var completeFont))
                 return TryMatchFont(new ReadOnlySpan<byte>(completeFont), stream.Length, out result);
             var src = new ReadOnlySpan<byte>(prefix);
@@ -59,7 +59,7 @@ internal static partial class Signatures {
             if (!TryValidateTtcDsigHeader(header, version, fontCount, stream.Length)) return false;
             bool anyCff = false;
             bool allRequiredTables = true;
-            long directoryReadBudget = Math.Max(collectionHeaderLength, Math.Max(256, Settings.DetectionReadBudgetBytes));
+            long directoryReadBudget = Math.Max(collectionHeaderLength, Math.Max(256, OperationSettings.DetectionReadBudgetBytes));
             long remainingDirectoryReadBudget = directoryReadBudget - collectionHeaderLength;
             var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
                 (0, (ulong)collectionHeaderLength)
@@ -198,7 +198,7 @@ internal static partial class Signatures {
 
     private static bool TryReadWoff2Byte(Stream stream, uint declaredLength, ref long cursor, out byte value) {
         value = 0;
-        if (cursor >= declaredLength || cursor >= Math.Max(48, Settings.DetectionReadBudgetBytes)) return false;
+        if (cursor >= declaredLength || cursor >= Math.Max(48, OperationSettings.DetectionReadBudgetBytes)) return false;
         int current = stream.ReadByte();
         if (current < 0) return false;
         cursor++;
@@ -328,7 +328,7 @@ internal static partial class Signatures {
             return false;
 
         bool anyCff = false;
-        long remainingValidationBudget = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        long remainingValidationBudget = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         var directoryRanges = new System.Collections.Generic.List<(ulong Start, ulong End)> {
             (0, (ulong)headerLength)
         };

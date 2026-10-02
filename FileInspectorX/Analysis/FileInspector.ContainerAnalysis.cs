@@ -26,12 +26,12 @@ public static partial class FileInspector
                                 using var ms = new MemoryStream(toDetect);
                                 using var gz = new GZipStream(ms, CompressionMode.Decompress, leaveOpen: true);
                                 using var outMs = new MemoryStream();
-                                var buf = new byte[8192]; int read; int left = Settings.EncodedDecodeMaxBytes;
+                                var buf = new byte[8192]; int read; int left = OperationSettings.EncodedDecodeMaxBytes;
                                 while (left > 0 && (read = gz.Read(buf, 0, Math.Min(buf.Length, left))) > 0) { outMs.Write(buf, 0, read); left -= read; }
                                 toDetect = outMs.ToArray();
-                            } catch { }
+                            } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
                         }
-                        var detInner = Detect(new ReadOnlySpan<byte>(toDetect, 0, Math.Min(toDetect.Length, Settings.EncodedDecodeMaxBytes)), null);
+                        var detInner = Detect(new ReadOnlySpan<byte>(toDetect, 0, Math.Min(toDetect.Length, OperationSettings.EncodedDecodeMaxBytes)), null);
                         if (detInner != null) { res.EncodedInnerDetection = detInner; }
                         var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                         string encCode = encKind switch { "base64" => "enc:b64", "hex" => "enc:hex", "base85" => "enc:b85", "uuencode" => "enc:uu", "quoted-printable" => "enc:qp", _ => "enc:unk" };
@@ -40,7 +40,7 @@ public static partial class FileInspector
                         res.SecurityFindings = list;
                     }
                 }
-                catch { }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
             }
 
             // OOXML macros and ZIP container hints
@@ -88,7 +88,7 @@ public static partial class FileInspector
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.AddRange(findings);
                     res.SecurityFindings = list;
-                    res.InnerFindings = findings.Take(Settings.DeepContainerMaxEntries).ToArray();
+                    res.InnerFindings = findings.Take(OperationSettings.DeepContainerMaxEntries).ToArray();
                 }
                 if (innerExecSampled > 0)
                 {
@@ -101,7 +101,7 @@ public static partial class FileInspector
                 }
                 if (previewOut != null && previewOut.Count > 0)
                 {
-                    res.ArchivePreviewEntries = previewOut.Take(Settings.DeepContainerMaxEntries).ToList();
+                    res.ArchivePreviewEntries = previewOut.Take(OperationSettings.DeepContainerMaxEntries).ToList();
                 }
                 if (innerExecExtCounts != null && innerExecExtCounts.Count > 0)
                 {
@@ -137,7 +137,7 @@ public static partial class FileInspector
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
                 if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                 if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
-                if (tarPreview != null && tarPreview.Count > 0) res.ArchivePreviewEntries = tarPreview.Take(Settings.DeepContainerMaxEntries).ToList();
+                if (tarPreview != null && tarPreview.Count > 0) res.ArchivePreviewEntries = tarPreview.Take(OperationSettings.DeepContainerMaxEntries).ToList();
                 if (innerExecSampled > 0)
                 {
                     res.InnerExecutablesSampled = innerExecSampled;
@@ -155,7 +155,7 @@ public static partial class FileInspector
             {
                 // Distinguish RAR4 vs RAR5 by signature
                 try {
-                    using var fsr = File.OpenRead(path);
+                    using var fsr = OperationReadStream.Open(path);
                     var head = new byte[8]; int nr = fsr.Read(head, 0, head.Length);
                     bool isRar5 = nr >= 8 && head[0]==0x52 && head[1]==0x61 && head[2]==0x72 && head[3]==0x21 && head[4]==0x1A && head[5]==0x07 && head[6]==0x01 && head[7]==0x00;
                     bool isRar4 = !isRar5;
@@ -163,7 +163,7 @@ public static partial class FileInspector
                     {
                         if (TryInspectRarQuick(path))
                             res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
-                        if (TryCountRar4EncryptedFiles(path, Settings.DeepContainerMaxEntries, out int encCount, out int totalCount))
+                        if (TryCountRar4EncryptedFiles(path, OperationSettings.DeepContainerMaxEntries, out int encCount, out int totalCount))
                         {
                             if (encCount > 0) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries;
                             res.EncryptedEntryCount = encCount;
@@ -187,14 +187,14 @@ public static partial class FileInspector
                             if (hasScripts) res.Flags |= ContentFlags.ContainerContainsScripts;
                             if (hasNestedArchives) res.Flags |= ContentFlags.ContainerContainsArchives;
                             if (previewOut != null && previewOut.Count > 0)
-                                res.ArchivePreviewEntries = previewOut.Take(Settings.DeepContainerMaxEntries).ToList();
+                                res.ArchivePreviewEntries = previewOut.Take(OperationSettings.DeepContainerMaxEntries).ToList();
                             if (innerExecExtCounts != null && innerExecExtCounts.Count > 0)
                                 res.InnerExecutableExtCounts = new Dictionary<string,int>(innerExecExtCounts);
                         }
                         // Optional deep signer sampling for uncompressed, non-encrypted entries (store-only), bounded by budgets
-                        if (Settings.DeepContainerScanEnabled)
+                        if (OperationSettings.DeepContainerScanEnabled)
                         {
-                            if (TrySampleRar4InnerSigners(path, Settings.DeepContainerMaxEntries, Settings.DeepContainerMaxEntryBytes,
+                            if (TrySampleRar4InnerSigners(path, OperationSettings.DeepContainerMaxEntries, OperationSettings.DeepContainerMaxEntryBytes,
                                 out int innerExecSampled, out int innerSignedAny, out int innerValid, out var innerPublishers))
                             {
                                 if (innerExecSampled > 0)
@@ -217,7 +217,7 @@ public static partial class FileInspector
                             res.SecurityFindings = list;
                         }
                     }
-                } catch { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
+                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { if (TryInspectRarQuick(path)) res.Flags |= ContentFlags.ArchiveHasEncryptedEntries; }
             }
             if ((options?.IncludeContainer != false) && (det.Extension == "7z"))
             {
@@ -228,14 +228,14 @@ public static partial class FileInspector
                     list.Add("7z:headers-encrypted");
                     res.SecurityFindings = list;
                 }
-                else if (TryCount7zFilesQuick(path, Settings.DetectionReadBudgetBytes, out int files))
+                else if (TryCount7zFilesQuick(path, OperationSettings.DetectionReadBudgetBytes, out int files))
                 {
                     res.ContainerEntryCount = files;
                     var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>());
                     list.Add($"7z:files={files}");
                     res.SecurityFindings = list;
                     // Best-effort: extract plain entry names from an unencoded Next Header
-                    if (TryRead7zEntryNamesFromHeader(path, Settings.DetectionReadBudgetBytes, out var entryNames))
+                    if (TryRead7zEntryNamesFromHeader(path, OperationSettings.DetectionReadBudgetBytes, out var entryNames))
                     {
                         var exts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                         var previews = new List<InnerEntryPreview>();
@@ -257,7 +257,7 @@ public static partial class FileInspector
                             if (IsScriptName(name)) hasScripts = true;
                             if (IsArchiveLikeExtension(ext)) hasNestedArchives = true;
 
-                            if (previews.Count < Math.Min(5, Settings.DeepContainerMaxEntries))
+                            if (previews.Count < Math.Min(5, OperationSettings.DeepContainerMaxEntries))
                                 previews.Add(new InnerEntryPreview { Name = name, DetectedExtension = string.IsNullOrEmpty(ext) ? null : ext });
                         }
 

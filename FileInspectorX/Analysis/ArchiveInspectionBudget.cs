@@ -39,11 +39,11 @@ internal sealed class ArchiveInspectionBudget
         // Snapshot all mutable settings together for this operation. Later
         // changes affect the next analysis, not an archive already in flight.
         return new ArchiveInspectionBudget(
-            Settings.ArchiveMaxEntries,
-            Settings.ArchiveMaxCentralDirectoryBytes,
-            Settings.ArchiveMaxEntryReadBytes,
-            Settings.ArchiveMaxTotalReadBytes,
-            Settings.ArchiveMaxCompressionRatio);
+            OperationSettings.ArchiveMaxEntries,
+            OperationSettings.ArchiveMaxCentralDirectoryBytes,
+            OperationSettings.ArchiveMaxEntryReadBytes,
+            OperationSettings.ArchiveMaxTotalReadBytes,
+            OperationSettings.ArchiveMaxCompressionRatio);
     }
 
     internal bool CheckCentralDirectory(Stream stream, out int? declaredEntryCount)
@@ -124,6 +124,7 @@ internal sealed class ArchiveInspectionBudget
 
     internal bool TryVisitEntry()
     {
+        InspectionOperation.CheckCancellation();
         _entriesVisited++;
         if (_entriesVisited <= _maxEntries)
             return true;
@@ -314,10 +315,12 @@ internal sealed class ArchiveInspectionBudget
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            InspectionOperation.CheckCancellation();
             if (_remaining <= 0)
                 return 0;
             var allowed = (int)Math.Min(count, _remaining);
             var read = _inner.Read(buffer, offset, allowed);
+            InspectionOperation.CheckCancellation();
             if (read > 0)
             {
                 _remaining -= read;

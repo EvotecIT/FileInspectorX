@@ -447,9 +447,35 @@ Example keys: `DetectedTypeExtension`, `DetectedTypeName`, `DetectionConfidence`
 
 ## Thread Safety Notes
 
-- Settings are static/global; configure once at startup.
-- Avoid concurrent mutation while detection is running; if you need runtime updates, protect changes with your own lock.
-- `DetectionScoreAdjustments` defaults to `ConcurrentDictionary`. If you replace it with a non-thread-safe dictionary, you are responsible for synchronization.
+- `Settings` supplies legacy global defaults. Configure it at startup and synchronize runtime updates.
+- Use `InspectionSettings` when concurrent operations need different policies. Snapshots copy arrays, sets and dictionaries, and can be shared between threads.
+- Each operation copies its `DetectionOptions` before reading input. Directory scans capture those options when enumeration starts.
+
+## Operation Settings, Profiles and Cancellation
+
+Capture defaults while global configuration is stable, then customize the snapshot with a `with` expression:
+
+```csharp
+var settings = InspectionSettings.CaptureDefaults() with {
+    ArchiveMaxEntries = 1024,
+    ArchiveMaxTotalReadBytes = 8L * 1024 * 1024,
+    AllowedVendors = new[] { "Microsoft Corporation" },
+    VerifyAuthenticodeRevocation = false
+};
+var profile = InspectionProfile.Bounded(settings);
+using var cancellation = new CancellationTokenSource();
+var options = profile.CreateOptions(cancellation.Token);
+options.ComputeSha256 = true;
+var analysis = FileInspector.Inspect(path, options);
+```
+
+`Quick` selects detection-only inspection. `Bounded` runs the existing best-effort analysis stages. `Deep` additionally enables nested container inspection within the snapshot's entry, byte and depth limits. Profiles create fresh options; native installer and shell handlers require separate opt-ins. `Analyze` always runs analysis; use `Inspect` to honor the profile's detection-only choice.
+
+Set `DetectionOptions.Settings` directly to use a snapshot with any detection overload, analysis or directory scan. A null value keeps legacy global settings. Analysis results retain the snapshot for later report/reference projections and assessments. `FileInspector.Assess(analysis, settings)` and `AssessMulti` accept an explicit assessment policy override. Capturing legacy defaults does not make concurrent writes to separate global properties atomic.
+
+Cancellation throws `OperationCanceledException`, including in optional learned classification. Detection restores borrowed seekable streams after cancellation and leaves caller-owned streams open. Checks occur between reads, hash chunks, archive entries and analysis stages. Synchronous operating-system calls and providers implementing only `ILearnedContentClassifier` finish their current call before cancellation is observed. Providers can implement `ICancellableLearnedContentClassifier` to receive the token during prediction. Async directory disposal signals cancellation and awaits its in-flight work; the options token and the async enumeration token are linked.
+
+Snapshots retain the exposed comparers of `Dictionary`, `SortedDictionary`, `SortedList`, `HashSet` and `SortedSet`. Read-only wrappers and custom dictionaries/sets that hide their comparer require an explicit comparer through `CaptureDefaults(scoreComparer: ..., toolHashComparer: ..., dangerousExtensionComparer: ...)`. Use `WithDetectionScoreAdjustments`, `WithKnownToolHashes` or `WithDangerousExtensionsOverride` to customize those collections with an explicit comparer. On net472/netstandard2.0, custom `ConcurrentDictionary` instances also require their comparer because those target APIs do not expose it; the built-in score dictionary needs no extra argument.
 
 ## Settings Cheatsheet
 

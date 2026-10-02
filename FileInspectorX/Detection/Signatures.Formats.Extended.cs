@@ -35,12 +35,12 @@ internal static partial class Signatures
             if (stream.Length < 144 || !TryReadAt(stream, 0, 112, out var prefix)) return false;
             var src = new ReadOnlySpan<byte>(prefix);
             if (!TryGetRpmMainHeaderOffset(src, stream.Length, out long mainHeaderOffset, out int signatureLength) ||
-                signatureLength > Settings.DetectionReadBudgetBytes ||
+                signatureLength > OperationSettings.DetectionReadBudgetBytes ||
                 !TryReadAt(stream, 96, signatureLength, out var signatureHeader) ||
                 !TryValidateRpmHeader(new ReadOnlySpan<byte>(signatureHeader), out _) ||
                 !TryReadAt(stream, mainHeaderOffset, 16, out var mainHeader) ||
                 !TryGetRpmHeaderLength(new ReadOnlySpan<byte>(mainHeader), out int mainLength) ||
-                mainLength > Settings.DetectionReadBudgetBytes || mainHeaderOffset + mainLength > stream.Length ||
+                mainLength > OperationSettings.DetectionReadBudgetBytes || mainHeaderOffset + mainLength > stream.Length ||
                 !TryReadAt(stream, mainHeaderOffset, mainLength, out var completeMainHeader) ||
                 !TryValidateRpmHeader(new ReadOnlySpan<byte>(completeMainHeader), out _) ||
                 !TryReadAt(stream, mainHeaderOffset + mainLength, (int)Math.Min(6, stream.Length - mainHeaderOffset - mainLength), out var payloadPrefix) ||
@@ -138,7 +138,7 @@ internal static partial class Signatures
         uint indexCount = ReadUInt32BigEndian(header, 8);
         uint dataLength = ReadUInt32BigEndian(header, 12);
         int storeOffset = checked(16 + (int)indexCount * 16);
-        int remainingStringScanBytes = Math.Max(256, Settings.DetectionReadBudgetBytes);
+        int remainingStringScanBytes = Math.Max(256, OperationSettings.DetectionReadBudgetBytes);
         for (uint index = 0; index < indexCount; index++)
         {
             int record = checked(16 + (int)index * 16);
@@ -970,7 +970,7 @@ internal static partial class Signatures
         sampledRootVoid = false;
         rootScanBudgetExceeded = false;
         sampledSegment = false;
-        int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+        int remainingElements = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 64);
         bool foundSegment = false;
         while (cursor < src.Length)
         {
@@ -1049,7 +1049,7 @@ internal static partial class Signatures
     {
         int cursor = 0;
         bool info = false, tracks = false;
-        int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 16);
+        int remainingElements = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 16);
         ulong scanLength = completeLength ?? (ulong)payload.Length;
         while ((ulong)cursor < scanLength)
         {
@@ -1084,7 +1084,7 @@ internal static partial class Signatures
             int read = ReadHeaderBytes(stream, bytes);
             if (!TryReadMatroskaDocumentType(new ReadOnlySpan<byte>(bytes, 0, read), out string? docType, out int headerEnd)) return false;
             long cursor = headerEnd;
-            int remainingElements = Math.Max(1, Settings.DetectionReadBudgetBytes / 64);
+            int remainingElements = Math.Max(1, OperationSettings.DetectionReadBudgetBytes / 64);
             bool foundSegment = false;
             bool sampledSegment = false;
             while (cursor < stream.Length)
@@ -1105,7 +1105,7 @@ internal static partial class Signatures
                         (!unknownLength && segmentLength > (ulong)(stream.Length - stream.Position))) return false;
                     long segmentPayloadOffset = stream.Position;
                     ulong completeSegmentLength = unknownLength ? (ulong)(stream.Length - segmentPayloadOffset) : segmentLength;
-                    int segmentReadLength = (int)Math.Min(completeSegmentLength, (ulong)Math.Max(16, Settings.DetectionReadBudgetBytes));
+                    int segmentReadLength = (int)Math.Min(completeSegmentLength, (ulong)Math.Max(16, OperationSettings.DetectionReadBudgetBytes));
                     if (!TryReadAt(stream, segmentPayloadOffset, segmentReadLength, out var segmentBytes)) return false;
                     MatroskaSegmentStatus status = InspectMatroskaSegmentChildren(new ReadOnlySpan<byte>(segmentBytes), completeSegmentLength);
                     if (status == MatroskaSegmentStatus.Invalid) return false;
