@@ -22,6 +22,7 @@ New-BenchmarkSuite 'fileinspectorx-detection' {
     Add-BenchmarkMetadata BaselineSha256 (Get-FileHash (Join-Path $baselineRoot 'FileInspectorX.dll')).Hash
     Add-BenchmarkMetadata CandidateSha256 (Get-FileHash (Join-Path $candidateRoot 'FileInspectorX.dll')).Hash
     Add-BenchmarkMetadata WorkloadSha256 $baselineWorkloadHash
+    Add-BenchmarkMetadata HostRuntime ([Runtime.InteropServices.RuntimeInformation]::FrameworkDescription)
     if ($IsWindows) {
         Add-BenchmarkMetadata ProcessAffinity ([Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity.ToInt64())
         Add-BenchmarkMetadata ProcessPriority ([Diagnostics.Process]::GetCurrentProcess().PriorityClass)

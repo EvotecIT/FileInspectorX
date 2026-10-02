@@ -90,16 +90,21 @@ public sealed class OperationPolicyRegressionTests
         finally { File.Delete(path); }
     }
 
-    [Fact]
-    public void EtlQuickAndInputFailureResultsRetainProjectionPolicy()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EtlQuickAndInputFailureResultsRetainProjectionPolicy(bool detectOnly)
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".etl");
         try
         {
-            var settings = InspectionSettings.CaptureDefaults() with { EtlValidation = Settings.EtlValidationMode.MagicOnly, ReportHostFileMetadataEnabled = true };
+            var settings = InspectionSettings.CaptureDefaults() with {
+                EtlValidation = Settings.EtlValidationMode.MagicOnly, EtlLargeFileQuickScanBytes = 1, ReportHostFileMetadataEnabled = true
+            };
             File.WriteAllBytes(path, new byte[] { 0x45, 0x6C, 0x66, 0x46, 0x00, 0x01 });
-            var quick = FileInspector.Inspect(path, new() { Settings = settings, DetectOnly = true });
+            var quick = FileInspector.Inspect(path, new() { Settings = settings, DetectOnly = detectOnly });
             Assert.Equal("etl", quick.DetectedExtension);
+            Assert.Null(quick.Assessment);
             quick.Security = new FileSecurity { Owner = "snapshot-owner" };
             Assert.Equal("snapshot-owner", ReportView.From(quick).Owner);
             File.Delete(path);
