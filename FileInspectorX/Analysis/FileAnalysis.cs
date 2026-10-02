@@ -9,6 +9,8 @@ public class FileAnalysis {
     internal InspectionSettings? SettingsSnapshot { get; init; }
     internal bool HasFileSystemSource { get; init; } = true;
     internal string SourceFileName { get; init; } = string.Empty;
+    internal InspectionStageStatus? ContentInstallerStatus { get; set; }
+    internal IReadOnlyList<string>? ContentInstallerIssues { get; set; }
 
     /// <summary>Distinguishes unreadable input from readable but unrecognized content.</summary>
     public InspectionInputStatus InputStatus => AnalysisIssues?.Contains("input:read-failed") == true

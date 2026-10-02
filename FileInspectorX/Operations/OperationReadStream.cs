@@ -41,7 +41,7 @@ internal sealed class OperationReadStream : Stream
     }
 
     internal static Stream Borrow(Stream stream, CancellationToken token)
-        => Wrap(stream, token, leaveOpen: true);
+        => new OperationReadStream(stream, token, leaveOpen: true, MetricsFor(stream));
 
     internal static Stream Open(string path)
     {

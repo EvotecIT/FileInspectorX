@@ -22,7 +22,7 @@ public static partial class FileInspector {
         using var operation = InspectionOperation.Begin(options);
         options = operation.Options;
         Breadcrumbs.Write("ANALYZE_BEGIN", path: path);
-        var includeInstaller = input.HasPath && ShouldIncludeInstaller(options);
+        var includeInstaller = ShouldIncludeInstaller(options);
         options ??= new DetectionOptions();
         ValidateLearnedClassificationMode(options);
         ContentTypeDetectionResult? det;
@@ -70,11 +70,12 @@ public static partial class FileInspector {
 
             InspectionOperation.CheckCancellation();
             using (operation.Measure(InspectionStage.Container))
-                AnalyzeContainers(input, options, det, res, includeInstaller);
+                AnalyzeContainers(input, options, det, res);
             InspectionOperation.CheckCancellation();
+            if (includeInstaller) TryPopulateContentInstaller(input, res);
 
             // MSI metadata enrichment (Windows): product version via msi.dll
-            if (includeInstaller && det.Extension == "msi")
+            if (input.HasPath && includeInstaller && det.Extension == "msi")
             {
                 try {
                     Breadcrumbs.Write("MSI_META_BEGIN", path: path);
@@ -103,7 +104,7 @@ public static partial class FileInspector {
                         det.Reason = string.IsNullOrEmpty(det.Reason) ? "declared:msi" : det.Reason + ";declared:msi";
                     }
                     // MSI property enrichment is optional and may be disabled for stability; only attempt when enabled
-                    if (includeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
+                    if (input.HasPath && includeInstaller && !msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
                 }
             } catch (Exception ex) { Breadcrumbs.Write("MSI_PROMOTE_ERROR", message: ex.GetType().Name+":"+ex.Message, path: path); }
             // If we discovered MSI installer metadata later but detection stayed at generic OLE2, promote it to MSI
@@ -348,7 +349,7 @@ public static partial class FileInspector {
                 TryParseP7b(input, res);
             }
             // MSI package properties (Windows only)
-            if (includeInstaller && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
+            if (input.HasPath && includeInstaller && (det?.Extension?.Equals("msi", StringComparison.OrdinalIgnoreCase) ?? false))
             {
                 if (!msiPropsDone) { TryPopulateMsiProperties(path, res); msiPropsDone = true; }
             }
@@ -361,7 +362,8 @@ public static partial class FileInspector {
                 declaredExt2 is "exe" or "dll" or "sys" or "cpl" or "ocx" or "scr" or "com" or "pif";
             bool packageFamily =
                 detectedExt2 is "msi" or "msp" or "msix" or "appx" ||
-                declaredExt2 is "msi" or "msp" or "msix" or "appx";
+                declaredExt2 is "msi" or "msp" or "msix" or "appx" ||
+                (res.GuessedExtension ?? det?.GuessedExtension) is "msix" or "appx";
 
             if ((options?.IncludeAuthenticode != false) &&
                 input.HasPath && OperationSettings.VerifyAuthenticodeWithWinTrust &&

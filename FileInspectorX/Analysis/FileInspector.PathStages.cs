@@ -9,7 +9,7 @@ public static partial class FileInspector
         if (!options.IncludeAuthenticode || !OperationSettings.VerifyAuthenticodeWithWinTrust) return false;
         var extension = result.Detection?.Extension;
         var declared = System.IO.Path.GetExtension(result.SourceFileName).TrimStart('.').ToLowerInvariant();
-        return IsTrustFamily(extension) || IsTrustFamily(declared);
+        return IsTrustFamily(extension) || IsTrustFamily(result.GuessedExtension ?? result.Detection?.GuessedExtension) || IsTrustFamily(declared);
 #else
         return false;
 #endif
@@ -47,7 +47,14 @@ public static partial class FileInspector
         }
         Add(InspectionStage.Permissions, options.IncludePermissions, true, "permissions:path-required");
         Add(InspectionStage.ShellProperties, options.IncludeShellProperties, true, "shell-properties:path-required");
-        Add(InspectionStage.Installer, ShouldIncludeInstaller(options), result.Detection?.Extension == "msi", "installer:path-required");
+        if (ContentInstallerApplicable(result))
+        {
+            bool requested = !detectionOnly && ShouldIncludeInstaller(options);
+            stages.Add(new InspectionStageResult(InspectionStage.Installer, !requested ? InspectionStageStatus.NotRequested :
+                result.ContentInstallerStatus ?? InspectionStageStatus.Unavailable,
+                requested ? result.ContentInstallerIssues?.ToArray() ?? Array.Empty<string>() : Array.Empty<string>()));
+        }
+        else Add(InspectionStage.Installer, ShouldIncludeInstaller(options), result.Detection?.Extension == "msi", "installer:path-required");
         Add(InspectionStage.AuthenticodePolicy, options.IncludeAuthenticode && OperationSettings.VerifyAuthenticodeWithWinTrust,
             NativeTrustRequested(result, options), "authenticode-policy:path-required");
         Add(InspectionStage.EtlValidation, NativeEtlValidationRequested(), result.Detection?.Extension == "etl", "etl-validation:path-required");

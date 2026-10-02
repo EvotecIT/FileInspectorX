@@ -13,7 +13,7 @@ public static partial class FileInspector
         try {
             using var fs = input.OpenRead();
             int toRead = (int)Math.Min(OperationSettings.EncodedProbeReadBytes, fs.Length);
-            var buf = new byte[toRead]; int nr = fs.Read(buf, 0, toRead);
+            var buf = new byte[toRead]; int nr = ReadAvailable(fs, buf, 0, toRead);
             if (nr <= 0) return false;
             ReadOnlySpan<byte> span = new ReadOnlySpan<byte>(buf, 0, nr);
             // Handle UTF-16 BOMs minimally

@@ -41,6 +41,7 @@ public static partial class FileInspector
 
     private static FileAnalysis CompleteArchiveChild(FileAnalysis result, ArchiveInspectionBudget budget)
     {
+        if (!result.AnalysisComplete) budget.AddIssue("archive:inner-analysis:incomplete");
         if (result.StageOutcomes.Any(stage => stage.Stage == InspectionStage.AuthenticodePolicy &&
             stage.Status == InspectionStageStatus.Unavailable))
             budget.AddIssue("archive:authenticode-policy:path-required");

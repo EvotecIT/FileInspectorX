@@ -10,12 +10,32 @@ namespace FileInspectorX;
 /// </summary>
 public static partial class FileInspector
 {
-    private static void TryPopulateAppxManifest(string path, FileAnalysis res)
+    private static string? GetContentInstallerType(FileAnalysis result)
+        => result.GuessedExtension ?? result.Detection?.GuessedExtension ?? result.Detection?.Extension;
+
+    private static bool ContentInstallerApplicable(FileAnalysis result)
+        => GetContentInstallerType(result) is "appx" or "msix" or "vsix";
+
+    private static void TryPopulateContentInstaller(InspectionInput input, FileAnalysis result)
     {
-#if NET8_0_OR_GREATER || NET472
+        if (GetContentInstallerType(result) is "appx" or "msix") TryPopulateAppxManifest(input, result);
+        else if (GetContentInstallerType(result) == "vsix") TryPopulateVsixManifest(input, result);
+    }
+
+    private static void CompleteInstallerManifest(FileAnalysis result, ArchiveInspectionBudget budget)
+    {
+        if (!budget.IsComplete && result.ContentInstallerStatus != InspectionStageStatus.Unavailable)
+            result.ContentInstallerStatus = InspectionStageStatus.Partial;
+        result.ContentInstallerIssues = budget.Issues;
+        ApplyArchiveInspectionBudget(result, budget);
+    }
+
+    private static void TryPopulateAppxManifest(InspectionInput input, FileAnalysis res)
+    {
+        res.ContentInstallerStatus = InspectionStageStatus.Completed;
         var budget = ArchiveInspectionBudget.FromSettings();
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("AppxManifest.xml");
@@ -96,9 +116,9 @@ public static partial class FileInspector
 
             res.Installer = info;
         } catch (OutOfMemoryException) { throw; }
-        catch { }
-        finally { ApplyArchiveInspectionBudget(res, budget); }
-#endif
+        catch (OperationCanceledException) { throw; }
+        catch { res.ContentInstallerStatus = InspectionStageStatus.Unavailable; budget.AddIssue("archive:installer-manifest-unavailable"); }
+        finally { CompleteInstallerManifest(res, budget); }
     }
 
     private static bool IsValidAppPackageVersion(string? value)
@@ -114,12 +134,12 @@ public static partial class FileInspector
         return true;
     }
 
-    private static void TryPopulateVsixManifest(string path, FileAnalysis res)
+    private static void TryPopulateVsixManifest(InspectionInput input, FileAnalysis res)
     {
-#if NET8_0_OR_GREATER || NET472
+        res.ContentInstallerStatus = InspectionStageStatus.Completed;
         var budget = ArchiveInspectionBudget.FromSettings();
         try {
-            using var fs = OperationReadStream.Open(path);
+            using var fs = input.OpenRead();
             if (!budget.CheckCentralDirectory(fs, out _)) return;
             using var za = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
             var entry = za.GetEntry("extension.vsixmanifest");
@@ -144,9 +164,9 @@ public static partial class FileInspector
             if (disp != null) info.Name = disp.InnerText?.Trim();
             res.Installer = info;
         } catch (OutOfMemoryException) { throw; }
-        catch { }
-        finally { ApplyArchiveInspectionBudget(res, budget); }
-#endif
+        catch (OperationCanceledException) { throw; }
+        catch { res.ContentInstallerStatus = InspectionStageStatus.Unavailable; budget.AddIssue("archive:installer-manifest-unavailable"); }
+        finally { CompleteInstallerManifest(res, budget); }
     }
 
     private static readonly object _msiGlobalLock = new object();

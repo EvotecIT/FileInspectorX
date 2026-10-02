@@ -4,7 +4,7 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static void AnalyzeContainers(InspectionInput input, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res, bool includeInstaller)
+    private static void AnalyzeContainers(InspectionInput input, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res)
     {
         var path = input.Name;
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
@@ -73,9 +73,7 @@ public static partial class FileInspector
                 if (subType is "appx" or "msix")
                 {
                     TryPopulateAppxSignature(input, res);
-                    if (includeInstaller) TryPopulateAppxManifest(path, res);
                 }
-                if (includeInstaller && subType is "vsix") TryPopulateVsixManifest(path, res);
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;
                 if (hasExtLinks) {
@@ -156,7 +154,7 @@ public static partial class FileInspector
                 // Distinguish RAR4 vs RAR5 by signature
                 try {
                     using var fsr = input.OpenRead();
-                    var head = new byte[8]; int nr = fsr.Read(head, 0, head.Length);
+                    var head = new byte[8]; int nr = ReadAvailable(fsr, head, 0, head.Length);
                     bool isRar5 = nr >= 8 && head[0]==0x52 && head[1]==0x61 && head[2]==0x72 && head[3]==0x21 && head[4]==0x1A && head[5]==0x07 && head[6]==0x01 && head[7]==0x00;
                     bool isRar4 = !isRar5;
                     if (isRar4)
