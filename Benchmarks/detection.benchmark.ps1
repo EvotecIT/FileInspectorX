@@ -24,15 +24,17 @@ New-BenchmarkSuite 'fileinspectorx-detection' {
     Add-BenchmarkMetadata WorkloadSha256 $baselineWorkloadHash
     Add-BenchmarkMetadata HostRuntime ([Runtime.InteropServices.RuntimeInformation]::FrameworkDescription)
     if ($IsWindows) {
-        Add-BenchmarkMetadata ProcessAffinity ([Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity.ToInt64())
-        Add-BenchmarkMetadata ProcessPriority ([Diagnostics.Process]::GetCurrentProcess().PriorityClass)
+        Add-BenchmarkMetadata InitialProcessAffinity ([Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity.ToInt64())
+        Add-BenchmarkMetadata InitialProcessPriority ([Diagnostics.Process]::GetCurrentProcess().PriorityClass)
     }
     Set-BenchmarkPolicy -Warmup 3 -Iteration 9 -Order Rotated -OutlierMode None
     Add-BenchmarkCaseSource @(
         [pscustomobject]@{ Name = 'Json4KiB'; Workload = 'Json4KiB'; Calls = $calls }
         [pscustomobject]@{ Name = 'Json1MiB'; Workload = 'Json1MiB'; Calls = $calls }
         [pscustomobject]@{ Name = 'Hash1MiB'; Workload = 'Hash1MiB'; Calls = [Math]::Max(1, [int]($calls / 20)) }
+        [pscustomobject]@{ Name = 'Hash16MiB'; Workload = 'Hash16MiB'; Calls = [Math]::Max(1, [int]($calls / 100)) }
         [pscustomobject]@{ Name = 'ZipDocx'; Workload = 'ZipDocx'; Calls = $calls }
+        [pscustomobject]@{ Name = 'AnalyzeDocx'; Workload = 'AnalyzeDocx'; Calls = [Math]::Max(1, [int]($calls / 20)) }
     )
     Add-BenchmarkAxis Shape Array, Span, Stream
     Set-BenchmarkSetup {
@@ -55,5 +57,6 @@ New-BenchmarkSuite 'fileinspectorx-detection' {
     }
     Add-BenchmarkMetric BatchAllocatedBytes { param($case, $run) $run.Result.AllocatedBytes }
     Add-BenchmarkMetric CompletedCalls { param($case, $run) $run.Result.Calls }
+    Add-BenchmarkMetric ReadOperations { param($case, $run) $run.Result.ReadOperations }
     Add-BenchmarkComparison -Dimension Engine -Baseline Baseline -Metric MedianMs -TieTolerance 0.05
 }

@@ -259,12 +259,7 @@ public static partial class FileInspector {
     }
 
     private static Stream OpenReadShared(string path)
-    {
-        InspectionOperation.CheckCancellation();
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var token = InspectionOperation.Current?.Options.CancellationToken ?? default;
-        return OperationReadStream.Wrap(stream, token, leaveOpen: false);
-    }
+        => OperationReadStream.Open(path, FileShare.ReadWrite | FileShare.Delete);
 
     private static void ValidateLearnedClassificationMode(DetectionOptions options) {
         if (!Enum.IsDefined(typeof(LearnedClassificationMode), options.LearnedClassificationMode))

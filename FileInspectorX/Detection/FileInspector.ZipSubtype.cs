@@ -5,16 +5,17 @@ namespace FileInspectorX;
 public static partial class FileInspector
 {
     // One bounded archive instance serves OOXML recognition and the remaining ZIP subtypes.
-    private static ContentTypeDetectionResult? RefineZip(Stream stream, ContentTypeDetectionResult? result)
+    private static ContentTypeDetectionResult? RefineZip(Stream stream, ContentTypeDetectionResult? result, InspectionInput? input = null)
     {
         if (!stream.CanSeek) return result;
         long position = stream.Position;
         try
         {
             var budget = ArchiveInspectionBudget.FromSettings();
-            if (!budget.CheckCentralDirectory(stream, out _)) return result;
-            stream.Position = 0;
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            using var ownedArchive = input == null ? OpenZipForDetection(stream, budget) : null;
+            var archive = ownedArchive;
+            if (input != null && !input.TryOpenZip(budget, out archive, out _)) return result;
+            if (archive == null) return result;
             if (archive.GetEntry("[Content_Types].xml") != null)
             {
                 if (archive.GetEntry("word/document.xml") != null) return new ContentTypeDetectionResult { Extension = "docx", MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Confidence = "High", Reason = "ooxml:docx" };
@@ -32,6 +33,13 @@ public static partial class FileInspector
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException) { return result; }
         finally { stream.Position = position; }
+    }
+
+    private static ZipArchive? OpenZipForDetection(Stream stream, ArchiveInspectionBudget budget)
+    {
+        if (!budget.CheckCentralDirectory(stream, out _)) return null;
+        stream.Position = 0;
+        return new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
     }
 
     private static unsafe ContentTypeDetectionResult? RefineZip(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? memory, ContentTypeDetectionResult? result)
