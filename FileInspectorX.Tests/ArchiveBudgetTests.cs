@@ -66,7 +66,7 @@ public sealed class ArchiveBudgetTests
     }
 
     [Fact]
-    public void CheckCentralDirectory_IgnoresDecoyEocdInsideArchiveComment()
+    public void CheckCentralDirectory_RejectsDecoyEocdInsideArchiveComment()
     {
         using var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
@@ -102,8 +102,8 @@ public sealed class ArchiveBudgetTests
             maxCompressionRatio: 100);
 
         Assert.False(budget.CheckCentralDirectory(stream, out var declaredEntryCount));
-        Assert.Equal(3, declaredEntryCount);
-        Assert.Contains("archive:entry-count-limit", budget.Issues);
+        Assert.Equal(1, declaredEntryCount);
+        Assert.Contains("archive:central-directory-invalid", budget.Issues);
     }
 
     private static void WriteEntry(ZipArchive archive, string name, string content)

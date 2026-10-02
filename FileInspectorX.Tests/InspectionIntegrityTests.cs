@@ -58,33 +58,68 @@ public sealed class InspectionIntegrityTests
         Assert.Equal(0, fragmented.Position);
     }
 
-    [Theory]
-    [InlineData("word/document.xml", "docx", null)]
-    [InlineData("xl/workbook.xml", "xlsx", null)]
-    [InlineData("ppt/presentation.xml", "pptx", null)]
-    [InlineData("mimetype", "zip", "epub")]
-    [InlineData("classes.dex", "zip", "apk")]
-    [InlineData("META-INF/MANIFEST.MF", "zip", "jar")]
-    public void ZipSubtypesAgreeAcrossCompleteInputOverloads(string marker, string extension, string? guessed)
+    public static IEnumerable<object[]> ZipSubtypeCorpus()
     {
-        byte[] bytes;
-        using (var output = new MemoryStream())
+        var cases = new (string Marker, string Extension, string? Guess, string Content)[]
         {
-            using (var archive = new ZipArchive(output, ZipArchiveMode.Create, true))
-            {
-                if (guessed == null) archive.CreateEntry("[Content_Types].xml");
-                using var entry = new StreamWriter(archive.CreateEntry(marker).Open(), new UTF8Encoding(false));
-                entry.Write(marker == "mimetype" ? "application/epub+zip" : "marker");
-            }
-            bytes = output.ToArray();
-        }
+            ("word/document.xml", "docx", null, "<document />"),
+            ("xl/workbook.xml", "xlsx", null, "<workbook />"),
+            ("ppt/presentation.xml", "pptx", null, "<presentation />"),
+            ("mimetype", "zip", "epub", "application/epub+zip"),
+            ("mimetype", "zip", "odt", "application/vnd.oasis.opendocument.text"),
+            ("mimetype", "zip", "ods", "application/vnd.oasis.opendocument.spreadsheet"),
+            ("mimetype", "zip", "odp", "application/vnd.oasis.opendocument.presentation"),
+            ("mimetype", "zip", "odg", "application/vnd.oasis.opendocument.graphics"),
+            ("classes.dex", "zip", "apk", "dex marker"),
+            ("AndroidManifest.xml", "zip", "apk", "<manifest />"),
+            ("META-INF/MANIFEST.MF", "zip", "jar", "Manifest-Version: 1.0")
+        };
+        foreach (var item in cases)
+        foreach (bool zip64 in new[] { false, true })
+            yield return new object[] { item.Marker, item.Extension, item.Guess!, item.Content, zip64 };
+    }
+
+    [Theory]
+    [MemberData(nameof(ZipSubtypeCorpus))]
+    public void ZipSubtypesAgreeAcrossCompleteInputOverloads(string marker, string extension, string? guessed, string content, bool zip64)
+    {
+        // Put the identifying entry beyond the normal header sample, so a
+        // header-only implementation cannot accidentally satisfy this corpus.
+        var entries = new List<(string Name, string Content)> { ("padding.bin", new string('x', 32 * 1024)) };
+        if (guessed == null) entries.Add(("[Content_Types].xml", "<Types />"));
+        entries.Add((marker, content));
+        var bytes = ZipTestArchive.Create(entries.ToArray());
+        if (zip64) bytes = ZipTestArchive.WithZip64Footer(bytes);
+        var framed = new byte[bytes.Length + 19];
+        Buffer.BlockCopy(bytes, 0, framed, 11, bytes.Length);
+        using var sha = SHA256.Create();
+        string expectedHash = BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        var options = new FileInspector.DetectionOptions { ComputeSha256 = true };
         string path = Path.GetTempFileName();
         try
         {
             File.WriteAllBytes(path, bytes);
             using var stream = new MemoryStream(bytes);
-            var results = new[] { FileInspector.Detect(path), FileInspector.Detect(stream), FileInspector.Detect(bytes), FileInspector.Detect(bytes.AsMemory()), FileInspector.Detect(bytes.AsSpan()) };
-            Assert.All(results, result => { Assert.Equal(extension, result!.Extension); Assert.Equal(guessed, result.GuessedExtension); });
+            using var fragmented = new LimitedStream(bytes, true, 3);
+            stream.Position = 7;
+            fragmented.Position = 9;
+            var results = new[]
+            {
+                FileInspector.Detect(path, options), FileInspector.Detect(stream, options),
+                FileInspector.Detect(fragmented, options), FileInspector.Detect(bytes, options),
+                FileInspector.Detect(framed.AsMemory(11, bytes.Length), options),
+                FileInspector.Detect(framed.AsSpan(11, bytes.Length), options)
+            };
+            Assert.All(results, result =>
+            {
+                Assert.Equal(extension, result!.Extension);
+                Assert.Equal(guessed, result.GuessedExtension);
+                Assert.Equal(expectedHash, result.Sha256Hex);
+            });
+            Assert.Equal(7, stream.Position);
+            Assert.Equal(9, fragmented.Position);
+            Assert.True(stream.CanRead);
+            Assert.True(fragmented.CanRead);
         }
         finally { TestHelpers.SafeDelete(path); }
     }
