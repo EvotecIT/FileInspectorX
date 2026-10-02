@@ -7,7 +7,7 @@ namespace FileInspectorX;
 /// </summary>
 public static partial class FileInspector {
     /// <summary>
-    /// Lazily analyzes all files under a directory (non-recursive by default).
+    /// Lazily analyzes all files under a directory (non-recursive by default). Recursive scans skip directory links.
     /// </summary>
     /// <param name="path">Root directory path.</param>
     /// <param name="searchOption">TopDirectoryOnly or AllDirectories.</param>
@@ -74,10 +74,12 @@ public static partial class FileInspector {
 
         var degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
         var channel = System.Threading.Channels.Channel.CreateBounded<FileAnalysis>(degree * 2);
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         var producer = Task.Run(async () => {
+            Exception? failure = null;
             try {
-                await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = ct }, async (file, token) => {
+                await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = operation.Token }, async (file, token) => {
                     FileAnalysis? result = null;
                     try { result = Analyze(file, options); }
                     catch (LearnedClassificationException) { throw; }
@@ -85,15 +87,21 @@ public static partial class FileInspector {
                     if (result != null)
                         await channel.Writer.WriteAsync(result, token);
                 });
-            } catch (OperationCanceledException) {
-                // ignore
+            } catch (OperationCanceledException) when (operation.IsCancellationRequested) {
+                // The reader or caller ended this operation.
+            } catch (Exception ex) {
+                failure = ex;
             } finally {
-                channel.Writer.TryComplete();
+                channel.Writer.TryComplete(failure);
             }
-        }, ct);
+        });
 
-        await foreach (var item in channel.Reader.ReadAllAsync(ct)) yield return item;
-        await producer;
+        try {
+            await foreach (var item in channel.Reader.ReadAllAsync(ct)) yield return item;
+        } finally {
+            operation.Cancel();
+            await producer;
+        }
     }
 #endif
 
@@ -102,7 +110,13 @@ public static partial class FileInspector {
             path,
             searchOption,
             current => Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly),
-            current => Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly));
+            current => Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly).Where(IsOrdinaryDirectory));
+
+    private static bool IsOrdinaryDirectory(string path)
+    {
+        try { return FileSystemLinks.IsLink(path, File.GetAttributes(path)) == false; }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { return false; }
+    }
 
     internal static IEnumerable<string> EnumerateFilesSafeForTest(
         string path,

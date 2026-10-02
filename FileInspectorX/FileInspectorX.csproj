@@ -5,6 +5,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <Description>FileInspectorX: dependency-free content type detection (magic bytes + heuristics)</Description>
         <AssemblyName>FileInspectorX</AssemblyName>

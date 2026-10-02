@@ -14,7 +14,7 @@ public static partial class FileInspector
             var attrs = File.GetAttributes(path);
             info.IsHidden = (attrs & FileAttributes.Hidden) != 0;
             info.IsReadOnly = (attrs & FileAttributes.ReadOnly) != 0;
-            info.IsSymlink = (attrs & FileAttributes.ReparsePoint) != 0;
+            info.IsSymlink = FileSystemLinks.IsLink(path, attrs);
         } catch { }
 
 #if NET8_0_OR_GREATER

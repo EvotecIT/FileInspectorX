@@ -7,6 +7,13 @@ namespace FileInspectorX.Tests;
 
 internal static class TestHelpers
 {
+    internal static void SealTarHeader(byte[] header)
+    {
+        for (int i = 148; i < 156; i++) header[i] = 32;
+        int sum = header.Sum(b => (int)b);
+        Encoding.ASCII.GetBytes(Convert.ToString(sum, 8).PadLeft(6, '0') + "\0 ").CopyTo(header, 148);
+    }
+
     internal static string GetFixturePath(params string[] relativeParts)
     {
         if (relativeParts == null || relativeParts.Length == 0)

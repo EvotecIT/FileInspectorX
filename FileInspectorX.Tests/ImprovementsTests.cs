@@ -42,6 +42,7 @@ public class ImprovementsTests {
                 var nested = TestHelpers.CreateEmptyZip();
                 WriteOctal(hdr, 124, 12, nested.Length);
                 WriteAscii(hdr, 257, 5, "ustar");
+                TestHelpers.SealTarHeader(hdr);
                 fs.Write(hdr, 0, 512);
                 fs.Write(nested, 0, nested.Length);
                 // pad to 512

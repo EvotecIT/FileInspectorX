@@ -305,6 +305,14 @@ if (!full.AnalysisComplete) {
 Assessments return `Defer` in that case, across all assessment profiles, so automation cannot
 treat partial evidence as an allow decision.
 
+Unreadable or missing input produces the stable issue `input:read-failed`; assessment defers instead of treating it as a completed inspection. A readable file whose type is unknown remains distinct from a read failure.
+
+`ComputeSha256` hashes complete byte arrays, memory, spans, files, and streams. A forward-only stream is consumed from its current position through EOF; seekable streams retain their original position. Complete in-memory ZIP inputs use the same bounded subtype checks as files and seekable streams. ZIP subtype recognition borrows spans for the synchronous read without copying the complete archive.
+
+Recursive directory scans skip directory links and Windows junctions while retaining cloud placeholder directories. Disposing `AnalyzeDirectoryAsync` cancels its workers and waits for the producer to finish; an already-running synchronous analysis finishes before disposal returns.
+
+TAR analysis checks full USTAR names, PAX/GNU name overrides, and link targets under the archive entry and metadata budgets. Truncated records, invalid checksums, missing or invalid second end-marker blocks, and unsupported sparse or numeric encodings produce partial analysis with reason codes.
+
 ## Detection Ordering & Declared Extension Bias
 
 Detection runs in a stable order so downstream callers can reason about outcomes:
@@ -348,7 +356,7 @@ Declared extension is used as a bias only for ambiguous/low-confidence cases:
 - Citrix cues: ICA files and Receiver/Workspace configuration (XML)
 - AOT‑friendly: safe for NativeAOT
 - Name/path checks: BiDi controls, double extension, extension mismatch, suspicious whitespace
-- Archive safety: traversal/absolute paths/symlinks flags from ZIP sampling
+- Archive safety: traversal/absolute paths/symlinks flags from ZIP and TAR inspection
 
 ## References & Recipes
 
@@ -413,7 +421,7 @@ When `Settings.DeepContainerScanEnabled = true`, FileInspectorX can sample a bou
 
 Notes:
 - This is a best‑effort, privacy‑safe summary for triage. It extracts only sampled entries to a temporary file for analysis and deletes them immediately.
-- Currently implemented for ZIP. TAR/7z/RAR can be added similarly if needed.
+- Implemented for ZIP and TAR. 7z/RAR can be added similarly if needed.
 
 ```csharp
 var a = FileInspector.Analyze(path);

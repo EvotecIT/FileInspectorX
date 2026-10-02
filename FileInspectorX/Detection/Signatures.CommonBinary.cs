@@ -224,7 +224,7 @@ internal static partial class Signatures
             int read = ReadHeaderBytes(stream, header);
             var src = new ReadOnlySpan<byte>(header, 0, read);
             int localOffset = read >= 4 && ReadUInt32LittleEndian(src, 0) == 0x08074B50 ? 4 : 0;
-            if (read >= localOffset + 30)
+            if (read >= localOffset + 30 && ReadUInt32LittleEndian(src, localOffset) == 0x04034B50)
             {
                 int variableEnd = localOffset + 30 + ReadUInt16LittleEndian(src, localOffset + 26) + ReadUInt16LittleEndian(src, localOffset + 28);
                 int budget = Math.Max(34, Settings.DetectionReadBudgetBytes);

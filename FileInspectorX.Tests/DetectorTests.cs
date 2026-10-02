@@ -588,6 +588,7 @@ public class DetectorTests {
             WriteAscii(hdr, 0, 100, "script.sh");
             WriteOctal(hdr, 124, 12, 1); // size
             WriteAscii(hdr, 257, 6, "ustar\0");
+            TestHelpers.SealTarHeader(hdr);
             var data = new byte[512]; data[0] = 0x41; // 'A'
             using (var fs = File.Create(p)) {
                 fs.Write(hdr, 0, 512);
