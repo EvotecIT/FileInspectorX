@@ -34,10 +34,21 @@ public static partial class FileInspector
         finally { stream.Position = position; }
     }
 
-    private static ContentTypeDetectionResult? RefineZip(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? memory, ContentTypeDetectionResult? result)
+    private static unsafe ContentTypeDetectionResult? RefineZip(ReadOnlySpan<byte> data, ReadOnlyMemory<byte>? memory, ContentTypeDetectionResult? result)
     {
-        using var stream = new MemoryReadStream(memory ?? new ReadOnlyMemory<byte>(data.ToArray()));
-        return RefineZip(stream, result);
+        if (memory.HasValue)
+        {
+            using var stream = new MemoryReadStream(memory.Value);
+            return RefineZip(stream, result);
+        }
+        if (data.IsEmpty) return result;
+        // The archive reader is synchronous and private. Neither it nor this read-only
+        // stream escapes the fixed scope, so array, stack and native spans can be borrowed.
+        fixed (byte* pointer = data)
+        {
+            using var stream = new UnmanagedMemoryStream(pointer, data.Length);
+            return RefineZip(stream, result);
+        }
     }
 
     private static string? GuessZipSubtype(ZipArchive za, ArchiveInspectionBudget budget, out string? mime, bool visitEntries = true) {

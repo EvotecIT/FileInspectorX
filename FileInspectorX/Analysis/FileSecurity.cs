@@ -7,7 +7,7 @@ namespace FileInspectorX;
 public sealed class FileSecurity
 {
     // Generic
-    /// <summary>True if file is a symbolic link (best-effort across platforms).</summary>
+    /// <summary>True if the entry refers to another named filesystem entity, such as a symbolic link (best-effort across platforms).</summary>
     public bool? IsSymlink { get; set; }
     /// <summary>True if file is hidden (Windows attribute or path conventions).</summary>
     public bool? IsHidden { get; set; }

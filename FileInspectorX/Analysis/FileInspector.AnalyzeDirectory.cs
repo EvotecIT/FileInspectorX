@@ -114,7 +114,7 @@ public static partial class FileInspector {
 
     private static bool IsOrdinaryDirectory(string path)
     {
-        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
+        try { return FileSystemLinks.IsLink(path, File.GetAttributes(path)) == false; }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { return false; }
     }
 

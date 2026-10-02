@@ -142,6 +142,72 @@ public sealed class InspectionIntegrityTests
     }
 
     [Theory]
+    [InlineData(0, false)]
+    [InlineData(100, false)]
+    [InlineData(512, false)]
+    [InlineData(512, true)]
+    public void TarRequiresTwoCompleteZeroEndBlocks(int secondBlockLength, bool zero)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            using (var output = File.Create(path))
+            {
+                WriteTarHeader(output, "data.txt");
+                output.Write(new byte[512], 0, 512);
+                var second = new byte[secondBlockLength];
+                if (!zero && second.Length > 0) second[second.Length - 1] = 1;
+                output.Write(second, 0, second.Length);
+            }
+            var result = FileInspector.Analyze(path, Options());
+            Assert.Equal(zero, result.AnalysisComplete);
+            if (!zero)
+            {
+                Assert.Contains("tar:invalid-end-marker", result.AnalysisIssues!);
+                Assert.Equal("Defer", result.Assessment!.Decision.ToString());
+            }
+        }
+        finally { TestHelpers.SafeDelete(path); }
+    }
+
+    [Fact]
+    public void ZipSubtypeDetectionAcceptsStackBackedSpans()
+    {
+        using var output = new MemoryStream();
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Create, true))
+        {
+            archive.CreateEntry("[Content_Types].xml");
+            archive.CreateEntry("word/document.xml");
+        }
+        Span<byte> bytes = stackalloc byte[(int)output.Length];
+        output.ToArray().AsSpan().CopyTo(bytes);
+        var result = FileInspector.Detect((ReadOnlySpan<byte>)bytes);
+        Assert.Equal("docx", result!.Extension);
+    }
+
+#if NET8_0_OR_GREATER
+    [Fact]
+    public void ZipSpanRefinementAllocationDoesNotScaleWithPayload()
+    {
+        using var output = new MemoryStream();
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Create, true))
+        {
+            archive.CreateEntry("[Content_Types].xml");
+            archive.CreateEntry("word/document.xml");
+            using var payload = archive.CreateEntry("large.bin", CompressionLevel.NoCompression).Open();
+            payload.Write(new byte[8 * 1024 * 1024]);
+        }
+        var bytes = output.ToArray();
+        FileInspector.Detect(bytes.AsSpan()); // Warm the same subtype path before measuring.
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = FileInspector.Detect(bytes.AsSpan());
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal("docx", result!.Extension);
+        Assert.True(allocated < 2 * 1024 * 1024, $"ZIP span refinement allocated {allocated:N0} bytes for an 8 MiB payload.");
+    }
+#endif
+
+    [Theory]
     [InlineData(128, 4096, "archive:entry-read-limit")]
     [InlineData(4096, 128, "archive:total-read-limit")]
     public void TarDeepPayloadHonorsArchiveByteLimits(long entryLimit, long totalLimit, string issue)

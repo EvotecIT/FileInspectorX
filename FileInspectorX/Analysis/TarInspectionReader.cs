@@ -33,7 +33,14 @@ internal sealed class TarInspectionReader
             {
                 _stream.Position = _nextHeader;
                 if (ReadFully(_header) != 512) return Fail("tar:truncated-header");
-                if (_header.All(b => b == 0)) { _ended = true; return false; }
+                if (_header.All(b => b == 0))
+                {
+                    // A complete TAR terminates with two consecutive zero records.
+                    if (ReadFully(_header) != 512 || _header.Any(b => b != 0))
+                        return Fail("tar:invalid-end-marker");
+                    _ended = true;
+                    return false;
+                }
                 // Count headers, including directories and metadata records: an archive
                 // cannot evade the entry budget with records that have no file extension.
                 if (!_budget.TryVisitEntry()) { _ended = true; return false; }
