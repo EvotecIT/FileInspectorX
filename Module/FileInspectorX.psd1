@@ -5,7 +5,7 @@
     CompanyName          = 'Evotec'
     CompatiblePSEditions = @('Desktop', 'Core')
     Copyright            = '(c) 2011 - 2026 Przemyslaw Klys @ Evotec. All rights reserved.'
-    Description          = 'FileInspectorX is PowerShell module that allows you to query files and folders for information. It supports multiple types of file queries and can be used to query local file systems, network shares.'
+    Description          = 'Detects file types from content and analyzes files, signatures, permissions, containers and installer metadata. Accepts file paths and pipeline input from Get-ChildItem.'
     FunctionsToExport    = @()
     GUID                 = 'bb5de776-1f68-4af0-8d68-5c0fa2ab3cf9'
     ModuleVersion        = '1.1.2'

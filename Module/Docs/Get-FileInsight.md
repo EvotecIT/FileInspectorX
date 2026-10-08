@@ -15,17 +15,83 @@ Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-Compute
 ```
 
 ## DESCRIPTION
-Analyzes files and returns a full FileAnalysis object by default, with optional compact views.
+Supply one or more existing file paths, or pipe files from Get-ChildItem. Directories are enumerated with Get-ChildItem -File before analysis.
 
-By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.
+By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; each view exposes Raw for drill-down.
+
+Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 ```powershell
-Get-FileInsight -Path @('C:\Path')
+Get-FileInsight -Path .\sample.txt
 ```
 
+Analyze a single file
+
+### EXAMPLE 2
+```powershell
+Get-FileInsight -Path .\payload.bin -DetectOnly
+```
+
+Detect only (no analysis)
+
+### EXAMPLE 3
+```powershell
+Get-ChildItem -Filter *.exe -File -Recurse | Get-FileInsight -View Detection
+```
+
+Detect only for all EXE files under current directory
+
+### EXAMPLE 4
+```powershell
+Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature
+```
+
+Summarize a directory without signature enrichment
+
+### EXAMPLE 5
+```powershell
+Get-FileInsight -Path .\app.exe -ComputeSha256 -MagicHeaderBytes 16
+```
+
+Include SHA-256 and first 16 bytes header (hex)
+
+### EXAMPLE 6
+```powershell
+Get-FileInsight -Path .\source.txt -View Detection
+```
+
+Use the default Magika-assisted detection while preserving deterministic validators
+
+### EXAMPLE 7
+```powershell
+Get-FileInsight -Path .\source.txt -DisableMagika -View Detection
+```
+
+Run deterministic-only detection without Magika
+
+### EXAMPLE 8
+```powershell
+Get-FileInsight -Path .\package.msi -View Installer -EnableInstaller
+```
+
+Read MSI product metadata on Windows without installing the package. The package can target x86, x64 or ARM64.
+
+### EXAMPLE 9
+```powershell
+Get-FileInsight -Path .\package.msix -View Installer -EnableInstaller
+```
+
+Read an MSIX manifest
+
+### EXAMPLE 10
+```powershell
+Get-FileInsight -Path .\source.txt -CollectMetrics
+```
+
+Collect read counters and stage timings on the full analysis
 
 ## PARAMETERS
 
@@ -35,7 +101,7 @@ Capture per-operation read, hash, archive and classifier counters and stage timi
 ```yaml
 Type: SwitchParameter
 Parameter Sets: Path
-Aliases: None
+Aliases: none
 Possible values:
 
 Required: False
@@ -94,7 +160,7 @@ Accept wildcard characters: False
 ```
 
 ### -EnableInstaller
-Opt in to installer/package metadata parsing.
+Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.
 
 ```yaml
 Type: SwitchParameter
@@ -110,7 +176,7 @@ Accept wildcard characters: False
 ```
 
 ### -EnableShellProperties
-Opt in to Windows shell property handlers.
+Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.
 
 ```yaml
 Type: SwitchParameter
@@ -287,7 +353,7 @@ Accept wildcard characters: False
 ```
 
 ### -Path
-One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.
+One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.
 
 ```yaml
 Type: String[]

@@ -10,8 +10,9 @@
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>Analyzes files and returns a full FileAnalysis object by default, with optional compact views.</maml:para>
-      <maml:para>By default (-View Raw), returns the full FileAnalysis with detection, flags, permissions (unless excluded), signatures, installer metadata, references and assessment. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.</maml:para>
+      <maml:para>Supply one or more existing file paths, or pipe files from Get-ChildItem. Directories are enumerated with Get-ChildItem -File before analysis.</maml:para>
+      <maml:para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; each view exposes Raw for drill-down.</maml:para>
+      <maml:para>Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem parameterSetName="Path">
@@ -67,7 +68,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
           <maml:name>EnableInstaller</maml:name>
           <maml:description>
-            <maml:para>Opt in to installer/package metadata parsing.</maml:para>
+            <maml:para>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -79,7 +80,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
           <maml:name>EnableShellProperties</maml:name>
           <maml:description>
-            <maml:para>Opt in to Windows shell property handlers.</maml:para>
+            <maml:para>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -222,7 +223,7 @@ Required reports a terminating per-file error.</maml:para>
         <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByValue, ByPropertyName)" position="0" aliases="FullName">
           <maml:name>Path</maml:name>
           <maml:description>
-            <maml:para>One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.</maml:para>
+            <maml:para>One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.</maml:para>
           </maml:description>
           <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
           <dev:type>
@@ -310,7 +311,7 @@ Required reports a terminating per-file error.</maml:para>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
         <maml:name>EnableInstaller</maml:name>
         <maml:description>
-          <maml:para>Opt in to installer/package metadata parsing.</maml:para>
+          <maml:para>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -322,7 +323,7 @@ Required reports a terminating per-file error.</maml:para>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
         <maml:name>EnableShellProperties</maml:name>
         <maml:description>
-          <maml:para>Opt in to Windows shell property handlers.</maml:para>
+          <maml:para>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -465,7 +466,7 @@ Required reports a terminating per-file error.</maml:para>
       <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByValue, ByPropertyName)" position="0" aliases="FullName">
         <maml:name>Path</maml:name>
         <maml:description>
-          <maml:para>One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.</maml:para>
+          <maml:para>One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.</maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
         <dev:type>
@@ -572,9 +573,72 @@ Required reports a terminating per-file error.</maml:para>
     <command:examples>
       <command:example>
         <maml:title>EXAMPLE 1</maml:title>
-        <dev:code>Get-FileInsight -Path @('C:\Path')</dev:code>
+        <dev:code>Get-FileInsight -Path .\sample.txt</dev:code>
         <dev:remarks>
-          <maml:para></maml:para>
+          <maml:para>Analyze a single file</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 2</maml:title>
+        <dev:code>Get-FileInsight -Path .\payload.bin -DetectOnly</dev:code>
+        <dev:remarks>
+          <maml:para>Detect only (no analysis)</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 3</maml:title>
+        <dev:code>Get-ChildItem -Filter *.exe -File -Recurse | Get-FileInsight -View Detection</dev:code>
+        <dev:remarks>
+          <maml:para>Detect only for all EXE files under current directory</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 4</maml:title>
+        <dev:code>Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature</dev:code>
+        <dev:remarks>
+          <maml:para>Summarize a directory without signature enrichment</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 5</maml:title>
+        <dev:code>Get-FileInsight -Path .\app.exe -ComputeSha256 -MagicHeaderBytes 16</dev:code>
+        <dev:remarks>
+          <maml:para>Include SHA-256 and first 16 bytes header (hex)</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 6</maml:title>
+        <dev:code>Get-FileInsight -Path .\source.txt -View Detection</dev:code>
+        <dev:remarks>
+          <maml:para>Use the default Magika-assisted detection while preserving deterministic validators</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 7</maml:title>
+        <dev:code>Get-FileInsight -Path .\source.txt -DisableMagika -View Detection</dev:code>
+        <dev:remarks>
+          <maml:para>Run deterministic-only detection without Magika</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 8</maml:title>
+        <dev:code>Get-FileInsight -Path .\package.msi -View Installer -EnableInstaller</dev:code>
+        <dev:remarks>
+          <maml:para>Read MSI product metadata on Windows without installing the package. The package can target x86, x64 or ARM64.</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 9</maml:title>
+        <dev:code>Get-FileInsight -Path .\package.msix -View Installer -EnableInstaller</dev:code>
+        <dev:remarks>
+          <maml:para>Read an MSIX manifest</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 10</maml:title>
+        <dev:code>Get-FileInsight -Path .\source.txt -CollectMetrics</dev:code>
+        <dev:remarks>
+          <maml:para>Collect read counters and stage timings on the full analysis</maml:para>
         </dev:remarks>
       </command:example>
     </command:examples>

@@ -22,7 +22,7 @@ Build-Module -ModuleName 'FileInspectorX' {
         Author               = 'Przemyslaw Klys'
         CompanyName          = 'Evotec'
         Copyright            = "(c) 2011 - $((Get-Date).Year) Przemyslaw Klys @ Evotec. All rights reserved."
-        Description          = 'FileInspectorX is PowerShell module that allows you to query files and folders for information. It supports multiple types of file queries and can be used to query local file systems, network shares.'
+        Description          = 'Detects file types from content and analyzes files, signatures, permissions, containers and installer metadata. Accepts file paths and pipeline input from Get-ChildItem.'
         Tags                 = @('Windows', 'MacOS', 'Linux')
         #IconUri              = ''
         ProjectUri           = 'https://github.com/EvotecIT/FileInspectorX'
