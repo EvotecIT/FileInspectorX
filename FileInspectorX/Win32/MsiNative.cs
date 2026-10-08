@@ -14,59 +14,50 @@ internal static class MsiNative
     internal const int ERROR_MORE_DATA = 234;
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiCloseHandle")]
-    private static extern int MsiCloseHandle(IntPtr hAny);
+    private static extern int MsiCloseHandle(uint hAny);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiOpenDatabaseW")]
-    private static extern int MsiOpenDatabaseW(string szDatabasePath, string? szPersist, out IntPtr phDatabase);
+    private static extern int MsiOpenDatabaseW(string szDatabasePath, IntPtr szPersist, out uint phDatabase);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiDatabaseOpenViewW")]
-    private static extern int MsiDatabaseOpenViewW(IntPtr hDatabase, string szQuery, out IntPtr phView);
+    private static extern int MsiDatabaseOpenViewW(uint hDatabase, string szQuery, out uint phView);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiViewExecute")]
-    internal static extern int MsiViewExecute(IntPtr hView, IntPtr hRecord);
+    internal static extern int MsiViewExecute(uint hView, uint hRecord);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiViewFetch")]
-    internal static extern int MsiViewFetch(IntPtr hView, out IntPtr phRecord);
+    internal static extern int MsiViewFetch(uint hView, out uint phRecord);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiRecordGetStringW")]
-    private static extern int MsiRecordGetStringW(IntPtr hRecord, int iField, System.Text.StringBuilder? szValueBuf, ref int pcchValueBuf);
+    private static extern int MsiRecordGetStringW(uint hRecord, int iField, System.Text.StringBuilder szValueBuf, ref int pcchValueBuf);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiGetSummaryInformationW")]
-    private static extern int MsiGetSummaryInformationW(IntPtr hDatabase, string? szDatabasePath, uint uiUpdateCount, out IntPtr phSummaryInfo);
+    private static extern int MsiGetSummaryInformationW(uint hDatabase, string? szDatabasePath, uint uiUpdateCount, out uint phSummaryInfo);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiSummaryInfoGetPropertyW")]
-    private static extern int MsiSummaryInfoGetPropertyW(IntPtr hSummaryInfo, uint uiProperty, out uint puiDataType, out int piValue, out System.Runtime.InteropServices.ComTypes.FILETIME pftValue, System.Text.StringBuilder? szValueBuf, ref uint pcchValueBuf);
+    private static extern int MsiSummaryInfoGetPropertyW(uint hSummaryInfo, uint uiProperty, out uint puiDataType, out int piValue, out System.Runtime.InteropServices.ComTypes.FILETIME pftValue, System.Text.StringBuilder? szValueBuf, ref uint pcchValueBuf);
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiFormatRecordW")]
-    private static extern int MsiFormatRecordW(IntPtr hInstall, IntPtr hRecord, System.Text.StringBuilder? szResult, ref int pcchResult);
+    private static extern int MsiFormatRecordW(uint hInstall, uint hRecord, System.Text.StringBuilder szResult, ref int pcchResult);
 
     [DllImport("msi.dll", SetLastError = false, EntryPoint = "MsiGetLastErrorRecord")]
-    private static extern IntPtr MsiGetLastErrorRecord();
-
-    [DllImport("msi.dll", CharSet = CharSet.Unicode, SetLastError = false, EntryPoint = "MsiSetInternalUI")]
-    private static extern int MsiSetInternalUI(int dwUILevel, IntPtr phWnd);
-
-    internal const string MSIDBOPEN_READONLY = "MSIDBOPEN_READONLY";
-    internal const int INSTALLUILEVEL_NONE = 2; // basic enum subset
-
-    internal static void SuppressUI()
-    {
-        try { _ = MsiSetInternalUI(INSTALLUILEVEL_NONE, IntPtr.Zero); } catch { }
-    }
+    private static extern uint MsiGetLastErrorRecord();
 
     internal sealed class SafeMsiHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
         public SafeMsiHandle() : base(true) { }
-        internal SafeMsiHandle(IntPtr preexistingHandle, bool ownsHandle) : base(ownsHandle) { SetHandle(preexistingHandle); }
-        protected override bool ReleaseHandle() => MsiCloseHandle(handle) == ERROR_SUCCESS;
+        internal SafeMsiHandle(uint preexistingHandle, bool ownsHandle) : base(ownsHandle) { SetHandle(new IntPtr(preexistingHandle)); }
+        // MSIHANDLE is a 32-bit value on every Windows process architecture.
+        internal uint Value => unchecked((uint)handle.ToInt64());
+        protected override bool ReleaseHandle() => MsiCloseHandle(Value) == ERROR_SUCCESS;
     }
 
     internal static bool TryOpenDatabase(string path, out SafeMsiHandle hDb)
     {
         hDb = new SafeMsiHandle();
-        IntPtr raw;
-        int rc = MsiOpenDatabaseW(path, MSIDBOPEN_READONLY, out raw);
-        if (rc != ERROR_SUCCESS || raw == IntPtr.Zero) return false;
+        // MSIDBOPEN_READONLY is (LPCWSTR)0, not the name of the C macro.
+        int rc = MsiOpenDatabaseW(path, IntPtr.Zero, out var raw);
+        if (rc != ERROR_SUCCESS || raw == 0) return false;
         hDb = new SafeMsiHandle(raw, true);
         return true;
     }
@@ -74,9 +65,8 @@ internal static class MsiNative
     internal static bool TryOpenView(SafeMsiHandle db, string query, out SafeMsiHandle hView)
     {
         hView = new SafeMsiHandle();
-        IntPtr raw;
-        int rc = MsiDatabaseOpenViewW(db.DangerousGetHandle(), query, out raw);
-        if (rc != ERROR_SUCCESS || raw == IntPtr.Zero) return false;
+        int rc = MsiDatabaseOpenViewW(db.Value, query, out var raw);
+        if (rc != ERROR_SUCCESS || raw == 0) return false;
         hView = new SafeMsiHandle(raw, true);
         return true;
     }
@@ -84,20 +74,21 @@ internal static class MsiNative
     internal static bool TryGetSummaryInfo(SafeMsiHandle db, out SafeMsiHandle hSum)
     {
         hSum = new SafeMsiHandle();
-        IntPtr raw;
-        int rc = MsiGetSummaryInformationW(db.DangerousGetHandle(), null, 0, out raw);
-        if (rc != ERROR_SUCCESS || raw == IntPtr.Zero) return false;
+        int rc = MsiGetSummaryInformationW(db.Value, null, 0, out var raw);
+        if (rc != ERROR_SUCCESS || raw == 0) return false;
         hSum = new SafeMsiHandle(raw, true);
         return true;
     }
 
-    internal static string? GetRecordString(IntPtr hRec, int field)
+    internal static string? GetRecordString(uint hRec, int field)
     {
         int cch = 0;
-        int rc = MsiRecordGetStringW(hRec, field, null, ref cch);
+        var sb = new System.Text.StringBuilder(1);
+        int rc = MsiRecordGetStringW(hRec, field, sb, ref cch);
         if (rc != ERROR_MORE_DATA && rc != ERROR_SUCCESS) return null;
         if (cch <= 0) return null;
-        var sb = new System.Text.StringBuilder(cch + 1);
+        cch = checked(cch + 1); // The probe length excludes the terminating null.
+        sb.EnsureCapacity(cch);
         rc = MsiRecordGetStringW(hRec, field, sb, ref cch);
         if (rc != ERROR_SUCCESS) return null;
         return sb.ToString();
@@ -107,29 +98,32 @@ internal static class MsiNative
     {
         uint type; int ival; uint cch = 0;
         System.Runtime.InteropServices.ComTypes.FILETIME fileTime;
-        int rc = MsiSummaryInfoGetPropertyW(hSum.DangerousGetHandle(), pid, out type, out ival, out fileTime, null, ref cch);
+        int rc = MsiSummaryInfoGetPropertyW(hSum.Value, pid, out type, out ival, out fileTime, null, ref cch);
         if (rc != ERROR_MORE_DATA && rc != ERROR_SUCCESS) return null;
         if (cch == 0) return null;
-        var sb = new System.Text.StringBuilder((int)cch + 1);
-        rc = MsiSummaryInfoGetPropertyW(hSum.DangerousGetHandle(), pid, out type, out ival, out fileTime, sb, ref cch);
+        cch = checked(cch + 1);
+        var sb = new System.Text.StringBuilder(checked((int)cch));
+        rc = MsiSummaryInfoGetPropertyW(hSum.Value, pid, out type, out ival, out fileTime, sb, ref cch);
         if (rc != ERROR_SUCCESS) return null;
         return sb.ToString();
     }
 
-    internal static bool CloseHandle(IntPtr h) { try { return MsiCloseHandle(h) == ERROR_SUCCESS; } catch { return false; } }
+    internal static bool CloseHandle(uint h) { try { return MsiCloseHandle(h) == ERROR_SUCCESS; } catch { return false; } }
 
     internal static string? GetLastErrorString()
     {
         try
         {
             var rec = MsiGetLastErrorRecord();
-            if (rec == IntPtr.Zero) return null;
+            if (rec == 0) return null;
             try
             {
-                int cch = 0; _ = MsiFormatRecordW(IntPtr.Zero, rec, null, ref cch);
+                var sb = new System.Text.StringBuilder(1);
+                int cch = 0; _ = MsiFormatRecordW(0, rec, sb, ref cch);
                 if (cch <= 0) return null;
-                var sb = new System.Text.StringBuilder(cch + 1);
-                if (MsiFormatRecordW(IntPtr.Zero, rec, sb, ref cch) != ERROR_SUCCESS) return null;
+                cch = checked(cch + 1);
+                sb.EnsureCapacity(cch);
+                if (MsiFormatRecordW(0, rec, sb, ref cch) != ERROR_SUCCESS) return null;
                 return sb.ToString();
             }
             finally { CloseHandle(rec); }

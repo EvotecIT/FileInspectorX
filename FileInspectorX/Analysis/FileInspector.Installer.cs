@@ -205,7 +205,6 @@ public static partial class FileInspector
         Breadcrumbs.Write("MSI_PROPS_BEGIN", path: path);
         try {
             InspectorMetrics.Msi.IncAttempt();
-            MsiNative.SuppressUI();
             if (!MsiNative.TryOpenDatabase(path, out var hDb)) return;
             using (hDb)
             {
@@ -266,18 +265,13 @@ public static partial class FileInspector
     }
 
 #if NET8_0_OR_GREATER || NET472
-    // P/Invoke (class scope)
-    private const string MSIDBOPEN_READONLY = "MSIDBOPEN_READONLY";
-
-    // P/Invoke moved to MsiNative with SafeHandles
-
     private static string? QueryMsiProperty(MsiNative.SafeMsiHandle hDb, string property)
     {
         if (!MsiNative.TryOpenView(hDb, $"SELECT `Value` FROM `Property` WHERE `Property`='{property}'", out var hView)) { Breadcrumbs.Write("MSI_VIEW_OPEN_ERROR", message: property); return null; }
         using (hView)
         {
-            if (MsiNative.MsiViewExecute(hView.DangerousGetHandle(), IntPtr.Zero) != MsiNative.ERROR_SUCCESS) { Breadcrumbs.Write("MSI_VIEW_EXEC_ERROR", message: property); return null; }
-            if (MsiNative.MsiViewFetch(hView.DangerousGetHandle(), out var hRec) != MsiNative.ERROR_SUCCESS || hRec == IntPtr.Zero) { Breadcrumbs.Write("MSI_VIEW_FETCH_ERROR", message: property); return null; }
+            if (MsiNative.MsiViewExecute(hView.Value, 0) != MsiNative.ERROR_SUCCESS) { Breadcrumbs.Write("MSI_VIEW_EXEC_ERROR", message: property); return null; }
+            if (MsiNative.MsiViewFetch(hView.Value, out var hRec) != MsiNative.ERROR_SUCCESS || hRec == 0) { Breadcrumbs.Write("MSI_VIEW_FETCH_ERROR", message: property); return null; }
             try { return MsiNative.GetRecordString(hRec, 1); }
             finally { _ = MsiNative.CloseHandle(hRec); }
         }
@@ -290,8 +284,8 @@ public static partial class FileInspector
             if (!MsiNative.TryOpenView(hDb, $"SELECT `Name` FROM `_Tables` WHERE `Name`='{tableName}'", out var hView)) return false;
             using (hView)
             {
-                if (MsiNative.MsiViewExecute(hView.DangerousGetHandle(), IntPtr.Zero) != MsiNative.ERROR_SUCCESS) return false;
-                return MsiNative.MsiViewFetch(hView.DangerousGetHandle(), out var hRec) == MsiNative.ERROR_SUCCESS && hRec != IntPtr.Zero && MsiNative.CloseHandle(hRec);
+                if (MsiNative.MsiViewExecute(hView.Value, 0) != MsiNative.ERROR_SUCCESS) return false;
+                return MsiNative.MsiViewFetch(hView.Value, out var hRec) == MsiNative.ERROR_SUCCESS && hRec != 0 && MsiNative.CloseHandle(hRec);
             }
         }
         catch { return false; }
@@ -344,22 +338,26 @@ public static partial class FileInspector
         if (!MsiNative.TryOpenView(hDb, "SELECT `Type`,`Source`,`Target` FROM `CustomAction`", out var hView)) return;
         using (hView)
         {
-            if (MsiNative.MsiViewExecute(hView.DangerousGetHandle(), IntPtr.Zero) != MsiNative.ERROR_SUCCESS) return;
-            while (MsiNative.MsiViewFetch(hView.DangerousGetHandle(), out var hRec) == MsiNative.ERROR_SUCCESS && hRec != IntPtr.Zero)
+            if (MsiNative.MsiViewExecute(hView.Value, 0) != MsiNative.ERROR_SUCCESS) return;
+            while (MsiNative.MsiViewFetch(hView.Value, out var hRec) == MsiNative.ERROR_SUCCESS && hRec != 0)
             {
-                string? sType = MsiNative.GetRecordString(hRec, 1);
-                int type = 0; _ = int.TryParse(sType, out type);
-                string src = MsiNative.GetRecordString(hRec, 2) ?? string.Empty;
-                string tgt = MsiNative.GetRecordString(hRec, 3) ?? string.Empty;
-                int kind = type & 0x0007;
-                switch (kind)
+                try
                 {
-                    case 1: dll++; break;
-                    case 2: exe++; break;
-                    case 5: case 6: script++; break;
-                    default: other++; break;
+                    string? sType = MsiNative.GetRecordString(hRec, 1);
+                    int type = 0; _ = int.TryParse(sType, out type);
+                    string src = MsiNative.GetRecordString(hRec, 2) ?? string.Empty;
+                    string tgt = MsiNative.GetRecordString(hRec, 3) ?? string.Empty;
+                    int kind = type & 0x0007;
+                    switch (kind)
+                    {
+                        case 1: dll++; break;
+                        case 2: exe++; break;
+                        case 5: case 6: script++; break;
+                        default: other++; break;
+                    }
+                    if (samples.Count < 5) samples.Add($"{kind}:{src}/{tgt}");
                 }
-                if (samples.Count < 5) samples.Add($"{kind}:{src}/{tgt}");
+                finally { _ = MsiNative.CloseHandle(hRec); }
             }
             if (exe+dll+script+other > 0)
             {

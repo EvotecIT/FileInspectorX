@@ -60,10 +60,19 @@ jobs:
         shell: pwsh
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll
 
+      - name: Smoke test generated PowerShell help
+        shell: pwsh
+        run: ./Build/Test-PowerShellHelp.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll
+
       - name: Smoke test Windows PowerShell 5.1 Magika default
         if: runner.os == 'Windows'
         shell: powershell
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net472/FileInspectorX.PowerShell.dll
+
+      - name: Smoke test generated Windows PowerShell help
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./Build/Test-PowerShellHelp.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net472/FileInspectorX.PowerShell.dll
 
       - name: Smoke test 32-bit Windows PowerShell deterministic fallback
         if: runner.os == 'Windows'

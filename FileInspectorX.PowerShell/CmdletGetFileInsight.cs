@@ -13,14 +13,19 @@ using FileInspectorX.Magika;
 namespace FileInspectorX.PowerShell {
     /// <summary>
     /// <para type="synopsis">Analyzes files and returns a full FileAnalysis object by default, with optional compact views.</para>
-    /// <para type="description">By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Installer metadata and Windows shell properties require -EnableInstaller and -EnableShellProperties because those native parsers process input in the current process. Use -View to project compact views (Summary/Detection/Analysis/Permissions/Signature/References/Assessment/Installer/ShellProperties). Each view exposes Raw with the full FileAnalysis for drill-down.</para>
+    /// </summary>
+    /// <remarks>
+    /// <para>Supply one or more existing file paths, or pipe files from Get-ChildItem. Directories are enumerated with Get-ChildItem -File before analysis.</para>
+    /// <para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; each view exposes Raw for drill-down.</para>
+    /// <para>Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.</para>
+    /// </remarks>
     /// <example>
     ///  <para>Analyze a single file</para>
-    ///  <code>Get-FileInsight -Path C:\\files\\sample.docx</code>
+    ///  <code>Get-FileInsight -Path .\sample.txt</code>
     /// </example>
     /// <example>
     ///  <para>Detect only (no analysis)</para>
-    ///  <code>Get-FileInsight -Path .\\payload.bin -DetectOnly</code>
+    ///  <code>Get-FileInsight -Path .\payload.bin -DetectOnly</code>
     /// </example>
     /// <example>
     ///  <para>Detect only for all EXE files under current directory</para>
@@ -32,18 +37,29 @@ namespace FileInspectorX.PowerShell {
     /// </example>
     /// <example>
     ///  <para>Include SHA-256 and first 16 bytes header (hex)</para>
-    ///  <code>Get-FileInsight -Path .\\app.exe -ComputeSha256 -MagicHeaderBytes 16</code>
+    ///  <code>Get-FileInsight -Path .\app.exe -ComputeSha256 -MagicHeaderBytes 16</code>
     /// </example>
     /// <example>
     ///  <para>Use the default Magika-assisted detection while preserving deterministic validators</para>
-    ///  <code>Get-FileInsight -Path .\\source.txt -View Detection</code>
+    ///  <code>Get-FileInsight -Path .\source.txt -View Detection</code>
     /// </example>
     /// <example>
     ///  <para>Run deterministic-only detection without Magika</para>
-    ///  <code>Get-FileInsight -Path .\\source.txt -DisableMagika -View Detection</code>
+    ///  <code>Get-FileInsight -Path .\source.txt -DisableMagika -View Detection</code>
     /// </example>
     /// <seealso cref="FileInspectorX.PowerShell.AsyncPSCmdlet" />
-    /// </summary>
+    /// <example>
+    ///  <para>Read MSI product metadata on Windows without installing the package. The package can target x86, x64 or ARM64.</para>
+    ///  <code>Get-FileInsight -Path .\package.msi -View Installer -EnableInstaller</code>
+    /// </example>
+    /// <example>
+    ///  <para>Read an MSIX manifest</para>
+    ///  <code>Get-FileInsight -Path .\package.msix -View Installer -EnableInstaller</code>
+    /// </example>
+    /// <example>
+    ///  <para>Collect read counters and stage timings on the full analysis</para>
+    ///  <code>Get-FileInsight -Path .\source.txt -CollectMetrics</code>
+    /// </example>
     [Cmdlet(VerbsCommon.Get, "FileInsight", DefaultParameterSetName = "Path", SupportsShouldProcess = false)]
     [OutputType(typeof(FileInspectorX.FileAnalysis))]
     [OutputType(typeof(AnalysisView))]
@@ -58,7 +74,7 @@ namespace FileInspectorX.PowerShell {
     [OutputType(typeof(ShellPropertiesView))]
     public sealed class CmdletGetFileInsight : AsyncPSCmdlet {
         /// <summary>
-        /// One or more file paths to analyze. Accepts pipeline input of strings and resolves PowerShell provider paths.
+        /// One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.
         /// </summary>
         [Parameter(Mandatory = true, Position = 0, ValueFromPipeline = true, ValueFromPipelineByPropertyName = true, ParameterSetName = "Path")]
         [Alias("FullName")]
@@ -93,7 +109,7 @@ namespace FileInspectorX.PowerShell {
         [Parameter()] public SwitchParameter ExcludeReferences { get; set; }
         /// <summary>Exclude installer/package metadata (MSIX/APPX/VSIX/MSI).</summary>
         [Parameter()] public SwitchParameter ExcludeInstaller { get; set; }
-        /// <summary>Opt in to installer/package metadata parsing.</summary>
+        /// <summary>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</summary>
         [Parameter()] public SwitchParameter EnableInstaller { get; set; }
         /// <summary>Exclude container triage (ZIP/TAR sampling, subtype and inner hints).</summary>
         [Parameter()] public SwitchParameter ExcludeContainer { get; set; }
@@ -101,7 +117,7 @@ namespace FileInspectorX.PowerShell {
         [Parameter()] public SwitchParameter ExcludeAssessment { get; set; }
         /// <summary>Exclude Windows shell properties (Explorer Details).</summary>
         [Parameter()] public SwitchParameter ExcludeShellProperties { get; set; }
-        /// <summary>Opt in to Windows shell property handlers.</summary>
+        /// <summary>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</summary>
         [Parameter()] public SwitchParameter EnableShellProperties { get; set; }
 
         /// <summary>Disable the default Magika assistance and use deterministic analysis only.</summary>

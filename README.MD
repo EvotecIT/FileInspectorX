@@ -49,9 +49,11 @@ dotnet add package FileInspectorX.Magika
 ### PowerShell (Module)
 
 ```powershell
-Install-Module FileInspectorX.PowerShell
-# or local build
-Import-Module .\FileInspectorX.PowerShell\bin\Debug\net8.0\FileInspectorX.PowerShell.dll
+Install-Module FileInspectorX -Scope CurrentUser
+Import-Module FileInspectorX
+
+# Refresh an existing installation, then import in a new PowerShell session
+Update-Module FileInspectorX
 ```
 
 ## C# Quick Start
@@ -134,24 +136,9 @@ Magika construction path in only when their feature property is enabled; they do
 the provider through reflection. Embedded model metadata uses a source-generated JSON context.
 A packaged `net8.0` consumer has also been published and executed successfully with Native AOT.
 
-Measured for `standard_v3_3`, ONNX Runtime 1.27.1, Release, `win-x64`:
-
-| Artifact | Size |
-| --- | ---: |
-| `FileInspectorX.Magika` NuGet package | 2.82 MiB |
-| Normal PowerShell build output | 1.73 MiB |
-| Magika-enabled PowerShell publish | 19.96 MiB |
-
-The native deployment cost is runtime- and publish-style-specific. Publish for a concrete RID
-instead of copying the raw multi-platform ONNX package output.
-
-For example, this creates the opt-in Windows x64 binary payload used by the PowerShell module:
-
-```powershell
-dotnet publish .\FileInspectorX.PowerShell\FileInspectorX.PowerShell.csproj `
-    -c Release -f net8.0 -r win-x64 --self-contained false `
-    -p:IncludeMagika=true -o .\Artefacts\FileInspectorX.Magika\win-x64
-```
+The normal PowerShell module bundles the model and native ONNX Runtime companions. Deployment
+size depends on the runtime version and the platforms included. For a .NET application that uses
+Magika, publish for the application's concrete runtime identifier to include the required native assets.
 
 The cmdlet loads the packaged ONNX native companion for the current process architecture before
 constructing `MagikaContentClassifier`. This prevents PowerShell from binding to an unrelated
@@ -198,6 +185,9 @@ foreach (var entry in Legend.GetAnalysisFlagLegend())
 
 ## PowerShell Examples
 
+`-Path` takes existing files. To inspect a directory or wildcard pattern, enumerate it with
+`Get-ChildItem -File` and pipe the files to `Get-FileInsight`. Paths containing spaces should be quoted.
+
 ```powershell
 # Raw is default (full object)
 Get-FileInsight -Path .\file.bin | Format-List
@@ -210,6 +200,7 @@ Get-FileInsight -Path .\file.bin -View Detection | Format-Table -Auto
 Get-FileInsight -Path .\file.bin -View Permissions | Format-Table Path,Owner,Group,ModeSymbolic,EveryoneWriteAllowed -Auto
 Get-FileInsight -Path .\app.exe -View Signature | Format-List
 Get-FileInsight -Path .\package.msix -EnableInstaller -View Installer | Format-Table -Auto
+Get-FileInsight -Path .\package.msi -EnableInstaller -View Installer | Format-List
 Get-FileInsight -Path .\song.mp3 -EnableShellProperties -View ShellProperties | Format-Table -Auto
 
 # Exclude sections to trim work/shape
@@ -238,6 +229,32 @@ when provider failure or unavailability must terminate the file operation. Provi
 and unsupported process architectures remain deterministic-only in `Assist` mode and fail closed
 when `Required` is requested.
 
+### Installer metadata and platform support
+
+`-View Installer` selects the output shape; `-EnableInstaller` requests metadata parsing. Use
+both to inspect a package. This reads metadata without installing or executing it.
+
+| Input | Metadata | Required platform |
+| --- | --- | --- |
+| `.msi` file | Product name, manufacturer, version, product/upgrade codes, scope and support URLs | Windows, with a real file path |
+| `.appx` / `.msix` | Identity name, publisher, version, capabilities and extensions from `AppxManifest.xml` | Windows, Linux or macOS |
+| `.vsix` | Extension identity, publisher, version and display name from `extension.vsixmanifest` | Windows, Linux or macOS |
+
+The native MSI reader is available in the Windows `net8.0` and `net472` builds, including the
+PowerShell module. The `netstandard2.0` build does not include native MSI parsing.
+
+MSI database inspection is independent of the package's target architecture: x86, x64 and ARM64
+packages use the same metadata reader. It does not depend on Magika. Executable installers such
+as `.exe` files use executable/signature analysis; they do not expose MSI product properties through
+this view. Unsupported inputs, unavailable parsers or missing metadata can yield `Kind = Unknown`.
+
+MSI summary information (author, comments and package code) and custom-action summaries are
+separate opt-ins in the .NET settings: `EnableMsiSummaryInfo` and `EnableMsiCustomActions`. They
+are disabled by default; `-EnableInstaller` alone reads the product property table. A missing
+optional field does not by itself mean the product property read failed.
+
+Windows shell properties also require both `-EnableShellProperties` and the desired view.
+
 ### PowerShell quick help
 
 ```powershell
@@ -265,6 +282,7 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature |
   - Codes include: Package.VendorPresent/VendorUnknown/VendorAllowed, Sig.VendorAllowed/Sig.VendorUnknown, Archive.* and Pdf.* flags, etc.
 - ShellPropertiesView (Windows only): Windows shell properties (Explorer Details), e.g., Title/Authors/BPM/Initial Key, etc.
   - IncludeEmpty enumerates the full Details property list and can be slower.
+- PolicySummaryView (`-View Policy`): decision, recommended action, top risk drivers and categories
 
 ## Usage Model: Raw + Views + Exclude Toggles
 
@@ -272,7 +290,7 @@ Get-ChildItem -File -Recurse | Get-FileInsight -View Summary -ExcludeSignature |
   - The cmdlet returns the full `FileAnalysis` object by default (`-View Raw`). This is a single, rich object with Detection, Flags, Security, Authenticode, References, Assessment, Secrets summary, and more. Installer metadata and Windows shell properties require explicit opt-in.
 
 - Views for display
-- Use `-View Summary|Detection|Analysis|Permissions|Signature|References|Assessment|Installer|ShellProperties` to get compact, tabular shapes.
+- Use `-View` with `Summary`, `Detection`, `Analysis`, `Permissions`, `Signature`, `References`, `Assessment`, `Policy`, `Installer` or `ShellProperties` to get compact shapes.
   - Every view carries `.Raw` so you can drill back into the full object without re‑invoking.
 
 - Trim work/shape with excludes; enable native enrichment explicitly
@@ -294,8 +312,8 @@ var lean = FileInspector.Analyze(path, new FileInspector.DetectionOptions {
 Pick the API based on how much work you want the library to do and how much metadata you need:
 
 - Detect(path[, options]) → ContentTypeDetectionResult
-  - Fast header-only magic/heuristics (null if unknown)
-  - Minimal I/O, ideal for bulk triage or hot loops
+  - Content type detection with bounded magic/heuristic and structural probes (null if unknown, unless metrics are requested)
+  - Some formats need seekable or complete content for structural validation; SHA-256 reads the complete input
   - options can still capture Sha256Hex and MagicHeaderHex
 
 - Inspect(path[, options]) → FileAnalysis (single entry point)
@@ -633,7 +651,7 @@ flowchart TD
     F -->|Yes| G["Assess() Score + Codes + Factors"]
     F -->|No| H["Return FileAnalysis"]
 
-    G --> I["Decision: Allow / Warn / Block"]
+    G --> I["Decision: Allow / Warn / Block / Defer"]
     I --> J[["Views (optional)"]]
     H --> J
 
@@ -654,48 +672,9 @@ flowchart TD
     T6 -.-> G
 ```
 
-## Scoring Breakdown (Example)
-
-```mermaid
-pie showData
-    title Example Score Composition
-    "Archive.PathTraversal (+40)" : 40
-    "Office.RemoteTemplate (+25)" : 25
-    "Secret.PrivateKey (+40)" : 40
-    "Sig.VendorAllowed (−10)" : 10
-```
-
-Notes
-- Factors in Assessment.Factors report the exact weights (negative values reduce Score).
-- Actual weights are configurable in code and may evolve; see README map above for typical values.
-
-## Sample Scenario Scores (Illustrative)
-
-GitHub's Mermaid version may not support the new `chart` directive yet, so here's a pie fallback and a simple table.
-
-```mermaid
-pie showData
-    title Scenario Scores (Illustrative)
-    "Plain PDF (0)" : 0
-    "PDF + JS (20)" : 20
-    "DOCX + Macros (30)" : 30
-    "DOCX + RemoteTpl (55)" : 55
-    "ZIP with Executable (25)" : 25
-    "MSI + CustomAction (50)" : 50
-```
-
-```
-Scenario                  Score
-------------------------  -----
-Plain PDF                 0
-PDF + JS                  20
-DOCX + Macros             30
-DOCX + Remote Template    55
-ZIP with Executable       25
-MSI with Custom Action    50
-```
-
-These values are illustrative only — actual scores depend on which signals are present and the configured weights.
+`Assessment.Factors` reports the actual contributions for each file. Negative values reduce
+the score; configured weights and combined signals determine the final result. Incomplete
+requested analysis returns `Defer`, even when the available signals have a low score.
 
 ## Settings
 
