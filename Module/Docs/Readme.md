@@ -2,7 +2,7 @@
 Module Name: FileInspectorX
 Module Guid: bb5de776-1f68-4af0-8d68-5c0fa2ab3cf9
 Download Help Link: https://github.com/EvotecIT/FileInspectorX
-Help Version: 1.1.2
+Help Version: 1.1.4
 Locale: en-US
 ---
 # FileInspectorX Module
