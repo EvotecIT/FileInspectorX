@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net472</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <PrototypeReaderVersion Condition="'$(PrototypeReaderVersion)' == ''">0.1.0</PrototypeReaderVersion>
+  </PropertyGroup>
+  <!-- Evaluation-only project. No shipped project or solution references this assembly. -->
+  <ItemGroup>
+    <PackageReference Include="itsWindows11.NtfsReader" Version="$(PrototypeReaderVersion)" PrivateAssets="all" />
+    <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
+    <Compile Include="../../FileInspectorX.PowerShell/Communication/AsyncPSCmdlet*.cs" Link="PowerShell/%(Filename)%(Extension)" />
+    <None Include="FileInspectorX.FileSystem.Prototype.psd1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="RemovePowerShellReferenceAssembly" AfterTargets="Build">
+    <Delete Files="$(OutDir)System.Management.Automation.dll" />
+  </Target>
+</Project>
