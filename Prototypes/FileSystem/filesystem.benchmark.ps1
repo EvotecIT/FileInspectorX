@@ -3,15 +3,19 @@ $fixtureRoot = Get-BenchmarkInput FixtureRoot -Required
 $runMft = Get-BenchmarkInput RunMft -Bool -Default $false
 $maximumMftBytes = [long](Get-BenchmarkInput MaximumMftBytes 536870912)
 Import-Module $modulePath -ErrorAction Stop
-$readerPath = Join-Path (Split-Path $modulePath -Parent) 'NtfsReader.dll'
-$readerVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($readerPath).ProductVersion
 $snapshot = $null
 $captureMs = 0
+$captureAllocated = 0
+$retainedDelta = 0
 if ($runMft) {
+    $retainedBefore = [GC]::GetTotalMemory($true)
+    $allocatedBefore = [GC]::GetTotalAllocatedBytes($true)
     $captureWatch = [Diagnostics.Stopwatch]::StartNew()
     $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($fixtureRoot, [Threading.CancellationToken]::None, $maximumMftBytes).GetAwaiter().GetResult()
     $captureWatch.Stop()
     $captureMs = $captureWatch.Elapsed.TotalMilliseconds
+    $captureAllocated = [GC]::GetTotalAllocatedBytes($true) - $allocatedBefore
+    $retainedDelta = [GC]::GetTotalMemory($true) - $retainedBefore
 }
 $roots = @($fixtureRoot, (Join-Path $fixtureRoot 'level-0'))
 $expected = @{}
@@ -23,10 +27,14 @@ foreach ($root in $roots) {
 }
 New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
     Add-BenchmarkMetadata PrototypeSha256 (Get-FileHash ([IO.Path]::ChangeExtension($modulePath, '.dll'))).Hash
-    Add-BenchmarkMetadata Reader "itsWindows11.NtfsReader $readerVersion; LGPL-2.1-or-later; evaluation only"
-    Add-BenchmarkMetadata ReaderSha256 (Get-FileHash $readerPath).Hash
+    Add-BenchmarkMetadata Reader 'Windows FSCTL_ENUM_USN_DATA; per-selected-path FileSystemInfo metadata hydration; evaluation only'
     Add-BenchmarkMetadata Scope 'Live local synthetic fixture; filesystem caches warm; no reboot/cold-cache claim'
     Add-BenchmarkMetadata SnapshotCaptureMs $captureMs
+    Add-BenchmarkMetadata SnapshotCaptureAllocatedBytes $captureAllocated
+    Add-BenchmarkMetadata SnapshotRetainedHeapDeltaBytes $retainedDelta
+    Add-BenchmarkMetadata IndexRecords $(if ($snapshot) { $snapshot.RecordCount } else { 0 })
+    Add-BenchmarkMetadata IndexEstimatedBytes $(if ($snapshot) { $snapshot.EstimatedIndexBytes } else { 0 })
+    Add-BenchmarkMetadata NativeIndexBytesRead $(if ($snapshot) { $snapshot.NativeBytesRead } else { 0 })
     Add-BenchmarkMetadata MftBytes $(if ($snapshot) { $snapshot.MftBytes } else { 0 })
     Add-BenchmarkMetadata PowerShell $PSVersionTable.PSVersion.ToString()
     Add-BenchmarkMetadata Cpu (Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name)
@@ -44,7 +52,7 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
         if (-not $runMft -and $case.Engine -like 'Mft*') { 'Raw-volume comparison not enabled; elevation required.' }
         if ($runMft -and $case.Engine -eq 'AutoFallback') { 'Actual permission fallback is measured separately in the non-elevated matrix.' }
     }
-    foreach ($engine in @('GetChildItem', 'Walk', 'WalkNativeObjects', 'AutoFallback', 'MftFresh', 'MftSnapshot')) {
+    foreach ($engine in @('GetChildItem', 'Walk', 'WalkNativeObjects', 'AutoFallback', 'MftFresh', 'MftSnapshot', 'MftSnapshotNativeObjects')) {
         Add-BenchmarkEngine $engine {
             Add-BenchmarkOperation Enumerate {
                 param($case, $run)
@@ -60,6 +68,7 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
                     'AutoFallback' { @(Get-FileSystemItem @arguments -AllowVolumeInventory -MaximumMftBytes $maximumMftBytes | ForEach-Object $consume) }
                     'MftFresh' { @(Get-FileSystemItem @arguments -Backend Mft -MaximumMftBytes $maximumMftBytes | ForEach-Object $consume) }
                     'MftSnapshot' { @(Get-FileSystemItem @arguments -Backend Mft -Snapshot $snapshot | ForEach-Object $consume) }
+                    'MftSnapshotNativeObjects' { @(Get-FileSystemItem @arguments -Backend Mft -Snapshot $snapshot -AsFileSystemInfo | ForEach-Object $consume) }
                 }
                 $run.AllocatedBytes = [GC]::GetTotalAllocatedBytes($false) - $allocated
             }

@@ -16,6 +16,9 @@ public sealed class QueryOptions
     public string Filter { get; set; } = "*";
     public bool AllowVolumeInventory { get; set; }
     public long MaximumMftBytes { get; set; } = 512L * 1024 * 1024;
+    public int MaximumIndexRecords { get; set; } = 4_000_000;
+    public long MaximumIndexBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+    public TimeSpan MaximumCaptureTime { get; set; } = TimeSpan.FromMinutes(2);
     public CancellationToken CancellationToken { get; set; }
 
     internal bool Accept(FileSystemEntry entry, int depth)

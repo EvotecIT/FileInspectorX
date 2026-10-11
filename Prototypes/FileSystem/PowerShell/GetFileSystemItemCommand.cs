@@ -22,6 +22,9 @@ public sealed class GetFileSystemItemCommand : AsyncPSCmdlet
     [Parameter] public SwitchParameter Name { get; set; }
     [Parameter] public SwitchParameter AsFileSystemInfo { get; set; }
     [Parameter] [ValidateRange(1, long.MaxValue)] public long MaximumMftBytes { get; set; } = 512L * 1024 * 1024;
+    [Parameter] [ValidateRange(1, int.MaxValue)] public int MaximumIndexRecords { get; set; } = 4_000_000;
+    [Parameter] [ValidateRange(1, long.MaxValue)] public long MaximumIndexBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+    [Parameter] [ValidateRange(1, 3600)] public int MaximumCaptureSeconds { get; set; } = 120;
     [Parameter] public MftSnapshot? Snapshot { get; set; }
 
     protected override async Task ProcessRecordAsync()
@@ -40,7 +43,9 @@ public sealed class GetFileSystemItemCommand : AsyncPSCmdlet
             {
                 Root = root, Backend = Backend, AllowVolumeInventory = AllowVolumeInventory,
                 Recurse = recurse, Depth = Depth, File = File, Directory = Directory, Force = Force,
-                Filter = Filter, MaximumMftBytes = MaximumMftBytes, CancellationToken = CancelToken
+                Filter = Filter, MaximumMftBytes = MaximumMftBytes, CancellationToken = CancelToken,
+                MaximumIndexRecords = MaximumIndexRecords, MaximumIndexBytes = MaximumIndexBytes,
+                MaximumCaptureTime = TimeSpan.FromSeconds(MaximumCaptureSeconds)
             };
             QueryResult result;
             try { result = await FileSystemQuery.OpenAsync(options, Snapshot).ConfigureAwait(false); }

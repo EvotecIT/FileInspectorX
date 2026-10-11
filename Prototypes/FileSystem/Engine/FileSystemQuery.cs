@@ -24,12 +24,11 @@ public static class FileSystemQuery
         try
         {
             if (options.Filter != "*") throw new NotSupportedException("Prototype MFT filtering supports only '*'; native wildcard filtering uses normal enumeration.");
-#if NETFRAMEWORK
-            if (snapshot == null && options.Backend == EnumerationBackend.Auto)
-                throw new NotSupportedException("The legacy comparison reader is not qualified for automatic raw capture; Auto uses normal enumeration. Forced Mft remains available for isolated diagnostics.");
-#endif
+            if (options.Backend == EnumerationBackend.Auto)
+                throw new NotSupportedException("Windows MFT inventory is not qualified for complete hard-link paths. Auto keeps normal enumeration; forced Mft is an explicit experimental inventory.");
             MftSnapshot.CheckRoot(root);
-            snapshot ??= await MftSnapshot.CaptureAsync(root, options.CancellationToken, options.MaximumMftBytes).ConfigureAwait(false);
+            snapshot ??= await MftSnapshot.CaptureAsync(root, options.CancellationToken, options.MaximumMftBytes,
+                options.MaximumIndexRecords, options.MaximumIndexBytes, options.MaximumCaptureTime).ConfigureAwait(false);
             return new QueryResult
             {
                 Backend = "Mft", Compatibility = "ExperimentalVolumeInventory",
