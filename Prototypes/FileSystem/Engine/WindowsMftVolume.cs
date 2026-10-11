@@ -68,6 +68,24 @@ internal sealed class WindowsMftVolume : IDisposable
         return ((ulong)BitConverter.ToUInt32(information, 44) << 32) | BitConverter.ToUInt32(information, 48);
     }
 
+    // The file-record header reference field is not a reliable live hardlink count on every volume.
+    // Probe only contradictory records; metadata access is zero and no file contents are read.
+    internal bool TryGetLinkCount(ulong id, out uint linkCount, out string? failure)
+    {
+        linkCount = 0;
+        var descriptor = new FileIdDescriptor { Size = 24, Type = 0, Id = unchecked((long)id) };
+        using var file = OpenFileById(_handle, ref descriptor, 0, 7, IntPtr.Zero, 0x02200000);
+        if (file.IsInvalid) { failure = "OpenFileById failed with Win32 error " + Marshal.GetLastWin32Error() + "."; return false; }
+        var information = new byte[52];
+        if (!GetFileInformationByHandle(file, information))
+        { failure = "Link metadata failed with Win32 error " + Marshal.GetLastWin32Error() + "."; return false; }
+        ulong actualId = ((ulong)BitConverter.ToUInt32(information, 44) << 32) | BitConverter.ToUInt32(information, 48);
+        if (actualId != id) { failure = "File identity changed during link validation."; return false; }
+        linkCount = BitConverter.ToUInt32(information, 40);
+        failure = null;
+        return true;
+    }
+
     public void Dispose() => _handle.Dispose();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
@@ -78,4 +96,14 @@ internal sealed class WindowsMftVolume : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetFileInformationByHandle(SafeFileHandle handle, [Out] byte[] information);
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
+    private struct FileIdDescriptor
+    {
+        [FieldOffset(0)] internal uint Size;
+        [FieldOffset(4)] internal uint Type;
+        [FieldOffset(8)] internal long Id;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeFileHandle OpenFileById(SafeFileHandle volume, ref FileIdDescriptor id,
+        uint access, uint share, IntPtr security, uint flags);
 }

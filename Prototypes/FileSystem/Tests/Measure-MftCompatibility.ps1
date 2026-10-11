@@ -33,7 +33,16 @@ $report = foreach ($case in $cases) {
             $expected = $index[$entry.FullName]
             if (-not $expected) { continue }
             foreach ($field in @('Attributes', 'CreationTimeUtc', 'LastWriteTimeUtc', 'LastAccessTimeUtc')) {
-                if ($entry.$field -ne $expected.$field) { [pscustomobject]@{ Path = $entry.FullName; Field = $field; Expected = [string]$expected.$field; Actual = [string]$entry.$field } }
+                if ($entry.$field -ne $expected.$field) {
+                    $isTimestamp = $entry.$field -is [datetime] -and $expected.$field -is [datetime]
+                    [pscustomobject]@{
+                        Path = $entry.FullName; Field = $field
+                        Expected = $(if ($isTimestamp) { $expected.$field.ToString('o') } else { [string]$expected.$field })
+                        Actual = $(if ($isTimestamp) { $entry.$field.ToString('o') } else { [string]$entry.$field })
+                        ExpectedUtcTicks = $(if ($isTimestamp) { $expected.$field.ToUniversalTime().Ticks } else { $null })
+                        ActualUtcTicks = $(if ($isTimestamp) { $entry.$field.ToUniversalTime().Ticks } else { $null })
+                    }
+                }
             }
             if (-not $entry.PSIsContainer -and $entry.Length -ne $expected.Length) {
                 [pscustomobject]@{ Path = $entry.FullName; Field = 'Length'; Expected = $expected.Length; Actual = $entry.Length }

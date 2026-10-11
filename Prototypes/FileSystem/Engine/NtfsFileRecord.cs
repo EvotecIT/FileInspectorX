@@ -11,6 +11,7 @@ internal sealed class NtfsLink
 internal sealed class NtfsFileRecord
 {
     internal ulong Id, BaseId;
+    // Header reference-count hint; contradictory values require supported live metadata validation.
     internal ushort LinkCount;
     internal int NameAttributeCount;
     internal bool Directory, HasStandardInformation, HasData;

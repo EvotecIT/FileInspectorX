@@ -70,17 +70,30 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
                 param($case, $run)
                 $run.Summary = [FileInspectorX.Prototypes.FileSystem.InventorySummary]::new()
                 $run.FirstResultMs = $null
+                $run.FirstError = $null
                 $run.Watch = [Diagnostics.Stopwatch]::StartNew()
                 # Define the consumer in this invocation scope; an outer script block loses $run in the runner's captured context.
                 $consume = {
                     if ($_ -is [Management.Automation.ErrorRecord]) {
-                        $run.Summary.AddError(($_.FullyQualifiedErrorId -match '^FileSystemPrototype(Query|Enumeration)Failed')); return
+                        $failure = $_
+                    } else {
+                        if ($null -eq $run.FirstResultMs) { $run.FirstResultMs = $run.Watch.Elapsed.TotalMilliseconds }
+                        try {
+                            $length = if ($_.PSIsContainer) { 0L } else { [long]$_.Length }
+                            $run.Summary.Add($_.FullName, [int]$_.Attributes, $length, $_.CreationTimeUtc.Ticks, $_.LastWriteTimeUtc.Ticks)
+                            return
+                        } catch { $failure = $_ }
                     }
-                    if ($null -eq $run.FirstResultMs) { $run.FirstResultMs = $run.Watch.Elapsed.TotalMilliseconds }
-                    try {
-                        $length = if ($_.PSIsContainer) { 0L } else { [long]$_.Length }
-                        $run.Summary.Add($_.FullName, [int]$_.Attributes, $length, $_.CreationTimeUtc.Ticks, $_.LastWriteTimeUtc.Ticks)
-                    } catch { $run.Summary.AddError() }
+                    $run.Summary.AddError(($failure.FullyQualifiedErrorId -match '^FileSystemPrototype(Query|Enumeration)Failed'))
+                    if ($null -eq $run.FirstError) {
+                        $message = [string]$failure.Exception.Message
+                        $run.FirstError = [pscustomobject]@{
+                            Id = $failure.FullyQualifiedErrorId
+                            Category = [string]$failure.CategoryInfo.Category
+                            Exception = $failure.Exception.GetType().FullName
+                            Message = $message.Substring(0, [Math]::Min(2048, $message.Length))
+                        }
+                    }
                 }
                 $before = [GC]::GetTotalAllocatedBytes($false)
                 $cpu = $process.TotalProcessorTime.TotalMilliseconds
@@ -100,6 +113,7 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
             Case = $case.Scenario; Engine = $case.Engine; CapturedUtc = [datetime]::UtcNow.ToString('o')
             Files = $run.Summary.Files; Directories = $run.Summary.Directories; LogicalBytes = $run.Summary.LogicalBytes; Errors = $run.Summary.Errors
             Aborted = $run.Summary.Aborted
+            FirstError = $run.FirstError
             PathXor = $run.Summary.PathXor.ToString('X16'); PathSum = $run.Summary.PathSum.ToString('X16')
             MetadataXor = $run.Summary.MetadataXor.ToString('X16'); MetadataSum = $run.Summary.MetadataSum.ToString('X16')
             ExpectedMetadataXor = $(if (-not $case.WholeVolume) { $expected[$case.Root].MetadataXor.ToString('X16') } else { $null })

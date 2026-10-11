@@ -17,15 +17,18 @@ public sealed class MftSnapshot
     public int LinkCount { get; }
     public int ExtensionRecordCount { get; }
     public int IncompleteRecordCount { get; }
+    /// <summary>Identity-checked live link-count probes used to validate contradictory file-record header hints.</summary>
+    public int LinkCountProbeCount { get; }
     public string MetadataSource => "FSCTL_GET_NTFS_FILE_RECORD";
 
     private MftSnapshot(string volumeRoot, long mftBytes, Dictionary<ulong, List<NtfsLink>> children,
         Dictionary<ulong, NtfsFileRecord> records, int count, int links, int extensions, int incomplete,
-        long estimatedBytes, long nativeBytesRead)
+        long estimatedBytes, long nativeBytesRead, int linkCountProbes)
     {
         VolumeRoot = volumeRoot; MftBytes = mftBytes; _children = children; RecordCount = count;
         EstimatedIndexBytes = estimatedBytes; NativeBytesRead = nativeBytesRead; CapturedUtc = DateTime.UtcNow;
         _records = records; LinkCount = links; ExtensionRecordCount = extensions; IncompleteRecordCount = incomplete;
+        LinkCountProbeCount = linkCountProbes;
     }
 
     /// <summary>Reads every in-use base and extension record, merging by full sequence-qualified identity.</summary>
@@ -64,18 +67,26 @@ public sealed class MftSnapshot
         {
             CheckBudget();
             if (!records.TryGetValue(extension.BaseId, out var owner))
-                throw new IOException("Extension base identity disappeared during MFT acquisition.");
+                throw new IOException("Extension base identity disappeared during MFT acquisition. Extension " +
+                    extension.Id.ToString("X16") + ", base " + extension.BaseId.ToString("X16") + ".");
             owner.Merge(extension);
         }
         var children = new Dictionary<ulong, List<NtfsLink>>();
-        int links = 0, incomplete = 0;
+        int links = 0, incomplete = 0, linkCountProbes = 0;
         foreach (var record in records.Values)
         {
             CheckBudget();
             if (record.Directory) record.Attributes |= FileAttributes.Directory;
             // Index-only NTFS files can have no unnamed DATA stream; their default-stream length is zero.
-            if (!record.HasStandardInformation || record.NameAttributeCount != record.LinkCount)
-            { record.Incomplete = "Missing required metadata or long-name links in captured file records."; incomplete++; }
+            if (!record.HasStandardInformation) record.Incomplete = "Missing required standard information in captured file records.";
+            else if (record.NameAttributeCount != record.LinkCount)
+            {
+                linkCountProbes++;
+                if (!volume.TryGetLinkCount(record.Id, out uint liveLinks, out var failure)) record.Incomplete = failure;
+                else if (liveLinks != record.Links.Count)
+                    record.Incomplete = "Captured long-name count " + record.Links.Count + " differs from live hardlink count " + liveLinks + ".";
+            }
+            if (record.Incomplete != null) incomplete++;
             var seen = record.Links.Count > 1 ? new HashSet<string>(StringComparer.Ordinal) : null;
             foreach (var link in record.Links)
             {
@@ -89,7 +100,7 @@ public sealed class MftSnapshot
         cancellationToken.ThrowIfCancellationRequested();
         if (timer.Elapsed > timeLimit) throw new NotSupportedException("MFT capture exceeded its explicit time budget.");
         return Task.FromResult(new MftSnapshot(volumeRoot, volume.MftBytes, children, records, count,
-            links, extensions.Count, incomplete, estimatedBytes, volume.BytesRead));
+            links, extensions.Count, incomplete, estimatedBytes, volume.BytesRead, linkCountProbes));
 
         void CheckBudget()
         {
