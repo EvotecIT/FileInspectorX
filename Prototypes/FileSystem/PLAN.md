@@ -1,127 +1,74 @@
 # MFT-backed filesystem query and Get-ChildItem replacement plan
 
-Status: evaluation prototype, 2026-10-11. The existing published FileInspectorX API and module are unchanged. This plan replaces the earlier walk-first implementation sequence with an MFT-first comparison, while retaining ordinary enumeration as an essential supported backend.
+Status: Windows API evaluation prototype, 2026-10-11. The published FileInspectorX API and module are unchanged. This plan covers a reusable filesystem engine with an MFT inventory backend and ordinary enumeration as the safe default and fallback.
 
-## Objective and scope
+## Outcome and ownership
 
-Build a filesystem alternative to `Get-ChildItem` in FileInspectorX: fast metadata discovery on local NTFS volumes, ordinary directory enumeration where it is cheaper or required, and a familiar PowerShell surface over one reusable C# engine. Select a backend without changing the caller's visibility or pretending that a metadata snapshot is a live `FileInfo`.
+The useful consumers are large file inventories, directory-size assessments and development-storage review. FileInspectorX owns the reusable C# query engine; PowerShell and future CLI adapters stay thin. Content analysis runs on selected files after discovery. PowerForge/PSPublishModule owns benchmark scheduling, warmups, rotated ordering and normalized reports.
 
-The immediate deliverable is a runnable prototype and evidence about speed and compatibility. Production adoption, the final public command name, a complete provider replacement, package publication, persistent indexing, ACL acceleration and destructive file operations are separate steps. No universal speed multiplier or fixed whole-drive scan time is promised.
+The prototype is deliberately separate under `Prototypes/FileSystem`, targets .NET 8 and .NET Framework 4.7.2, and is excluded from normal solutions, module builds, packing and publishing. It exports `Get-FileSystemItem` without overriding or aliasing `Get-ChildItem`. No external MFT parser or reader is required by the current prototype. Production integration, the public command name, publication and destructive file operations remain outside this evaluation.
 
-The useful initial consumers are large file inventories, directory-size assessments and development-storage review. Existing content analysis remains a separate operation on selected paths. A storage review consumer must still perform fresh ownership, Git, activity, reparse-point and preservation checks before deletion; an MFT record never grants cleanup authority.
+A file inventory never authorizes deletion. Storage-maintenance consumers still need fresh ownership, Git, activity, reparse-point and preservation checks.
 
-## Starting point and ownership
+## Current Windows API route
 
-Assessment base: FileInspectorX `e9e706dfd6487fa415bfa28bc7d63e64d5094693`. The primary checkout has existing version, build-default and generated-help edits. Work takes place in an isolated `feature/mft-childitem-prototype` worktree.
+1. Resolve a literal directory root and reject network/non-NTFS volumes and reparse roots or ancestors for MFT access.
+2. Open the existing volume read-only and query `FSCTL_GET_NTFS_VOLUME_DATA`. The MFT length is a volume-size guard, not the number of bytes this backend reads into memory.
+3. Use batched `FSCTL_ENUM_USN_DATA` calls with `MFT_ENUM_DATA_V0`. Decode bounds-checked `USN_RECORD_V2` names, attributes and full 64-bit file/parent identities, including NTFS sequence bits.
+4. Build an in-memory parent/children lookup. Close the volume handle before returning it. Do not create a journal, persistent database, disk image or virtual volume.
+5. Identify the requested directory through `GetFileInformationByHandle`, traverse the indexed children and hydrate selected paths through ordinary `FileSystemInfo` metadata APIs. Length and creation/write/access times are therefore live metadata obtained during the query, not fields from USN records.
+6. Return metadata snapshots, relative names, or explicit native `FileInfo`/`DirectoryInfo` objects. Native object hydration has a separate comparison lane.
 
-FileInspectorX already owns content inspection, filesystem metadata and per-file permission snapshots. Its existing `AnalyzeDirectory` path enumerates directories and then opens selected file contents; it is not a volume-wide metadata index. The reusable inventory/query engine belongs in FileInspectorX, with thin PowerShell and future CLI adapters. Benchmark scheduling, warmups, rotated ordering, summaries and comparisons remain in PowerForge/PSPublishModule.
+The fresh MFT lane includes volume inventory and selected-path hydration. The retained-index lane includes querying and hydration but reports inventory setup time, allocation and retained heap separately. A retained index is not an atomic filesystem snapshot: names can age while metadata stays live.
 
-The prototype under `Prototypes/FileSystem` is a standalone, nonpackable, nonpublishable project targeting .NET 8 and .NET Framework 4.7.2. No normal solution, library or module references it. The existing asynchronous cmdlet base is linked unchanged; the command awaits real MFT I/O and uses the established pipeline communication route.
+Defaults bound the capture to four million records, 2 GiB of conservative index accounting and two minutes, plus the existing 512 MiB MFT-length guard. The assessed D: volume needs an explicit 4 GiB length allowance. Accounting is not an exact heap cap. Cancellation is checked between synchronous native calls, each parsed record and each emitted query item; it cannot interrupt a native call already executing. No background unbounded worker is started.
 
-## Prototype contract
+## Compatibility and routing contract
 
-`Get-FileSystemItem` is an experimental command name. It does not shadow `Get-ChildItem` or install an alias.
+The supported normal-enumeration subset includes literal directory roots, multiple roots, default children, recursion, implicit recursion through `Depth`, files/directories, hidden/system filtering through `Force`, provider-native `Filter`, relative `Name`, and explicit native objects. The C# engine owns routing and iteration; the PowerShell adapter uses the existing shared async cmdlet base and resolves provider paths on the pipeline thread.
 
-| Behavior | Prototype |
-|---|---|
-| Input | One or more literal directory roots in the FileSystem provider |
-| Traversal | Children, `-Recurse`, implicit recursion with `-Depth`, no descent into directory reparse points |
-| Selection | `-File`, `-Directory`, `-Force`; normal backend uses native `-Filter` semantics |
-| Default output | Typed metadata snapshots with `FullName`, `Name`, `Extension`, `PSIsContainer`, size, attributes and timestamps |
-| Native output | `-AsFileSystemInfo` constructs live `FileInfo`/`DirectoryInfo` objects; later property access can perform I/O |
-| Names | `-Name` emits paths relative to the requested directory |
-| Routing | `-Backend Walk`, `Mft`, or `Auto`; chosen backend and fallback reason appear in verbose output |
-| Snapshot reuse | Explicit `-Snapshot` for repeated queries; capture time and volume identity stay visible |
-| Cancellation | Capture and ordinary iteration observe cancellation; cancellation is not successful fallback |
-| Errors | Root and enumeration failures remain visible; partial output is not a proof of complete coverage |
+`Auto` uses ordinary enumeration by default. Even with `AllowVolumeInventory`, automatic MFT selection stays disabled until complete path semantics are qualified. Forced `-Backend Mft` is an explicit experimental inventory. Capability failures remain visible there; cancellation and malformed native records must never masquerade as successful fallback.
 
-Directory lengths are absent rather than fabricated. Ordering is unspecified. ACLs, content hashes and file content are not loaded by enumeration. The prototype does not implement wildcard `-Path`, `-Include`, `-Exclude`, `-Attributes`, alternate data streams, provider-specific options, every PowerShell extended property, or individual-file input. Enumeration errors currently stop the affected root, rather than reproducing every nonterminating provider error and sibling-continuation behavior.
+Known boundaries:
 
-## Backend selection and visibility
+- A USN inventory does not guarantee all hard-link aliases. One missing alias can also place the selected name outside the requested subtree. Complete `Get-ChildItem` path coverage is a production gate.
+- Native wildcard filters use normal enumeration. Forced MFT accepts only `*`.
+- Recursion stops at directory reparse points. PowerShell runtime differences around junctions must be recorded, not normalized away silently.
+- Results are metadata snapshots. Native objects are an explicit additional conversion with additional I/O; they do not make the inventory atomic or complete.
+- File inputs, wildcard `Path`, `Include`/`Exclude`, dynamic provider parameters, Registry/Certificate providers, streams, exact ordering, provider formatting and full error-continuation behavior are unimplemented contracts.
+- An explicitly privileged volume inventory has different visibility from a caller-visible directory walk. It must remain opt-in if it becomes available through automatic routing.
+- Filesystem changes, directory identity reuse, access-denied paths, long paths, case-sensitive directories and extension/hard-link records need additional production qualification. Do not infer their correctness from a small synthetic tree.
 
-`Walk` streams ordinary directory enumeration. Native filter matching is delegated to the platform. Traversal continues through nonmatching directories; hidden/system directories are not entered unless `-Force` is present. Directory links are returned as entries but not followed.
+## Comparison and evidence
 
-`Mft` reads the whole local NTFS volume into memory before querying a directory prefix. An explicit trailing separator prevents a sibling such as `build-old` from matching `build`. Hidden and reparse ancestors are excluded during recursion. Capture closes its raw volume handle before handing the node table to the caller.
+Use existing task-owned synthetic fixtures on a mounted configured scratch root. Keep all large or intermediate output there. Do not create a virtual disk. Read existing D: metadata with the previously authorized elevated comparison driver and write only task results.
 
-Raw-volume inventory is an elevated visibility contract. It can reveal paths that the user's normal directory access would not enumerate. It cannot silently become the default for an ordinary PowerShell filesystem query. `Auto` therefore uses normal enumeration unless `-AllowVolumeInventory` explicitly enables experimental raw-volume visibility. With that opt-in, unavailable raw access, unsupported filesystems/platforms, an exceeded capture budget, or unsupported MFT filter syntax select normal enumeration **before any MFT output**. A forced `Mft` request reports those failures. Corrupt reader data and cancellation are not silently converted into success.
+The PowerForge matrix compares `GetChildItem`, metadata `Walk`, `WalkNativeObjects`, automatic fallback, `MftFresh`, `MftSnapshot`, and `MftSnapshotNativeObjects` on the same 10,110-entry tree and 1,010-entry subtree. Full-result validation compares paths, length, attributes and last-write time outside the timed operation. Separate compatibility diagnostics compare creation/write/access timestamps and paths on hidden, Unicode, empty, nested, junction and hard-link fixtures in Windows PowerShell 5.1 and PowerShell 7.
 
-The prototype MFT backend supports only `-Filter '*'`; other native wildcard filters use the ordinary backend in `Auto`, or fail explicitly in `Mft`. This avoids substituting PowerShell wildcard semantics for the filesystem provider's DOS wildcard rules. Later qualification must supply equivalent native matching before expanding this subset.
+Report total elapsed time, time to first result, process allocation, index capture cost and retained heap separately. Capture CPU, affinity, priority, runtime, OS and assembly hash. Retain outliers. The current exploratory matrix uses one logical CPU, warm filesystem caches, one warmup and three rotated measured iterations. These conditions do not establish cold-cache throughput, a universal whole-drive scan time or optimal multi-core performance.
 
-A read-only `FSCTL_GET_NTFS_VOLUME_DATA` preflight preserves Win32 access-denied errors and limits MFT metadata length to 512 MiB by default. This limit is a guard on input size, **not a hard process-memory ceiling**. Reader arrays, names and query results allocate additional memory. The current reader's prefix query visits the full in-memory table and materializes its results before yielding; warm queries are not an efficient persistent subtree index, and query-phase cancellation cannot interrupt that internal parallel pass.
+Deterministic correctness tests cover the supported walk/routing contracts and native record decoding: record and name bounds, unsupported layouts, Unicode, full identities, path-component containment and cancellation after enumeration starts. Live diagnostics exercise record/memory budgets and cancellation during capture/query. Keep performance out of ordinary correctness gates.
 
-Backend decisions must eventually be workload based. A small directory or a request for an early result often favors walking; a broad inventory or repeated indexed query may favor MFT. An MFT setup cost cannot be hidden in untimed setup and then presented as a fresh scan result.
+The earlier direct-sector reader failed with Win32 error 50 on this environment; aligned native probes confirmed it. Windows volume-data and individual file-record control calls succeeded. The rejecting sector-read component is unidentified. Historical raw-reader results remain evidence in Git/task outputs; obsolete reader patches and virtual-disk experiment scripts are removed from the current prototype.
 
-## Reader evaluation and dependency boundary
+## Remaining implementation decisions
 
-The comparison project pins `itsWindows11.NtfsReader` **0.1.0**, licensed **LGPL-2.1-or-later**, with package source commit `1ec8aeb2950c082d31593791dcced249b2d201df`. This is an evaluation-only dependency. `PrivateAssets="all"`, project isolation and disabled packing/publishing are complementary controls; none of them alone would make a shipped runtime dependency test-only.
+- [x] Isolate the prototype and preserve the dirty primary checkout.
+- [x] Add a bounded native Windows MFT name inventory without an external reader dependency.
+- [x] Keep normal enumeration and a familiar thin PowerShell surface.
+- [x] Validate deterministic contracts on both PowerShell runtimes.
+- [ ] Complete the native elevated timing/compatibility matrix and independent review; record all losses and mismatches.
+- [ ] Choose the production shape from the measurements: separate explicit inventory command, a compatibility-preserving hybrid, or further MFT metadata acquisition.
+- [ ] Implement complete hard-link path coverage and stable identity validation before enabling automatic MFT selection.
+- [ ] Qualify concurrent changes, access/visibility, reparse behavior, cancellation latency and real peak-memory bounds.
+- [ ] Compare broad inventories and repeated queries, cold/warm caches and representative CPU domains before defining workload-based routing thresholds.
+- [ ] Integrate a qualified engine into the main library and thin module surface, then validate CI and package artifacts. Any new production dependency needs separate approval.
 
-The reader supplies live raw-volume acquisition and names, sizes, attributes and standard-information timestamps without per-file metadata calls. It is not yet qualified as the production backend. Its documented/observed design limits include incomplete extension-attribute-list handling, 32-bit record indices and one selected name per record. Alternate hard-link paths require explicit compatibility assessment. Its async initializer closes the raw handle in a `finally` block on success or failure; the adapter also closes the completed reader before handing off the in-memory snapshot.
+Prefer the smallest engine that earns its maintenance cost. A slower native prototype is still a useful result if it shows where indexing pays and where ordinary enumeration should remain the selected backend.
 
-The exact pinned source passes `(creation, fileChange, lastAccess)` into a constructor declared `(creation, lastAccess, lastChange)`. The adapter explicitly reverses those two exposed fields to recover last-write and last-access timestamps. Real-volume metadata comparison must verify this mapping; a future version change must reassess it rather than retaining an undocumented workaround.
+## Platform contracts
 
-Live comparison on the assessed D: volume is currently blocked at raw I/O. Native aligned `ReadFile` probes return Win32 `ERROR_NOT_SUPPORTED` (50) through both drive-letter and volume-GUID handles; deliberately unaligned probes return `ERROR_INVALID_PARAMETER` (87). The ordinary fallback works and preserves all synthetic fixture paths. This establishes an acquisition limitation on this environment, not a parser-throughput result or complete proof of its cause. Do not infer an MFT speed result from this failed acquisition.
-
-A separate source evaluation corrects the reader's `CreateFile` access flag from `1` to Win32 `GENERIC_READ` and preserves native errors from handle creation and legacy reads. `Build-ReaderEvaluation.ps1` downloads the pinned source, applies the reviewable patch, limits the build to the evaluated target frameworks, and builds version `0.1.0-mft-prototype.2` into a task-local feed/cache. The earlier flag-only variant, `0.1.0-mft-prototype.1`, also encounters the volume I/O limitation here. Original and patched results stay distinct; no source is vendored into the production engine or ordinary package cache. Legacy automatic capture remains disabled until it is qualified; forced MFT diagnostics remain available. Do not classify a generic `IOException` as unavailable access or suppress parser failures.
-
-A later read-only diagnostic establishes that D: is healthy and online, with ordinary NTFS access working and no BitLocker encryption. Explicit uncached, aligned sector reads at offsets 0 and 4096 still return error 50. On the same elevated process, `FSCTL_GET_NTFS_VOLUME_DATA` and `FSCTL_GET_NTFS_FILE_RECORD` both succeed, including the `FILE` signature for record zero. This is a sector-read-path failure, not evidence that D: or its MFT is generally unreadable. The rejecting OS/filter/storage component is unidentified; installed filters alone do not establish causation.
-
-The next acquisition investigation should compare supported Windows MFT control APIs with direct sector acquisition before creating a test volume or changing machine configuration. `FSCTL_GET_NTFS_FILE_RECORD` retrieves one in-use record per call, so its success does not establish fast whole-volume acquisition. A batched name/identity inventory through `FSCTL_ENUM_USN_DATA` plus selected record hydration is a possible evaluation route; it must expose the extra metadata cost and hard-link/extension-record limits. Keep the present normal-enumeration fallback while this route is assessed.
-
-Eric Zimmerman's MIT-licensed MFT parser remains an alternative for captured-record parsing, but live-volume acquisition, dependency scope, memory cost and correctness would need separate qualification. Supported Windows APIs are preferred for capability discovery. `FSCTL_ENUM_USN_DATA` provides file identity/name records, not file lengths or complete ACLs, so a USN-only implementation cannot honestly replace this metadata workload without additional work.
-
-Before introducing any production reader, obtain an explicit dependency/role decision with its license obligations, maintenance, supported runtimes, distribution model, native privileges, failure behavior and alternatives. Prototype success is evidence for that decision, not approval to ship the dependency.
-
-## Comparison and acceptance evidence
-
-The committed PowerForge spec compares these lanes on identical frozen synthetic trees:
-
-1. Native `Get-ChildItem` with equivalent literal root, recursion and force options.
-2. Ordinary prototype enumeration returning metadata snapshots.
-3. Ordinary prototype enumeration returning native objects.
-4. Automatic routing, including real access-denied fallback in a non-elevated process.
-5. A fresh MFT capture plus query, including the whole-volume capture in the measured operation.
-6. An explicit retained MFT snapshot query, with its initial capture cost recorded separately.
-
-The fixture has 10,000 eight-byte files, 100 group directories and 10 top-level directories. A subtree case queries one top-level directory. Fixture creation and validation stay outside timed operations. Validation compares sorted paths, sizes, attributes and last-write ticks for every output item. Metrics include elapsed time, time to first result, process allocations and item count. Failed compatibility remains a failed lane; unavailable optional MFT lanes appear as skipped.
-
-Use a fixed logical CPU domain for the entire matrix, normal priority, rotated order, one warmup and three measured iterations for the prototype. Record CPU model, affinity, OS build, runtime, active power plan, DLL hash, exact reader version/license and capture metadata. These are exploratory local measurements with warm filesystem caches; they do not establish cold-disk throughput, best multi-core performance or another machine's behavior. Retain negative results and individual samples.
-
-A separate real-volume diagnostic compares children, recursion, force, file/directory selection and depth against native enumeration on a small controlled fixture. Include distinct timestamps, hidden ancestors, hard-link aliases, reparse directories and sibling-prefix paths. Record missing/extra paths and every requested metadata mismatch. A known reader limitation must not be renamed a successful compatibility test.
-
-Current proof: both frameworks and the isolated patched-reader variant compile without warnings. The 20-contract suite includes a legacy automatic-routing guard: all 20 apply on Windows PowerShell 5.1; 19 apply on PowerShell 7.6.6, with the legacy-only check skipped. Raw MFT measurement requires explicit Windows elevation and remains separately recorded. An isolated NTFS virtual-disk comparison is prepared as a separate opt-in experiment; creation/formatting requires explicit authority beyond the read-only D: comparison. It remains unapproved and unexecuted. Its completion requires verified detachment; a cleanup failure produces a failed invocation and receipt. It cannot establish whole-drive performance on D:. Results belong in a compact evidence file alongside this plan, not in the published module's command documentation.
-
-## Delivery checklist
-
-- [x] Inspect the current implementation, shared owners and local dirty state; preserve the primary checkout.
-- [x] Build an isolated MFT/normal-query prototype and thin PowerShell adapter for both supported Windows hosts.
-- [x] Prove the ordinary filesystem subset and actual permission fallback on both runtimes.
-- [x] Declare reproducible PowerForge comparison lanes and visible compatibility validation.
-- [x] Complete the normal timing matrix and record elevated acquisition diagnostics.
-- [ ] Complete MFT timing and metadata compatibility; sector acquisition is blocked, while Windows MFT control APIs are accessible.
-- [x] Complete one independent read-only code/contract review and remediate valid in-scope findings.
-- [x] Retain compact evidence and small fixtures for the acquisition follow-up; remove superseded builds and isolated package staging, and record storage.
-- [ ] Decide the production reader/dependency and public API after reviewing results.
-- [ ] Implement the qualified engine in the normal FileInspectorX core and expose thin module/CLI surfaces.
-- [ ] Qualify filesystem/provider compatibility, cancellation, partial errors and package/runtime behavior in CI.
-
-## Production qualification after the prototype
-
-The production design must preserve all names for hard links, file/parent identities and sequence numbers, resident/nonresident data, sparse/compressed/allocated-size distinctions, extension records, reparse/mount boundaries and supported path lengths. Large-directory traversal and full-volume indexing require finite memory/concurrency bounds and responsive cancellation, including query construction. Use captured parser fixtures for malformed records and isolated live fixtures for filesystem behavior. Never alter production ACLs or databases to create benchmarks.
-
-Treat caller-visible enumeration and privileged volume inventory as distinct public modes. Qualify normal filesystem fallback on SMB, non-NTFS filesystems, unsupported platforms and denied access. On Windows PowerShell 5.1 and current PowerShell 7, compare output types, native filtering, names, depth, hidden/system behavior, errors and downstream pipeline callers. Test Linux/macOS walking independently before claiming portability. Select `Auto` thresholds only after these paths and workload costs are supported by evidence.
-
-Add logical/allocated/deduplicated directory-size APIs after file-identity semantics are established. Add permission snapshots as an explicit cost: ordinary ACL reads initially, with any bulk `$Secure` work qualified separately. ACL summaries are not effective-access decisions. Persistent indexing and USN refresh are later capabilities, justified by repeat-query demand; they require journal-wrap/deletion/rename recovery, freshness reporting, privacy, bounded storage and a rebuild path.
-
-The development-storage maintenance integration should consume the read-only query API for discovery. It must preserve the existing independent deletion gates. Copy/move/delete replacements and a complete cross-provider `Get-ChildItem` clone remain outside this plan's first product release.
-
-## Primary references
-
-- [Get-ChildItem contract](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/get-childitem)
-- [Direct volume access](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
-- [NTFS volume metadata](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-ntfs_volume_data_buffer)
-- [NTFS record retrieval](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_get_ntfs_file_record)
-- [USN enumeration](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_enum_usn_data)
-- [USN record fields](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-usn_record_v2)
-- [Pinned evaluation package](https://www.nuget.org/packages/itsWindows11.NtfsReader/0.1.0)
-- [Pinned reader source](https://github.com/itsWindows11/NtfsReader/tree/1ec8aeb2950c082d31593791dcced249b2d201df)
-- [Alternative captured-MFT parser](https://github.com/EricZimmerman/MFT)
+- [FSCTL_ENUM_USN_DATA](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_enum_usn_data)
+- [MFT_ENUM_DATA_V0](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-mft_enum_data_v0)
+- [USN_RECORD_V2](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-usn_record_v2)
+- [GetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)

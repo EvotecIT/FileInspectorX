@@ -18,19 +18,17 @@ $env:TEMP = Join-Path (Split-Path $RequestFile -Parent) 'temp'
 $env:TMP = $env:TEMP
 Start-Transcript -LiteralPath (Join-Path $request.OutputRoot 'driver.log') | Out-Null
 try {
-    # Fresh hosts prevent the modern and legacy reader assemblies with the same identity from colliding.
+    # Fresh hosts exercise each supported runtime independently.
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Test-ElevatedAutoRouting.ps1') -ModulePath $request.ModulePath -Root $request.FixtureRoot -OutputPath (Join-Path $request.OutputRoot 'net8-auto.json') -MaximumMftBytes $request.MaximumMftBytes
     if ($LASTEXITCODE) { throw 'Modern-host automatic routing proof failed.' }
     $modern = Get-Content -LiteralPath (Join-Path $request.OutputRoot 'net8-auto.json') -Raw | ConvertFrom-Json
-    if ($modern.Backend -eq 'Mft') {
+    # Auto deliberately walks until the experimental name index has complete path semantics.
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net8.json') -MaximumMftBytes $request.MaximumMftBytes
-        if ($LASTEXITCODE) { throw 'Modern raw-MFT compatibility diagnostic failed.' }
-    }
+    if ($LASTEXITCODE) { throw 'Modern Windows MFT compatibility diagnostic failed.' }
     $legacyModule = $request.ModulePath.Replace('debug_net8.0', 'debug_net472')
     & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $request.MaximumMftBytes
-    if ($LASTEXITCODE) { throw 'Legacy raw-MFT compatibility diagnostic failed.' }
-    $timingModule = if ($modern.Backend -eq 'Mft') { $request.ModulePath } else { $legacyModule }
-    & (Join-Path $PSScriptRoot 'Invoke-PrototypeComparison.ps1') -ModulePath $timingModule -FixtureRoot $request.FixtureRoot -OutputRoot (Join-Path $request.OutputRoot 'timings') -RunMft -MaximumMftBytes $request.MaximumMftBytes
+    if ($LASTEXITCODE) { throw 'Legacy Windows MFT compatibility diagnostic failed.' }
+    & (Join-Path $PSScriptRoot 'Invoke-PrototypeComparison.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.FixtureRoot -OutputRoot (Join-Path $request.OutputRoot 'timings') -RunMft -MaximumMftBytes $request.MaximumMftBytes
     'Completed' | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
 } catch {
     $_.Exception.ToString() | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'failure.txt')

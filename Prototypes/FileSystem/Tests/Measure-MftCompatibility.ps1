@@ -6,7 +6,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Import-Module $ModulePath
+$watch = [Diagnostics.Stopwatch]::StartNew()
 $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($FixtureRoot, [Threading.CancellationToken]::None, $MaximumMftBytes).GetAwaiter().GetResult()
+$watch.Stop()
 $cases = @(
     @{ Name = 'Children'; Arguments = @{} },
     @{ Name = 'Recursive'; Arguments = @{ Recurse = $true } },
@@ -39,6 +41,37 @@ $report = foreach ($case in $cases) {
     )
     [pscustomobject]@{ Case = $case.Name; NativeCount = $native.Count; MftCount = $actual.Count; DifferenceCount = $differences.Count; Differences = $differences }
 }
-[pscustomobject]@{ CapturedUtc = $snapshot.CapturedUtc; MftBytes = $snapshot.MftBytes; Reader = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path (Split-Path $ModulePath -Parent) 'NtfsReader.dll')).ProductVersion; Cases = @($report) } |
+$guards = @()
+foreach ($guard in @('RecordBudget', 'MemoryBudget', 'CancellationDuringCapture')) {
+    $source = [Threading.CancellationTokenSource]::new()
+    try {
+        $records = if ($guard -eq 'RecordBudget') { 1 } else { 4000000 }
+        $bytes = if ($guard -eq 'MemoryBudget') { 1 } else { 1073741824 }
+        if ($guard -eq 'CancellationDuringCapture') { $source.CancelAfter(10) }
+        $null = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($FixtureRoot, $source.Token, $MaximumMftBytes, $records, $bytes).GetAwaiter().GetResult()
+        throw "Capture guard did not trigger: $guard"
+    } catch {
+        $exception = $_.Exception
+        while ($exception.InnerException) { $exception = $exception.InnerException }
+        $passed = if ($guard -eq 'CancellationDuringCapture') { $exception -is [OperationCanceledException] } else { $exception -is [NotSupportedException] -and $exception.Message -like '*budget*' }
+        $guards += [pscustomobject]@{ Guard = $guard; Passed = $passed; Exception = $exception.GetType().FullName }
+    } finally { $source.Dispose() }
+}
+# Deferred queries must still honor cancellation after OpenAsync has returned.
+$source = [Threading.CancellationTokenSource]::new()
+try {
+    $options = [FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
+    $options.Root = $FixtureRoot; $options.Backend = 'Mft'; $options.Recurse = $true; $options.CancellationToken = $source.Token
+    $query = [FileInspectorX.Prototypes.FileSystem.FileSystemQuery]::OpenAsync($options, $snapshot).GetAwaiter().GetResult()
+    $source.Cancel()
+    try { foreach ($entry in $query.Entries) { $null = $entry }; throw 'Cancellation not observed' }
+    catch {
+        $exception = $_.Exception
+        while ($exception.InnerException) { $exception = $exception.InnerException }
+        $guards += [pscustomobject]@{ Guard = 'CancellationDuringQuery'; Passed = ($exception -is [OperationCanceledException]); Exception = $exception.GetType().FullName }
+    }
+} finally { $source.Dispose() }
+[pscustomobject]@{ CapturedUtc = $snapshot.CapturedUtc; CaptureMs = $watch.Elapsed.TotalMilliseconds; MftBytes = $snapshot.MftBytes; Reader = 'Windows FSCTL_ENUM_USN_DATA + live path metadata'; IndexRecords = $snapshot.RecordCount; Guards = $guards; Cases = @($report) } |
     ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
 $report | Select-Object Case, NativeCount, MftCount, DifferenceCount
+if (@($guards | Where-Object { -not $_.Passed }).Count) { throw 'One or more live capture/query guards failed.' }

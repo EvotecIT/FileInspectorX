@@ -1,61 +1,40 @@
-# Filesystem query prototype
+# FileInspectorX filesystem prototype
 
-This standalone evaluation project compares an MFT-backed filesystem alternative to `Get-ChildItem` with ordinary enumeration. It is excluded from FileInspectorX's normal solutions, packages and module exports. The [implementation plan](PLAN.md) describes the supported subset, visibility contract, dependency decision and qualification gates.
+This isolated evaluation compares Windows MFT APIs with ordinary enumeration and `Get-ChildItem`. It does not change the published module or replace the built-in command. See [the plan](PLAN.md) for the supported subset and production gates, and [results](RESULTS.md) for measured performance and compatibility limits.
 
-Build with existing compatible .NET SDKs and route intermediate output to your configured mounted scratch volume:
+The MFT backend uses `FSCTL_ENUM_USN_DATA` for names and identities, then ordinary file APIs for selected-path metadata. It requires Windows, a local NTFS volume and administrator access. Names are indexed in memory; no persistent index, journal or virtual disk is created. The current inventory can miss hard-link aliases, so `Auto` retains normal enumeration on both runtimes. Forced MFT mode is explicitly experimental.
 
-```powershell
-$prototype = Join-Path $PWD 'Prototypes/FileSystem'
-$scratch = Join-Path $env:EVOTEC_SCRATCH_ROOT 'fileinspectorx-mft-childitem-prototype'
-# Verify the configured scratch volume exists before creating task output.
-dotnet build (Join-Path $prototype 'FileInspectorX.FileSystem.Prototype.csproj') --artifacts-path (Join-Path $scratch 'artifacts')
-$framework = if ($PSVersionTable.PSEdition -eq 'Desktop') { 'net472' } else { 'net8.0' }
-$module = Join-Path $scratch "artifacts/bin/FileInspectorX.FileSystem.Prototype/debug_$framework/FileInspectorX.FileSystem.Prototype.psd1"
-Import-Module $module
-Get-FileSystemItem -LiteralPath $PWD -Recurse -File -Backend Walk
-Get-FileSystemItem -LiteralPath $PWD -Depth 1 -Name
-Get-FileSystemItem -LiteralPath $PWD -Filter '*.cs' -AsFileSystemInfo
-```
+## Build and deterministic tests
 
-`Auto` defaults to ordinary caller-visible enumeration. An explicit `-AllowVolumeInventory` permits the experimental MFT visibility contract, with fallback before output when the capability is unavailable. A forced `-Backend Mft` fails visibly instead. Raw NTFS capture requires Windows administrator access and reads the entire volume, even for a small requested subtree. The default MFT metadata budget is 512 MiB; total process memory can exceed that input size.
-
-On Windows PowerShell 5.1, automatic capture stays on ordinary enumeration until the legacy reader is qualified. Forced MFT capture remains available for isolated diagnostics. This avoids losing fallback classification through the released reader's generic I/O exceptions; cancellation and unexpected parser/I/O failures are not swallowed.
+Resolve `EVOTEC_SCRATCH_ROOT` to an existing mounted volume first. Use a task-owned subdirectory for artifacts, test temporary files and reports. The project is excluded from normal FileInspectorX builds and cannot be packed or published.
 
 ```powershell
-Get-FileSystemItem -LiteralPath $PWD -Recurse -AllowVolumeInventory -Verbose
-$snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync(
-    $PWD.Path, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
-Get-FileSystemItem -LiteralPath $PWD -Recurse -Backend Mft -Snapshot $snapshot
+$taskRoot = Join-Path $env:EVOTEC_SCRATCH_ROOT 'fileinspectorx-mft-evaluation'
+# Create only beneath an already verified, mounted scratch root.
+$artifacts = Join-Path $taskRoot 'artifacts'
+dotnet build ./Prototypes/FileSystem/FileInspectorX.FileSystem.Prototype.csproj --artifacts-path $artifacts
 ```
 
-Snapshot results are point-in-time metadata and have no `FileInfo` mutation methods. `-AsFileSystemInfo` creates live native objects with additional property-access costs. A snapshot is an in-memory node table, not an atomic filesystem snapshot or a persistent index. The candidate reader is not qualified for complete hard-link or extension-record coverage.
+Run `Invoke-PrototypeTests.ps1` in a fresh PowerShell 7 host against the `debug_net8.0` module manifest and in Windows PowerShell 5.1 against `debug_net472`. Supply `-ModulePath` and an optional `-OutputPath` for Pester XML. The tests require Pester 5.7.1. They cover the supported filesystem subset and the native USN decoder without requiring elevation.
 
-Run focused tests in a fresh process for each target framework, using Pester 5.7.1:
+## Query the evaluation module
+
+After importing its built manifest:
 
 ```powershell
-Import-Module Pester -RequiredVersion 5.7.1
-$container = New-PesterContainer -Path (Join-Path $prototype 'Tests/Compatibility.Tests.ps1') -Data @{ ModulePath = $module }
-Invoke-Pester -Container $container -Output Detailed
+Get-FileSystemItem -LiteralPath $directory -Recurse                 # safe automatic walk
+Get-FileSystemItem -LiteralPath $directory -Depth 1 -AsFileSystemInfo
+Get-FileSystemItem -LiteralPath $directory -Recurse -Backend Mft   # explicit elevated inventory
 ```
 
-Create a new synthetic fixture outside the repository and use the existing PowerForge runner:
+The default MFT-length guard is 512 MiB. Larger existing volumes require an explicit `-MaximumMftBytes` allowance. Separate index limits are exposed through `-MaximumIndexRecords`, `-MaximumIndexBytes` and `-MaximumCaptureSeconds`; conservative accounting is not a measured heap cap. Do not set arbitrary large allowances without checking available RAM and scope.
 
-```powershell
-& (Join-Path $prototype 'New-PrototypeFixture.ps1') -Root (Join-Path $scratch 'fixture') -Files 10000
-& (Join-Path $prototype 'Invoke-PrototypeComparison.ps1') -ModulePath $module -FixtureRoot (Join-Path $scratch 'fixture') -OutputRoot (Join-Path $scratch 'comparison') -Plan
-& (Join-Path $prototype 'Invoke-PrototypeComparison.ps1') -ModulePath $module -FixtureRoot (Join-Path $scratch 'fixture') -OutputRoot (Join-Path $scratch 'comparison')
-# In an explicitly approved elevated PowerShell 7 process, add -RunMft for raw-volume lanes.
-```
+A retained `MftSnapshot` can be supplied through `-Snapshot`; its name/identity index is reused while selected metadata is fetched again. It does not include newly created paths until recaptured, and it is not a point-in-time view. `-Filter` values other than `*` use normal enumeration in `Auto` and are rejected by forced MFT mode.
 
-The comparison wrapper requires Windows PowerShell 7 and PSPublishModule 3.0.153 or later; the experimental command itself also targets Windows PowerShell 5.1. It temporarily uses logical CPU 0 for every lane and restores affinity on exit. MFT capture is included in the fresh lane and reported separately for the retained-snapshot lane. Validation failures stay visible in PowerForge's output.
+## Reproduce the comparison
 
-The pinned LGPL-2.1-or-later reader is evaluation-only. No new production dependency is approved by this prototype. Keep build binaries and raw benchmark reports in task-owned scratch; retain compact evidence and remove disposable fixtures after review.
+`New-PrototypeFixture.ps1` creates a new task-owned synthetic tree. `Invoke-PrototypeComparison.ps1` calls the shared PowerForge benchmark runner; use `-Plan` before measurement. `-RunMft` requires elevated read-only volume access. Fresh MFT timings include inventory setup; retained-index timings report setup separately. Correctness validation remains outside the clock.
 
-The [current evidence](RESULTS.md) includes failed raw sector acquisition on the assessed workstation, successful Windows MFT-record retrieval, and successful normal-enumeration measurements. A source evaluation can reproduce the native access-flag and error-preservation corrections without replacing an ordinary cached package:
+`Tests/Measure-MftCompatibility.ps1` compares paths and metadata against `Get-ChildItem` and records differences rather than accepting missing aliases. `Invoke-ElevatedPrototypeComparison.ps1` runs both runtime diagnostics and the PowerShell 7 timing matrix from a reviewed JSON request. Inputs and outputs must be inside the existing configured scratch root. It accepts no arbitrary command payload and does not modify the volume, services, caches or databases.
 
-```powershell
-& (Join-Path $prototype 'Build-ReaderEvaluation.ps1') -OutputRoot (Join-Path $scratch 'reader-evaluation')
-# Use the module beneath reader-evaluation/prototype-artifacts for this patched variant.
-```
-
-This build uses an isolated local feed and package cache and records source/archive/patch provenance. It requires a compiler supporting the pinned reader's C# 14 source. `Tests/Invoke-IsolatedNtfsComparison.ps1` creates a disposable virtual volume and requires explicit separate approval; it must never be used as a general disk-formatting helper.
+Use these scripts only with synthetic task fixtures. Preserve the compact results, remove superseded build/intermediate output under the shared storage policy, and never use an inventory as authority to delete files.
