@@ -67,12 +67,22 @@ try {
     $_.Exception.ToString() | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'failure.txt')
     throw
 } finally {
+    $cleanupFailure = $null
     if ($attached) {
-        try { Dismount-DiskImage -ImagePath $imagePath; $receipt.Detached = -not (Get-DiskImage -ImagePath $imagePath).Attached }
-        catch { $_.Exception.Message | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'detach-failure.txt') }
+        try {
+            Dismount-DiskImage -ImagePath $imagePath
+            $imageState = @(Get-DiskImage -ImagePath $imagePath)
+            if ($imageState.Count -ne 1 -or $imageState[0].Attached) { throw 'Virtual disk detachment could not be confirmed.' }
+            $receipt.Detached = $true
+        } catch {
+            $cleanupFailure = $_.Exception.Message
+            $status = 'CleanupFailed'
+            $cleanupFailure | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'detach-failure.txt')
+        }
     }
     $receipt.Status = $status
     $receipt | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'fixture-receipt.json')
     $status | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
     Stop-Transcript | Out-Null
+    if ($cleanupFailure) { throw "Virtual disk cleanup failed: $cleanupFailure" }
 }

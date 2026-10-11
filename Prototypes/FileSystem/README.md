@@ -19,6 +19,8 @@ Get-FileSystemItem -LiteralPath $PWD -Filter '*.cs' -AsFileSystemInfo
 
 `Auto` defaults to ordinary caller-visible enumeration. An explicit `-AllowVolumeInventory` permits the experimental MFT visibility contract, with fallback before output when the capability is unavailable. A forced `-Backend Mft` fails visibly instead. Raw NTFS capture requires Windows administrator access and reads the entire volume, even for a small requested subtree. The default MFT metadata budget is 512 MiB; total process memory can exceed that input size.
 
+On Windows PowerShell 5.1, automatic capture stays on ordinary enumeration until the legacy reader is qualified. Forced MFT capture remains available for isolated diagnostics. This avoids losing fallback classification through the released reader's generic I/O exceptions; cancellation and unexpected parser/I/O failures are not swallowed.
+
 ```powershell
 Get-FileSystemItem -LiteralPath $PWD -Recurse -AllowVolumeInventory -Verbose
 $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync(
@@ -49,7 +51,7 @@ The comparison wrapper requires Windows PowerShell 7 and PSPublishModule 3.0.153
 
 The pinned LGPL-2.1-or-later reader is evaluation-only. No new production dependency is approved by this prototype. Keep build binaries and raw benchmark reports in task-owned scratch; retain compact evidence and remove disposable fixtures after review.
 
-The [current evidence](RESULTS.md) includes failed raw-volume acquisition on the assessed workstation, as well as successful normal-enumeration measurements. A source evaluation can reproduce the native access-flag correction without replacing an ordinary cached package:
+The [current evidence](RESULTS.md) includes failed raw sector acquisition on the assessed workstation, successful Windows MFT-record retrieval, and successful normal-enumeration measurements. A source evaluation can reproduce the native access-flag and error-preservation corrections without replacing an ordinary cached package:
 
 ```powershell
 & (Join-Path $prototype 'Build-ReaderEvaluation.ps1') -OutputRoot (Join-Path $scratch 'reader-evaluation')

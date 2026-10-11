@@ -60,13 +60,27 @@ Describe 'Normal enumeration filesystem subset' {
 }
 
 Describe 'Routing and cancellation' {
+    It 'keeps unqualified legacy raw capture out of automatic routing' {
+        if ($PSVersionTable.PSEdition -ne 'Desktop') {
+            Set-ItResult -Skipped -Because 'This contract applies only to the legacy host.'
+            return
+        }
+        $options = [FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
+        $options.Root = $root
+        $options.AllowVolumeInventory = $true
+        $options.MaximumMftBytes = 4294967296
+        $query = [FileInspectorX.Prototypes.FileSystem.FileSystemQuery]::OpenAsync($options).GetAwaiter().GetResult()
+        $query.Backend | Should -Be 'Walk'
+        $query.FallbackReason | Should -Match 'not qualified for automatic raw capture'
+        @($query.Entries).Count | Should -Be @(Get-ChildItem -LiteralPath $root).Count
+    }
     It 'defaults to caller-visible normal enumeration' {
         @(Get-FileSystemItem -LiteralPath $root).Backend | Select-Object -Unique | Should -Be 'Walk'
     }
     It 'falls back for unsupported native wildcard filters before raw capture' {
         @(Get-FileSystemItem -LiteralPath $root -AllowVolumeInventory -Filter '*.txt').Backend | Select-Object -Unique | Should -Be 'Walk'
     }
-    It 'uses ordinary enumeration after actual non-elevated raw-volume denial' -Skip:$isElevated {
+    It 'uses ordinary enumeration without elevated raw-volume access' -Skip:$isElevated {
         @(Get-FileSystemItem -LiteralPath $root -AllowVolumeInventory -ErrorAction Stop).Backend | Select-Object -Unique | Should -Be 'Walk'
     }
     It 'keeps forced MFT failure visible without permission' -Skip:$isElevated {
