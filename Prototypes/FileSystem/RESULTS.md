@@ -1,60 +1,83 @@
-# Windows MFT API prototype results
+# Direct MFT metadata prototype results
 
-The Windows API backend works on the assessed D: volume. It inventories names and identities through `FSCTL_ENUM_USN_DATA`, then reads full metadata for selected paths through ordinary file APIs. It is useful evidence for an explicit volume index, but the measured full-metadata queries do not justify replacing normal enumeration automatically.
+Direct Windows file-record capture reconstructs the exercised hardlinks and reads file metadata without per-path refresh. It does not establish a generally faster Get-ChildItem replacement. Retained-index queries won on the tested 50,000-file subtree and lost on the 500,000-file tree. Fresh capture is expensive. Both prototype backends aborted on the whole drive, so their partial durations are excluded from performance rankings. Automatic routing keeps normal enumeration.
 
-## Reproducible comparison
+## Measured candidate and method
 
-Valid PowerForge run: `20261011-151824-f3d9a0fb`. Measured source: `c9fb0505837fa9fe81ed10edd84646a45238403d`, clean worktree. Prototype assembly SHA-256: `DCE98754BE607306171A3F2C617DDF2956B830F3DBF547C821ED05017CDE222D`.
+PowerForge run `20261011-162040-997e2242` measured clean source `dfeedd203af544370a1c5c8c1a66c3897394021a`. Assembly SHA-256: `0B210359908771DA8EE764C68E90FEE68C9CBDFC0A4C3DDB6ED0F307EEE0FB98`. Later diagnostics or documentation changes must be identified separately from this measured candidate.
 
-Environment: Windows build 26300, Ryzen 9 9950X3D2, PowerShell 7.6.6 on .NET 10.0.12, normal process priority, high-performance power plan, affinity mask `1` (one logical CPU). Filesystem caches were warm. PowerForge used one warmup and three rotated measured iterations, retaining every outlier. Timing covers enumeration and output consumption into an array; full-result correctness validation runs outside the clock.
+Windows build 26300, Ryzen 9 9950X3D2, PowerShell 7.6.6 on .NET 10.0.12, normal priority, high-performance power plan, affinity mask `1`. The assembly targets .NET 8; the actual benchmark host used .NET 10. Two rotated measured iterations, no warmups or outlier removal, warm filesystem state and an active workstation. These are exploratory observations, not cold-cache or universal performance guarantees.
 
-All **36 measured samples succeeded**. The two automatic-fallback cases were explicitly skipped in this elevated matrix; fallback is covered by the runtime contract tests and a separate elevated path-parity diagnostic. MFT lanes were measured, not skipped.
+The same streaming PowerShell consumer reads paths, attributes, default-stream lengths, creation and last-write times inside the clock. Synthetic counts and order-independent path/metadata fingerprints are validated outside the clock; no multi-million-path inventory is persisted. First-result latency, CPU and allocation are recorded separately. The MFT query lane reuses a captured index and excludes acquisition.
 
-| Full-metadata engine | 10,110-entry tree median | 1,010-entry subtree median | Tree mean time to first result | Tree mean process allocation |
+## Comparable synthetic queries
+
+All twelve synthetic samples passed counts, paths, checked metadata and zero-error validation. The full tree contains 500,000 files and 110 directories; the subtree contains 50,000 files and ten directories.
+
+| Engine | 500,000-file median | Observed range | 50,000-file median | Observed range |
 | --- | ---: | ---: | ---: | ---: |
-| Get-ChildItem | 119.58 ms | 14.18 ms | 3.11 ms | 63.15 MB |
-| Normal walk, metadata objects | 93.18 ms | 11.44 ms | 2.58 ms | 85.43 MB |
-| Fresh MFT inventory plus hydration | 8,731.72 ms | 7,484.29 ms | 8,383.36 ms | 1,029.62 MB |
-| Reused MFT index plus hydration | 129.08 ms | 15.41 ms | 3.52 ms | 88.88 MB |
+| Get-ChildItem | 24.81 s | 21.35–28.26 s | 2.54 s | 1.37–3.71 s |
+| Normal walk | 29.63 s | 7.64–51.62 s | 1.49 s | 1.04–1.94 s |
+| Retained direct MFT snapshot | 36.99 s | 24.75–49.23 s | 1.09 s | 1.090–1.098 s |
 
-MB above is decimal. Median duration, mean first-result latency and mean allocation are different statistics. The full-tree Get-ChildItem samples ranged from **113.47 to 576.13 ms**; its median is 119.58 ms and its mean is 269.73 ms. Three samples on a busy workstation are exploratory evidence, not a portable ranking. Allocation is process-wide and is not retained heap or peak memory.
+The retained MFT query is about 2.32 times faster by the subtree median, but about 49% slower on the larger tree. The setup cost is separate. Large variation in the normal walk and direct MFT tree samples prevents a stable ranking from two observations; both samples and all outliers are retained.
 
-The fresh lane inventories D: even when the requested subtree is small. It includes that setup cost and selected-path metadata hydration. The reused-index lane does not include recapture. On these trees, reused MFT metadata queries were slightly slower than Get-ChildItem and fresh capture was much slower. The normal walk was faster by median while allocating more memory.
+| Engine, 500,000-file tree | Median CPU | Median first result | Median process allocation |
+| --- | ---: | ---: | ---: |
+| Get-ChildItem | 12.41 s | 19.51 ms | 4.35 GB |
+| Normal walk | 8.73 s | 30.42 ms | 4.63 GB |
+| Retained direct MFT snapshot | 8.59 s | 11.20 ms | 4.60 GB |
 
-Native-object construction lanes were also measured: normal walk **111.13 / 10.74 ms**, reused MFT **162.36 / 12.03 ms** for tree/subtree. These include constructing returned FileInfo/DirectoryInfo objects after initial metadata hydration. Consumers can trigger additional metadata I/O when reading those native objects; validation reads their properties outside the measured operation. Do not interpret these lanes as the cost of every downstream property access.
+GB is decimal. Allocation is process-wide accumulated allocation, not live heap or peak memory. Lower CPU or first-result latency does not imply lower elapsed duration. The per-object PowerShell path and an engine-level aggregate are different products and should be measured separately before choosing the storage-inventory API.
 
-## Volume inventory and memory
+## Capture cost and memory
 
-The retained-index setup in the valid timing run captured **3,614,940 records in 15.24 seconds** on the single logical CPU. It read **385,547,160 bytes** of API output, while the underlying MFT valid length was **3,801,088,000 bytes**. These are different quantities.
+Direct logical `FSCTL_GET_NTFS_FILE_RECORD` acquisition took **256.16 seconds**, **50.48 seconds of process CPU**, and **1,909,057,736 allocated bytes**. Post-collection retained managed heap increased by **1,527,838,880 bytes**, approximately **1.42 GiB**. Conservative index accounting was **3,226,376,620 bytes**; it is not an exact heap ceiling or peak-memory measurement.
 
-Setup allocated **945,357,640 bytes** process-wide and increased post-collection managed heap by **515,510,376 bytes**, approximately **492 MiB**. Conservative index accounting was **1,084,006,496 bytes**, approximately 1.01 GiB. The accounting deliberately includes slack and adjacency overhead; it is not an exact heap cap. End-of-run process working set was about 2.09 GiB, including the host and benchmark work; this is neither the index size nor a peak-memory measurement.
+Capture read 4,315,962 records, including 16,757 extension records, and indexed 4,347,031 non-DOS links. It marked 5,364 base records incomplete. Native output total was 4,471,336,632 bytes; MFT valid length was 4,424,990,720 bytes. These describe different quantities. Record buffers are logical Windows API output, not raw disk sectors.
 
-Independent runtime diagnostics captured **3,614,917 records in 11.92 seconds in PowerShell 7 using the net8.0 build** and **3,616,751 in 13.99 seconds in Windows PowerShell 5.1 using the net472 build**. Those diagnostic hosts were not pinned to the benchmark CPU domain. Counts differ because other applications continued changing D:. The inventory does not provide an atomic point-in-time snapshot.
+The direct backend uses one control call per returned record. Cached-query latency cannot establish a fast fresh whole-drive inventory. No persistent index, journal or virtual disk was created.
 
-These are name/identity acquisition results. A complete whole-drive size inventory must also obtain lengths and other required metadata. No whole-drive Get-ChildItem comparison, cold-cache measurement or complete whole-drive metadata speed claim is established here.
+## Whole-drive coverage
+
+Get-ChildItem completed two traversals, each reporting twenty errors. Durations were **24.25 and 23.00 minutes**. First pass: 3,576,805 files and 784,586 directories; second: 3,585,849 files and 783,487 directories. Counts and logical bytes changed while other applications used D:. These are live, caller-visible traversals with errors, not complete atomic inventories.
+
+Both normal-walk samples aborted after 91,983 files and 44,255 directories. Both retained-MFT samples aborted after 1,597,918 files and 343,538 directories. The repeated partial fingerprints match within each backend. All four are failed samples; no duration comparison or speedup is reported for them.
+
+The consumer correctly treats fatal query/enumeration errors as aborted coverage. It discarded the underlying exception details in this measured run. A bounded read-only core diagnostic identified access denial at a protected directory for normal enumeration. The prototype currently aborts the root instead of continuing with provider-style errors.
+
+The MFT stop was a false completeness rejection: Office identity `0001000000207884` had a header reference hint of 84, twenty-two captured names and twenty-two current links reported by Windows. Independent `fsutil hardlink list` also returned twenty-two aliases. Microsoft documents that header member as reserved, so its value is not accepted as an authoritative live hardlink count.
+
+Follow-up source **`65e8b9a839bf73e38e183e2cbfd69d7031b26ada`**, DLL **`049CA85D70A306D16E82384627D008B9EB26C2281EAD757C7C58F54ADFAD73FC`**, validates contradictory hints through metadata-only `OpenFileById` and `GetFileInformationByHandle`. Full identity must match, and the live link count must equal the captured non-DOS link count. Failed or mismatched checks remain incomplete errors. Timestamps and lengths still come from captured MFT records.
+
+Its focused modern diagnostic validated all 5,364 contradictory records, reported zero incomplete records, and matched all twenty-two Office aliases. The core traversal completed its reachable index with **3,671,964 entries**. This is traversal of a captured graph, not proof that all current filesystem paths are present or equivalent to the earlier Get-ChildItem passes.
+
+That diagnostic captured **4,162,339 records in 48.73 seconds**, with an unpinned fresh host and different live volume contents. Core iteration took 1.19 seconds and did not include a common PowerShell pipeline consumer or fingerprint work. Neither number belongs in the earlier timing comparison or proves a production whole-drive speedup. No full Get-ChildItem traversal or timing matrix was repeated.
+
+The follow-up benchmark retains the first error's ID, category, exception and bounded message. A missing-root matrix verified those details for all eight intentionally failed samples. Whole-drive caller-visible coverage and error-continuation compatibility remain production gates.
 
 ## Compatibility and safeguards
 
-Deterministic tests: **26 passed on Windows PowerShell 5.1 and 26 passed on PowerShell 7.6.6**, with Pester 5.7.1. Both target frameworks built with zero warnings and errors. Contracts include the supported walk options, provider/routing behavior, Unicode/full identities, malformed native record boundaries, unsafe path components, and cancellation after enumeration begins.
+Deterministic tests: **29 passed in PowerShell 7.6.6 and 29 in Windows PowerShell 5.1**, Pester 5.7.1. Both target frameworks build with zero warnings/errors. Contracts cover normal routing/options, sequence-qualified identities, logical API records with stale update-sequence entries, malformed boundaries, resident/nonresident lengths, DOS-name counting, extension merges and abort classification.
 
-Live diagnostics ran seven compatibility cases in each runtime: children, recursion, Force, files, directories and Depth 0/1. Both reported **14 Get-ChildItem paths versus 13 MFT paths** in the full forced case. The missing path was `a.txt`, one name of a hard-linked file. Other present file lengths, attributes and creation/write/access times matched in these fixtures.
+Modern live compatibility matches all **34 paths**, including thirty hardlink aliases whose source lies outside the queried tree. File attributes, creation/write/access times and default-stream lengths match for the exercised resident, nonresident, empty, Unicode and alternate-stream fixtures. One directory last-access timestamp differs across directory-bearing cases. An ordinary listing also disagrees with DirectoryInfo.Refresh, recorded with exact UTC ticks; that does not isolate the cause of the first MFT mismatch. Historical mismatch strings lose fractional precision and must not be treated as exact tick evidence.
 
-Directory last-access timestamps differed. The same differences reproduce between Get-ChildItem directory entries and a freshly refreshed DirectoryInfo without using MFT. The separate observation report records exact UTC values. This is a compatibility difference between metadata access paths, not evidence of a USN timestamp-decoding defect: the USN decoder does not supply those timestamps.
+Four modern live guards pass: record-budget rejection, estimated-memory-budget rejection, cancellation during capture, and deferred-query cancellation. They prove observed exceptions, not cancellation latency or a hard heap ceiling. The follow-up diagnostics preserve exact UTC strings and ticks for future mismatches. Windows PowerShell live MFT compatibility remains unverified: the original capture failed, the first follow-up wrapper failed before legacy capture, and the corrected legacy-only UAC launch was canceled. Both deterministic runtime suites pass; they do not close this live validation gap.
 
-Four live guards passed on each runtime: record-budget rejection, estimated-memory-budget rejection, cancellation during capture, and cancellation of a deferred query before output. These prove exceptions were observed; they do not measure cancellation latency, a hard heap ceiling or timeout latency.
+## Retained negative evidence
 
-Automatic routing remains on normal enumeration, including when volume inventory is allowed. Forced MFT mode is explicitly experimental and preserves failures. Full hard-link coverage, stable identity under concurrent replacement, access/visibility, long paths, case-sensitive directories and provider error-continuation behavior remain production gates.
+The first direct capture rejected logical API records using a raw-sector update-sequence check. Numeric output probes showed logical sector trailers and stale array values. The corrected parser validates structural layout without applying raw-sector replacements; it remains explicitly unsuitable for raw disk images.
 
-## Failure evidence and review
+Earlier large benchmarks failed due to an invocation-scope bug or detected source changes; those samples are excluded. A missing-root diagnostic proves fatal query errors are aborted and synthetic errors fail validation. Compact failures are retained alongside successful evidence.
 
-The first native run stopped at its 1 GiB index-accounting guard. The explicit evaluation budget was increased to 2 GiB; record/time limits remained in place. A later timing attempt was discarded when the source-provenance gate detected a plan commit during measurement. The final valid run used unchanged source throughout. Compact failures remain alongside the successful evidence.
+The original legacy capture failed when an extension's base identity was absent from the live acquisition. This failure is preserved; the follow-up reports both identities if it recurs. A later wrapper mistakenly passed the text `8GB` to the legacy process. The integer byte-limit correction is prepared, but Windows canceled that legacy-only launch. Neither failure invalidates the completed modern synthetic timing samples, and neither establishes successful legacy live compatibility.
 
-The earlier raw-sector reader failed with ERROR_NOT_SUPPORTED on this environment. Supported Windows control calls work; the rejecting raw-read component is unidentified. The native prototype removes the external reader dependency, patches, private package staging and virtual-disk experiment source. No virtual disk was created.
+An independent read-only review and one targeted confirmation covered the initial direct-record parser, native/routing boundary and benchmark contracts. The later supported link-count validation is covered by the observed Office regression, complete modern core traversal, live fixture/guard checks and both deterministic suites; it has not received another independent pass.
 
-A fresh independent read-only review covered the native API layouts, decoder, bounds/cancellation/lifetime, routing, adapter, benchmark and dependency isolation. It found no actionable technical defects and accepted this shape for the isolated evaluation, while holding production integration. Reviewed native candidate: `6afd2ccd2db37e2b9669d36c7b909a15047e2c5f`, plus the timing-only driver addendum committed as `c9fb050`. Review coverage remains current; no targeted confirmation was needed.
+The earlier USN name index plus ordinary metadata hydration remains separate historical evidence: Get-ChildItem medians **119.58 / 14.18 ms** describe different 10,110/1,010-entry trees, not competing engines. Reused USN-plus-hydration took **129.08 / 15.41 ms** on those same workloads and did not win. Its fixture missed a hardlink alias. Direct file-record decoding addresses the exercised alias loss, but does not retroactively validate the old backend.
 
-## Next useful work
+## Disposition
 
-Keep normal enumeration for ordinary filesystem queries. A separate reusable volume-index workflow is the next candidate: capture once, search names/identities repeatedly, and hydrate metadata only for selected results. Before automatic MFT selection, implement complete hard-link paths and identity-safe traversal, then qualify a metadata acquisition strategy on broad and repeated workloads. Reusing this partial index alone did not improve the tested full-metadata workload.
+Keep the isolated prototype and normal automatic routing. Before production integration, finish legacy live validation, error continuation, freshness/concurrent identity qualification, access/visibility semantics, bounded peak-memory/cancellation proof and repeatable performance work. Compare a C# directory-size/count aggregate separately from emitting millions of PowerShell objects. The published FileInspectorX library/module and packages remain unchanged.
 
-The [plan](PLAN.md) records the remaining production gates. Published FileInspectorX projects and packages remain unchanged.
+Platform contracts: [file-record header](https://learn.microsoft.com/en-us/windows/win32/devnotes/file-record-segment-header), [OpenFileById](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-openfilebyid), [GetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle).

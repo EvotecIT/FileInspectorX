@@ -1,74 +1,70 @@
 # MFT-backed filesystem query and Get-ChildItem replacement plan
 
-Status: Windows API evaluation prototype, 2026-10-11. The published FileInspectorX API and module are unchanged. This plan covers a reusable filesystem engine with an MFT inventory backend and ordinary enumeration as the safe default and fallback.
+FileInspectorX owns the reusable filesystem query engine. The isolated prototype under `Prototypes/FileSystem` evaluates direct NTFS metadata and normal enumeration behind a thin `Get-FileSystemItem` adapter. The published library and module remain unchanged. This is a filesystem subset, not a replacement for every PowerShell provider or every `Get-ChildItem` parameter.
 
-## Outcome and ownership
+## Implemented shape
 
-The useful consumers are large file inventories, directory-size assessments and development-storage review. FileInspectorX owns the reusable C# query engine; PowerShell and future CLI adapters stay thin. Content analysis runs on selected files after discovery. PowerForge/PSPublishModule owns benchmark scheduling, warmups, rotated ordering and normalized reports.
+The evaluation targets .NET 8 and .NET Framework 4.7.2, is excluded from normal solutions and module builds, and cannot be packed or published. It adds no external reader dependency and does not alias the built-in command. PowerForge/PSPublishModule owns benchmark execution and reports.
 
-The prototype is deliberately separate under `Prototypes/FileSystem`, targets .NET 8 and .NET Framework 4.7.2, and is excluded from normal solutions, module builds, packing and publishing. It exports `Get-FileSystemItem` without overriding or aliasing `Get-ChildItem`. No external MFT parser or reader is required by the current prototype. Production integration, the public command name, publication and destructive file operations remain outside this evaluation.
+`Auto` keeps caller-visible normal enumeration, including when volume inventory is allowed. Explicit `Mft` mode requires Windows, administrator access and an existing local NTFS 3.0/3.1 volume. It rejects reparse roots and ancestors. Unsupported native filters use normal enumeration in `Auto`; forced MFT accepts only `*`. Cancellation and malformed records remain failures, never successful fallback.
 
-A file inventory never authorizes deletion. Storage-maintenance consumers still need fresh ownership, Git, activity, reparse-point and preservation checks.
+The direct backend:
 
-## Current Windows API route
+1. Opens the volume read-only and queries record geometry, NTFS version and MFT valid length with `FSCTL_GET_NTFS_VOLUME_DATA`.
+2. Descends through in-use base and extension records with `FSCTL_GET_NTFS_FILE_RECORD`. A request can return a lower ordinal; the next request uses the returned ordinal minus one.
+3. Bounds-checks logical API records and decodes standard-information timestamps/attributes, unnamed default-stream logical length, and all long-name `FILE_NAME` links. It counts DOS aliases for completeness without emitting duplicate short names. Named alternate streams do not inflate default-stream length.
+4. Merges extension records through full sequence-qualified base identities, then builds parent/children adjacency. A contradictory header reference hint triggers an identity-checked, metadata-only Windows link-count probe. Captured non-DOS links must match that supported live count; failed probes remain incomplete. Missing owners, duplicate links and incomplete queried records remain visible errors.
+5. Closes the volume handle, resolves the requested directory's current identity, and emits captured metadata without refreshing each path through ordinary metadata APIs. Native `FileInfo`/`DirectoryInfo` conversion remains explicit and can incur additional live I/O.
 
-1. Resolve a literal directory root and reject network/non-NTFS volumes and reparse roots or ancestors for MFT access.
-2. Open the existing volume read-only and query `FSCTL_GET_NTFS_VOLUME_DATA`. The MFT length is a volume-size guard, not the number of bytes this backend reads into memory.
-3. Use batched `FSCTL_ENUM_USN_DATA` calls with `MFT_ENUM_DATA_V0`. Decode bounds-checked `USN_RECORD_V2` names, attributes and full 64-bit file/parent identities, including NTFS sequence bits.
-4. Build an in-memory parent/children lookup. Close the volume handle before returning it. Do not create a journal, persistent database, disk image or virtual volume.
-5. Identify the requested directory through `GetFileInformationByHandle`, traverse the indexed children and hydrate selected paths through ordinary `FileSystemInfo` metadata APIs. Length and creation/write/access times are therefore live metadata obtained during the query, not fields from USN records.
-6. Return metadata snapshots, relative names, or explicit native `FileInfo`/`DirectoryInfo` objects. Native object hydration has a separate comparison lane.
+The API decoder accepts logical filesystem-control output only. Live Windows output can have logical sector trailers that differ from the update-sequence array; it validates structural bounds without applying raw-disk sector replacements. It is not a raw disk-image parser.
 
-The fresh MFT lane includes volume inventory and selected-path hydration. The retained-index lane includes querying and hydration but reports inventory setup time, allocation and retained heap separately. A retained index is not an atomic filesystem snapshot: names can age while metadata stays live.
+## Compatibility boundaries
 
-Defaults bound the capture to four million records, 2 GiB of conservative index accounting and two minutes, plus the existing 512 MiB MFT-length guard. The assessed D: volume needs an explicit 4 GiB length allowance. Accounting is not an exact heap cap. Cancellation is checked between synchronous native calls, each parsed record and each emitted query item; it cannot interrupt a native call already executing. No background unbounded worker is started.
+Normal enumeration supports literal directory roots, multiple roots, children, recursion, implicit recursion through `Depth`, files/directories, `Force`, native `Filter`, relative `Name`, and explicit native objects. Recursion stops at directory reparse points. Preserve runtime differences rather than silently treating them as equivalent.
 
-## Compatibility and routing contract
+MFT records include metadata captured at different instants during acquisition. The index is not an atomic snapshot; new paths are absent until recapture, and links or identities can change during capture or query. Root identity validation and sequence-qualified parent/base identities improve correctness without establishing complete concurrent-change safety. Privileged raw-volume visibility also differs from directory ACL visibility.
 
-The supported normal-enumeration subset includes literal directory roots, multiple roots, default children, recursion, implicit recursion through `Depth`, files/directories, hidden/system filtering through `Force`, provider-native `Filter`, relative `Name`, and explicit native objects. The C# engine owns routing and iteration; the PowerShell adapter uses the existing shared async cmdlet base and resolves provider paths on the pipeline thread.
+File roots, wildcard `Path`, `Include`/`Exclude`, provider dynamic parameters, Registry/Certificate providers, streams, exact ordering, formatting and complete provider error continuation remain outside the prototype contract. Hardlink fixtures establish only the exercised cases; they do not prove every namespace and concurrent-mutation combination.
 
-`Auto` uses ordinary enumeration by default. Even with `AllowVolumeInventory`, automatic MFT selection stays disabled until complete path semantics are qualified. Forced `-Backend Mft` is an explicit experimental inventory. Capability failures remain visible there; cancellation and malformed native records must never masquerade as successful fallback.
+The whole-drive normal prototype stops at the first inaccessible directory. Get-ChildItem continues and reports errors. The direct backend can finish traversal of its reachable captured graph after link-count validation, but that is not an equivalence proof for every current filesystem path. A live acquisition can also observe an extension whose base identity is absent; this is preserved as a failure with identities for diagnosis.
 
-Known boundaries:
+An inventory never authorizes deletion. Development-storage consumers still require fresh ownership, Git, activity, reparse and preservation checks before any cleanup.
 
-- A USN inventory does not guarantee all hard-link aliases. One missing alias can also place the selected name outside the requested subtree. Complete `Get-ChildItem` path coverage is a production gate.
-- Native wildcard filters use normal enumeration. Forced MFT accepts only `*`.
-- Recursion stops at directory reparse points. PowerShell runtime differences around junctions must be recorded, not normalized away silently.
-- Results are metadata snapshots. Native objects are an explicit additional conversion with additional I/O; they do not make the inventory atomic or complete.
-- File inputs, wildcard `Path`, `Include`/`Exclude`, dynamic provider parameters, Registry/Certificate providers, streams, exact ordering, provider formatting and full error-continuation behavior are unimplemented contracts.
-- An explicitly privileged volume inventory has different visibility from a caller-visible directory walk. It must remain opt-in if it becomes available through automatic routing.
-- Filesystem changes, directory identity reuse, access-denied paths, long paths, case-sensitive directories and extension/hard-link records need additional production qualification. Do not infer their correctness from a small synthetic tree.
+## Acquisition and query budgets
 
-## Comparison and evidence
+Defaults are four million records, 2 GiB conservative index accounting, two minutes and a 512 MiB MFT-length guard. Evaluation overrides are explicit and require available RAM. Accounting is not an exact heap ceiling. Cancellation and timeout checks run between synchronous control calls, decoded records, merges and emitted entries; they cannot interrupt an executing native call. No background unbounded worker, persistent database, journal, raw-sector read or virtual disk is created.
 
-Use existing task-owned synthetic fixtures on a mounted configured scratch root. Keep all large or intermediate output there. Do not create a virtual disk. Read existing D: metadata with the previously authorized elevated comparison driver and write only task results.
+Capture reads one record per filesystem control call. Its cost must be reported separately from repeated queries; fast retained-index queries cannot establish fast fresh whole-volume scans. A cached index also needs a freshness design before it can serve as a transparent enumeration backend.
 
-The PowerForge matrix compares `GetChildItem`, metadata `Walk`, `WalkNativeObjects`, automatic fallback, `MftFresh`, `MftSnapshot`, and `MftSnapshotNativeObjects` on the same 10,110-entry tree and 1,010-entry subtree. Full-result validation compares paths, length, attributes and last-write time outside the timed operation. Separate compatibility diagnostics compare creation/write/access timestamps and paths on hidden, Unicode, empty, nested, junction and hard-link fixtures in Windows PowerShell 5.1 and PowerShell 7.
+## Comparison contract
 
-Report total elapsed time, time to first result, process allocation, index capture cost and retained heap separately. Capture CPU, affinity, priority, runtime, OS and assembly hash. Retain outliers. The current exploratory matrix uses one logical CPU, warm filesystem caches, one warmup and three rotated measured iterations. These conditions do not establish cold-cache throughput, a universal whole-drive scan time or optimal multi-core performance.
+Use an existing mounted `EVOTEC_SCRATCH_ROOT`, task-owned fixtures and the reviewed read-only elevation driver. Machine-local paths stay in request/results files. The large matrix compares `GetChildItem`, `Walk` and retained `MftSnapshot` on 500,000 files, a 50,000-file subtree and an existing whole drive. No virtual disk is used.
 
-Deterministic correctness tests cover the supported walk/routing contracts and native record decoding: record and name bounds, unsupported layouts, Unicode, full identities, path-component containment and cancellation after enumeration starts. Live diagnostics exercise record/memory budgets and cancellation during capture/query. Keep performance out of ordinary correctness gates.
+The shared streaming consumer reads paths, attributes, default-stream lengths, creation and last-write times inside each timed operation. Compact order-independent fingerprints validate synthetic counts and metadata outside the clock without retaining millions of paths. Synthetic errors or fatal traversal aborts invalidate a sample. Whole-drive counts, errors and visibility differences are reported without claiming exact equivalence or ranking an incomplete walk.
 
-The earlier direct-sector reader failed with Win32 error 50 on this environment; aligned native probes confirmed it. Windows volume-data and individual file-record control calls succeeded. The rejecting sector-read component is unidentified. Historical raw-reader results remain evidence in Git/task outputs; obsolete reader patches and virtual-disk experiment scripts are removed from the current prototype.
+Record elapsed time, first-result latency, CPU time and process allocation separately. Record index capture time, allocation, post-collection retained heap, estimated bytes, native output bytes, record/link/extension counts and incomplete records. Preserve source/assembly provenance, CPU affinity, priority, power plan, OS and actual host runtime. Two rotated warm-cache samples with retained outliers are exploratory evidence, not a universal performance guarantee. No cold-cache or peak-memory claim follows from them.
 
-## Remaining implementation decisions
+Both PowerShell hosts run live hardlink/extension, Unicode, resident/nonresident, empty-file and alternate-stream compatibility checks, plus record/memory budget and capture/query cancellation guards. Deterministic tests cover normal routing/options and bounded direct-record decoding. Keep timing assertions out of correctness tests.
 
-- [x] Isolate the prototype and preserve the dirty primary checkout.
-- [x] Add a bounded native Windows MFT name inventory without an external reader dependency.
-- [x] Keep normal enumeration and a familiar thin PowerShell surface.
-- [x] Validate deterministic contracts on both PowerShell runtimes.
-- [x] Complete the native elevated timing/compatibility matrix and independent review; record all losses and mismatches.
-- [ ] Choose the production shape from the measurements: separate explicit inventory command, a compatibility-preserving hybrid, or further MFT metadata acquisition.
-- [ ] Implement complete hard-link path coverage and stable identity validation before enabling automatic MFT selection.
-- [ ] Qualify concurrent changes, access/visibility, reparse behavior, cancellation latency and real peak-memory bounds.
-- [ ] Compare broad inventories and repeated queries, cold/warm caches and representative CPU domains before defining workload-based routing thresholds.
-- [ ] Integrate a qualified engine into the main library and thin module surface, then validate CI and package artifacts. Any new production dependency needs separate approval.
+## Remaining production decisions
 
-Prefer the smallest engine that earns its maintenance cost. A slower native prototype is still a useful result if it shows where indexing pays and where ordinary enumeration should remain the selected backend.
+- [ ] Choose a public explicit inventory/index workflow or a compatibility-preserving hybrid from the measured acquisition and query costs.
+- [ ] Compare engine-level aggregation with emitting millions of PowerShell objects. Directory-size/count consumers should aggregate in the C# owner and return bounded summaries; object enumeration remains a separate contract.
+- [ ] Define logical path size, unique-file size, allocated size, hardlink attribution, alternate-stream and sparse/compressed-file accounting explicitly before using the index as a disk-space assessment engine. Resident data and shared MFT records must not be assigned a fictional per-file cluster allocation.
+- [ ] Qualify concurrent replacement, freshness, access/visibility, reparse behavior, long paths and case-sensitive directories before automatic selection.
+- [ ] Establish cancellation latency, actual peak-memory bounds and a cache invalidation/update strategy.
+- [ ] Add finite per-engine benchmark budgets and progress counters before repeated unattended whole-volume qualification. An interrupted or timed-out scan must retain partial status and must not enter successful timing rankings.
+- [ ] Compare cold/warm workloads and representative CPU domains before defining routing thresholds or promising whole-drive scan times.
+- [ ] Integrate only a qualified engine into the main library and thin module; validate CI and packaged artifacts. New production dependencies require separate approval.
 
-## Platform contracts
+The earlier USN name index and per-path metadata hydration remain historical comparison evidence. Its missed hardlink alias and lack of same-tree speed gain motivated this direct-record experiment. Retain negative results and keep ordinary enumeration wherever the indexed route does not earn its setup and compatibility costs.
 
-- [FSCTL_ENUM_USN_DATA](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_enum_usn_data)
-- [MFT_ENUM_DATA_V0](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-mft_enum_data_v0)
-- [USN_RECORD_V2](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-usn_record_v2)
+## Platform references
+
+- [FSCTL_GET_NTFS_FILE_RECORD](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_get_ntfs_file_record)
+- [OpenFileById](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-openfilebyid)
 - [GetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)
+- [NTFS_FILE_RECORD_OUTPUT_BUFFER](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-ntfs_file_record_output_buffer)
+- [FILE_RECORD_SEGMENT_HEADER](https://learn.microsoft.com/en-us/windows/win32/devnotes/file-record-segment-header)
+- [ATTRIBUTE_RECORD_HEADER](https://learn.microsoft.com/en-us/windows/win32/devnotes/attribute-record-header)
+- [FILE_NAME](https://learn.microsoft.com/en-us/windows/win32/devnotes/file-name)
