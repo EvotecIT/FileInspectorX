@@ -1,0 +1,121 @@
+using System.Text;
+
+namespace FileInspectorX.Prototypes.FileSystem;
+
+/// <summary>Bounded NTFS 3.x FILE record decoder. No data run traversal or filesystem access.</summary>
+internal static class NtfsFileRecordParser
+{
+    internal const ulong SlotMask = 0x0000FFFFFFFFFFFFUL;
+    private static readonly char[] InvalidNameCharacters = { '\\', '/', ':', '\0' };
+
+    // The control output is reused only after this method returns; repair the USA in place.
+    internal static NtfsFileRecord Parse(byte[] output, int returned, int sectorBytes)
+    {
+        if (returned < 60 || returned > output.Length) throw new IOException("Truncated file-record output.");
+        int size = checked((int)BitConverter.ToUInt32(output, 8));
+        if (size < 48 || size > returned - 12) throw new IOException("Invalid file-record size.");
+        const int start = 12;
+        if (BitConverter.ToUInt32(output, start) != 0x454C4946) throw new IOException("Missing FILE signature.");
+        RepairSequence(output, start, size, sectorBytes);
+        int used = checked((int)BitConverter.ToUInt32(output, start + 24));
+        int offset = BitConverter.ToUInt16(output, start + 20);
+        ushort flags = BitConverter.ToUInt16(output, start + 22);
+        if ((flags & 1) == 0 || used > size || used < 48 || offset < 48 || offset % 8 != 0 || offset > used - 4)
+            throw new IOException("Invalid in-use file-record header.");
+        ulong slot = BitConverter.ToUInt64(output, 0) & SlotMask;
+        ushort sequence = BitConverter.ToUInt16(output, start + 16);
+        if (sequence == 0) throw new IOException("In-use record has no identity sequence.");
+        var record = new NtfsFileRecord
+        {
+            Id = slot | ((ulong)sequence << 48), BaseId = BitConverter.ToUInt64(output, start + 32),
+            LinkCount = BitConverter.ToUInt16(output, start + 18), Directory = (flags & 2) != 0
+        };
+        while (offset <= used - 4)
+        {
+            int p = start + offset;
+            uint type = BitConverter.ToUInt32(output, p);
+            if (type == uint.MaxValue) return record;
+            if (used - offset < 24) throw new IOException("Truncated attribute header.");
+            int length = checked((int)BitConverter.ToUInt32(output, p + 4));
+            bool nonresident = output[p + 8] == 1;
+            int minimum = nonresident ? 64 : 24;
+            if (output[p + 8] > 1 || length < minimum || length % 8 != 0 || length > used - offset)
+                throw new IOException("Invalid attribute length or form.");
+            int named = output[p + 9];
+            int nameOffset = BitConverter.ToUInt16(output, p + 10);
+            if (named != 0 && (nameOffset < minimum || nameOffset > length - named * 2))
+                throw new IOException("Attribute name escapes its record.");
+            if (!nonresident)
+            {
+                int valueLength = checked((int)BitConverter.ToUInt32(output, p + 16));
+                int valueOffset = BitConverter.ToUInt16(output, p + 20);
+                if (valueOffset < 24 || valueOffset > length - valueLength) throw new IOException("Resident value escapes its attribute.");
+                int value = p + valueOffset;
+                if (type == 0x10)
+                {
+                    if (valueLength < 36 || record.HasStandardInformation) throw new IOException("Invalid standard information.");
+                    record.Created = Timestamp(output, value); record.Written = Timestamp(output, value + 8);
+                    record.Accessed = Timestamp(output, value + 24);
+                    // Directory/index bits are in the FILE header, not FILE_ATTRIBUTE_* standard information.
+                    record.Attributes = (FileAttributes)(BitConverter.ToUInt32(output, value + 32) & 0x0003FFFF);
+                    if (record.Directory) record.Attributes |= FileAttributes.Directory;
+                    record.HasStandardInformation = true;
+                }
+                else if (type == 0x30) ReadName(output, value, valueLength, record);
+                else if (type == 0x80 && named == 0)
+                {
+                    if (record.HasData) throw new IOException("Duplicate unnamed data origin.");
+                    record.HasData = true; record.Length = valueLength;
+                }
+            }
+            else if (type == 0x10 || type == 0x30) throw new IOException("Required resident attribute is nonresident.");
+            else if (type == 0x80 && named == 0 && BitConverter.ToInt64(output, p + 16) == 0)
+            {
+                long sizeBytes = BitConverter.ToInt64(output, p + 48);
+                if (sizeBytes < 0 || record.HasData) throw new IOException("Invalid unnamed data size or duplicate origin.");
+                record.HasData = true; record.Length = sizeBytes;
+            }
+            offset += length;
+        }
+        throw new IOException("Missing attribute terminator.");
+    }
+
+    private static DateTime Timestamp(byte[] bytes, int offset)
+    {
+        try { return DateTime.FromFileTimeUtc(BitConverter.ToInt64(bytes, offset)); }
+        catch (ArgumentOutOfRangeException e) { throw new IOException("Invalid NTFS timestamp.", e); }
+    }
+
+    private static void ReadName(byte[] bytes, int value, int length, NtfsFileRecord record)
+    {
+        if (length < 66 || bytes[value + 64] == 0 || bytes[value + 64] * 2 > length - 66 || bytes[value + 65] > 3)
+            throw new IOException("Invalid FILE_NAME value.");
+        if (bytes[value + 65] == 2) return; // DOS-only alternate names are not separate Get-ChildItem entries.
+        string name = Encoding.Unicode.GetString(bytes, value + 66, bytes[value + 64] * 2);
+        ulong parent = BitConverter.ToUInt64(bytes, value);
+        if (name == ".." || name == "." && parent != record.Id || name.IndexOfAny(InvalidNameCharacters) >= 0)
+            throw new IOException("Unsafe FILE_NAME path component.");
+        record.Links.Add(new NtfsLink { ParentId = parent, Name = name });
+    }
+
+    private static void RepairSequence(byte[] bytes, int start, int size, int sectorBytes)
+    {
+        int offset = BitConverter.ToUInt16(bytes, start + 4), count = BitConverter.ToUInt16(bytes, start + 6);
+        int firstAttribute = BitConverter.ToUInt16(bytes, start + 20);
+        if (sectorBytes < 512 || size % sectorBytes != 0 || count != size / sectorBytes + 1 || offset < 42 ||
+            offset > size - count * 2 || offset + count * 2 > firstAttribute)
+            throw new IOException("Invalid update sequence array.");
+        ushort marker = BitConverter.ToUInt16(bytes, start + offset);
+        bool protectedRecord = true, repairedRecord = true;
+        for (int i = 1; i < count; i++)
+        {
+            ushort tail = BitConverter.ToUInt16(bytes, start + i * sectorBytes - 2);
+            protectedRecord &= tail == marker;
+            repairedRecord &= tail == BitConverter.ToUInt16(bytes, start + offset + i * 2);
+        }
+        if (!protectedRecord && !repairedRecord) throw new IOException("File-record sector fixup mismatch.");
+        if (protectedRecord)
+            for (int i = 1; i < count; i++)
+                Buffer.BlockCopy(bytes, start + offset + i * 2, bytes, start + i * sectorBytes - 2, 2);
+    }
+}

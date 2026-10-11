@@ -11,7 +11,7 @@ if ($runMft) {
     $retainedBefore = [GC]::GetTotalMemory($true)
     $allocatedBefore = [GC]::GetTotalAllocatedBytes($true)
     $captureWatch = [Diagnostics.Stopwatch]::StartNew()
-    $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($fixtureRoot, [Threading.CancellationToken]::None, $maximumMftBytes).GetAwaiter().GetResult()
+    $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($fixtureRoot, [Threading.CancellationToken]::None, $maximumMftBytes, 6000000, 4294967296, [TimeSpan]::FromMinutes(10)).GetAwaiter().GetResult()
     $captureWatch.Stop()
     $captureMs = $captureWatch.Elapsed.TotalMilliseconds
     $captureAllocated = [GC]::GetTotalAllocatedBytes($true) - $allocatedBefore
@@ -27,7 +27,7 @@ foreach ($root in $roots) {
 }
 New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
     Add-BenchmarkMetadata PrototypeSha256 (Get-FileHash ([IO.Path]::ChangeExtension($modulePath, '.dll'))).Hash
-    Add-BenchmarkMetadata Reader 'Windows FSCTL_ENUM_USN_DATA; per-selected-path FileSystemInfo metadata hydration; evaluation only'
+    Add-BenchmarkMetadata Reader 'Windows FSCTL_GET_NTFS_FILE_RECORD; direct metadata and all long-name links; evaluation only'
     Add-BenchmarkMetadata Scope 'Live local synthetic fixture; filesystem caches warm; no reboot/cold-cache claim'
     Add-BenchmarkMetadata SnapshotCaptureMs $captureMs
     Add-BenchmarkMetadata SnapshotCaptureAllocatedBytes $captureAllocated
@@ -66,7 +66,7 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
                     'Walk' { @(Get-FileSystemItem @arguments -Backend Walk | ForEach-Object $consume) }
                     'WalkNativeObjects' { @(Get-FileSystemItem @arguments -Backend Walk -AsFileSystemInfo | ForEach-Object $consume) }
                     'AutoFallback' { @(Get-FileSystemItem @arguments -AllowVolumeInventory -MaximumMftBytes $maximumMftBytes | ForEach-Object $consume) }
-                    'MftFresh' { @(Get-FileSystemItem @arguments -Backend Mft -MaximumMftBytes $maximumMftBytes | ForEach-Object $consume) }
+                    'MftFresh' { @(Get-FileSystemItem @arguments -Backend Mft -MaximumMftBytes $maximumMftBytes -MaximumIndexRecords 6000000 -MaximumIndexBytes 4294967296 -MaximumCaptureSeconds 600 | ForEach-Object $consume) }
                     'MftSnapshot' { @(Get-FileSystemItem @arguments -Backend Mft -Snapshot $snapshot | ForEach-Object $consume) }
                     'MftSnapshotNativeObjects' { @(Get-FileSystemItem @arguments -Backend Mft -Snapshot $snapshot -AsFileSystemInfo | ForEach-Object $consume) }
                 }

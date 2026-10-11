@@ -25,7 +25,7 @@ public static class FileSystemQuery
         {
             if (options.Filter != "*") throw new NotSupportedException("Prototype MFT filtering supports only '*'; native wildcard filtering uses normal enumeration.");
             if (options.Backend == EnumerationBackend.Auto)
-                throw new NotSupportedException("Windows MFT inventory is not qualified for complete hard-link paths. Auto keeps normal enumeration; forced Mft is an explicit experimental inventory.");
+                throw new NotSupportedException("MFT snapshot visibility and freshness are not caller-visible enumeration semantics. Auto keeps normal enumeration; forced Mft is an explicit experimental inventory.");
             MftSnapshot.CheckRoot(root);
             snapshot ??= await MftSnapshot.CaptureAsync(root, options.CancellationToken, options.MaximumMftBytes,
                 options.MaximumIndexRecords, options.MaximumIndexBytes, options.MaximumCaptureTime).ConfigureAwait(false);

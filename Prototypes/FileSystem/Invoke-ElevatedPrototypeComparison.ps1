@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)] [string] $RequestFile, [switch] $TimingsOnly)
+param([Parameter(Mandatory)] [string] $RequestFile, [switch] $TimingsOnly, [switch] $LargeTree)
 # Reviewable entrypoint for one explicitly approved elevated read-only volume comparison.
 # It never writes a raw volume or changes services, caches, configuration, repositories or databases.
 $ErrorActionPreference = 'Stop'
@@ -18,6 +18,16 @@ $env:TEMP = Join-Path (Split-Path $RequestFile -Parent) 'temp'
 $env:TMP = $env:TEMP
 Start-Transcript -LiteralPath (Join-Path $request.OutputRoot 'driver.log') | Out-Null
 try {
+    if ($LargeTree) {
+        $volumeRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($request.FixtureRoot))
+        if ($volumeRoot -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($scratch)) -or $volumeRoot -eq [IO.Path]::GetPathRoot($env:SystemRoot)) { throw 'Whole-drive comparison must use the configured scratch volume, distinct from the system volume.' }
+        & (Join-Path $PSScriptRoot 'Invoke-LargeTreeComparison.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.FixtureRoot -CompatibilityRoot $request.CompatibilityRoot -VolumeRoot $volumeRoot -OutputRoot $request.OutputRoot
+        $legacyModule = $request.ModulePath.Replace('_net8.0', '_net472')
+        & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $request.MaximumMftBytes
+        if ($LASTEXITCODE) { throw 'Legacy direct MFT compatibility diagnostic failed.' }
+        'Completed' | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
+        return
+    }
     if (-not $TimingsOnly) {
     # Fresh hosts exercise each supported runtime independently.
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Test-ElevatedAutoRouting.ps1') -ModulePath $request.ModulePath -Root $request.FixtureRoot -OutputPath (Join-Path $request.OutputRoot 'net8-auto.json') -MaximumMftBytes $request.MaximumMftBytes
@@ -26,7 +36,7 @@ try {
     # Auto deliberately walks until the experimental name index has complete path semantics.
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net8.json') -MaximumMftBytes $request.MaximumMftBytes
     if ($LASTEXITCODE) { throw 'Modern Windows MFT compatibility diagnostic failed.' }
-    $legacyModule = $request.ModulePath.Replace('debug_net8.0', 'debug_net472')
+    $legacyModule = $request.ModulePath.Replace('_net8.0', '_net472')
     & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $request.MaximumMftBytes
     if ($LASTEXITCODE) { throw 'Legacy Windows MFT compatibility diagnostic failed.' }
     }
