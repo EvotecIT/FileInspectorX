@@ -12,6 +12,7 @@ internal sealed class NtfsFileRecord
 {
     internal ulong Id, BaseId;
     internal ushort LinkCount;
+    internal int NameAttributeCount;
     internal bool Directory, HasStandardInformation, HasData;
     internal FileAttributes Attributes;
     internal long Length;
@@ -40,5 +41,6 @@ internal sealed class NtfsFileRecord
             HasData = true; Length = extension.Length;
         }
         Links.AddRange(extension.Links);
+        NameAttributeCount = checked(NameAttributeCount + extension.NameAttributeCount);
     }
 }

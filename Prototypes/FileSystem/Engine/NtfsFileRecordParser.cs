@@ -90,7 +90,8 @@ internal static class NtfsFileRecordParser
     {
         if (length < 66 || bytes[value + 64] == 0 || bytes[value + 64] * 2 > length - 66 || bytes[value + 65] > 3)
             throw new IOException("Invalid FILE_NAME value.");
-        if (bytes[value + 65] == 2) return; // DOS-only alternate names are not separate Get-ChildItem entries.
+        record.NameAttributeCount++;
+        if (bytes[value + 65] == 2) return; // Count DOS aliases for record completeness, but emit only long-name links.
         string name = Encoding.Unicode.GetString(bytes, value + 66, bytes[value + 64] * 2);
         ulong parent = BitConverter.ToUInt64(bytes, value);
         if (name == ".." || name == "." && parent != record.Id || name.IndexOfAny(InvalidNameCharacters) >= 0)

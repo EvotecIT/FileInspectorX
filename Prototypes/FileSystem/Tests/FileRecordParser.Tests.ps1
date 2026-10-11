@@ -23,7 +23,7 @@ BeforeAll {
         [Text.Encoding]::Unicode.GetBytes($name).CopyTo($value, 66)
         return ,(Attribute 0x30 $value)
     }
-    function New-FileRecord([switch] $Nonresident) {
+    function New-FileRecord([switch] $Nonresident, [switch] $OwnerWithoutNames, [switch] $ExtensionOnlyNames) {
         $bytes = [byte[]]::new(1036)
         [BitConverter]::GetBytes([uint64]0x42).CopyTo($bytes, 0)
         [BitConverter]::GetBytes([uint32]1024).CopyTo($bytes, 8)
@@ -31,7 +31,7 @@ BeforeAll {
         [BitConverter]::GetBytes([uint16]48).CopyTo($bytes, 16)
         [BitConverter]::GetBytes([uint16]3).CopyTo($bytes, 18)
         [BitConverter]::GetBytes([uint16]0x1234).CopyTo($bytes, 28)
-        [BitConverter]::GetBytes([uint16]2).CopyTo($bytes, 30)
+        [BitConverter]::GetBytes([uint16]3).CopyTo($bytes, 30)
         [BitConverter]::GetBytes([uint16]56).CopyTo($bytes, 32)
         [BitConverter]::GetBytes([uint16]1).CopyTo($bytes, 34)
         [BitConverter]::GetBytes([uint32]1024).CopyTo($bytes, 40)
@@ -50,7 +50,16 @@ BeforeAll {
             [BitConverter]::GetBytes([long]8589934592).CopyTo($data,48)
         }
         $position = 68
-        foreach ($attribute in @((Attribute 0x10 $si), (NameAttribute 'file-ż.txt'), (NameAttribute 'alias.txt'), (NameAttribute 'FILE~1.TXT' 2), $data)) {
+        $attributes = @()
+        if (-not $ExtensionOnlyNames) { $attributes += ,(Attribute 0x10 $si) }
+        if (-not $OwnerWithoutNames) { $attributes += @((NameAttribute 'file-ż.txt'), (NameAttribute 'alias.txt'), (NameAttribute 'FILE~1.TXT' 2)) }
+        if (-not $ExtensionOnlyNames) { $attributes += ,$data }
+        if ($ExtensionOnlyNames) {
+            [BitConverter]::GetBytes([uint64]0x43).CopyTo($bytes,0)
+            [BitConverter]::GetBytes([uint64]0x1234000000000042).CopyTo($bytes,44)
+            [BitConverter]::GetBytes([uint16]0).CopyTo($bytes,30)
+        }
+        foreach ($attribute in $attributes) {
             $attribute.CopyTo($bytes,$position); $position += $attribute.Length
         }
         [BitConverter]::GetBytes([uint32]::MaxValue).CopyTo($bytes,$position)
@@ -72,6 +81,8 @@ Describe 'Direct NTFS metadata and link decoding' {
         (Field $record Created) | Should -Be ([datetime]::Parse('2020-01-02T03:04:05Z').ToUniversalTime())
         $links = @(Field $record Links)
         $links.Count | Should -Be 2
+        (Field $record NameAttributeCount) | Should -Be (Field $record LinkCount)
+        (Field $record NameAttributeCount) | Should -Be 3
         (Field $links[0] Name) | Should -BeExactly 'file-ż.txt'
         (Field $links[1] ParentId) | Should -Be ([uint64]0x5678000000000020)
     }
@@ -105,6 +116,24 @@ Describe 'Direct NTFS metadata and link decoding' {
         $extension.GetType().GetField('BaseId',[Reflection.BindingFlags]'Instance,NonPublic').SetValue($extension,[uint64]0x2345000000000042)
         $merge = $owner.GetType().GetMethod('Merge',[Reflection.BindingFlags]'Instance,NonPublic')
         { $merge.Invoke($owner,[object[]]@($extension)) } | Should -Throw
+    }
+    It 'reconstructs long-name links and DOS completeness counts from an extension record' {
+        $owner = Read-Record (New-FileRecord -OwnerWithoutNames)
+        $extension = Read-Record (New-FileRecord -ExtensionOnlyNames)
+        $owner.GetType().GetMethod('Merge',[Reflection.BindingFlags]'Instance,NonPublic').Invoke($owner,[object[]]@($extension))
+        (Field $owner NameAttributeCount) | Should -Be (Field $owner LinkCount)
+        @(Field $owner Links).Count | Should -Be 2
+        (Field $owner Length) | Should -Be 5
+        (Field $owner HasStandardInformation) | Should -BeTrue
+    }
+    It 'distinguishes fatal traversal aborts from recoverable inventory errors' {
+        $summary = [FileInspectorX.Prototypes.FileSystem.InventorySummary]::new()
+        $summary.AddError()
+        $summary.Aborted | Should -BeFalse
+        $summary.AddError($true)
+        $summary.AddError()
+        $summary.Aborted | Should -BeTrue
+        $summary.Errors | Should -Be 3
     }
     It 'rejects traversal names and invalid timestamps rather than fabricating metadata' {
         $bytes = New-FileRecord

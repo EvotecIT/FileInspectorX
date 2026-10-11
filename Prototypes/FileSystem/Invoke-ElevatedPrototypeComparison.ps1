@@ -21,10 +21,13 @@ try {
     if ($LargeTree) {
         $volumeRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($request.FixtureRoot))
         if ($volumeRoot -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($scratch)) -or $volumeRoot -eq [IO.Path]::GetPathRoot($env:SystemRoot)) { throw 'Whole-drive comparison must use the configured scratch volume, distinct from the system volume.' }
-        & (Join-Path $PSScriptRoot 'Invoke-LargeTreeComparison.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.FixtureRoot -CompatibilityRoot $request.CompatibilityRoot -VolumeRoot $volumeRoot -OutputRoot $request.OutputRoot
+        $timingError = $null
+        try { & (Join-Path $PSScriptRoot 'Invoke-LargeTreeComparison.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.FixtureRoot -CompatibilityRoot $request.CompatibilityRoot -VolumeRoot $volumeRoot -OutputRoot $request.OutputRoot }
+        catch { $timingError = $_ }
         $legacyModule = $request.ModulePath.Replace('_net8.0', '_net472')
         & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $request.MaximumMftBytes
         if ($LASTEXITCODE) { throw 'Legacy direct MFT compatibility diagnostic failed.' }
+        if ($timingError) { throw $timingError }
         'Completed' | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
         return
     }
