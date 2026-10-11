@@ -1,0 +1,12 @@
+diff --git a/src/NtfsReader/NtfsReader.NativeMethods.cs b/src/NtfsReader/NtfsReader.NativeMethods.cs
+--- a/src/NtfsReader/NtfsReader.NativeMethods.cs
++++ b/src/NtfsReader/NtfsReader.NativeMethods.cs
+@@ -59,7 +59,7 @@ public partial class NtfsReader
+     [Serializable, Flags]
+     private enum FileAccess : int
+     {
+-        Read = 1,
++        Read = unchecked((int)0x80000000), // Win32 GENERIC_READ; evaluation-only fix.
+         ReadWrite = 3,
+         Write = 2
+     }
