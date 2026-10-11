@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)] [string] $RequestFile)
+param([Parameter(Mandatory)] [string] $RequestFile, [switch] $TimingsOnly)
 # Reviewable entrypoint for one explicitly approved elevated read-only volume comparison.
 # It never writes a raw volume or changes services, caches, configuration, repositories or databases.
 $ErrorActionPreference = 'Stop'
@@ -18,6 +18,7 @@ $env:TEMP = Join-Path (Split-Path $RequestFile -Parent) 'temp'
 $env:TMP = $env:TEMP
 Start-Transcript -LiteralPath (Join-Path $request.OutputRoot 'driver.log') | Out-Null
 try {
+    if (-not $TimingsOnly) {
     # Fresh hosts exercise each supported runtime independently.
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Test-ElevatedAutoRouting.ps1') -ModulePath $request.ModulePath -Root $request.FixtureRoot -OutputPath (Join-Path $request.OutputRoot 'net8-auto.json') -MaximumMftBytes $request.MaximumMftBytes
     if ($LASTEXITCODE) { throw 'Modern-host automatic routing proof failed.' }
@@ -28,6 +29,7 @@ try {
     $legacyModule = $request.ModulePath.Replace('debug_net8.0', 'debug_net472')
     & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $request.MaximumMftBytes
     if ($LASTEXITCODE) { throw 'Legacy Windows MFT compatibility diagnostic failed.' }
+    }
     & (Join-Path $PSScriptRoot 'Invoke-PrototypeComparison.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.FixtureRoot -OutputRoot (Join-Path $request.OutputRoot 'timings') -RunMft -MaximumMftBytes $request.MaximumMftBytes
     'Completed' | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
 } catch {
