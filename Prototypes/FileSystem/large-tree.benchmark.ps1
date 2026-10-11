@@ -97,11 +97,12 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
     Add-BenchmarkValidation {
         param($case, $run)
         [pscustomobject]@{
-            Case = $case.Name; Engine = $case.Engine; CapturedUtc = [datetime]::UtcNow.ToString('o')
+            Case = $case.Scenario; Engine = $case.Engine; CapturedUtc = [datetime]::UtcNow.ToString('o')
             Files = $run.Summary.Files; Directories = $run.Summary.Directories; LogicalBytes = $run.Summary.LogicalBytes; Errors = $run.Summary.Errors
             Aborted = $run.Summary.Aborted
             PathXor = $run.Summary.PathXor.ToString('X16'); PathSum = $run.Summary.PathSum.ToString('X16')
             MetadataXor = $run.Summary.MetadataXor.ToString('X16'); MetadataSum = $run.Summary.MetadataSum.ToString('X16')
+            ExpectedMetadataXor = $(if (-not $case.WholeVolume) { $expected[$case.Root].MetadataXor.ToString('X16') } else { $null })
         } | ConvertTo-Json -Compress | Add-Content -LiteralPath $evidencePath
         Assert-BenchmarkValue -Actual $run.Summary.Aborted -Expected $false -Message 'An aborted traversal is not a completed inventory sample.'
         if (-not $case.WholeVolume) {
