@@ -4,7 +4,7 @@ Import-Module Pester -RequiredVersion 5.7.1
 $configuration = New-PesterConfiguration
 $configuration.Run.Container = @(
     New-PesterContainer -Path (Join-Path $PSScriptRoot 'Tests/Compatibility.Tests.ps1') -Data @{ ModulePath = $ModulePath }
-    New-PesterContainer -Path (Join-Path $PSScriptRoot 'Tests/UsnParser.Tests.ps1') -Data @{ ModulePath = $ModulePath }
+    New-PesterContainer -Path (Join-Path $PSScriptRoot 'Tests/FileRecordParser.Tests.ps1') -Data @{ ModulePath = $ModulePath }
 )
 $configuration.Run.PassThru = $true
 $configuration.Output.Verbosity = 'Detailed'

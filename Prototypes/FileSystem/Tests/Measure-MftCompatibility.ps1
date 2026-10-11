@@ -2,12 +2,13 @@ param(
     [Parameter(Mandatory)] [string] $ModulePath,
     [Parameter(Mandatory)] [string] $FixtureRoot,
     [Parameter(Mandatory)] [string] $OutputPath,
-    [long] $MaximumMftBytes = 536870912
+    [long] $MaximumMftBytes = 536870912,
+    $Snapshot
 )
 $ErrorActionPreference = 'Stop'
 Import-Module $ModulePath
 $watch = [Diagnostics.Stopwatch]::StartNew()
-$snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($FixtureRoot, [Threading.CancellationToken]::None, $MaximumMftBytes).GetAwaiter().GetResult()
+if (-not $Snapshot) { $Snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($FixtureRoot, [Threading.CancellationToken]::None, $MaximumMftBytes, 6000000, 4294967296, [TimeSpan]::FromMinutes(10)).GetAwaiter().GetResult() }
 $watch.Stop()
 $cases = @(
     @{ Name = 'Children'; Arguments = @{} },
@@ -71,7 +72,7 @@ try {
         $guards += [pscustomobject]@{ Guard = 'CancellationDuringQuery'; Passed = ($exception -is [OperationCanceledException]); Exception = $exception.GetType().FullName }
     }
 } finally { $source.Dispose() }
-[pscustomobject]@{ CapturedUtc = $snapshot.CapturedUtc; CaptureMs = $watch.Elapsed.TotalMilliseconds; MftBytes = $snapshot.MftBytes; Reader = 'Windows FSCTL_ENUM_USN_DATA + live path metadata'; IndexRecords = $snapshot.RecordCount; Guards = $guards; Cases = @($report) } |
+[pscustomobject]@{ CapturedUtc = $snapshot.CapturedUtc; SetupMs = $watch.Elapsed.TotalMilliseconds; MftBytes = $snapshot.MftBytes; Reader = $snapshot.MetadataSource; IndexRecords = $snapshot.RecordCount; Links = $snapshot.LinkCount; Extensions = $snapshot.ExtensionRecordCount; Incomplete = $snapshot.IncompleteRecordCount; Guards = $guards; Cases = @($report) } |
     ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
 $report | Select-Object Case, NativeCount, MftCount, DifferenceCount
 if (@($guards | Where-Object { -not $_.Passed }).Count) { throw 'One or more live capture/query guards failed.' }

@@ -60,14 +60,14 @@ Describe 'Normal enumeration filesystem subset' {
 }
 
 Describe 'Routing and cancellation' {
-    It 'keeps an incomplete hard-link inventory out of automatic routing on both runtimes' {
+    It 'keeps snapshot visibility and freshness out of automatic caller-visible routing' {
         $options = [FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
         $options.Root = $root
         $options.AllowVolumeInventory = $true
         $options.MaximumMftBytes = 4294967296
         $query = [FileInspectorX.Prototypes.FileSystem.FileSystemQuery]::OpenAsync($options).GetAwaiter().GetResult()
         $query.Backend | Should -Be 'Walk'
-        $query.FallbackReason | Should -Match 'not qualified for complete hard-link paths'
+        $query.FallbackReason | Should -Match 'visibility and freshness'
         @($query.Entries).Count | Should -Be @(Get-ChildItem -LiteralPath $root).Count
     }
     It 'defaults to caller-visible normal enumeration' {

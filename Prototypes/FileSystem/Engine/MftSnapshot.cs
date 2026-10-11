@@ -2,10 +2,11 @@ using System.Diagnostics;
 
 namespace FileInspectorX.Prototypes.FileSystem;
 
-/// <summary>Bounded Windows MFT name index. Metadata is hydrated live through ordinary file APIs during each query.</summary>
+/// <summary>Bounded NTFS metadata and long-name link snapshot acquired through Windows file-record controls.</summary>
 public sealed class MftSnapshot
 {
-    private readonly Dictionary<ulong, List<UsnNode>> _children;
+    private readonly Dictionary<ulong, List<NtfsLink>> _children;
+    private readonly Dictionary<ulong, NtfsFileRecord> _records;
     public string VolumeRoot { get; }
     public DateTime CapturedUtc { get; }
     public long MftBytes { get; }
@@ -13,15 +14,21 @@ public sealed class MftSnapshot
     /// <summary>Conservative index accounting, including adjacency overhead; not a managed heap measurement.</summary>
     public long EstimatedIndexBytes { get; }
     public long NativeBytesRead { get; }
+    public int LinkCount { get; }
+    public int ExtensionRecordCount { get; }
+    public int IncompleteRecordCount { get; }
+    public string MetadataSource => "FSCTL_GET_NTFS_FILE_RECORD";
 
-    private MftSnapshot(string volumeRoot, long mftBytes, Dictionary<ulong, List<UsnNode>> children,
-        int count, long estimatedBytes, long nativeBytesRead)
+    private MftSnapshot(string volumeRoot, long mftBytes, Dictionary<ulong, List<NtfsLink>> children,
+        Dictionary<ulong, NtfsFileRecord> records, int count, int links, int extensions, int incomplete,
+        long estimatedBytes, long nativeBytesRead)
     {
         VolumeRoot = volumeRoot; MftBytes = mftBytes; _children = children; RecordCount = count;
         EstimatedIndexBytes = estimatedBytes; NativeBytesRead = nativeBytesRead; CapturedUtc = DateTime.UtcNow;
+        _records = records; LinkCount = links; ExtensionRecordCount = extensions; IncompleteRecordCount = incomplete;
     }
 
-    /// <summary>Inventories one local NTFS volume through FSCTL_ENUM_USN_DATA. No sector reads or persistent index.</summary>
+    /// <summary>Reads every in-use base and extension record, merging by full sequence-qualified identity.</summary>
     /// <remarks>Cancellation and timeout are checked between synchronous control calls and parsed records, not inside a kernel call.</remarks>
     public static Task<MftSnapshot> CaptureAsync(string root, CancellationToken cancellationToken,
         long maximumMftBytes = 512L * 1024 * 1024, int maximumIndexRecords = 4_000_000,
@@ -37,23 +44,58 @@ public sealed class MftSnapshot
         var timeLimit = maximumCaptureTime ?? TimeSpan.FromMinutes(2);
         if (timeLimit <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maximumCaptureTime));
         using var volume = new WindowsMftVolume(volumeRoot, maximumMftBytes);
-        var children = new Dictionary<ulong, List<UsnNode>>();
+        var records = new Dictionary<ulong, NtfsFileRecord>();
+        var extensions = new List<NtfsFileRecord>();
         var timer = Stopwatch.StartNew();
         int count = 0;
         long estimatedBytes = 0;
-        foreach (var node in volume.Enumerate(cancellationToken))
+        foreach (var record in volume.EnumerateFileRecords(cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (timer.Elapsed > timeLimit) throw new NotSupportedException("MFT capture exceeded its explicit time budget.");
-            estimatedBytes = checked(estimatedBytes + 256L + 2L * node.Name.Length);
+            estimatedBytes = checked(estimatedBytes + 512L);
+            foreach (var link in record.Links) estimatedBytes = checked(estimatedBytes + 192L + 2L * link.Name.Length);
             if (++count > maximumIndexRecords || estimatedBytes > maximumIndexBytes)
-                throw new NotSupportedException("MFT name index exceeded its explicit budget: records=" + count + ", estimated bytes=" + estimatedBytes + ".");
-            if (!children.TryGetValue(node.ParentId, out var siblings)) children.Add(node.ParentId, siblings = new List<UsnNode>());
-            siblings.Add(node);
+                throw new NotSupportedException("MFT metadata index exceeded its explicit budget: records=" + count + ", estimated bytes=" + estimatedBytes + ".");
+            if (record.BaseId == 0) records.Add(record.Id, record);
+            else extensions.Add(record);
+        }
+        foreach (var extension in extensions)
+        {
+            CheckBudget();
+            if (!records.TryGetValue(extension.BaseId, out var owner))
+                throw new IOException("Extension base identity disappeared during MFT acquisition.");
+            owner.Merge(extension);
+        }
+        var children = new Dictionary<ulong, List<NtfsLink>>();
+        int links = 0, incomplete = 0;
+        foreach (var record in records.Values)
+        {
+            CheckBudget();
+            if (record.Directory) record.Attributes |= FileAttributes.Directory;
+            // Index-only NTFS files can have no unnamed DATA stream; their default-stream length is zero.
+            if (!record.HasStandardInformation || record.Links.Count < record.LinkCount)
+            { record.Incomplete = "Missing required metadata or long-name links in captured file records."; incomplete++; }
+            var seen = record.Links.Count > 1 ? new HashSet<string>(StringComparer.Ordinal) : null;
+            foreach (var link in record.Links)
+            {
+                if (seen != null && !seen.Add(link.ParentId.ToString("X16") + ":" + link.Name))
+                    throw new IOException("Duplicate FILE_NAME link in a captured record.");
+                link.Owner = record;
+                if (!children.TryGetValue(link.ParentId, out var siblings)) children.Add(link.ParentId, siblings = new List<NtfsLink>());
+                siblings.Add(link); links++;
+            }
         }
         cancellationToken.ThrowIfCancellationRequested();
         if (timer.Elapsed > timeLimit) throw new NotSupportedException("MFT capture exceeded its explicit time budget.");
-        return Task.FromResult(new MftSnapshot(volumeRoot, volume.MftBytes, children, count, estimatedBytes, volume.BytesRead));
+        return Task.FromResult(new MftSnapshot(volumeRoot, volume.MftBytes, children, records, count,
+            links, extensions.Count, incomplete, estimatedBytes, volume.BytesRead));
+
+        void CheckBudget()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (timer.Elapsed > timeLimit) throw new NotSupportedException("MFT capture exceeded its explicit time budget.");
+        }
     }
 
     internal static void CheckRoot(string root)
@@ -70,7 +112,10 @@ public sealed class MftSnapshot
         if (!string.Equals(Path.GetPathRoot(root), VolumeRoot, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Snapshot belongs to a different volume.", nameof(root));
         var pending = new Stack<(ulong Id, string Path, int Depth)>();
-        pending.Push((WindowsMftVolume.GetDirectoryId(root), root, 0));
+        ulong rootId = WindowsMftVolume.GetDirectoryId(root);
+        if (!_records.TryGetValue(rootId, out var rootRecord) || !rootRecord.Directory)
+            throw new IOException("Query directory identity was not captured; reacquire the snapshot.");
+        pending.Push((rootId, root, 0));
         var visited = new HashSet<ulong>();
         while (pending.Count != 0)
         {
@@ -81,19 +126,16 @@ public sealed class MftSnapshot
             foreach (var node in nodes)
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
-                if (node.Id == parent.Id) continue; // The volume-root record points to itself.
+                var record = node.Owner;
+                if (record.Id == parent.Id) continue; // The volume-root record points to itself.
+                if (record.Incomplete != null) throw new NotSupportedException(record.Incomplete + " Record " + record.Id.ToString("X16"));
                 var path = Path.Combine(parent.Path, node.Name);
-                FileSystemInfo info = (node.Attributes & FileAttributes.Directory) != 0
-                    ? (FileSystemInfo)new DirectoryInfo(path) : new FileInfo(path);
-                info.Refresh();
-                if (!info.Exists) throw new IOException("Indexed path disappeared or became inaccessible: " + path);
-                var entry = FileSystemEntry.FromInfo(info);
-                entry.Backend = "Mft";
+                var entry = record.Entry(path);
                 bool visible = options.Force || (entry.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0;
                 if (options.Accept(entry, parent.Depth)) yield return entry;
                 if (visible && entry.PSIsContainer && options.Recurse && parent.Depth < options.Depth &&
                     (entry.Attributes & FileAttributes.ReparsePoint) == 0)
-                    pending.Push((node.Id, path, parent.Depth + 1));
+                    pending.Push((record.Id, path, parent.Depth + 1));
             }
         }
     }

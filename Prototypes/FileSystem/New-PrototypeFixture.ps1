@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)] [string] $Root, [ValidateRange(1, 50000)] [int] $Files = 10000)
+param([Parameter(Mandatory)] [string] $Root, [ValidateRange(1, 500000)] [int] $Files = 10000)
 $ErrorActionPreference = 'Stop'
 $full = [IO.Path]::GetFullPath($Root)
 if (-not [IO.Path]::IsPathRooted($Root) -or (Test-Path -LiteralPath $full)) { throw 'Choose a new absolute task-owned fixture directory.' }
