@@ -6,6 +6,8 @@ The explicit MFT backend reads base and extension records through `FSCTL_GET_NTF
 
 `Auto` retains normal enumeration. A privileged, aging metadata snapshot has different visibility and freshness from a caller-visible directory walk. Forced MFT mode is experimental.
 
+Live fixture checks in PowerShell 7 and Windows PowerShell 5.1 match all 34 paths and exercised file metadata, including hardlink aliases. One directory last-access timestamp differs. Whole-drive access/error behavior and the live index's freshness still require qualification; the measured cached-query results are mixed. Read [the comparison results](RESULTS.md) before selecting this backend.
+
 ## Build and deterministic tests
 
 Resolve `EVOTEC_SCRATCH_ROOT` to an existing mounted volume first. Use a task-owned subdirectory for artifacts, temporary files and reports. The project is excluded from normal FileInspectorX builds and cannot be packed or published.
