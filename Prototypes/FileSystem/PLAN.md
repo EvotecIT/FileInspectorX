@@ -28,6 +28,8 @@ File roots, wildcard `Path`, `Include`/`Exclude`, provider dynamic parameters, R
 
 The whole-drive normal prototype stops at the first inaccessible directory. Get-ChildItem continues and reports errors. The direct backend can finish traversal of its reachable captured graph after link-count validation, but that is not an equivalence proof for every current filesystem path. A live acquisition can also observe an extension whose base identity is absent; this is preserved as a failure with identities for diagnosis.
 
+The completed evaluation covers live fixtures and four budget/cancellation guards in both PowerShell 7 and Windows PowerShell 5.1. All 34 fixture paths and exercised file metadata match; one directory last-access timestamp differs. Both deterministic suites pass 29 tests. The rotated large-tree comparison shows mixed cached-query performance, with expensive acquisition and no equivalent whole-drive timing result. [Results](RESULTS.md) retains the measurements, failures and source provenance. The next performance experiment should compare a bounded C# size/count aggregate with its ordinary-enumeration equivalent before expanding the PowerShell replacement surface.
+
 An inventory never authorizes deletion. Development-storage consumers still require fresh ownership, Git, activity, reparse and preservation checks before any cleanup.
 
 ## Acquisition and query budgets
@@ -52,6 +54,7 @@ Both PowerShell hosts run live hardlink/extension, Unicode, resident/nonresident
 - [ ] Compare engine-level aggregation with emitting millions of PowerShell objects. Directory-size/count consumers should aggregate in the C# owner and return bounded summaries; object enumeration remains a separate contract.
 - [ ] Define logical path size, unique-file size, allocated size, hardlink attribution, alternate-stream and sparse/compressed-file accounting explicitly before using the index as a disk-space assessment engine. Resident data and shared MFT records must not be assigned a fictional per-file cluster allocation.
 - [ ] Qualify concurrent replacement, freshness, access/visibility, reparse behavior, long paths and case-sensitive directories before automatic selection.
+- [ ] Resolve directory timestamp semantics and provider-style error continuation before claiming filesystem compatibility with Get-ChildItem.
 - [ ] Establish cancellation latency, actual peak-memory bounds and a cache invalidation/update strategy.
 - [ ] Add finite per-engine benchmark budgets and progress counters before repeated unattended whole-volume qualification. An interrupted or timed-out scan must retain partial status and must not enter successful timing rankings.
 - [ ] Compare cold/warm workloads and representative CPU domains before defining routing thresholds or promising whole-drive scan times.
