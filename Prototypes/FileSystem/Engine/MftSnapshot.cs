@@ -74,7 +74,7 @@ public sealed class MftSnapshot
             CheckBudget();
             if (record.Directory) record.Attributes |= FileAttributes.Directory;
             // Index-only NTFS files can have no unnamed DATA stream; their default-stream length is zero.
-            if (!record.HasStandardInformation || record.Links.Count < record.LinkCount)
+            if (!record.HasStandardInformation || record.NameAttributeCount != record.LinkCount)
             { record.Incomplete = "Missing required metadata or long-name links in captured file records."; incomplete++; }
             var seen = record.Links.Count > 1 ? new HashSet<string>(StringComparer.Ordinal) : null;
             foreach (var link in record.Links)

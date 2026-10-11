@@ -7,6 +7,7 @@ public sealed class InventorySummary
     public long Directories { get; private set; }
     public long LogicalBytes { get; private set; }
     public long Errors { get; private set; }
+    public bool Aborted { get; private set; }
     public ulong PathXor { get; private set; }
     public ulong PathSum { get; private set; }
     public ulong MetadataXor { get; private set; }
@@ -29,5 +30,5 @@ public sealed class InventorySummary
         }
     }
     /// <summary>Records an enumeration error without storing sensitive paths or unbounded error objects.</summary>
-    public void AddError() => Errors++;
+    public void AddError(bool aborted = false) { Errors++; Aborted |= aborted; }
 }

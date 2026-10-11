@@ -4,8 +4,13 @@ $volumeRoot = Get-BenchmarkInput VolumeRoot -Required
 $includeVolume = Get-BenchmarkInput IncludeVolume -Bool -Default $true
 $evidencePath = Get-BenchmarkInput EvidencePath -Required
 $compatibilityRoot = Get-BenchmarkInput CompatibilityRoot -Required
+$planning = Get-BenchmarkInput Planning -Bool -Default $false
+$runMft = Get-BenchmarkInput RunMft -Bool -Default $true
 Import-Module $modulePath -ErrorAction Stop
 $process = [Diagnostics.Process]::GetCurrentProcess()
+$snapshot = [pscustomobject]@{RecordCount=0;LinkCount=0;ExtensionRecordCount=0;IncompleteRecordCount=0;EstimatedIndexBytes=0;NativeBytesRead=0;MftBytes=0;MetadataSource='NotCaptured'}
+$captureMs = 0; $captureCpuMs = 0; $captureAllocation = 0; $retainedHeapDelta = 0
+if ($runMft -and -not $planning) {
 $beforeHeap = [GC]::GetTotalMemory($true)
 $beforeAllocation = [GC]::GetTotalAllocatedBytes($true)
 $beforeCpu = $process.TotalProcessorTime.TotalMilliseconds
@@ -16,27 +21,26 @@ $captureCpuMs = $process.TotalProcessorTime.TotalMilliseconds - $beforeCpu
 $captureAllocation = [GC]::GetTotalAllocatedBytes($true) - $beforeAllocation
 $retainedHeapDelta = [GC]::GetTotalMemory($true) - $beforeHeap
 & (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $modulePath -FixtureRoot $compatibilityRoot -Snapshot $snapshot -MaximumMftBytes 8589934592 -OutputPath (Join-Path (Split-Path $evidencePath -Parent) 'compatibility-net8.json') | Out-Null
+}
 
 # One shared consumer reads the same metadata from each engine inside the timed operation.
-$consume = {
-    if ($_ -is [Management.Automation.ErrorRecord]) { $run.Summary.AddError(); return }
-    if ($null -eq $run.FirstResultMs) { $run.FirstResultMs = $run.Watch.Elapsed.TotalMilliseconds }
-    try {
-        $length = if ($_.PSIsContainer) { 0L } else { [long]$_.Length }
-        $run.Summary.Add($_.FullName, [int]$_.Attributes, $length, $_.CreationTimeUtc.Ticks, $_.LastWriteTimeUtc.Ticks)
-    } catch { $run.Summary.AddError() }
-}
 $cases = @(
     [pscustomobject]@{ Name = 'Tree500k'; Root = $fixtureRoot; WholeVolume = $false },
     [pscustomobject]@{ Name = 'Subtree50k'; Root = (Join-Path $fixtureRoot 'level-0'); WholeVolume = $false }
 )
 if ($includeVolume) { $cases += [pscustomobject]@{ Name = 'WholeDrive'; Root = $volumeRoot; WholeVolume = $true } }
 $expected = @{}
-foreach ($case in $cases | Where-Object { -not $_.WholeVolume }) {
-    $run = @{ Summary = [FileInspectorX.Prototypes.FileSystem.InventorySummary]::new(); FirstResultMs = $null; Watch = [Diagnostics.Stopwatch]::StartNew() }
-    Get-ChildItem -LiteralPath $case.Root -Recurse -Force -ErrorAction Continue 2>&1 | ForEach-Object $consume
-    $expected[$case.Root] = $run.Summary
-}
+if (-not $planning) { foreach ($case in $cases | Where-Object { -not $_.WholeVolume }) {
+    $baselineSummary = [FileInspectorX.Prototypes.FileSystem.InventorySummary]::new()
+    Get-ChildItem -LiteralPath $case.Root -Recurse -Force -ErrorAction Continue 2>&1 | ForEach-Object {
+        if ($_ -is [Management.Automation.ErrorRecord]) { $baselineSummary.AddError(); return }
+        $length = if ($_.PSIsContainer) { 0L } else { [long]$_.Length }
+        $baselineSummary.Add($_.FullName, [int]$_.Attributes, $length, $_.CreationTimeUtc.Ticks, $_.LastWriteTimeUtc.Ticks)
+    }
+    $expected[$case.Root] = $baselineSummary
+} }
+$engines = @('GetChildItem', 'Walk')
+if ($runMft) { $engines += 'MftSnapshot' }
 New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
     Add-BenchmarkMetadata PrototypeSha256 (Get-FileHash ([IO.Path]::ChangeExtension($modulePath, '.dll'))).Hash
     Add-BenchmarkMetadata Reader $snapshot.MetadataSource
@@ -60,13 +64,24 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
     Add-BenchmarkMetadata PowerPlan ((powercfg /GETACTIVESCHEME) -join '')
     Set-BenchmarkPolicy -Warmup 0 -Iteration 2 -Order Rotated -OutlierMode None
     Add-BenchmarkCaseSource $cases
-    foreach ($engine in @('GetChildItem', 'Walk', 'MftSnapshot')) {
+    foreach ($engine in $engines) {
         Add-BenchmarkEngine $engine {
             Add-BenchmarkOperation Inventory {
                 param($case, $run)
                 $run.Summary = [FileInspectorX.Prototypes.FileSystem.InventorySummary]::new()
                 $run.FirstResultMs = $null
                 $run.Watch = [Diagnostics.Stopwatch]::StartNew()
+                # Define the consumer in this invocation scope; an outer script block loses $run in the runner's captured context.
+                $consume = {
+                    if ($_ -is [Management.Automation.ErrorRecord]) {
+                        $run.Summary.AddError(($_.FullyQualifiedErrorId -like 'FileSystemPrototypeEnumerationFailed*')); return
+                    }
+                    if ($null -eq $run.FirstResultMs) { $run.FirstResultMs = $run.Watch.Elapsed.TotalMilliseconds }
+                    try {
+                        $length = if ($_.PSIsContainer) { 0L } else { [long]$_.Length }
+                        $run.Summary.Add($_.FullName, [int]$_.Attributes, $length, $_.CreationTimeUtc.Ticks, $_.LastWriteTimeUtc.Ticks)
+                    } catch { $run.Summary.AddError() }
+                }
                 $before = [GC]::GetTotalAllocatedBytes($false)
                 $cpu = $process.TotalProcessorTime.TotalMilliseconds
                 switch ($case.Engine) {
@@ -84,9 +99,11 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
         [pscustomobject]@{
             Case = $case.Name; Engine = $case.Engine; CapturedUtc = [datetime]::UtcNow.ToString('o')
             Files = $run.Summary.Files; Directories = $run.Summary.Directories; LogicalBytes = $run.Summary.LogicalBytes; Errors = $run.Summary.Errors
+            Aborted = $run.Summary.Aborted
             PathXor = $run.Summary.PathXor.ToString('X16'); PathSum = $run.Summary.PathSum.ToString('X16')
             MetadataXor = $run.Summary.MetadataXor.ToString('X16'); MetadataSum = $run.Summary.MetadataSum.ToString('X16')
         } | ConvertTo-Json -Compress | Add-Content -LiteralPath $evidencePath
+        Assert-BenchmarkValue -Actual $run.Summary.Aborted -Expected $false -Message 'An aborted traversal is not a completed inventory sample.'
         if (-not $case.WholeVolume) {
             foreach ($field in @('Files','Directories','LogicalBytes','Errors','PathXor','PathSum','MetadataXor','MetadataSum')) {
                 Assert-BenchmarkValue -Actual $run.Summary.$field -Expected $expected[$case.Root].$field -Message "Synthetic $field must match normal enumeration."
@@ -101,5 +118,6 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
     Add-BenchmarkMetric ProcessAllocatedBytes { param($case, $run) $run.AllocatedBytes }
     Add-BenchmarkMetric CpuMs { param($case, $run) $run.CpuMs }
     Add-BenchmarkMetric FirstResultMs { param($case, $run) $run.FirstResultMs }
-    Add-BenchmarkComparison -Dimension Engine -Baseline GetChildItem -Metric MedianMs -TieTolerance 0.05
+    # Whole-volume visibility and concurrent-change differences preclude automatic throughput ratios.
+    # Summary rows preserve measured durations and coverage; compare only complete equivalent synthetic workloads.
 }
