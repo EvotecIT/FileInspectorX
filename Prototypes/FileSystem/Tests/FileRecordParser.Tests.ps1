@@ -36,8 +36,6 @@ BeforeAll {
         [BitConverter]::GetBytes([uint16]1).CopyTo($bytes, 34)
         [BitConverter]::GetBytes([uint32]1024).CopyTo($bytes, 40)
         [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($bytes, 60)
-        [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($bytes, 522)
-        [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($bytes, 1034)
         $si = [byte[]]::new(48)
         foreach ($offset in @(0,8,16,24)) { [BitConverter]::GetBytes([datetime]::Parse('2020-01-02T03:04:05Z').ToUniversalTime().ToFileTimeUtc()).CopyTo($si,$offset) }
         [BitConverter]::GetBytes([uint32]32).CopyTo($si, 32)
@@ -66,7 +64,6 @@ BeforeAll {
         [BitConverter]::GetBytes([uint32]($position + 4 - 12)).CopyTo($bytes,36)
         foreach ($i in @(1,2)) {
             [Array]::Copy($bytes, 12 + $i * 512 - 2, $bytes, 60 + $i * 2, 2)
-            [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($bytes,12 + $i * 512 - 2)
         }
         return ,$bytes
     }
@@ -89,11 +86,16 @@ Describe 'Direct NTFS metadata and link decoding' {
     It 'uses the 64-bit unnamed data size for nonresident data' {
         (Field (Read-Record (New-FileRecord -Nonresident)) Length) | Should -Be 8589934592
     }
-    It 'accepts already repaired API output and rejects torn sector fixups' {
+    It 'preserves logical API bytes when update-sequence values are stale' {
         $bytes = New-FileRecord
-        $null = Read-Record $bytes
-        { Read-Record $bytes } | Should -Not -Throw
+        [BitConverter]::GetBytes([uint16]0).CopyTo($bytes,62)
+        [BitConverter]::GetBytes([uint16]0).CopyTo($bytes,64)
+        $original = [byte[]]$bytes.Clone()
+        (Field (Read-Record $bytes) Length) | Should -Be 5
+        [Convert]::ToBase64String($bytes) | Should -BeExactly ([Convert]::ToBase64String($original))
         $bytes[1034] = 0x55
+        { Read-Record $bytes } | Should -Not -Throw
+        [BitConverter]::GetBytes([uint16]1024).CopyTo($bytes,16)
         { Read-Record $bytes } | Should -Throw
     }
     It 'rejects an escaping resident attribute and missing terminator' {
