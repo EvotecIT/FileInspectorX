@@ -57,7 +57,7 @@ The earlier direct-sector reader failed with Win32 error 50 on this environment;
 - [x] Add a bounded native Windows MFT name inventory without an external reader dependency.
 - [x] Keep normal enumeration and a familiar thin PowerShell surface.
 - [x] Validate deterministic contracts on both PowerShell runtimes.
-- [ ] Complete the native elevated timing/compatibility matrix and independent review; record all losses and mismatches.
+- [x] Complete the native elevated timing/compatibility matrix and independent review; record all losses and mismatches.
 - [ ] Choose the production shape from the measurements: separate explicit inventory command, a compatibility-preserving hybrid, or further MFT metadata acquisition.
 - [ ] Implement complete hard-link path coverage and stable identity validation before enabling automatic MFT selection.
 - [ ] Qualify concurrent changes, access/visibility, reparse behavior, cancellation latency and real peak-memory bounds.
