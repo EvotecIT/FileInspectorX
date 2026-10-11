@@ -2,13 +2,13 @@ using System.Text;
 
 namespace FileInspectorX.Prototypes.FileSystem;
 
-/// <summary>Bounded NTFS 3.x FILE record decoder. No data run traversal or filesystem access.</summary>
+/// <summary>Bounded decoder for logical NTFS 3.x records returned by FSCTL_GET_NTFS_FILE_RECORD.</summary>
 internal static class NtfsFileRecordParser
 {
     internal const ulong SlotMask = 0x0000FFFFFFFFFFFFUL;
     private static readonly char[] InvalidNameCharacters = { '\\', '/', ':', '\0' };
 
-    // The control output is reused only after this method returns; repair the USA in place.
+    // This input is filesystem control output, never a raw on-disk record or disk image.
     internal static NtfsFileRecord Parse(byte[] output, int returned, int sectorBytes)
     {
         if (returned < 60 || returned > output.Length) throw new IOException("Truncated file-record output.");
@@ -16,7 +16,7 @@ internal static class NtfsFileRecordParser
         if (size < 48 || size > returned - 12) throw new IOException("Invalid file-record size.");
         const int start = 12;
         if (BitConverter.ToUInt32(output, start) != 0x454C4946) throw new IOException("Missing FILE signature.");
-        RepairSequence(output, start, size, sectorBytes);
+        ValidateSequenceLayout(output, start, size, sectorBytes);
         int used = checked((int)BitConverter.ToUInt32(output, start + 24));
         int offset = BitConverter.ToUInt16(output, start + 20);
         ushort flags = BitConverter.ToUInt16(output, start + 22);
@@ -99,24 +99,15 @@ internal static class NtfsFileRecordParser
         record.Links.Add(new NtfsLink { ParentId = parent, Name = name });
     }
 
-    private static void RepairSequence(byte[] bytes, int start, int size, int sectorBytes)
+    private static void ValidateSequenceLayout(byte[] bytes, int start, int size, int sectorBytes)
     {
         int offset = BitConverter.ToUInt16(bytes, start + 4), count = BitConverter.ToUInt16(bytes, start + 6);
         int firstAttribute = BitConverter.ToUInt16(bytes, start + 20);
         if (sectorBytes < 512 || size % sectorBytes != 0 || count != size / sectorBytes + 1 || offset < 42 ||
             offset > size - count * 2 || offset + count * 2 > firstAttribute)
             throw new IOException("Invalid update sequence array.");
-        ushort marker = BitConverter.ToUInt16(bytes, start + offset);
-        bool protectedRecord = true, repairedRecord = true;
-        for (int i = 1; i < count; i++)
-        {
-            ushort tail = BitConverter.ToUInt16(bytes, start + i * sectorBytes - 2);
-            protectedRecord &= tail == marker;
-            repairedRecord &= tail == BitConverter.ToUInt16(bytes, start + offset + i * 2);
-        }
-        if (!protectedRecord && !repairedRecord) throw new IOException("File-record sector fixup mismatch.");
-        if (protectedRecord)
-            for (int i = 1; i < count; i++)
-                Buffer.BlockCopy(bytes, start + offset + i * 2, bytes, start + i * sectorBytes - 2, 2);
+        // Windows supplies logical bytes. In live API output the USA can retain old
+        // values after the logical record changes. Applying raw-sector fixups here
+        // can overwrite valid attribute bytes; only validate the array's bounds.
     }
 }

@@ -74,7 +74,7 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
                 # Define the consumer in this invocation scope; an outer script block loses $run in the runner's captured context.
                 $consume = {
                     if ($_ -is [Management.Automation.ErrorRecord]) {
-                        $run.Summary.AddError(($_.FullyQualifiedErrorId -like 'FileSystemPrototypeEnumerationFailed*')); return
+                        $run.Summary.AddError(($_.FullyQualifiedErrorId -match '^FileSystemPrototype(Query|Enumeration)Failed')); return
                     }
                     if ($null -eq $run.FirstResultMs) { $run.FirstResultMs = $run.Watch.Elapsed.TotalMilliseconds }
                     try {
@@ -106,6 +106,7 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
         } | ConvertTo-Json -Compress | Add-Content -LiteralPath $evidencePath
         Assert-BenchmarkValue -Actual $run.Summary.Aborted -Expected $false -Message 'An aborted traversal is not a completed inventory sample.'
         if (-not $case.WholeVolume) {
+            Assert-BenchmarkValue -Actual $run.Summary.Errors -Expected 0L -Message 'Synthetic inventory must complete without errors.'
             foreach ($field in @('Files','Directories','LogicalBytes','Errors','PathXor','PathSum','MetadataXor','MetadataSum')) {
                 Assert-BenchmarkValue -Actual $run.Summary.$field -Expected $expected[$case.Root].$field -Message "Synthetic $field must match normal enumeration."
             }
