@@ -99,7 +99,7 @@ Current proof: both frameworks and the isolated patched-reader variant compile w
 - [x] Complete the normal timing matrix and record elevated acquisition diagnostics.
 - [ ] Complete MFT timing and metadata compatibility; sector acquisition is blocked, while Windows MFT control APIs are accessible.
 - [x] Complete one independent read-only code/contract review and remediate valid in-scope findings.
-- [ ] Retain compact evidence, remove disposable synthetic/build output and report storage.
+- [x] Retain compact evidence and small fixtures for the acquisition follow-up; remove superseded builds and isolated package staging, and record storage.
 - [ ] Decide the production reader/dependency and public API after reviewing results.
 - [ ] Implement the qualified engine in the normal FileInspectorX core and expose thin module/CLI surfaces.
 - [ ] Qualify filesystem/provider compatibility, cancellation, partial errors and package/runtime behavior in CI.
