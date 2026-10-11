@@ -24,6 +24,10 @@ public static class FileSystemQuery
         try
         {
             if (options.Filter != "*") throw new NotSupportedException("Prototype MFT filtering supports only '*'; native wildcard filtering uses normal enumeration.");
+#if NETFRAMEWORK
+            if (snapshot == null && options.Backend == EnumerationBackend.Auto)
+                throw new NotSupportedException("The legacy comparison reader is not qualified for automatic raw capture; Auto uses normal enumeration. Forced Mft remains available for isolated diagnostics.");
+#endif
             MftSnapshot.CheckRoot(root);
             snapshot ??= await MftSnapshot.CaptureAsync(root, options.CancellationToken, options.MaximumMftBytes).ConfigureAwait(false);
             return new QueryResult

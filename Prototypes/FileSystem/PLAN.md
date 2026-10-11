@@ -61,7 +61,11 @@ The exact pinned source passes `(creation, fileChange, lastAccess)` into a const
 
 Live comparison on the assessed D: volume is currently blocked at raw I/O. Native aligned `ReadFile` probes return Win32 `ERROR_NOT_SUPPORTED` (50) through both drive-letter and volume-GUID handles; deliberately unaligned probes return `ERROR_INVALID_PARAMETER` (87). The ordinary fallback works and preserves all synthetic fixture paths. This establishes an acquisition limitation on this environment, not a parser-throughput result or complete proof of its cause. Do not infer an MFT speed result from this failed acquisition.
 
-A separate source evaluation corrects the reader's `CreateFile` access flag from `1` to Win32 `GENERIC_READ`. `Build-ReaderEvaluation.ps1` downloads the pinned source, applies the reviewable patch, limits the build to the evaluated target frameworks, and builds version `0.1.0-mft-prototype.1` into a task-local feed/cache. The patched variant also encounters the volume I/O limitation here. Original and patched results stay distinct; no source is vendored into the production engine or ordinary package cache.
+A separate source evaluation corrects the reader's `CreateFile` access flag from `1` to Win32 `GENERIC_READ` and preserves native errors from handle creation and legacy reads. `Build-ReaderEvaluation.ps1` downloads the pinned source, applies the reviewable patch, limits the build to the evaluated target frameworks, and builds version `0.1.0-mft-prototype.2` into a task-local feed/cache. The earlier flag-only variant, `0.1.0-mft-prototype.1`, also encounters the volume I/O limitation here. Original and patched results stay distinct; no source is vendored into the production engine or ordinary package cache. Legacy automatic capture remains disabled until it is qualified; forced MFT diagnostics remain available. Do not classify a generic `IOException` as unavailable access or suppress parser failures.
+
+A later read-only diagnostic establishes that D: is healthy and online, with ordinary NTFS access working and no BitLocker encryption. Explicit uncached, aligned sector reads at offsets 0 and 4096 still return error 50. On the same elevated process, `FSCTL_GET_NTFS_VOLUME_DATA` and `FSCTL_GET_NTFS_FILE_RECORD` both succeed, including the `FILE` signature for record zero. This is a sector-read-path failure, not evidence that D: or its MFT is generally unreadable. The rejecting OS/filter/storage component is unidentified; installed filters alone do not establish causation.
+
+The next acquisition investigation should compare supported Windows MFT control APIs with direct sector acquisition before creating a test volume or changing machine configuration. `FSCTL_GET_NTFS_FILE_RECORD` retrieves one in-use record per call, so its success does not establish fast whole-volume acquisition. A batched name/identity inventory through `FSCTL_ENUM_USN_DATA` plus selected record hydration is a possible evaluation route; it must expose the extra metadata cost and hard-link/extension-record limits. Keep the present normal-enumeration fallback while this route is assessed.
 
 Eric Zimmerman's MIT-licensed MFT parser remains an alternative for captured-record parsing, but live-volume acquisition, dependency scope, memory cost and correctness would need separate qualification. Supported Windows APIs are preferred for capability discovery. `FSCTL_ENUM_USN_DATA` provides file identity/name records, not file lengths or complete ACLs, so a USN-only implementation cannot honestly replace this metadata workload without additional work.
 
@@ -84,7 +88,7 @@ Use a fixed logical CPU domain for the entire matrix, normal priority, rotated o
 
 A separate real-volume diagnostic compares children, recursion, force, file/directory selection and depth against native enumeration on a small controlled fixture. Include distinct timestamps, hidden ancestors, hard-link aliases, reparse directories and sibling-prefix paths. Record missing/extra paths and every requested metadata mismatch. A known reader limitation must not be renamed a successful compatibility test.
 
-Current proof: both frameworks and the isolated patched-reader variant compile without warnings; 19 focused fallback/normal-enumeration contracts pass on Windows PowerShell 5.1 and PowerShell 7.6.6. Raw MFT measurement requires explicit Windows elevation and remains separately recorded. An isolated NTFS virtual-disk comparison is prepared as a separate opt-in experiment; creation/formatting requires explicit authority beyond the read-only D: comparison. It can qualify the prototype on a controlled volume, but cannot establish whole-drive performance on the blocked physical volume. Results belong in a compact evidence file alongside this plan, not in the published module's command documentation.
+Current proof: both frameworks and the isolated patched-reader variant compile without warnings. The 20-contract suite includes a legacy automatic-routing guard: all 20 apply on Windows PowerShell 5.1; 19 apply on PowerShell 7.6.6, with the legacy-only check skipped. Raw MFT measurement requires explicit Windows elevation and remains separately recorded. An isolated NTFS virtual-disk comparison is prepared as a separate opt-in experiment; creation/formatting requires explicit authority beyond the read-only D: comparison. It remains unapproved and unexecuted. Its completion requires verified detachment; a cleanup failure produces a failed invocation and receipt. It cannot establish whole-drive performance on D:. Results belong in a compact evidence file alongside this plan, not in the published module's command documentation.
 
 ## Delivery checklist
 
@@ -92,8 +96,9 @@ Current proof: both frameworks and the isolated patched-reader variant compile w
 - [x] Build an isolated MFT/normal-query prototype and thin PowerShell adapter for both supported Windows hosts.
 - [x] Prove the ordinary filesystem subset and actual permission fallback on both runtimes.
 - [x] Declare reproducible PowerForge comparison lanes and visible compatibility validation.
-- [ ] Complete the local timing matrix, elevated raw-volume comparison and compatibility report.
-- [ ] Complete one independent read-only code/contract review and remediate valid in-scope findings.
+- [x] Complete the normal timing matrix and record elevated acquisition diagnostics.
+- [ ] Complete MFT timing and metadata compatibility; sector acquisition is blocked, while Windows MFT control APIs are accessible.
+- [x] Complete one independent read-only code/contract review and remediate valid in-scope findings.
 - [ ] Retain compact evidence, remove disposable synthetic/build output and report storage.
 - [ ] Decide the production reader/dependency and public API after reviewing results.
 - [ ] Implement the qualified engine in the normal FileInspectorX core and expose thin module/CLI surfaces.
@@ -114,6 +119,7 @@ The development-storage maintenance integration should consume the read-only que
 - [Get-ChildItem contract](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/get-childitem)
 - [Direct volume access](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
 - [NTFS volume metadata](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-ntfs_volume_data_buffer)
+- [NTFS record retrieval](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_get_ntfs_file_record)
 - [USN enumeration](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_enum_usn_data)
 - [USN record fields](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-usn_record_v2)
 - [Pinned evaluation package](https://www.nuget.org/packages/itsWindows11.NtfsReader/0.1.0)

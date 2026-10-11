@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)] [string] $OutputRoot)
 $ErrorActionPreference = 'Stop'
 $commit = '1ec8aeb2950c082d31593791dcced249b2d201df'
-$version = '0.1.0-mft-prototype.1'
+$version = '0.1.0-mft-prototype.2'
 $full = [IO.Path]::GetFullPath($OutputRoot)
 if (-not [IO.Path]::IsPathRooted($OutputRoot) -or (Test-Path -LiteralPath $full)) { throw 'Use a new absolute task-owned evaluation directory.' }
 if (-not (Test-Path -LiteralPath (Split-Path $full -Parent) -PathType Container)) { throw 'The intended mounted scratch parent must already exist.' }
