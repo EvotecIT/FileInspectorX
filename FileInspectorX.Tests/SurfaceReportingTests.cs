@@ -58,9 +58,11 @@ public sealed class SurfaceReportingTests
     }
 
     [Fact]
-    public void ArchiveEntryNamesCannotInjectMarkdownOrHtmlIntoReports()
+    public void ArchiveEntryNamesCannotInjectMarkdownLinksIntoReports()
     {
-        const string name = "innocent\n### Spoofed\n<img src=x onerror=alert(1)>[link](javascript:alert(1)).msi";
+        // .NET Framework's ZIP writer rejects HTML delimiters and control characters
+        // in names. Raw HTML and multiline values are covered through ReportView below.
+        const string name = "innocent[link](javascript:alert(1)).msi";
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
         {
@@ -76,10 +78,7 @@ public sealed class SurfaceReportingTests
         var report = ReportView.From(analysis);
         Assert.Contains(report.ArchivePreview!, preview => preview.Contains(name));
         var markdown = MarkdownRenderer.From(report);
-        Assert.DoesNotContain("<img", markdown);
-        Assert.DoesNotContain("\n### Spoofed", markdown);
         Assert.DoesNotContain("[link](javascript:", markdown);
-        Assert.Contains("&lt;img", markdown);
         Assert.Contains("\\[link\\](javascript&#58;", markdown);
     }
 

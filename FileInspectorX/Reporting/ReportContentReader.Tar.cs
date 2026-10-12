@@ -12,7 +12,8 @@ internal static partial class ReportContentReader
         while (reader.MoveNext())
         {
             var entry = new ReportArchiveEntry { Name = reader.Name, SizeBytes = reader.Size, CompressedBytes = reader.Size };
-            if (reader.Type is 0 or (byte)'0' && reader.Size <= options.MaxEntryBytes)
+            bool regularFile = reader.Type is 0 or (byte)'0';
+            if (regularFile && reader.Size <= options.MaxEntryBytes)
             {
                 using var payload = budget.OpenTarPayload(source, reader.Size, options.MaxEntryBytes);
                 if (payload != null)
@@ -20,9 +21,9 @@ internal static partial class ReportContentReader
                     using var output = new MemoryStream();
                     payload.CopyTo(output);
                     if (output.Length == reader.Size) entry.Sha256 = FileInspector.ReportHash(output.ToArray());
-                    else issues.Add("content:member-not-fully-read");
                 }
             }
+            if (regularFile && entry.Sha256 == null) issues.Add("content:member-not-fully-read");
             entries.Add(entry);
         }
         profile.Entries = entries;

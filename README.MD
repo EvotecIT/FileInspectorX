@@ -109,7 +109,7 @@ hash lookup, text search, JSON export and related files. It listens only on loca
 dotnet run --project FileInspectorX.Web -- --Port 5088
 ```
 
-Open `http://127.0.0.1:5088`. Uploads and extracted content remain in the local catalog
+Open the private link printed at startup. Uploads and extracted content remain in the local catalog
 until deleted. This host is for local use; public hosting requires authentication,
 tenant isolation and operating-system sandboxing. No new package or document-engine
 dependency is required. Future options are assessed in the

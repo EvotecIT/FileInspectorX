@@ -17,7 +17,7 @@ $process = $null
 function Assert-Service([bool] $Condition, [string] $Message) { if (!$Condition) { throw $Message } }
 function Wait-Report([string] $Id) {
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
-        $result = Invoke-RestMethod -Uri "$base/api/reports/$Id"
+        $result = Invoke-RestMethod -Uri "$base/api/reports/$Id" -Headers $authHeaders
         if ($result.schemaVersion) { return $result }
         if ($result.state -eq 'failed') { throw $result.error }
         Start-Sleep -Milliseconds 300
@@ -27,16 +27,21 @@ function Wait-Report([string] $Id) {
 try {
     $start = [Diagnostics.ProcessStartInfo]::new((Get-Command dotnet).Source)
     $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
     $start.ArgumentList.Add($application)
     $start.ArgumentList.Add('--Port')
     $start.ArgumentList.Add([string]$port)
     $start.ArgumentList.Add('--DataDirectory')
     $start.ArgumentList.Add((Join-Path $scratch 'catalog'))
     $process = [Diagnostics.Process]::Start($start)
+    $startup = $process.StandardOutput.ReadLineAsync().WaitAsync([timespan]::FromSeconds(20)).GetAwaiter().GetResult()
+    Assert-Service ($startup -match '#token=([A-F0-9]{64})$') 'Private startup link was not produced.'
+    $authHeaders = @{ Authorization = 'Bearer ' + $Matches[1] }
+    $headers.Authorization = $authHeaders.Authorization
     $ready = $false
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
         if ($process.HasExited) { throw 'Local service exited during startup.' }
-        try { $null = Invoke-RestMethod -Uri "$base/api/reports"; $ready = $true; break } catch { Start-Sleep -Milliseconds 250 }
+        try { $null = Invoke-RestMethod -Uri "$base/api/reports" -Headers $authHeaders; $ready = $true; break } catch { Start-Sleep -Milliseconds 250 }
     }
     Assert-Service $ready 'Local service did not start.'
     $page = Invoke-WebRequest -Uri $base
@@ -48,31 +53,41 @@ try {
     Assert-Service ($report.schemaVersion -eq 1 -and $report.file.name -eq 'invoices.txt') 'Report identity contract failed.'
     Assert-Service ($report.content.text.Contains('customer invoices')) 'Text extraction failed.'
     Assert-Service ($report.file.sha256.Length -eq 64) 'Whole-file hash is missing.'
-    $lookup = @(Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)")
+    $lookup = @(Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)" -Headers $authHeaders)
     Assert-Service ($lookup.Count -eq 1 -and $lookup[0].id -eq $first.id) 'Hash lookup failed.'
-    $decoyHeaders = @{ 'X-FileInspector-Client' = 'local'; 'X-File-Name' = "$($report.file.sha256).txt" }
+    $decoyHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = "$($report.file.sha256).txt" }
     $decoy = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $decoyHeaders -ContentType 'application/octet-stream' -Body ([Text.Encoding]::UTF8.GetBytes("Reference digest: $($report.file.sha256)"))
     $null = Wait-Report $decoy.id
-    $lookup = @(Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256.ToUpperInvariant())")
+    $lookup = @(Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256.ToUpperInvariant())" -Headers $authHeaders)
     Assert-Service ($lookup.Count -eq 1 -and $lookup[0].id -eq $first.id) 'Hash lookup matched a name or text instead of exact bytes.'
-    $search = @(Invoke-RestMethod -Uri "$base/api/reports?q=consulting")
+    $search = @(Invoke-RestMethod -Uri "$base/api/reports?q=consulting" -Headers $authHeaders)
     Assert-Service ($search.Count -eq 1) 'Extracted-text search failed.'
     $second = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $headers -ContentType 'application/octet-stream' -Body $body
     $null = Wait-Report $second.id
-    $similar = @(Invoke-RestMethod -Uri "$base/api/reports/$($first.id)/similar")
+    $similar = @(Invoke-RestMethod -Uri "$base/api/reports/$($first.id)/similar" -Headers $authHeaders)
     Assert-Service ($similar.Count -eq 1 -and $similar[0].basis -eq 'exact-bytes' -and $similar[0].score -eq 1) 'Exact similarity failed.'
-    $unicode = @{ 'X-FileInspector-Client' = 'local'; 'X-File-Name' = [uri]::EscapeDataString('zażółć[1].txt'); 'X-File-Name-Encoded' = 'uri' }
+    $unicode = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = [uri]::EscapeDataString('zażółć[1].txt'); 'X-File-Name-Encoded' = 'uri' }
     $third = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $unicode -ContentType 'application/octet-stream' -Body $body
     Assert-Service ((Wait-Report $third.id).file.name -eq 'zażółć[1].txt') 'Unicode/literal upload name failed.'
-    $hostileHeaders = @{ 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'hostile.txt'; 'Origin' = 'https://example.invalid' }
+    $hostileHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'hostile.txt'; 'Origin' = 'https://example.invalid' }
     $denied = Invoke-WebRequest -Uri "$base/api/uploads" -Method Post -Headers $hostileHeaders -Body $body -SkipHttpErrorCheck
     Assert-Service ($denied.StatusCode -eq 403) 'Cross-origin upload was allowed.'
-    $denied = Invoke-WebRequest -Uri "$base/api/uploads" -Method Post -Body $body -SkipHttpErrorCheck
+    $denied = Invoke-WebRequest -Uri "$base/api/uploads" -Method Post -Headers $authHeaders -Body $body -SkipHttpErrorCheck
     Assert-Service ($denied.StatusCode -eq 403) 'Mutation without the client header was allowed.'
+    foreach ($route in @('/api/reports', "/api/reports/$($first.id)", "/api/reports/$($first.id)/similar", "/api/hash/$($report.file.sha256)")) {
+        $denied = Invoke-WebRequest -Uri ($base + $route) -SkipHttpErrorCheck
+        Assert-Service ($denied.StatusCode -eq 403) "Unauthenticated catalog read was allowed: $route"
+    }
+    $denied = Invoke-WebRequest -Uri "$base/api/reports" -Headers @{ Authorization = 'Bearer ' + ('0' * 64) } -SkipHttpErrorCheck
+    Assert-Service ($denied.StatusCode -eq 403) 'Incorrect catalog credential was accepted.'
+    $denied = Invoke-WebRequest -Uri "$base/api/uploads" -Method Post -Headers @{ 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'unauthorized.txt' } -Body $body -SkipHttpErrorCheck
+    Assert-Service ($denied.StatusCode -eq 403) 'A constant client header bypassed upload authentication.'
+    $denied = Invoke-WebRequest -Uri "$base/api/reports/$($first.id)" -Method Delete -Headers @{ 'X-FileInspector-Client' = 'local' } -SkipHttpErrorCheck
+    Assert-Service ($denied.StatusCode -eq 403) 'A constant client header bypassed deletion authentication.'
     Invoke-RestMethod -Uri "$base/api/reports/$($first.id)" -Method Delete -Headers $headers | Out-Null
     Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($first.id).upload"))) 'Deleting a report retained its upload.'
     Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($first.id).report.json"))) 'Deleting a report retained its extracted content.'
-    Write-Output 'Local service smoke passed: upload, queue/worker, report, text search, hash lookup, similarity, Unicode names, origin protection and deletion.'
+    Write-Output 'Local service smoke passed: upload, queue/worker, report, text search, hash lookup, similarity, Unicode names, private catalog access, origin protection and deletion.'
 }
 finally {
     if ($process -and !$process.HasExited) { $process.Kill($true); $process.WaitForExit() }

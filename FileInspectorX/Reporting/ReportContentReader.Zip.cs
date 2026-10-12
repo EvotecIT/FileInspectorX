@@ -37,7 +37,11 @@ internal static partial class ReportContentReader
                 }
                 else issues.Add("content:member-not-fully-read");
             }
-            else if (IsContentPart(entry.FullName)) issues.Add("content:package-part-size-limit");
+            else if (!entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                issues.Add("content:member-not-fully-read");
+                if (IsContentPart(entry.FullName)) issues.Add("content:package-part-size-limit");
+            }
             entries.Add(item);
         }
         profile.Entries = entries;

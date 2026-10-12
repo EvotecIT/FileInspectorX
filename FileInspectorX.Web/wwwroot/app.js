@@ -1,9 +1,22 @@
 'use strict';
 const byId = id => document.getElementById(id);
 let selected = null, timer = null, searchTimer = null;
+let accessToken = '';
+try { accessToken = sessionStorage.getItem('fileinspector-access') || ''; } catch { }
+function acceptAccessLink() {
+  const token = new URLSearchParams(location.hash.slice(1)).get('token');
+  if (token === null) return false;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!/^[0-9A-F]{64}$/.test(token)) return false;
+  accessToken = token;
+  try { sessionStorage.setItem('fileinspector-access', token); } catch { }
+  return true;
+}
+acceptAccessLink();
 const make = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
 const api = async (url, options = {}) => {
-  const response = await fetch(url, { ...options, headers: { 'X-FileInspector-Client': 'local', ...options.headers } });
+  if (!accessToken) throw new Error('Open the private link printed by the application to access local reports.');
+  const response = await fetch(url, { ...options, headers: { 'Authorization': 'Bearer ' + accessToken, 'X-FileInspector-Client': 'local', ...options.headers } });
   if (!response.ok) { const problem = await response.json().catch(() => null); throw new Error(problem?.error || `Request failed (${response.status}).`); }
   return response.status === 204 ? null : response.json();
 };
@@ -70,4 +83,7 @@ byId('file').addEventListener('change', async event => {
   catch (error) { notice(error.message, true); } finally { event.target.value = ''; }
 });
 byId('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => list().catch(error => notice(error.message, true)), 200); });
+window.addEventListener('hashchange', () => {
+  if (acceptAccessLink()) { notice(''); list().catch(error => notice(error.message, true)); }
+});
 list().catch(error => notice(error.message, true));

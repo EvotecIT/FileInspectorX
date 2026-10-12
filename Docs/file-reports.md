@@ -84,7 +84,10 @@ relative to the scan root. The older analysis APIs retain compatibility behavior
 dotnet run --project FileInspectorX.Web -- --Port 5088 --DataDirectory ./local-catalog
 ```
 
-Open `http://127.0.0.1:5088`. The application uses only the .NET 8 runtime and existing
+Open the private link printed at startup. Its fragment contains a random access
+token for this running instance; keep the link private. The browser clears the
+fragment and retains access in its tab session. Restarting the host invalidates
+the old link. The application uses only the .NET 8 runtime and existing
 core references, with no ASP.NET shared framework or new packages. It accepts raw
 uploads, queues work, and exposes searchable reports. Names and file-derived text
 are rendered as text; they cannot introduce markup into the page.
@@ -104,10 +107,14 @@ See [Microsoft's URL reservation documentation](https://learn.microsoft.com/en-u
 Each queued analysis runs in a separate child process. The host stops workers after
 30 seconds or when an observed working set exceeds 512 MiB. That memory check is
 sampled rather than a hard OS limit. Workers retain the user's OS permissions.
+Worker output is limited to 16 MiB and travels through a pipe; only the live host
+publishes report files. A surviving worker cannot recreate a deleted catalog report.
 The host accepts up to 16 queued jobs and 200 retained jobs, with a conservative
 512 MiB uploaded-content budget. Failed/interrupted jobs remain visible; queued and
 running jobs become failed on restart and can be uploaded again. The catalog has a
 single-process ownership lock.
+On startup, generated uploads and reports without job metadata, interrupted report
+output and stale temporary writes are removed before new uploads are admitted.
 
 The default catalog is under the user's local application-data folder in
 `FileInspectorX/local-reports`. Use a protected directory for a custom catalog.
@@ -116,8 +123,9 @@ folder's ACL inheritance. Uploads, names and extracted content are sensitive dat
 The application retains them until the user chooses **Delete file and report**.
 Deletion removes both the upload and report. There is no public sharing endpoint.
 
-The host binds `127.0.0.1`, validates the host header, requires a custom client header
-for mutations and rejects cross-origin writes. CSP restricts scripts/assets to the
+The host binds `127.0.0.1`, validates the host header and requires the instance's
+secret bearer token for every API read and mutation. Mutations also require a
+custom client header and reject cross-origin writes. CSP restricts scripts/assets to the
 local application. These controls do not make it suitable for untrusted public
 uploads or protect against another process running as the same user. Network
 deployment needs authentication, authorization, tenant separation, retention policy,
@@ -134,16 +142,18 @@ strong OS resource isolation and a reviewed hosting boundary.
 | `GET /api/reports/{id}/similar` | Exact-byte/text-sample matches, with basis and score |
 | `DELETE /api/reports/{id}` | Removes completed/failed job, upload and report; active jobs reject deletion |
 
-Mutation requests require `X-FileInspector-Client: local`. Browser uploads encode
+All API requests require `Authorization: Bearer <token>`, using the token from the
+private startup link. Mutation requests also require `X-FileInspector-Client: local`. Browser uploads encode
 Unicode names as percent-encoded UTF-8 and set `X-File-Name-Encoded: uri`; ASCII
 clients can send the name directly. Names are display data; the storage path always
 uses a generated ID. Reports do not expose the catalog's physical paths.
 
 ```powershell
-$headers = @{ 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'sample.txt' }
+$token = Read-Host 'Token from the private startup link'
+$headers = @{ Authorization = "Bearer $token"; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'sample.txt' }
 $job = Invoke-RestMethod -Uri 'http://127.0.0.1:5088/api/uploads' -Method Post `
     -Headers $headers -ContentType 'application/octet-stream' -InFile './sample.txt'
-Invoke-RestMethod -Uri "http://127.0.0.1:5088/api/reports/$($job.id)"
+Invoke-RestMethod -Uri "http://127.0.0.1:5088/api/reports/$($job.id)" -Headers $headers
 ```
 
 For validation, `Build/Test-LocalService.ps1` exercises the live upload/worker/report,

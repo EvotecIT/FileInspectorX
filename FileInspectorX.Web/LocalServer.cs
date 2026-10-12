@@ -16,7 +16,8 @@ internal static class LocalServer
         using var listener = new HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
         listener.Start();
-        Console.WriteLine("FileInspectorX local reports: http://127.0.0.1:" + port);
+        var access = new LocalAccess();
+        Console.WriteLine("FileInspectorX local reports: http://127.0.0.1:" + port + "/#token=" + access.Token);
         using var capacity = new SemaphoreSlim(16);
         var requests = new List<Task>();
         var worker = new AnalysisQueue(catalog).RunAsync(token);
@@ -29,7 +30,7 @@ internal static class LocalServer
                 try { context = await listener.GetContextAsync().WaitAsync(token); }
                 catch { capacity.Release(); throw; }
                 requests.RemoveAll(t => t.IsCompleted);
-                requests.Add(Handle(context, port, catalog, token).ContinueWith(_ => capacity.Release(), CancellationToken.None));
+                requests.Add(Handle(context, port, catalog, access, token).ContinueWith(_ => capacity.Release(), CancellationToken.None));
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -41,7 +42,7 @@ internal static class LocalServer
         }
     }
 
-    private static async Task Handle(HttpListenerContext context, int port, Catalog catalog, CancellationToken token)
+    private static async Task Handle(HttpListenerContext context, int port, Catalog catalog, LocalAccess access, CancellationToken token)
     {
         var response = context.Response;
         response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -52,7 +53,7 @@ internal static class LocalServer
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
-            var result = await Route(context.Request, port, catalog, timeout.Token);
+            var result = await Route(context.Request, port, catalog, access, timeout.Token);
             response.StatusCode = result.Status;
             response.ContentType = result.ContentType;
             if (result.Status == 204 || context.Request.HttpMethod == "HEAD") return;
@@ -66,11 +67,14 @@ internal static class LocalServer
         finally { response.Close(); }
     }
 
-    private static async Task<WebResponse> Route(HttpListenerRequest request, int port, Catalog catalog, CancellationToken token)
+    private static async Task<WebResponse> Route(HttpListenerRequest request, int port, Catalog catalog, LocalAccess access, CancellationToken token)
     {
         var url = request.Url!;
         if (url.Host != "127.0.0.1" || url.Port != port) return WebResponse.Json(400, new { error = "Invalid host." });
         var method = request.HttpMethod;
+        var path = url.AbsolutePath;
+        if (path.StartsWith("/api/", StringComparison.Ordinal) && !access.Allows(request.Headers["Authorization"]))
+            return WebResponse.Json(403, new { error = "Open the private link printed by the application to access local reports." });
         if (method is not "GET" and not "HEAD")
         {
             if (request.Headers["X-FileInspector-Client"] != "local") return WebResponse.Json(403, new { error = "A local client header is required." });
@@ -78,7 +82,6 @@ internal static class LocalServer
             if (origin != null && (!Uri.TryCreate(origin, UriKind.Absolute, out var source) || source.Scheme != "http" || source.Host != url.Host || source.Port != port))
                 return WebResponse.Json(403, new { error = "Cross-origin requests are not allowed." });
         }
-        var path = url.AbsolutePath;
         if (method is "GET" or "HEAD")
         {
             var asset = path switch { "/" or "/index.html" => ("index.html", "text/html; charset=utf-8"), "/app.js" => ("app.js", "text/javascript; charset=utf-8"), "/app.css" => ("app.css", "text/css; charset=utf-8"), _ => default };
