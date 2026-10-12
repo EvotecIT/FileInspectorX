@@ -46,17 +46,17 @@ public static partial class FileInspector
                         long pad = ((size + 511) / 512) * 512;
                         long entryDataStart = fs.Position;
                         long nextHeaderPos = entryDataStart + pad;
-                        // 1) Quick nested-archive peek (up to 64 bytes) without moving beyond current entry
-                        if (!hasNestedArchives && size <= 128)
+                        // Inspect a bounded prefix regardless of the member's complete size.
+                        if (!hasNestedArchives)
                         {
-                            int sample = (int)Math.Min(64, size);
+                            int sample = (int)Math.Min(512, size);
                             var head = new byte[sample];
                             using var payload = budget.OpenTarPayload(fs, size, sample);
                             int nhead = payload == null ? 0 : ReadAvailable(payload, head, 0, head.Length);
                             if (nhead > 0)
                             {
                                 var span = new ReadOnlySpan<byte>(head, 0, nhead);
-                                var det = Detect(span, null);
+                                var det = Signatures.TryMatchZip(span, size, out var zipPrefix) ? zipPrefix : Detect(span, null);
                                 if (det != null)
                                 {
                                     var de = det.Extension?.ToLowerInvariant();
@@ -66,9 +66,7 @@ public static partial class FileInspector
                                         localPreviews.Add(new InnerEntryPreview { Name = name, DetectedExtension = de ?? ext });
                                 }
                             }
-                            if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
-                            else fs.Seek(0, SeekOrigin.End);
-                            continue;
+                            fs.Seek(entryDataStart, SeekOrigin.Begin);
                         }
 
                         // 2) Deep signers sampling for executable entries within budget

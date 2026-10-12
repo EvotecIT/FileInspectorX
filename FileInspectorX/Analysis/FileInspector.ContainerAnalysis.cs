@@ -70,9 +70,9 @@ public static partial class FileInspector
                 if (det.Extension is "pptx" && hasMacros) res.GuessedExtension ??= "pptm";
                 // Package signature extraction is part of Authenticode analysis, while
                 // installer manifest enrichment remains explicitly opt-in.
-                if (subType is "appx" or "msix")
+                if (options!.IncludeAuthenticode && (subType is "appx" or "msix"))
                 {
-                    TryPopulateAppxSignature(input, res);
+                    TryPopulateAppxSignature(input, res, options);
                 }
                 if (hasRemoteTemplate) res.Flags |= ContentFlags.OfficeRemoteTemplate;
                 if (hasDde) res.Flags |= ContentFlags.OfficePossibleDde;

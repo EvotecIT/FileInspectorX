@@ -35,6 +35,9 @@ public static partial class FileInspector
         public bool IncludePermissions { get; set; } = true;
         /// <summary>Include Authenticode/package signature analysis where applicable. Default true.</summary>
         public bool IncludeAuthenticode { get; set; } = true;
+        /// <summary>Disable certificate issuer downloads and revocation network access. Default false preserves legacy analysis.
+        /// On targets without a supported download-control API, offline chain trust remains unknown. Reports always enable this policy.</summary>
+        public bool OfflineCertificateValidation { get; set; }
         /// <summary>Include references extraction from config files (Task XML, scripts.ini/xml). Default true.</summary>
         public bool IncludeReferences { get; set; } = true;
         /// <summary>Include installer/package metadata (MSIX/APPX/VSIX/MSI). Default false because native parsers require explicit trust.</summary>

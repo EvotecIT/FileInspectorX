@@ -56,6 +56,10 @@ jobs:
       - name: Build
         run: dotnet build FileInspectorX.sln -c Release --no-restore
 
+      - name: Smoke test local report service
+        shell: pwsh
+        run: ./Build/Test-LocalService.ps1 -ApplicationPath ./FileInspectorX.Web/bin/Release/net8.0/FileInspectorX.Web.dll
+
       - name: Smoke test PowerShell 7 Magika default
         shell: pwsh
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll

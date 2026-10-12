@@ -25,18 +25,14 @@ public sealed class FortyThirdReviewRegressionTests
         => AssertParity(OleHeader(), "ole2", "Medium", "sector-chains-not-validated");
 
     [Fact]
-    public void MsiNameHintsCannotRestoreHighConfidenceWithoutSectorChainProof()
+    public void MsiWordsWithoutDirectoryEvidenceRemainGenericOleAtMediumConfidence()
     {
         byte[] bytes = OleHeader();
+        // The fixture has no directory sector. Text inside the header cannot
+        // establish MSI stream names or a compound-document subtype.
         Encoding.ASCII.GetBytes("SummaryInformation Property Directory Media").CopyTo(bytes, 100);
 
-        Assert.Equal("Medium", FileInspector.Detect(bytes)?.Confidence);
-        using var stream = new MemoryStream(bytes, writable: false) { Position = 3 };
-        ContentTypeDetectionResult? fromStream = FileInspector.Detect(stream);
-        Assert.Equal("msi", fromStream?.Extension);
-        Assert.Equal("Medium", fromStream?.Confidence);
-        Assert.Contains("sector-chains-not-validated", fromStream?.Reason ?? string.Empty, StringComparison.Ordinal);
-        Assert.Equal(3, stream.Position);
+        AssertParity(bytes, "ole2", "Medium", "sector-chains-not-validated");
     }
 
     [Fact]

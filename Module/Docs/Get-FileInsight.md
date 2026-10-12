@@ -14,10 +14,24 @@ Analyzes files and returns a full FileAnalysis object by default, with optional 
 Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
 ```
 
+### LiteralPath
+```powershell
+Get-FileInsight [-LiteralPath] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+```
+
+### FileInfo
+```powershell
+Get-FileInsight -InputObject <FileInfo> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+```
+
 ## DESCRIPTION
 Supply one or more existing file paths, or pipe files from Get-ChildItem. Directories are enumerated with Get-ChildItem -File before analysis.
 
-By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; each view exposes Raw for drill-down.
+Path expands wildcard patterns. LiteralPath preserves wildcard characters in file names, and FileInfo pipeline input is always resolved literally.
+
+By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; these views expose Raw for drill-down. Report returns the versioned InspectionReport contract with exact byte identity, bounded extracted content and coverage evidence.
+
+The Report view reads a stable snapshot limited to 64 MiB per file. Larger files produce a per-file error. Content extraction retains at most 64 Ki characters and records limit issues. Report analysis is portable; requested filesystem-only stages are reported as unavailable.
 
 Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.
 
@@ -74,19 +88,33 @@ Run deterministic-only detection without Magika
 
 ### EXAMPLE 8
 ```powershell
+Get-FileInsight -LiteralPath '.\report[1].json' -View Detection
+```
+
+Inspect a file whose name contains brackets
+
+### EXAMPLE 9
+```powershell
+Get-FileInsight -LiteralPath .\document.docx -View Report -ExcludePermissions
+```
+
+Get a versioned content report with hashes and bounded text extraction
+
+### EXAMPLE 10
+```powershell
 Get-FileInsight -Path .\package.msi -View Installer -EnableInstaller
 ```
 
 Read MSI product metadata on Windows without installing the package. The package can target x86, x64 or ARM64.
 
-### EXAMPLE 9
+### EXAMPLE 11
 ```powershell
 Get-FileInsight -Path .\package.msix -View Installer -EnableInstaller
 ```
 
 Read an MSIX manifest
 
-### EXAMPLE 10
+### EXAMPLE 12
 ```powershell
 Get-FileInsight -Path .\source.txt -CollectMetrics
 ```
@@ -100,8 +128,8 @@ Capture per-operation read, hash, archive and classifier counters and stage timi
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
-Aliases: none
+Parameter Sets: Path, LiteralPath, FileInfo
+Aliases: None
 Possible values:
 
 Required: False
@@ -116,7 +144,7 @@ Compute SHA-256 of the file and include in output.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -132,7 +160,7 @@ Return only detection result (skip analysis). Back-compat shim for -View Detecti
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -148,7 +176,7 @@ Disable the default Magika assistance and use deterministic analysis only.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -164,8 +192,8 @@ Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all suppo
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
-Aliases: none
+Parameter Sets: Path, LiteralPath, FileInfo
+Aliases: None
 Possible values:
 
 Required: False
@@ -180,8 +208,8 @@ Read Explorer Details through Windows shell property handlers. Requires Windows.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
-Aliases: none
+Parameter Sets: Path, LiteralPath, FileInfo
+Aliases: None
 Possible values:
 
 Required: False
@@ -196,7 +224,7 @@ Exclude assessment (score/decision/codes).
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -212,7 +240,7 @@ Exclude container triage (ZIP/TAR sampling, subtype and inner hints).
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -228,7 +256,7 @@ Exclude installer/package metadata (MSIX/APPX/VSIX/MSI).
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -244,7 +272,7 @@ Exclude permissions/ownership snapshot from the analysis.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -260,7 +288,7 @@ Exclude references extraction (Task XML, scripts.ini/xml).
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -276,7 +304,7 @@ Exclude Windows shell properties (Explorer Details).
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -292,7 +320,7 @@ Exclude signature/Authenticode and package signature analysis.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -303,13 +331,29 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -InputObject
+FileInfo objects from Get-ChildItem or Get-Item. Their full names are resolved literally.
+
+```yaml
+Type: FileInfo
+Parameter Sets: FileInfo
+Aliases: None
+Possible values:
+
+Required: True
+Position: named
+Default value: None
+Accept pipeline input: True (ByValue)
+Accept wildcard characters: False
+```
+
 ### -LearnedClassificationMode
 Failure behavior for the optional classifier. Assist records provider failures and continues;
 Required reports a terminating per-file error.
 
 ```yaml
 Type: LearnedClassificationMode
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values: Off, Assist, Required
 
@@ -320,12 +364,28 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -LiteralPath
+One or more file paths to analyze without interpreting wildcard characters. Accepts FullName or PSPath properties from pipeline objects.
+
+```yaml
+Type: String[]
+Parameter Sets: LiteralPath
+Aliases: FullName, PSPath, LP
+Possible values:
+
+Required: True
+Position: 0
+Default value: None
+Accept pipeline input: True (ByPropertyName)
+Accept wildcard characters: False
+```
+
 ### -MagicHeaderBytes
 Capture first N bytes of the header as uppercase hex.
 
 ```yaml
 Type: Int32
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values:
 
@@ -341,7 +401,7 @@ Magika probability policy. Defaults to HighConfidence.
 
 ```yaml
 Type: String
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
 Possible values: HighConfidence, MediumConfidence, BestGuess
 
@@ -353,12 +413,12 @@ Accept wildcard characters: False
 ```
 
 ### -Path
-One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.
+One or more existing file paths to analyze. Supports wildcard patterns and pipeline strings. FileInfo pipeline input is treated literally; use LiteralPath for names containing wildcard characters.
 
 ```yaml
 Type: String[]
 Parameter Sets: Path
-Aliases: FullName
+Aliases: None
 Possible values:
 
 Required: True
@@ -369,13 +429,13 @@ Accept wildcard characters: False
 ```
 
 ### -View
-Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties.
+Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.
 
 ```yaml
 Type: InsightView
-Parameter Sets: Path
+Parameter Sets: Path, LiteralPath, FileInfo
 Aliases: None
-Possible values: Raw, Analysis, Detection, Permissions, Signature, Summary, References, Assessment, Installer, ShellProperties, Policy
+Possible values: Raw, Analysis, Detection, Permissions, Signature, Summary, References, Assessment, Installer, ShellProperties, Policy, Report
 
 Required: False
 Position: named
@@ -390,6 +450,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## INPUTS
 
 - `System.String[]`
+- `System.IO.FileInfo`
 
 ## OUTPUTS
 
@@ -404,6 +465,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 - `FileInspectorX.InstallerView`
 - `FileInspectorX.ReferencesView`
 - `FileInspectorX.ShellPropertiesView`
+- `FileInspectorX.InspectionReport`
 
 ## RELATED LINKS
 

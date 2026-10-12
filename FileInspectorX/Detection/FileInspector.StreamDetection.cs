@@ -316,13 +316,10 @@ public static partial class FileInspector
         }
 
         if (Signatures.TryMatchText(src, out var text, declaredExtension)) {
-            if (text is not null && text.Extension == "json") {
-                var refined = stream.CanSeek ? TryRefineGltfJson(stream) : TryRefineGltfJson(srcMemory);
-                if (refined != null) return Finish(Enrich(refined, src, stream, options));
-            }
             var enriched = Enrich(text, src, stream, options);
             var deterministic = ApplyDeclaredBias(enriched, declaredExtension);
-            TryValidateStructuredTextWithBudget(stream, deterministic, skipAdmxAdml: false);
+            using var completeTextSample = nonSeekableEof ? new MemoryReadStream(srcMemory) : null;
+            TryValidateStructuredTextWithBudget(completeTextSample ?? stream, deterministic, skipAdmxAdml: false);
             return ApplyLearnedClassification(deterministic, stream, options);
         }
         return Finish(Enrich(null, src, stream, options));
@@ -356,24 +353,6 @@ public static partial class FileInspector
             total += read;
         }
         return total;
-    }
-
-    private static ContentTypeDetectionResult? TryRefineGltfJson(Stream stream) {
-        try {
-            long pos = stream.CanSeek ? stream.Position : 0;
-            if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
-            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, true, 8192, leaveOpen: true);
-            char[] buf = new char[8192];
-            int n = reader.Read(buf, 0, buf.Length);
-            var s = new string(buf, 0, n);
-            if ((s.IndexOf("\"asset\"", StringComparison.OrdinalIgnoreCase) >= 0 && s.IndexOf("\"version\"", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                (s.IndexOf("\"scenes\"", StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("\"nodes\"", StringComparison.OrdinalIgnoreCase) >= 0)) {
-                if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
-                return new ContentTypeDetectionResult { Extension = "gltf", MimeType = "model/gltf+json", Confidence = "Medium", Reason = "gltf:json" };
-            }
-            if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
-        } catch { }
-        return null;
     }
 
 }

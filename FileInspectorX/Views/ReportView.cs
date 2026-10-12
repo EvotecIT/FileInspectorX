@@ -443,7 +443,7 @@ public sealed partial class ReportView
         var fullListsMaxChars = Math.Max(0, settings?.ReferenceFullListsMaxChars ?? Settings.ReferenceFullListsMaxChars);
         var r = new ReportView
         {
-            AnalysisComplete = a.AnalysisComplete,
+            AnalysisComplete = a.AnalysisComplete && a.Outcome == InspectionOutcome.Complete,
             AnalysisIssues = a.AnalysisIssues,
             InputStatus = a.InputStatus,
             Outcome = a.Outcome,
@@ -452,6 +452,7 @@ public sealed partial class ReportView
         };
         if (a.Detection != null)
         {
+            r.CaptureDetectionEvidence(a.Detection);
             r.DetectedTypeExtension = a.Detection.Extension;
             r.DetectedTypeName = a.Detection.MimeType;
             r.DetectionConfidence = a.Detection.Confidence;
@@ -673,8 +674,12 @@ public sealed partial class ReportView
                 r.AssessmentTopDrivers = AssessmentPolicyPresentation.FormatTopDrivers(r.AssessmentDetails);
                 r.AssessmentTopDriversLong = AssessmentPolicyPresentation.FormatTopDriversLong(r.AssessmentDetails);
                 r.AssessmentCategories = AssessmentPolicyPresentation.FormatCategories(r.AssessmentDetails);
-                r.AssessmentRecommendedAction = AssessmentPolicyPresentation.BuildRecommendedAction(r.AssessmentDecision, r.AssessmentScore);
-                r.AssessmentSafeForAutomation = AssessmentPolicyPresentation.IsSafeForAutomation(r.AssessmentDecision, r.AssessmentScore);
+                r.AssessmentRecommendedAction = r.AnalysisComplete
+                    ? AssessmentPolicyPresentation.BuildRecommendedAction(r.AssessmentDecision, r.AssessmentScore)
+                    : "Review incomplete inspection stages before applying the assessment.";
+                r.AssessmentSafeForAutomation = r.AnalysisComplete
+                    ? AssessmentPolicyPresentation.IsSafeForAutomation(r.AssessmentDecision, r.AssessmentScore)
+                    : false;
             }
         } catch { }
         r.EncryptedEntryCount = a.EncryptedEntryCount;
@@ -1269,6 +1274,7 @@ public sealed partial class ReportView
     public Dictionary<string, object?> ToDictionary()
     {
         var d = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        AddDetectionEvidence(d);
         d["AnalysisComplete"] = AnalysisComplete;
         d["InputStatus"] = InputStatus;
         d["Outcome"] = Outcome;

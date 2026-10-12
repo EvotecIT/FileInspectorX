@@ -308,9 +308,7 @@ internal static partial class Signatures
         bool shShebang = headLower.Contains("#!/bin/sh") || headLower.Contains("#!/usr/bin/env sh") ||
                          headLower.Contains("#!/usr/bin/env bash") || headLower.Contains("#!/bin/bash") ||
                          headLower.Contains("#!/usr/bin/env zsh") || headLower.Contains("#!/bin/zsh");
-        bool batCues = headLower.Contains("@echo off") || headLower.Contains("setlocal") || headLower.Contains("endlocal") ||
-                       headLower.Contains("\ngoto ") || headLower.Contains("\r\ngoto ") || headLower.Contains(" goto ") ||
-                       headLower.StartsWith("rem ") || headLower.Contains("\nrem ") || headLower.Contains("\r\nrem ") || headLower.Contains(":end");
+        bool batCues = LooksLikeBatchScript(headLower);
         bool scriptCues = psCues || vbsCues || jsCues || shShebang || batCues;
 
         ctx = new TextContext(

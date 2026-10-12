@@ -56,10 +56,21 @@ public class MsiOleCfDetectionTests
                 fs.Write(dir, 0, dir.Length);
             }
 
-            var det = FileInspector.Detect(tmp);
-            Assert.NotNull(det);
-            Assert.Equal("msi", det!.Extension);
-            Assert.True(det.Confidence == "High" || det.Confidence == "Medium");
+            var bytes = File.ReadAllBytes(tmp);
+            using var stream = new MemoryStream(bytes, writable: false) { Position = 3 };
+            foreach (var det in new[]
+            {
+                FileInspector.Detect(tmp), FileInspector.Detect(bytes),
+                FileInspector.Detect(bytes.AsMemory()), FileInspector.Detect(bytes.AsSpan()),
+                FileInspector.Detect(stream)
+            })
+            {
+                Assert.NotNull(det);
+                Assert.Equal("msi", det!.Extension);
+                Assert.Equal("Medium", det.Confidence);
+                Assert.Contains("sector-chains-partial", det.Reason, StringComparison.Ordinal);
+            }
+            Assert.Equal(3, stream.Position);
         }
         finally { try { File.Delete(tmp); } catch { } }
 

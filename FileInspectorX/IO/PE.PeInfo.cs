@@ -15,6 +15,8 @@ internal sealed class PeInfo {
     public long ChecksumFileOffset;
     /// <summary>Number of section headers.</summary>
     public ushort NumberOfSections;
+    /// <summary>COFF machine identifier, used to describe the image architecture.</summary>
+    public ushort Machine;
     /// <summary>Parsed section headers used for RVA to file offset mapping.</summary>
     public Section[] Sections = Array.Empty<Section>();
     /// <summary>RVA of the root of the resource directory (IMAGE_DIRECTORY_ENTRY_RESOURCE).</summary>

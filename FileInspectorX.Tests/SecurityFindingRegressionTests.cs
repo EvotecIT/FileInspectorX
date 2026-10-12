@@ -556,13 +556,14 @@ public sealed class SecurityFindingRegressionTests
 
         static void WriteRarHeader(Stream stream, byte type, ushort flags)
         {
-            stream.WriteByte(0);
-            stream.WriteByte(0);
-            stream.WriteByte(type);
-            stream.WriteByte((byte)(flags & 0xFF));
-            stream.WriteByte((byte)(flags >> 8));
-            stream.WriteByte(7);
-            stream.WriteByte(0);
+            using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+            var name = Encoding.ASCII.GetBytes("file.txt");
+            writer.Write((ushort)0); writer.Write(type); writer.Write(flags);
+            writer.Write((ushort)(type == 0x74 ? 32 + name.Length : 7));
+            if (type != 0x74) return;
+            writer.Write(0u); writer.Write(0u); writer.Write((byte)0);
+            writer.Write(0u); writer.Write(0u); writer.Write((byte)20); writer.Write((byte)0x30);
+            writer.Write((ushort)name.Length); writer.Write(0u); writer.Write(name);
         }
     }
 

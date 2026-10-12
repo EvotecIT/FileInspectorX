@@ -16,7 +16,7 @@ public static partial class FileInspector
     /// On Windows, invokes WinVerifyTrust to evaluate Authenticode policy (catalog-aware).
     /// Populates <see cref="AuthenticodeInfo.IsTrustedWindowsPolicy"/> and <see cref="AuthenticodeInfo.WinTrustStatusCode"/>.
     /// </summary>
-    private static void TryVerifyAuthenticodeWinTrust(string path, FileAnalysis res)
+    private static void TryVerifyAuthenticodeWinTrust(string path, FileAnalysis res, DetectionOptions? options)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
         if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
@@ -36,7 +36,8 @@ public static partial class FileInspector
             var data = new WINTRUST_DATA();
             data.cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_DATA));
             data.dwUIChoice = WTD_UI_NONE;
-            data.fdwRevocationChecks = OperationSettings.VerifyAuthenticodeRevocation ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
+            bool revocation = options?.OfflineCertificateValidation != true && OperationSettings.VerifyAuthenticodeRevocation;
+            data.fdwRevocationChecks = revocation ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
             data.dwUnionChoice = WTD_CHOICE_FILE;
             data.dwStateAction = WTD_STATEACTION_IGNORE;
             // Allocate unmanaged WINTRUST_FILE_INFO and ensure cleanup afterward
@@ -44,7 +45,7 @@ public static partial class FileInspector
             Marshal.StructureToPtr(fileInfo, pFile, fDeleteOld: false);
             data.pFile = pFile;
             data.dwProvFlags = WTD_SAFER_FLAG | WTD_REVOCATION_CHECK_NONE | WTD_HASH_ONLY_FLAG | WTD_CACHE_ONLY_URL_RETRIEVAL;
-            if (OperationSettings.VerifyAuthenticodeRevocation) data.dwProvFlags &= ~WTD_REVOCATION_CHECK_NONE;
+            if (revocation) data.dwProvFlags &= ~WTD_REVOCATION_CHECK_NONE;
 
             int status = WinVerifyTrust(IntPtr.Zero, ref guidAction, ref data);
             res.Authenticode.WinTrustStatusCode = status;
@@ -55,7 +56,7 @@ public static partial class FileInspector
                 if (string.IsNullOrWhiteSpace(res.Authenticode.VerificationNote))
                     res.Authenticode.VerificationNote = "WinTrust policy validation";
             }
-            else if (status == TrustENoSignature)
+            else if (status == TrustENoSignature && options?.OfflineCertificateValidation != true)
             {
                 TryPopulateAuthenticodeFromPowerShell(path, res.Authenticode);
                 if (res.Authenticode.IsTrustedWindowsPolicy == true)

@@ -94,6 +94,9 @@ internal static partial class Signatures
             if (hasQuotedColon && hasClose)
                 addCandidate("json", "application/json", "Medium", "text:json", "json:object-key-colon", jsonBoost + jsonPenalty, null);
         }
+        if (jsonValid)
+            addCandidate("json", "application/json", "Medium", "text:json", "json:validated-sample",
+                jsonValidBoost + jsonPenalty, null);
     }
 
     private static void TryAddXmlCandidates(
