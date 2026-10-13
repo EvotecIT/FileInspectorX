@@ -1,220 +1,139 @@
-# Dependencies for deeper file understanding
+# Deeper file understanding and dependency boundaries
 
-Assessed 13 October 2026. This is a proposal: none of these engines is installed,
-referenced or invoked by FileInspectorX. Each production dependency and its role
-needs approval before implementation. Published package information below is a
-research snapshot, not a version pin or a compatibility test.
+Assessed 13 October 2026. FileInspectorX and OfficeIMO develop their managed
+inspection capabilities independently. FileInspectorX has no OfficeIMO dependency,
+and OfficeIMO has no FileInspectorX dependency. A provider, package split or shared
+transport has not been selected. New production dependencies and their roles need
+approval before integration.
 
-The most useful next additions are embedded image metadata and readable PDF text.
-Keep detection and the portable report contract in FileInspectorX; make deeper
-readers optional. The same report should explain which engine ran, what it read,
-what it skipped and which facts support its observations.
+The [report guide](file-reports.md) describes the implemented FileInspectorX contract
+and its limits. This assessment identifies the remaining capabilities and the
+decisions needed to connect them without duplicating format engines.
 
-## Current coverage and remaining work
+## What FileInspectorX owns
 
-The current [report reader](../FileInspectorX/Reporting/ReportContentReader.cs)
-extracts bounded UTF text, selected Office XML content, archive inventories and
-whole-member hashes within the expansion budget. It reads PNG/GIF/JPEG header
-dimensions. PDF content remains direct lexical signals. Text similarity compares
-extracted samples; it does not compare binary structure or infer meaning.
+FileInspectorX owns file identity, detection and analysis, portable reports,
+comparison evidence and the local upload/search workflow. Its managed report
+readers use existing platform capabilities and repository code; this upgrade adds
+no production package or external executable.
 
-The [report options](../FileInspectorX/Reporting/InspectionReport.cs) default to
-64 MiB input, 64 Ki characters, 256 archive entries, 1 MiB per expanded member and
-16 MiB expanded bytes overall. The [local Web host](../FileInspectorX.Web/Worker.cs)
-uses a separate worker, with a 30-second deadline and an observed 512 MiB working
-set threshold. That threshold is sampled, and the worker has the user's OS
-permissions; it is not an OS sandbox or a hard memory limit.
-
-| Remaining question | Suitable capability | What still needs separate work |
+| Capability | Available evidence | Remaining boundary |
 | --- | --- | --- |
-| Who created this photo; when and where? | Embedded metadata reader | Values are file claims; authenticity and location consent |
-| What does this PDF say? | PDF text and object reader | Reading order, scanned pages, rendering, tables and quality evidence |
-| What is in Office headers, notes and relationships? | OOXML package/object reader | Explicit content policy, formatting, revisions, calculation and layout |
-| Which binaries resemble this file? | Fuzzy byte digest | Corpus thresholds, unavailable digests and indexing |
-| What streams and codecs are in this video/audio? | Media probe | Transcription, scene understanding, thumbnails and decoding proof |
-| What does this scanned page or screenshot say? | OCR | Rasterization, language policy, quality assessment and pixel budgets |
+| UTF text and selected OOXML | Bounded text, stored values/formulas, counts and package inventory | Fuller document stories, review, relationships and layout need document owners |
+| ZIP/TAR | Whole-member hashes, ordinals and bounded nested reports | Unread or oversized members remain explicit omissions; no filesystem extraction |
+| WAV, FLAC, ID3, ISO-BMFF | Source-located declarations, tags, track/codec identifiers and supported derived timing | No sample decoding, playback validation, transcription or scene understanding |
+| PE and other binary inputs | Whole raw-section hashes or sampled complete fixed blocks | Overlap describes inspected bytes, not program behavior or semantic similarity |
+| PNG/GIF/JPEG | Header format/dimensions | Embedded metadata, pixel decoding and OCR are separate capabilities |
+| PDF | Existing direct lexical inspection signals | Text, page/object models and rendering are not integrated |
 
-## Options, from smaller deployment changes to larger ones
+Schema-v2 facts distinguish embedded claims from derived values. Regions and
+comparison evidence keep their inspected coverage visible. The report accepts saved
+schema-v1 evidence without inventing the new fields. Larger configured inputs can
+use a captured disk snapshot on supported runtimes, but extraction and output still
+have finite budgets.
 
-This ordering considers native assets, models and maintenance as well as download
-size. It is an assessment, not a measured installation benchmark. Package archives
-contain multiple framework builds; their compressed size is not the added size of
-a published application. Native tool size depends on the chosen build and target.
+These limits do not make every analysis stage a streaming parser or establish a
+hard process-memory bound. The [local worker](../FileInspectorX.Web/Worker.cs) has a
+30-second deadline and an observed 512 MiB working-set threshold. The threshold is
+sampled, and the worker has the user's OS permissions. Public hosting needs a
+separate authorization, tenant and OS-isolation design.
 
-| Order | Candidate and narrow role | Deployment and ownership fit |
+## What the document and image owners provide
+
+[OfficeIMO](https://github.com/EvotecIT/OfficeIMO) owns reusable document, image,
+PDF and archive-format behavior. Improving those APIs is useful to OfficeIMO
+consumers even before FileInspectorX consumes any package.
+
+| Owner | Inspection capability | Evidence that a later integration must preserve |
 | --- | --- | --- |
-| 1 | MetadataExtractor: embedded media metadata | Managed optional reader; useful without pixel decoding or models |
-| 2 | PdfPig: PDF text, pages and document facts | Managed optional reader; largest immediate content gap |
-| 3 | Open XML SDK: fuller OOXML structure and validation | Conditional replacement for the bounded XML subset, if scope justifies it |
-| 4 | TLSH: binary similarity | Optional native utility/library; distinct report field and comparison basis |
-| 5 | ffprobe: audio/video stream inventory | Optional installed native worker with a controlled build |
-| 6 | Tesseract: OCR for images | Native worker plus selected language models; PDF rasterization adds another engine |
+| `OfficeIMO.Pdf` | Managed PDF loading, object/page reading and `ReadForInspection` outcomes | Recovery/repair evidence, selected-page outcomes, text mapping/fallback evidence, permission refusal and terminal resource/cancellation failures |
+| `OfficeIMO.Reader.Core` and format adapters | Structured document output with opt-in `ReaderInspectionOptions` evidence | Source identities, review/formula/visibility/safety/payload categories, shared record/text budgets and existing versioned Reader serialization |
+| Word, Excel and PowerPoint owners | Document models and opt-in original-package security capture | Stored formulas/cache declarations, review records, hidden content and source-package findings; no macro execution or formula calculation by inspection |
+| `OfficeIMO.Core` and `OfficeIMO.Reader.Image` | Managed image metadata inspection and bounded Reader projection | Raw Exif identity/offsets, duplicate fields, timestamp/GPS interpretation, XMP collections, ICC structure and authored-resolution status |
+| `OfficeIMO.Archives` | Managed CAB/MSI format ownership | Whole-member bytes and names, compression/support boundaries, finite expansion and lifetime ownership |
 
-### 1. MetadataExtractor
+OfficeIMO's Reader evidence uses its existing metadata contract. FileInspectorX
+facts are a separate portable representation. Neither contract currently imports
+the other's types. Similar field names do not establish that the schemas or
+serialization policies are interchangeable.
 
-Use it to expose Exif, IPTC, XMP and ICC fields, camera details, embedded timestamps,
-orientation and location tags. Its supported formats include common images,
-camera raw files and some movie/audio containers. It is a metadata reader; scene
-descriptions and OCR remain separate capabilities. [Upstream scope](https://github.com/drewnoakes/metadata-extractor-dotnet#features).
+Image metadata coverage remains a defined profile: private or additional Exif
+directories, camera MakerNotes and arbitrary structured RDF can be omitted.
+ICC structural evidence does not establish that every profile can be used as a
+supported color transform. A missing authored resolution must stay distinct from
+a display default. Generic image inspection must not imply decoding support for
+every container handled by a dedicated metadata API.
 
-The published 2.9.3 package has `net8.0`, `netstandard2.0` and `netstandard2.1`
-assets. Upstream advertises NativeAOT for its .NET 8 target. The archive is about
-1 MB, before dependencies. Its runtime graph includes XmpCore; older targets also
-bring compatibility/encoding packages. [Package frameworks and dependencies](https://www.nuget.org/packages/MetadataExtractor/),
-[AOT declaration](https://github.com/drewnoakes/metadata-extractor-dotnet/blob/main/MetadataExtractor/MetadataExtractor.csproj).
+PDF inspection must retain per-page failures and text-decoding evidence. Readable
+text does not establish visual reading order, complete font coverage, rendering
+fidelity or OCR quality. Recovering a damaged file must not erase the fact that it
+was recovered. Document security findings and embedded metadata remain evidence,
+not a trustworthy statement about the author's identity or a safety verdict.
 
-MetadataExtractor is Apache-2.0; upstream identifies XmpCore as BSD licensed.
-Keep both license sets in the distributable. [License and third-party terms](https://github.com/drewnoakes/metadata-extractor-dotnet/blob/main/LICENSE).
+OfficeIMO has its own dependency and target-framework graph. First-party source
+ownership does not mean a chosen OfficeIMO package has no transitive dependencies,
+native assets or compatibility work. Those properties must be checked for the
+specific packages and hosts proposed for integration.
 
-Qualify it with independent camera/phone files, conflicting Exif/XMP values,
-malformed/truncated metadata and large tags. Retain source directory/tag identifiers,
-raw values and parse errors. Show timestamps and GPS as embedded claims. Exercise
-XMP and camera notes in the actual trimmed/AOT executable, and validate Windows
-PowerShell's .NET Framework path separately before claiming that host is supported.
+## Integration and package choices remain open
 
-### 2. PdfPig
+The code in each repository stays independently useful while these questions are
+resolved. An integration decision should name the exact capability and caller,
+rather than adding the whole OfficeIMO repository to core.
 
-Use it for page counts and dimensions, text with page locations, document metadata,
-links, forms and attachment inventory. This addresses PDFs whose text lives in
-compressed content streams. A readable extraction also enables existing keyword
-and text similarity features. [Document APIs](https://github.com/UglyToad/PdfPig#usage).
+| Decision | Options to assess | Practical consequence |
+| --- | --- | --- |
+| Receiving boundary | Core reference or optional reader integration | Determines whether all FileInspectorX installations carry document-engine requirements |
+| Package selection | Individual format owners and Reader adapters already serving the chosen formats | Determines transitive dependencies, target frameworks and deployment size |
+| Mapping owner | Thin integration code that maps native results into report facts/text/issues | Keeps parsing in its canonical format owner and report policy in FileInspectorX |
+| Execution | In-process library use or the local host's child worker | Determines cancellation, lifetime, memory and failure boundaries; a child process is not an OS sandbox |
+| Contract | Preserve both versioned models or explicitly map a supported subset | Determines where source locations, unknown values, recovery and partial coverage can be lost |
 
-PdfPig is Apache-2.0 and has additional attribution notices. Its published 0.1.16
-package supplies .NET Standard 2.0/2.1, .NET Framework 4.6.2/4.7.1 and .NET 6/8/9
-assets; the archive is about 16 MB. It is managed, with bundled resources and
-compatibility dependencies on older targets. Verify the selected package graph,
-rather than inferring a release from the development branch. [Published package](https://www.nuget.org/packages/PdfPig/0.1.16),
-[license](https://github.com/UglyToad/PdfPig/blob/master/LICENSE),
-[notices](https://github.com/UglyToad/PdfPig/blob/master/NOTICES.txt).
+No package name, reference direction or compatibility bridge is prescribed here.
+Before choosing, run a representative file through each public owner API and
+compare the resulting evidence and omissions. Check the actual public package
+availability separately from local source. Qualify a local candidate through
+source references or an isolated package feed; do not hide publication lag with
+runtime reflection, fallback parsers or private build versions in normal pins.
 
-Upstream warns that text content order often differs from reading order and that
-pre-1.0 minor versions can change the API. Select and report an extraction policy;
-do not present `Page.Text` as a faithful reading sequence. [Reading guidance](https://github.com/UglyToad/PdfPig#reading-text-from-a-pdf).
+A later adapter should receive the same captured bytes used for identity and
+extraction. It should apply content policy once, preserve native source identities,
+and map unknown, skipped, recovered and failed states explicitly. It must not
+silently replace stored text with OCR, a formula with a calculated result, or an
+embedded declaration with a verified fact. Finite source, expansion, page, metadata
+and output limits must survive the mapping.
 
-PDF rasterization, scanned-page OCR and reliable table reconstruction are separate
-work. Image filters also have limitations. [Image extraction limits](https://github.com/UglyToad/PdfPig/wiki/FAQ).
-Upstream has renewed trimming/AOT analysis; that is useful evidence, not proof of
-our chosen extraction path. [Release notes](https://github.com/UglyToad/PdfPig/releases/tag/v0.1.16).
+## Remaining gaps and external alternatives
 
-Qualify compressed/object-stream PDFs, custom fonts and CJK, multicolumn pages,
-encrypted inputs, incremental updates, scans and damaged cross-references. Compare
-text against known producer output and human reading order. Report password-required,
-recovered and skipped content separately. Cap pages, decoded bytes, attachments and
-output; retain the worker deadline because an input byte limit does not bound all
-parser allocations. No rendering or full PDF conformance claim follows from parsing.
+Independent managed upgrades do not complete every file-understanding workflow.
+These choices remain conditional on an actual need; none is a recommendation to
+install another production dependency now.
 
-### 3. Open XML SDK and fuller document engines
+| Need | Route to assess | Boundary |
+| --- | --- | --- |
+| Broader embedded metadata | Extend the image owner where its profile is insufficient; use [MetadataExtractor](https://github.com/drewnoakes/metadata-extractor-dotnet) as a separately qualified alternative or test comparison | Additional tag coverage does not verify claims or decode pixels |
+| Unsupported PDF reading cases | Improve `OfficeIMO.Pdf`; use [PdfPig](https://github.com/UglyToad/PdfPig) only as a comparison or an explicitly approved alternative | Do not introduce a second production PDF reader merely to avoid fixing the owner |
+| Fuller OOXML markup | Extend the document owners and their existing Open XML support | Preserve review, hidden-content and relationship policy; no parallel document engine in FileInspectorX |
+| Interoperable fuzzy byte digests | Assess [TLSH](https://github.com/trendmicro/tlsh) or an existing-index requirement separately | Current exact-region overlap is not a TLSH/ssdeep digest or a behavioral comparison |
+| Additional media formats and decoded stream proof | Extend bounded managed profiles where practical; assess [ffprobe](https://ffmpeg.org/ffprobe.html) for a selected native-tool role | Native build provenance, protocols, accessible paths and process/output budgets need separate qualification |
+| Scanned text | Use the existing `OfficeIMO.Ocr.IOcrEngine` ownership route and assess the selected engine, rasterizer and language models | OCR, page rasterization and decoded-pixel budgets are distinct from stored text extraction |
+| Purpose or scene descriptions | A separately designed synthesis workflow over retained evidence | Requires source citations, privacy policy and uncertainty handling; metadata alone is insufficient |
 
-The SDK offers typed OPC parts and ISO 29500 markup, including validation APIs.
-It is appropriate when relationship-aware extraction, Strict/Transitional documents,
-headers, notes, comments and markup compatibility exceed the current XML subset.
-It is a low-level format API; FileInspectorX still needs an explicit policy for
-which content belongs in a report. [SDK scope](https://github.com/dotnet/Open-XML-SDK),
-[validation example](https://learn.microsoft.com/en-us/office/open-xml/word/how-to-validate-a-word-processing-document).
+Test-only comparison engines must stay outside shipped artifacts, normal installation
+and public APIs. A future production engine needs an explicit role, license/transitive
+inventory, update owner and target-host qualification. Native tools and OCR models
+have their own distribution and resource requirements even when the caller is managed.
 
-The published 3.5.1 package is MIT licensed and includes `netstandard2.0`, `net8.0`
-and .NET Framework assets. Its archive is about 15 MB, plus the Framework package
-and packaging dependencies. No native Office installation is needed for XML access.
-Validate the actual package/transitive graph and AOT path; framework compatibility
-alone proves neither trimming safety nor bounded memory. [Package](https://www.nuget.org/packages/DocumentFormat.OpenXml/3.5.1),
-[Framework package](https://www.nuget.org/packages/DocumentFormat.OpenXml.Framework/3.5.1),
-[MIT license](https://github.com/dotnet/Open-XML-SDK/blob/main/LICENSE).
+## Evidence required before connecting the repositories
 
-The SDK documents ZIP working-set growth on modern .NET. Preserve expansion limits
-before handing a package to it and test large/damaged parts. [Known issues](https://github.com/dotnet/Open-XML-SDK#known-issues).
-Treat stored formulas and cached results as separate evidence; the cached value
-reflects a prior calculation and can be absent or stale. [SpreadsheetML formulas](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/working-with-formulas).
+Exercise malformed and truncated inputs, duplicates, conflicting metadata, damaged
+PDFs, unusual fonts, encrypted/permission-restricted inputs, hidden/review content,
+stored formulas and cached results, and nested expansion limits. Include independently
+produced files with known expected content; synthetic fixtures alone do not prove
+producer interoperability or extraction fidelity.
 
-Full document engines become relevant for layout, rendering, calculated values and
-higher-level interpretation. OfficeIMO is excluded from this implementation.
-The nearby source already has document readers and an `OfficeIMO.Ocr.IOcrEngine`
-contract; any later reuse needs a separate ownership and public-package assessment.
-Do not create another document layout or OCR orchestration engine in this project.
-
-### 4. TLSH, with ssdeep as an interoperability alternative
-
-TLSH compares byte streams through fuzzy digests. It needs at least 50 bytes with
-enough variation; short or repetitive inputs may produce no digest. The upstream
-implementation builds a native library and executable, and does not certify its
-listed third-party ports as equivalent. [Algorithm and deployment](https://github.com/trendmicro/tlsh).
-It permits a choice of Apache-2.0 or BSD terms. [License](https://github.com/trendmicro/tlsh/blob/master/LICENSE).
-
-Prefer an optional adapter to an approved upstream build if binary resemblance is
-needed. Record algorithm/version, digest availability and byte coverage. Verify
-known vectors, cross-platform parity, short/uniform files and edited/compressed
-copies. Calibrate distance thresholds by file family; a distance is not a semantic
-similarity percentage. An AOT host can launch a tool, but still needs that target's
-executable and bounded process/output handling.
-
-ssdeep is useful when consuming existing ssdeep indexes. Its CTPH program and
-libfuzzy use GPL-2.0-or-later, so its distribution/integration needs a specific
-license decision. The official page's release/platform information is old; it
-does not establish current target qualification. It adds no immediate value to
-the existing text comparison workflow. [Official scope and license](https://ssdeep-project.github.io/ssdeep/).
-
-### 5. ffprobe
-
-Use JSON output for container and stream facts: codecs, dimensions, duration,
-sample rate, channels, stream tags and subtitles/attachments inventory where
-supported. Select specific fields; avoid packet/frame dumps as the default report.
-Transcription and visual scene understanding remain separate. [ffprobe options](https://ffmpeg.org/ffprobe.html).
-
-This is a native executable, without a .NET target framework. Prefer a configured
-installed tool in an isolated worker over shipping every codec in core. A NativeAOT
-host does not remove native deployment requirements. Build size and supported
-formats depend on enabled components; measure each approved OS/architecture build.
-
-FFmpeg's base terms are LGPL-2.1-or-later; enabling GPL components changes the build's
-terms, and nonfree configurations need separate scrutiny. Record binary provenance,
-configure flags and corresponding source/licenses before redistribution. [Official licensing guidance](https://ffmpeg.org/legal.html).
-Restrict protocols and local file access: network protocols are available by
-default. A protocol allowlist still does not constrain all accessible local paths.
-[Protocol controls](https://ffmpeg.org/ffmpeg-protocols.html#Protocol-Options).
-Test truncated media, misleading tags, unusual stream counts, playlists, external
-references, missing codecs, oversized output and process termination.
-
-### 6. Tesseract OCR
-
-Use it to produce OCR text, word boxes and recognition evidence for supported
-images. It supplies a native CLI and C/C++ APIs; no upstream .NET framework or
-managed-wrapper compatibility should be inferred. Quality depends on the image
-and preprocessing. [Engine and output formats](https://github.com/tesseract-ocr/tesseract).
-
-Tesseract and the official fast language models are Apache-2.0; Leptonica uses
-BSD-2-Clause, and native image codecs have their own terms. Models and native
-libraries must be inventoried separately. [Engine license](https://github.com/tesseract-ocr/tesseract/blob/main/LICENSE),
-[model license](https://github.com/tesseract-ocr/tessdata_fast/blob/main/LICENSE),
-[Leptonica license](https://github.com/DanBloomberg/leptonica/blob/master/leptonica-license.txt).
-
-Start with explicitly selected languages and compare `tessdata_fast` against
-`tessdata_best` on the real corpus. Upstream describes a speed/accuracy tradeoff;
-shipping every language increases model storage and operational scope. [Model choices](https://tesseract-ocr.github.io/tessdoc/Data-Files.html).
-Tesseract cannot read PDF input: scanned PDFs require a separately approved
-rasterizer, fonts/assets and page/pixel budgets. [Input limitations](https://tesseract-ocr.github.io/tessdoc/InputFormats.html).
-
-Use a shared OCR owner if this later proceeds. Keep recognized text distinct from
-stored text and include language/model/version and page/image origin. Qualify
-rotated pages, low resolution, tables, handwriting and mixed languages against
-ground truth; engine confidence is not calibrated factual certainty. Validate
-timeouts, cancellation, temporary-file cleanup, process concurrency and maximum
-decoded pixels on each shipped target.
-
-## Decision and acceptance requirements
-
-Propose MetadataExtractor and PdfPig first, as independently optional readers.
-Choose Open XML SDK only when fuller Office structure is required. Defer native
-similarity, media probing and OCR until the corresponding user workflow is chosen.
-Keep UI, PowerShell and the Web host as consumers of one report owner.
-
-Assign an owner for engine updates, advisories, licenses, native build provenance
-and regression fixtures. Record engine versions in reports so changed extraction
-can be diagnosed. Requalify affected fixtures after updates, especially PdfPig's
-pre-1.0 API changes and native codec/model changes.
-
-Before approval, resolve exact package/tool versions, transitive licenses, ownership
-and target hosts. Before shipping, measure installed/published size, startup and
-peak memory; run meaningful malformed-input and independent-producer fixtures;
-verify the intended .NET Framework, trimmed/AOT and native targets separately.
-Report unavailable engines, partial reads and resource-limit failures explicitly.
-None of these candidates supplies trustworthy semantic summaries by itself:
-any later model-based explanation needs its own evidence, privacy and review policy.
+Measure the selected packages' installed size, startup and peak memory on each
+intended host. Validate .NET Framework/PowerShell, .NET 8, trimming/AOT and any native
+targets separately. Test cancellation, stream ownership, temporary-file cleanup,
+worker failure and saved-report compatibility at the actual integration boundary.
+Record engine versions and extraction policy so a changed result can be diagnosed.

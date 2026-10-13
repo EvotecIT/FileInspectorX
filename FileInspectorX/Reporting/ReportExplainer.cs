@@ -16,6 +16,10 @@ internal static class ReportExplainer
             Add("text-topics", "Frequent words in the extracted text: " + string.Join(", ", report.Content.Keywords) + ". These are word frequencies, not an inferred purpose.", "Content.Keywords");
         if (report.Content.Entries.Count > 0)
             Add("archive", "The report inventories " + report.Content.Entries.Count + " archive entries. Member hashes are included only where whole entries fit the read budget.", "Content.Entries");
+        if (report.Content.Facts.Count > 0 && report.Content.Reader.EndsWith("-metadata", StringComparison.Ordinal))
+            Add("media", "The report contains " + report.Content.Facts.Count + " media container facts and their source locations. Declared properties do not prove playback or successful decoding.", "Content.Facts;Content.Issues");
+        if (report.Content.Regions.Count > 0)
+            Add("regions", "Whole binary region hashes are available where ranges fit the budget. Region matches describe those bytes, not equal program behavior or meaning.", "Content.Regions");
         if (!string.IsNullOrEmpty(analysis.ScriptLanguage))
             Add("script", "The content has " + analysis.ScriptLanguage + " script characteristics. It was inspected without execution.", "Analysis.ScriptLanguage");
         foreach (var finding in (analysis.SecurityFindings ?? Array.Empty<string>()).Take(24))

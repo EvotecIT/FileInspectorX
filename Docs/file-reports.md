@@ -6,11 +6,19 @@ It never executes scripts, opens documents in Office or sends content to a servi
 
 ## Report contract
 
-Schema version 1 contains `File`, `Analysis`, `Content` and `Observations`.
+Schema version 2 contains `File`, `Analysis`, `Content` and `Observations`.
 `File` records the display name, exact byte length and whole-input SHA-256.
 `Analysis` retains detection, validation, learned-classifier evidence when requested,
 signatures and typed stage outcomes. `Content` records the reader, text, metadata,
-archive inventory and explicit issues. Each observation points to a supporting field.
+archive inventory, typed facts, binary regions and explicit issues. Each observation
+points to a supporting field.
+
+`InspectionReport.CurrentSchemaVersion` identifies the producer contract.
+`InspectionReport.SupportsSchema(version)` accepts versions 1 and 2; other versions
+must be rejected. Saved version-1 reports retain their original evidence and can be
+read by the local catalog or compared through either comparison API. Missing version-2
+collections are empty, so a version-1 report does not acquire facts, regions or nested
+reports merely by being loaded.
 
 The producer version and UTC creation time accompany every report. Consumers should
 check `SchemaVersion` before interpreting a saved report. `Outcome` is partial when
@@ -36,13 +44,89 @@ Console.WriteLine(report.Content.Metadata["SheetNames"]);
 Console.WriteLine(report.Outcome);
 ```
 
-The reader buffers a bounded snapshot so identity and extraction refer to the same
-bytes. Seekable input is read from zero and restored to its original position;
-forward-only input consumes the remaining content. The caller's stream stays open.
-The default input limit is 64 MiB. The text limit is 64 Ki characters, ZIP/TAR inventory
-limit 256 entries, expanded member limit 1 MiB, and total expanded read limit 16 MiB.
-Existing archive-directory, compression-ratio and XML depth/DTD safeguards apply.
-Oversized input throws `InvalidDataException`; cancellation propagates.
+### Facts and source locations
+
+Each `Content.Facts` record has a field `Name`, a `Kind` and an invariant string
+`Value`. Media names include their format or field family, such as `Wave.Encoding`
+or `Audio.Channels`; legacy metadata retains its existing field names.
+The kind distinguishes text, integer, decimal, Boolean, timestamp,
+URI and SHA-256 representations. `Origin` distinguishes embedded claims from derived
+values; the contract also has default and inferred categories. Current media readers
+emit embedded declarations and explicitly derived durations or counts. Legacy metadata
+is projected as derived facts when a reader has no native fact records.
+
+An optional `Source` identifies a container part or record and a zero-based byte offset
+and length. Offsets refer to the exact input of that report; offsets in a nested report
+refer to the member bytes. Some derived facts have no physical byte range. Locations
+never contain the host's filesystem path. Duplicate tags can remain separate facts,
+even when the compatibility `Metadata` dictionary cannot retain every occurrence.
+Text prefixes set `Truncated`; numeric values that cannot fit are omitted rather than
+shortened. Embedded dates, camera details, codec names and dimensions are file claims,
+not proof of authenticity.
+
+```csharp
+var report = FileInspector.AnalyzeReport("recording.wav");
+foreach (var fact in report.Content.Facts)
+    Console.WriteLine($"{fact.Name}: {fact.Value} ({fact.Kind}, {fact.Origin}) " +
+        $"at byte {fact.Source?.ByteOffset}");
+```
+
+### Captured input and limits
+
+The reader captures the input once and computes its SHA-256 during capture, so identity
+and extraction refer to the same bytes. Seekable input is read from zero and restored
+to its original position; forward-only input consumes the remaining content. The
+caller's stream stays open.
+
+The snapshot stays in memory up to `MaxMemorySnapshotBytes`. Beyond that threshold,
+the .NET 8 build creates an exclusive temporary file with owner-only permissions
+on Unix; Windows uses the selected directory's inherited ACL. The file is deleted on close,
+including cancellation or failed capture. `SnapshotDirectory` must already exist;
+null uses the host's temporary directory. The .NET Standard and .NET Framework
+builds reject a spill on a non-Windows host with `PlatformNotSupportedException`,
+even if that host has a newer runtime. Keep the captured input within the memory
+threshold on those builds. This threshold bounds snapshot storage, not all parser
+allocations or process memory.
+
+| Option | Default | Scope |
+| --- | --- | --- |
+| `MaxInputBytes` | 64 MiB | Complete root input |
+| `MaxMemorySnapshotBytes` | 64 MiB | Captured bytes before disk spill |
+| `MaxTextCharacters` | 64 Ki characters | Text retained by each reader |
+| `MaxArchiveEntries` | 256 | Inventory entries visited per archive |
+| `MaxEntryBytes` | 1 MiB | Expanded bytes of one member |
+| `MaxExpandedBytes` | 16 MiB | Content-reader expansion across root and descendants |
+| `MaxMetadataBytes` | 1 MiB | Bytes probed by each media metadata reader |
+| `MaxFacts` | 256 | Facts retained by each content reader |
+| `MaxFactCharacters` | 4 Ki characters | One retained fact value |
+| `MaxTotalContentCharacters` | 256 Ki characters | Text, fact names/values and metadata keys/values across root and descendants |
+| `MaxEntryNameCharacters` | 1,024 | Retained decoded member name |
+| `MaxRegions` | 32 | Binary regions emitted per input |
+| `MaxRegionBytes` | 2 MiB | One complete region to hash |
+| `MaxRegionHashBytes` | 16 MiB | Region bytes hashed per input |
+| `MaxNestedReports` | 32 | Descendant reports across one root |
+| `MaxNestedDepth` | 2 | Descendant depth; root is zero |
+
+Budgets must be positive, except `MaxNestedReports` and `MaxNestedDepth`, where zero
+disables nested analysis. Existing archive-directory, compression-ratio and XML
+depth/DTD safeguards also apply. These limits govern report content extraction;
+the existing `Analysis` section retains its own detection and analyzer settings.
+Oversized input throws `InvalidDataException`; cancellation propagates. Bounded
+omissions appear in content or region issues and make coverage partial.
+
+For a larger local input on .NET 8, configure the input and snapshot budgets explicitly:
+
+```csharp
+var report = FileInspector.AnalyzeReport("video.mp4", new InspectionReportOptions {
+    MaxInputBytes = 512 * 1024 * 1024,
+    MaxMemorySnapshotBytes = 8 * 1024 * 1024,
+    MaxMetadataBytes = 1024 * 1024
+});
+```
+
+The whole input is still captured and hashed. Media readers seek over payloads within
+that captured stream. Raising a library budget does not raise the local application's
+64 MiB upload limit.
 
 Reports force certificate chain checks offline, including signers inside archives.
 On .NET 8, issuer downloads are disabled and trust depends on locally available
@@ -56,19 +140,82 @@ and certificate metadata remain available; neither establishes package integrity
 | Word OOXML | Main-document paragraphs and table count | No revisions, headers, drawings or layout |
 | Excel OOXML | Sheet names, stored values, shared/inline strings, formulas | No formula execution, formatting or calculation |
 | PowerPoint OOXML | Stored slide text, sampled slides | No notes, embedded objects or rendering; part order is lexical |
-| ZIP/TAR | Bounded member inventory and whole-member SHA-256 where available | No filesystem extraction; larger/unread members have no hash |
+| ZIP/TAR | Bounded member inventory, whole-member SHA-256 and optional nested reports | No filesystem extraction; larger/unread members have no hash |
 | PNG/GIF/JPEG | Header format and dimensions where present | Header claims only; pixels, OCR and metadata are uninspected |
+| WAV | Format, channels, sample rate, sample width and data size; duration for a consistent PCM/float declaration | No waveform decoding; compressed or inconsistent declarations have no derived duration |
+| FLAC | STREAMINFO sample declarations and Vorbis comments | No audio-frame decoding or stored audio-MD5 verification |
+| ID3 | Version-2.2/2.3/2.4 text frames with source frame identity | No MP3-frame/bitrate analysis; unsupported transforms and non-text frames are reported |
+| ISO-BMFF | Brands, sampled tracks, handler/codec identifiers, declared dimensions and media timing | No sample decoding; track transforms, edit lists and fragmented timing remain uninspected |
 | PDF | Existing direct lexical inspection signals | No text extraction, page-tree traversal or compressed-object interpretation |
 | Other formats | Existing detection/analysis | Content reader explicitly unavailable |
 
 The OOXML readers accept Transitional and Strict namespaces. Unsupported package
 XML namespaces are reported explicitly.
 
-`ReportSimilarity.Compare` returns 1 for exact-byte equality. Otherwise it estimates
-overlap of three-word shingles in extracted text using a deterministic 128-hash
-sample. It returns null when text is insufficient. Scores describe extracted samples,
-which may be truncated or omit parts; they do not prove semantic equivalence or
-binary similarity. Frequent words are word frequencies rather than inferred purpose.
+Media readers report declarations and provenance without validating playback. They
+always retain `media:payload-not-decoded`. ISO-BMFF inspection accepts an `ftyp`
+container; an image-oriented brand with no movie tracks does not become a video
+description. Unrecognized formats still retain core detection and analysis.
+
+### Nested members and binary regions
+
+A plain ZIP or TAR member receives `ReportArchiveEntry.Report` when its complete bytes
+were read and the shared nesting budgets allow it. OOXML internal parts use the existing
+document subset reader rather than becoming independent document reports. Child
+reports share expanded-byte and retained-content budgets with their root. A partial
+child makes root content partial. Set either nesting option to zero for inventory
+and hashes without descendant analysis.
+
+Member names remain display data. `Kind` retains the source file, directory or other
+record type independently of any truncated name. `Ordinal` preserves zero-based identity when names
+repeat. A long name retains a prefix, sets `NameTruncated` and records its full decoded
+`SourceNameCharacters`; such a member is not admitted to nested analysis. A missing
+whole-member hash or nested report is an omission, not an empty member or successful
+read.
+Comparison recovers schema-1 member ordinals from saved inventory order because that
+version did not store ordinals or member kinds.
+
+`Content.Regions` records whole PE raw sections where their ranges and hash budgets
+permit them. Invalid, overlapping or over-budget sections retain an explicit status
+and have no hash. Other non-text, non-archive inputs can retain leading 64 KiB fixed
+blocks within the region budgets. The final shorter block is hashed in full. Each
+record includes offset, declared length, actually hashed bytes and coverage issues;
+a prefix hash is never presented as a whole-region hash.
+
+### Comparing reports
+
+```csharp
+var first = FileInspector.AnalyzeReport("first.zip");
+var second = FileInspector.AnalyzeReport("second.zip");
+foreach (var evidence in ReportComparison.Compare(first, second))
+    Console.WriteLine($"{evidence.Basis}: {evidence.Score:P0}; " +
+        $"compared {evidence.ComparedLeft}/{evidence.ComparedRight}, partial={evidence.Partial}");
+```
+
+`ReportComparison.Compare` returns each available basis, including a zero-overlap
+result. An empty collection means there is no comparable evidence. Exact identity
+replaces the text estimate for that pair; available member and region evidence
+can still accompany it.
+
+| Basis | Meaning |
+| --- | --- |
+| `exact-bytes` | Equal whole-input SHA-256; score 1 |
+| `extracted-text-shingles` | Overlap of three-word shingles using a deterministic 128-hash sample |
+| `whole-archive-members` | Multiset overlap of complete member SHA-256 and byte lengths |
+| `whole-pe-sections` | Multiset overlap of complete raw-section SHA-256 and byte lengths |
+| `sampled-fixed-blocks` | Multiset overlap of inspected complete fixed blocks |
+
+Multiset scores count matching items divided by the union count; they are not weighted
+by byte size. Duplicate members count separately and renamed members can match. Evidence
+includes the algorithm/version, compared and observed-uncompared counts, compared byte
+totals where meaningful, partial coverage, and matches with names, ordinals and offsets.
+Unvisited content remains outside the score. A score of 1 for sampled blocks can occur
+even when the whole files differ.
+
+`ReportSimilarity.Compare` remains the simpler exact-byte/text API and returns null
+when there is insufficient text and the whole hashes differ. Neither API establishes
+semantic equivalence, runtime behavior, provenance or safety. Frequent words remain
+word frequencies rather than an inferred purpose.
 
 ## Batch diagnostics
 
@@ -91,6 +238,8 @@ the old link. The application uses only the .NET 8 runtime and existing
 core references, with no ASP.NET shared framework or new packages. It accepts raw
 uploads, queues work, and exposes searchable reports. Names and file-derived text
 are rendered as text; they cannot introduce markup into the page.
+The report view shows fact origins/source locations, nested member reports and binary
+regions. Related files show each available comparison basis and inspected coverage.
 
 On Windows, `HttpListener` uses HTTP.sys URL permissions. If startup reports access
 denied, an administrator can reserve the exact loopback prefix for the account that
@@ -143,9 +292,9 @@ strong OS resource isolation and a reviewed hosting boundary.
 | --- | --- |
 | `POST /api/uploads` | Raw bytes with `X-File-Name`; returns queued job with ID |
 | `GET /api/reports?q=...` | Jobs matching name, exact hash, extracted text, type or keywords |
-| `GET /api/reports/{id}` | Current job state or completed schema-v1 JSON |
+| `GET /api/reports/{id}` | Current job state or saved report JSON; new reports use schema v2 |
 | `GET /api/hash/{sha256}` | Matching local uploads; names may differ for identical bytes |
-| `GET /api/reports/{id}/similar` | Exact-byte/text-sample matches, with basis and score |
+| `GET /api/reports/{id}/similar` | Up to 20 positive-overlap matches, with best basis/score and all comparison evidence |
 | `DELETE /api/reports/{id}` | Removes completed/failed job, upload and report; active jobs reject deletion |
 
 All API requests require `Authorization: Bearer <token>`, using the token from the

@@ -13,7 +13,7 @@ public class InspectionReportTests
         using var stream = new MemoryStream(bytes); stream.Position = 7;
         var report = FileInspector.AnalyzeReport(stream, "/private/sample.txt");
         Assert.Equal(7, stream.Position); Assert.True(stream.CanRead);
-        Assert.Equal(1, report.SchemaVersion); Assert.Equal("sample.txt", report.File.Name);
+        Assert.Equal(InspectionReport.CurrentSchemaVersion, report.SchemaVersion); Assert.Equal("sample.txt", report.File.Name);
         Assert.Equal(bytes.Length, report.File.SizeBytes); Assert.Equal(FileInspector.ReportHash(bytes), report.File.Sha256);
         Assert.Contains("invoices", report.Content.Keywords);
         Assert.Contains(report.Observations, o => o.Code == "text-topics" && o.Evidence == "Content.Keywords");

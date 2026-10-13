@@ -27,11 +27,12 @@ internal sealed partial class ArchiveInspectionBudget
         _maxEntries = Math.Max(1, maxEntries);
         _maxCentralDirectoryBytes = Math.Max(1, maxCentralDirectoryBytes);
         _maxEntryReadBytes = Math.Max(1, maxEntryReadBytes);
-        _maxTotalReadBytes = Math.Max(1, maxTotalReadBytes);
+        _maxTotalReadBytes = Math.Max(0, maxTotalReadBytes);
         _maxCompressionRatio = Math.Max(1, maxCompressionRatio);
     }
 
     internal bool IsComplete => _issues.Count == 0;
+    internal long BytesRead => _bytesRead;
     internal IReadOnlyList<string> Issues => _issues.OrderBy(issue => issue, StringComparer.Ordinal).ToArray();
 
     internal static ArchiveInspectionBudget FromSettings()
@@ -93,6 +94,7 @@ internal sealed partial class ArchiveInspectionBudget
 
     private long? GetReadAllowance(long payloadLength, int requestedMaxBytes)
     {
+        if (payloadLength == 0) return 0;
         var remainingTotal = _maxTotalReadBytes - _bytesRead;
         if (remainingTotal <= 0)
         {

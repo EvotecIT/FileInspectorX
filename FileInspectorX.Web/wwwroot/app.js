@@ -33,8 +33,9 @@ async function list() {
 function section(parent, title, value) { parent.append(make('h3', title), make('p', value)); }
 function table(parent, headers, rows) {
   const wrapper = make('div', undefined, 'table-wrap'), table = make('table'), head = make('thead'), tr = make('tr');
+  if (headers.length >= 4) { table.className = headers.length >= 6 ? 'wide-table regions-table' : 'wide-table'; wrapper.tabIndex = 0; wrapper.setAttribute('aria-label', 'Scrollable evidence table'); }
   for (const heading of headers) tr.append(make('th', heading)); head.append(tr); table.append(head);
-  const body = make('tbody'); for (const row of rows) { const line = make('tr'); for (const cell of row) line.append(make('td', String(cell ?? '—'))); body.append(line); }
+  const body = make('tbody'); for (const row of rows) { const line = make('tr'); for (const cell of row) { const value = String(cell ?? '—'), td = make('td', value); if (/^-?\d+(?:\.\d+)?$/.test(value)) td.className = 'number'; line.append(td); } body.append(line); }
   table.append(body); wrapper.append(table); parent.append(wrapper);
 }
 async function show(id) {
@@ -58,20 +59,55 @@ async function show(id) {
   const observations = make('ul', undefined, 'observations');
   for (const item of report.observations) { const li = make('li', item.text); li.append(make('span', item.evidence, 'evidence')); observations.append(li); } detail.append(observations);
   section(detail, 'Content reader', report.content.reader);
-  if (Object.keys(report.content.metadata).length) table(detail, ['Property', 'Value'], Object.entries(report.content.metadata));
+  if (report.content.facts?.length) {
+    detail.append(make('h3', 'Located facts'));
+    table(detail, ['Property', 'Value', 'Origin', 'Source'], report.content.facts.map(f => [f.name,
+      f.value + (f.truncated ? ' (prefix only)' : ''), f.origin,
+      [f.source?.part, f.source?.record, f.source?.byteOffset != null ? `byte ${f.source.byteOffset}${f.source.byteLength ? ` + ${f.source.byteLength}` : ''}` : null].filter(Boolean).join(' · ')]));
+  } else if (Object.keys(report.content.metadata).length) table(detail, ['Property', 'Value'], Object.entries(report.content.metadata));
   if (report.content.text) { detail.append(make('h3', 'Extracted text'), make('pre', report.content.text)); }
-  if (report.content.entries.length) { detail.append(make('h3', 'Archive inventory')); table(detail, ['Name', 'Expanded bytes', 'SHA-256 (whole member)'], report.content.entries.map(e => [e.name, e.sizeBytes, e.sha256])); }
+  if (report.content.entries.length) {
+    detail.append(make('h3', 'Archive inventory'));
+    table(detail, ['Member', 'Expanded bytes', 'SHA-256 (whole member)', 'Nested analysis'], report.content.entries.map(e => [
+      `${e.ordinal ?? '—'} · ${e.name}${e.nameTruncated ? ' (name prefix)' : ''}`, e.sizeBytes, e.sha256,
+      e.report ? `${e.report.analysis.detectedExtension || 'Unknown'} · ${e.report.outcome}` : 'Not analyzed']));
+    nestedReports(detail, report.content.entries, 0);
+  }
+  if (report.content.regions?.length) {
+    detail.append(make('h3', 'Binary region evidence'));
+    table(detail, ['Region', 'Basis', 'Offset', 'Whole bytes', 'Bytes hashed', 'SHA-256', 'Coverage'], report.content.regions.map(r => [r.name, r.kind, r.byteOffset, r.byteLength, r.hashBytes, r.sha256, r.status]));
+  }
   detail.append(make('h3', 'Analysis coverage'));
   table(detail, ['Stage', 'Status', 'Issues'], (report.analysis.stageOutcomes || []).map(s => [s.stage, s.status, s.issues.join(', ')]));
   if (report.content.issues.length) section(detail, 'Content limits', report.content.issues.join(' · '));
   const matches = await api('/api/reports/' + id + '/similar');
   if (selected !== id) return;
   detail.append(make('h3', 'Related files'));
-  if (!matches.length) detail.append(make('p', 'No matching bytes or comparable extracted text found in this local catalog.', 'muted'));
-  for (const match of matches) { const button = make('button', `${match.job.name} · ${Math.round(match.score * 100)}% · ${match.basis}`, 'secondary'); button.addEventListener('click', () => show(match.job.id)); detail.append(button); }
+  if (!matches.length) detail.append(make('p', 'No matching bytes, extracted text or inspected regions found in this local catalog.', 'muted'));
+  for (const match of matches) {
+    const button = make('button', `${match.job.name} · ${Math.round(match.score * 100)}% inspected overlap · ${match.basis}`, 'secondary');
+    button.addEventListener('click', () => show(match.job.id)); detail.append(button);
+    for (const evidence of match.evidence || []) {
+      const coverage = evidence.partial ? ' · limited coverage' : '';
+      detail.append(make('p', `${evidence.basis}: ${evidence.comparedLeft} / ${evidence.comparedRight} comparable items${coverage}. This describes the named evidence, not meaning or behavior.`, 'muted'));
+      if (evidence.matches?.length) table(detail, ['This file', 'Other file', 'Matched bytes'], evidence.matches.map(m => [m.leftName, m.rightName, m.byteLength]));
+    }
+  }
   const actions = make('div', undefined, 'actions'), exportButton = make('button', 'Export JSON');
   exportButton.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })); const a = make('a'); a.href = url; a.download = report.file.sha256 + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
   actions.append(exportButton); deletion(actions, id); detail.append(actions); await list();
+}
+function nestedReports(parent, entries, depth) {
+  if (depth > 8) return;
+  for (const entry of entries) {
+    if (!entry.report) continue;
+    const report = entry.report, group = make('details'); group.append(make('summary', `${entry.name} · ${report.outcome}`));
+    group.append(make('p', `SHA-256: ${report.file.sha256}`, 'hash'));
+    if (report.content.text) group.append(make('pre', report.content.text));
+    if (report.content.facts?.length) table(group, ['Property', 'Value', 'Origin'], report.content.facts.map(f => [f.name, f.value + (f.truncated ? ' (prefix only)' : ''), f.origin]));
+    if (report.content.issues.length) group.append(make('p', report.content.issues.join(' · '), 'coverage'));
+    nestedReports(group, report.content.entries || [], depth + 1); parent.append(group);
+  }
 }
 function deletion(parent, id) {
   const button = make('button', 'Delete file and report', 'secondary');

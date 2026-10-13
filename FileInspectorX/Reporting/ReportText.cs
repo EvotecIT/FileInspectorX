@@ -35,12 +35,12 @@ internal static class ReportText
 public static class ReportSimilarity
 {
     /// <summary>Returns 1 for exact SHA-256 equality. Otherwise estimates text shingle overlap in [0,1].
-    /// Null means insufficient comparable text. Only version-1 reports are supported.</summary>
+    /// Null means insufficient comparable text. Report versions 1 and 2 are supported.</summary>
     public static double? Compare(InspectionReport first, InspectionReport second)
     {
         if (first == null) throw new ArgumentNullException(nameof(first));
         if (second == null) throw new ArgumentNullException(nameof(second));
-        if (first.SchemaVersion != 1 || second.SchemaVersion != 1) throw new NotSupportedException("Unsupported report schema.");
+        if (!InspectionReport.SupportsSchema(first.SchemaVersion) || !InspectionReport.SupportsSchema(second.SchemaVersion)) throw new NotSupportedException("Unsupported report schema.");
         if (first.File.Sha256.Length == 64 && first.File.Sha256 == second.File.Sha256) return 1;
         if (first.Content.TextFingerprint.Count < 3 || second.Content.TextFingerprint.Count < 3) return null;
         var union = new SortedSet<string>(first.Content.TextFingerprint, StringComparer.Ordinal);

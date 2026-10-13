@@ -180,7 +180,7 @@ try {
         Assert-Deadline ($report.state -ne 'failed') 'The valid request failed after deadline cleanup.'
         Start-Sleep -Milliseconds 100
     }
-    Assert-Deadline ($report.schemaVersion -eq 1 -and $report.content.text.Contains('valid upload succeeds')) 'The valid next upload did not produce its report.'
+    Assert-Deadline ($report.schemaVersion -eq 2 -and $report.content.text.Contains('valid upload succeeds')) 'The valid next upload did not produce its report.'
     Assert-Deadline (!(Test-Path -LiteralPath (Join-Path $catalog ($eofId + '.upload')))) 'The earlier EOF upload reappeared after the upload gate was released.'
     $listed = Invoke-RestMethod -Uri "$base/api/reports" -Headers $auth -TimeoutSec 5
     Assert-Deadline ($listed.Count -eq 1 -and $listed[0].id -eq $job.id) 'Incomplete input appeared in the catalog after the next valid upload.'

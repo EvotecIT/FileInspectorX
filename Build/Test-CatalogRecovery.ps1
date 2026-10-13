@@ -131,7 +131,7 @@ try {
     $childJson = $service.StandardOutput.ReadToEndAsync().WaitAsync([TimeSpan]::FromSeconds(30)).GetAwaiter().GetResult()
     Assert-Catalog ($service.WaitForExit(5000) -and $service.ExitCode -eq 0) 'The standalone child did not complete.'
     $childReport = $childJson | ConvertFrom-Json
-    Assert-Catalog ($childReport.schemaVersion -eq 1 -and $childReport.file.name -eq 'child-input.txt') 'Child stdout did not contain its report.'
+    Assert-Catalog ($childReport.schemaVersion -eq 2 -and $childReport.file.name -eq 'child-input.txt') 'Child stdout did not contain its report.'
     Assert-Catalog (@(Get-ChildItem -LiteralPath $scratch -Filter '*.report.json*').Count -eq 0) 'The child wrote report files without a catalog owner.'
     $service.Dispose(); $service = $null
 

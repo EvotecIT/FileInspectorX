@@ -35,7 +35,7 @@ public sealed class ArchiveReportCoverageTests
         using var archive = Archive(format, ("first.bin", readable), ("second.bin", new byte[] { 1 }));
 
         var report = FileInspector.AnalyzeReport(archive, "files." + format,
-            new InspectionReportOptions { MaxExpandedBytes = readable.Length });
+            new InspectionReportOptions { MaxExpandedBytes = readable.Length, MaxNestedReports = 0 });
 
         Assert.Equal(2, report.Content.Entries.Count);
         Assert.Equal(FileInspector.ReportHash(readable), report.Content.Entries[0].Sha256);
@@ -54,7 +54,7 @@ public sealed class ArchiveReportCoverageTests
         using var archive = Archive(format, ("empty.bin", Array.Empty<byte>()), ("full.bin", readable));
 
         var report = FileInspector.AnalyzeReport(archive, "files." + format,
-            new InspectionReportOptions { MaxEntryBytes = readable.Length, MaxExpandedBytes = readable.Length });
+            new InspectionReportOptions { MaxEntryBytes = readable.Length, MaxExpandedBytes = readable.Length, MaxNestedReports = 0 });
 
         Assert.Equal(FileInspector.ReportHash(Array.Empty<byte>()), report.Content.Entries[0].Sha256);
         Assert.Equal(FileInspector.ReportHash(readable), report.Content.Entries[1].Sha256);

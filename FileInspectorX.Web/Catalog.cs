@@ -105,7 +105,7 @@ internal sealed class Catalog : IDisposable
     {
         if (!ValidId(id) || !_jobs.TryGetValue(id, out var job) || job.State != "completed" || !File.Exists(ReportPath(id))) return null;
         var report = JsonSerializer.Deserialize<InspectionReport>(File.ReadAllText(ReportPath(id)), ReportJson.Options);
-        return report?.SchemaVersion == 1 ? report : null;
+        return report != null && InspectionReport.SupportsSchema(report.SchemaVersion) ? report : null;
     }
     internal WebResponse ReportResponse(string id)
     {
@@ -127,7 +127,9 @@ internal sealed class Catalog : IDisposable
             var matches = _jobs.Values.Where(j => j.Id != id && j.State == "completed").Select(j =>
             {
                 var other = Read(j.Id);
-                return new { job = Clone(j), score = other == null ? null : ReportSimilarity.Compare(source, other), basis = other?.File.Sha256 == source.File.Sha256 ? "exact-bytes" : "extracted-text-shingles" };
+                var evidence = other == null ? Array.Empty<ReportComparisonEvidence>() : ReportComparison.Compare(source, other).ToArray();
+                var best = evidence.OrderByDescending(e => e.Score).FirstOrDefault();
+                return new { job = Clone(j), score = best == null ? (double?)null : best.Score, basis = best?.Basis, evidence };
             }).Where(m => m.score > 0).OrderByDescending(m => m.score).Take(20).ToArray();
             return WebResponse.Json(200, matches);
         }
@@ -195,7 +197,7 @@ internal sealed class Catalog : IDisposable
                 throw new InvalidDataException("The report cannot be published for this job.");
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = ReportJson.Options.MaxDepth });
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("schemaVersion", out var schema) || !schema.TryGetInt32(out var version) || version != 1 ||
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("schemaVersion", out var schema) || !schema.TryGetInt32(out var version) || !InspectionReport.SupportsSchema(version) ||
                 !root.TryGetProperty("file", out var file) || file.ValueKind != JsonValueKind.Object ||
                 !file.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String || name.GetString() != job.Name ||
                 !file.TryGetProperty("sizeBytes", out var size) || !size.TryGetInt64(out var length) || length != job.SizeBytes ||

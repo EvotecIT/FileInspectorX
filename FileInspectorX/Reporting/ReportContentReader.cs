@@ -4,15 +4,21 @@ namespace FileInspectorX;
 
 internal static partial class ReportContentReader
 {
-    internal static ContentProfile Read(byte[] bytes, FileAnalysis analysis, InspectionReportOptions options)
+    internal static ContentProfile Read(Stream source, FileAnalysis analysis, InspectionReportOptions options, ReportReadContext context, int depth)
     {
         var profile = new ContentProfile();
         var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
         var issues = new HashSet<string>(StringComparer.Ordinal);
         try
         {
-            if (bytes.Length >= 4 && bytes[0] == 'P' && bytes[1] == 'K') ReadZip(bytes, profile, metadata, issues, options);
-            else if (analysis.DetectedExtension == "tar") ReadTar(bytes, profile, metadata, issues, options);
+            source.Position = 0;
+            var bytes = new byte[(int)Math.Min(source.Length, Math.Min(options.MaxMetadataBytes, 256 * 1024))];
+            var read = 0;
+            while (read < bytes.Length) { InspectionOperation.CheckCancellation(); var count = source.Read(bytes, read, bytes.Length - read); if (count == 0) break; read += count; }
+            source.Position = 0;
+            if (bytes.Length >= 4 && bytes[0] == 'P' && bytes[1] == 'K') ReadZip(source, profile, metadata, issues, options, context, depth);
+            else if (analysis.DetectedExtension == "tar") ReadTar(source, profile, metadata, issues, options, context, depth);
+            else if (ReportMediaReader.TryRead(source, bytes, profile, metadata, issues, options)) { }
             else if (TryImage(bytes, metadata))
             {
                 profile.Reader = "image-header";
@@ -27,7 +33,7 @@ internal static partial class ReportContentReader
             else if (InspectHelpers.IsText(analysis.Detection) || analysis.Kind == ContentKind.Text)
             {
                 profile.Reader = "utf-text";
-                ReadText(bytes, profile, metadata, issues, options);
+                ReadText(source, profile, metadata, issues, options);
             }
             else
             {
@@ -41,6 +47,10 @@ internal static partial class ReportContentReader
             profile.Status = InspectionStageStatus.Failed;
         }
         profile.Metadata = metadata;
+        if (profile.Facts.Count == 0) profile.Facts = ReportFacts.FromMetadata(metadata, options, issues);
+        context.BoundContent(profile, metadata, issues);
+        profile.Regions = ReportRegionReader.Read(source, analysis, options, issues);
+        if (profile.Entries.Any(entry => entry.Report?.Outcome == InspectionOutcome.Partial)) issues.Add("content:nested-analysis-partial");
         profile.Issues = issues.OrderBy(x => x, StringComparer.Ordinal).ToArray();
         if (profile.Status != InspectionStageStatus.Failed)
             profile.Status = issues.Count == 0 ? InspectionStageStatus.Completed : InspectionStageStatus.Partial;
@@ -48,11 +58,11 @@ internal static partial class ReportContentReader
         return profile;
     }
 
-    private static void ReadText(byte[] bytes, ContentProfile profile, Dictionary<string, string> metadata, HashSet<string> issues, InspectionReportOptions options)
+    private static void ReadText(Stream input, ContentProfile profile, Dictionary<string, string> metadata, HashSet<string> issues, InspectionReportOptions options)
     {
         // StreamReader honors UTF BOMs, while strict UTF-8 avoids silently replacing invalid binary bytes.
-        using var input = new MemoryStream(bytes, writable: false);
-        using var reader = new StreamReader(input, new UTF8Encoding(false, true), true, 4096);
+        input.Position = 0;
+        using var reader = new StreamReader(input, new UTF8Encoding(false, true), true, 4096, leaveOpen: true);
         var chars = new char[Math.Min(options.MaxTextCharacters, 4096)];
         var text = new StringBuilder();
         while (text.Length < options.MaxTextCharacters)
@@ -63,7 +73,8 @@ internal static partial class ReportContentReader
             text.Append(chars, 0, count);
         }
         if (reader.Read() >= 0) issues.Add("content:text-character-limit");
-        profile.Text = text.ToString();
+        profile.Text = ReportReadContext.Prefix(text.ToString(), text.Length);
+        if (profile.Text.Length != text.Length) issues.Add("content:text-character-limit");
         metadata["Encoding"] = reader.CurrentEncoding.WebName;
         metadata["SampledLines"] = (profile.Text.Length == 0 ? 0 : profile.Text.Count(c => c == '\n') + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
     }

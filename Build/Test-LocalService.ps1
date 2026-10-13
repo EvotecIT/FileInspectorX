@@ -24,6 +24,34 @@ function Wait-Report([string] $Id) {
     }
     throw 'Analysis did not finish within the smoke-test budget.'
 }
+function New-WaveFixture {
+    $memory = [IO.MemoryStream]::new()
+    $writer = [IO.BinaryWriter]::new($memory, [Text.Encoding]::UTF8, $true)
+    try {
+        $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF')); $writer.Write([int]192036)
+        $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt ')); $writer.Write([int]16)
+        $writer.Write([uint16]1); $writer.Write([uint16]2); $writer.Write([int]48000); $writer.Write([int]192000)
+        $writer.Write([uint16]4); $writer.Write([uint16]16)
+        $writer.Write([Text.Encoding]::ASCII.GetBytes('data')); $writer.Write([int]192000); $writer.Write([byte[]]::new(192000))
+        return ,$memory.ToArray()
+    } finally { $writer.Dispose(); $memory.Dispose() }
+}
+function New-ArchiveFixture([string] $FirstName, [string] $SecondName) {
+    $memory = [IO.MemoryStream]::new()
+    try {
+        $zip = [IO.Compression.ZipArchive]::new($memory, [IO.Compression.ZipArchiveMode]::Create, $true)
+        try {
+            foreach ($name in @($FirstName, $SecondName)) {
+                $stream = $zip.CreateEntry($name, [IO.Compression.CompressionLevel]::NoCompression).Open()
+                try {
+                    $bytes = [Text.Encoding]::UTF8.GetBytes('Nested invoice evidence, retained as inert text.')
+                    $stream.Write($bytes, 0, $bytes.Length)
+                } finally { $stream.Dispose() }
+            }
+        } finally { $zip.Dispose() }
+        return ,$memory.ToArray()
+    } finally { $memory.Dispose() }
+}
 try {
     $start = [Diagnostics.ProcessStartInfo]::new((Get-Command dotnet).Source)
     $start.UseShellExecute = $false
@@ -50,7 +78,7 @@ try {
     $body = [Text.Encoding]::UTF8.GetBytes('Quarterly customer invoices summarize revenue from consulting work and subscription renewals.')
     $first = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $headers -ContentType 'application/octet-stream' -Body $body
     $report = Wait-Report $first.id
-    Assert-Service ($report.schemaVersion -eq 1 -and $report.file.name -eq 'invoices.txt') 'Report identity contract failed.'
+    Assert-Service ($report.schemaVersion -eq 2 -and $report.file.name -eq 'invoices.txt') 'Report identity contract failed.'
     Assert-Service ($report.content.text.Contains('customer invoices')) 'Text extraction failed.'
     Assert-Service ($report.file.sha256.Length -eq 64) 'Whole-file hash is missing.'
     $lookup = Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)" -Headers $authHeaders
@@ -71,6 +99,26 @@ try {
     $unicode = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = [uri]::EscapeDataString('zażółć[1].txt'); 'X-File-Name-Encoded' = 'uri' }
     $third = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $unicode -ContentType 'application/octet-stream' -Body $body
     Assert-Service ((Wait-Report $third.id).file.name -eq 'zażółć[1].txt') 'Unicode/literal upload name failed.'
+    $evidenceHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'recording.wav' }
+    $audio = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $evidenceHeaders -ContentType 'application/octet-stream' -Body (New-WaveFixture)
+    $audioReport = Wait-Report $audio.id
+    $sampleRate = @($audioReport.content.facts | Where-Object name -eq 'Audio.SampleRate')
+    Assert-Service ($audioReport.content.reader -eq 'wave-metadata' -and $sampleRate.Count -eq 1 -and $sampleRate[0].value -eq '48000' -and $sampleRate[0].origin -eq 'Embedded' -and $sampleRate[0].source.byteOffset -eq 24) 'Located media evidence was lost in worker publication.'
+    Assert-Service ($audioReport.content.issues -contains 'media:payload-not-decoded' -and $audioReport.content.regions.Count -gt 0) 'Media coverage or whole-region evidence is missing.'
+    $evidenceHeaders['X-File-Name'] = 'members.zip'
+    $archive = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $evidenceHeaders -ContentType 'application/octet-stream' -Body (New-ArchiveFixture 'first.txt' 'second.txt')
+    $archiveReport = Wait-Report $archive.id
+    Assert-Service ($archiveReport.content.entries.Count -eq 2 -and $archiveReport.content.entries[0].ordinal -eq 0 -and $archiveReport.content.entries[1].ordinal -eq 1) 'Archive source identity was lost.'
+    foreach ($entry in $archiveReport.content.entries) {
+        Assert-Service ($entry.report.schemaVersion -eq 2 -and $entry.sha256 -eq $entry.report.file.sha256 -and $entry.report.content.text.Contains('Nested invoice evidence')) 'Nested report evidence was lost in worker publication.'
+    }
+    $evidenceHeaders['X-File-Name'] = 'renamed-members.zip'
+    $renamed = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $evidenceHeaders -ContentType 'application/octet-stream' -Body (New-ArchiveFixture 'renamed-first.txt' 'renamed-second.txt')
+    $null = Wait-Report $renamed.id
+    $archiveSimilar = Invoke-RestMethod -Uri "$base/api/reports/$($archive.id)/similar" -Headers $authHeaders
+    Assert-Service ($archiveSimilar.Count -eq 1 -and $archiveSimilar[0].job.id -eq $renamed.id -and $archiveSimilar[0].basis -eq 'whole-archive-members' -and $archiveSimilar[0].score -eq 1) 'Whole-member comparison did not retain the expected identity.'
+    $memberEvidence = @($archiveSimilar[0].evidence | Where-Object basis -eq 'whole-archive-members')
+    Assert-Service ($memberEvidence.Count -eq 1 -and $memberEvidence[0].comparedLeft -eq 2 -and $memberEvidence[0].comparedRight -eq 2 -and $memberEvidence[0].matches.Count -eq 2 -and $memberEvidence[0].matches[0].leftName -eq 'first.txt' -and $memberEvidence[0].matches[0].rightName -eq 'renamed-first.txt') 'Comparison counts or member match explanations were lost.'
     $hostileHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'hostile.txt'; 'Origin' = 'https://example.invalid' }
     $denied = Invoke-WebRequest -Uri "$base/api/uploads" -Method Post -Headers $hostileHeaders -Body $body -SkipHttpErrorCheck
     Assert-Service ($denied.StatusCode -eq 403) 'Cross-origin upload was allowed.'
@@ -89,7 +137,7 @@ try {
     Invoke-RestMethod -Uri "$base/api/reports/$($first.id)" -Method Delete -Headers $headers | Out-Null
     Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($first.id).upload"))) 'Deleting a report retained its upload.'
     Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($first.id).report.json"))) 'Deleting a report retained its extracted content.'
-    Write-Output 'Local service smoke passed: upload, queue/worker, report, text search, hash lookup, similarity, Unicode names, private catalog access, origin protection and deletion.'
+    Write-Output 'Local service smoke passed: upload, queue/worker, report v2, located media facts, nested reports, whole-member comparisons, text search, hash lookup, similarity, Unicode names, private catalog access, origin protection and deletion.'
 }
 finally {
     if ($process -and !$process.HasExited) { $process.Kill($true); $process.WaitForExit() }

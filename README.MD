@@ -85,16 +85,24 @@ foreach (var observation in report.Observations)
     Console.WriteLine($"{observation.Text} [{observation.Evidence}]");
 ```
 
-`AnalyzeReport` produces a versioned identity, the existing analysis evidence, bounded
-content extraction and factual explanations. It extracts UTF text, Word main-document
-text/tables, Excel stored values/formulas, PowerPoint slide text, ZIP/TAR inventories
-and member hashes, and PNG/GIF/JPEG header dimensions. Content issues describe limits;
-PDF text, image OCR, Office layout and spreadsheet calculation need deeper readers.
+`AnalyzeReport` produces schema-v2 reports with exact byte identity, existing analysis
+evidence, bounded content and factual explanations. Content includes UTF text, selected
+Office XML, ZIP/TAR member inventories and nested reports, image header dimensions,
+and WAV, FLAC, ID3 and ISO-BMFF declarations. Typed facts retain their origin and source
+offsets where available. PDF text, image OCR, Office layout and spreadsheet calculation
+remain outside these readers.
 
-The default snapshot limit is 64 MiB with 64 Ki characters of retained text. Oversized
-or unreadable input throws; `AnalyzeReports` and `AnalyzeDirectoryReports` retain those
-failures as batch diagnostics. Filesystem enrichment is unavailable for the portable
-snapshot. See the [report and local service guide](Docs/file-reports.md).
+`ReportComparison.Compare(first, second)` explains exact-file, extracted-text,
+whole-member, PE-section and sampled-block overlap separately. It includes matched
+names, ordinals and coverage; byte overlap does not establish what a program does.
+Saved schema-v1 reports remain readable and comparable using their available evidence.
+
+The default input limit is 64 MiB with 64 Ki characters of text per reader. Larger
+configured inputs can spill their captured snapshot to a private temporary file using
+the .NET 8 build or a Windows host. Extraction, nesting and region hashing have
+separate finite budgets. Oversized or unreadable input throws; batch APIs retain those failures as
+diagnostics. Filesystem enrichment is unavailable for the portable snapshot. See
+the [report and local service guide](Docs/file-reports.md).
 
 ```powershell
 Get-Item -LiteralPath './sample[1].docx' | Get-FileInsight -View Report -DisableMagika
@@ -103,7 +111,9 @@ Get-FileInsight -LiteralPath './sample[1].txt' -View Detection -DisableMagika
 
 The [local report application](FileInspectorX.Web) runs on .NET 8 using its included
 HTTP and JSON APIs. It provides uploads, a bounded analysis queue with child workers,
-hash lookup, text search, JSON export and related files. It listens only on localhost.
+hash lookup, text search, JSON export and related files with comparison evidence.
+It displays fact origins, nested member reports and region coverage, and listens
+only on localhost.
 
 ```bash
 dotnet run --project FileInspectorX.Web -- --Port 5088
@@ -112,8 +122,9 @@ dotnet run --project FileInspectorX.Web -- --Port 5088
 Open the private link printed at startup. Uploads and extracted content remain in the local catalog
 until deleted. This host is for local use; public hosting requires authentication,
 tenant isolation and operating-system sandboxing. No new package or document-engine
-dependency is required. Future options are assessed in the
-[dependency proposal](Docs/dependency-assessment.md).
+dependency is required. FileInspectorX and OfficeIMO keep their format capabilities
+independent; integration and package choices are assessed in the
+[dependency assessment](Docs/dependency-assessment.md).
 
 ### Optional learned classification
 

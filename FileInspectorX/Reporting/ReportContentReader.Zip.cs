@@ -6,22 +6,25 @@ namespace FileInspectorX;
 
 internal static partial class ReportContentReader
 {
-    private static void ReadZip(byte[] bytes, ContentProfile profile, Dictionary<string, string> metadata, HashSet<string> issues, InspectionReportOptions options)
+    private static void ReadZip(Stream source, ContentProfile profile, Dictionary<string, string> metadata, HashSet<string> issues, InspectionReportOptions options,
+        ReportReadContext context, int depth)
     {
         profile.Reader = "zip-inventory";
         var budget = new ArchiveInspectionBudget(options.MaxArchiveEntries, 4 * 1024 * 1024,
-            options.MaxEntryBytes, options.MaxExpandedBytes, 100);
-        using var source = new MemoryStream(bytes, writable: false);
+            options.MaxEntryBytes, context.RemainingExpandedBytes, 100);
+        source.Position = 0;
         using var input = InspectionInput.FromStream(source, null);
         if (!input.TryOpenZip(budget, out var zip, out var declaredCount) || zip == null)
         { foreach (var issue in budget.Issues) issues.Add(issue); issues.Add("content:zip-directory-unavailable"); return; }
         metadata["DeclaredEntries"] = declaredCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
         var entries = new List<ReportArchiveEntry>();
         var parts = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var children = new List<(ReportArchiveEntry Item, byte[] Bytes)>();
         foreach (var entry in zip.Entries)
         {
             if (!budget.TryVisitEntry()) break;
-            var item = new ReportArchiveEntry { Name = entry.FullName, SizeBytes = entry.Length, CompressedBytes = entry.CompressedLength };
+            var item = context.Member(entry.FullName, entry.Length, entry.CompressedLength, entries.Count,
+                entry.FullName.EndsWith("/", StringComparison.Ordinal) ? ReportArchiveEntryKind.Directory : ReportArchiveEntryKind.File, issues);
             // Hash only whole members that fit. Bounded inventory still records the rest.
             if (entry.Length <= options.MaxEntryBytes && !entry.FullName.EndsWith("/", StringComparison.Ordinal))
             {
@@ -29,6 +32,7 @@ internal static partial class ReportContentReader
                 if (content != null && content.LongLength == entry.Length)
                 {
                     item.Sha256 = FileInspector.ReportHash(content);
+                    if (!item.NameTruncated && children.Count < options.MaxNestedReports) children.Add((item, content));
                     if (IsContentPart(entry.FullName))
                     {
                         if (!parts.ContainsKey(entry.FullName)) parts.Add(entry.FullName, content);
@@ -45,6 +49,7 @@ internal static partial class ReportContentReader
             entries.Add(item);
         }
         profile.Entries = entries;
+        context.AccountExpandedBytes(checked((int)budget.BytesRead));
         foreach (var issue in budget.Issues) issues.Add(issue);
         var text = new StringBuilder();
         if (parts.ContainsKey("word/document.xml"))
@@ -83,6 +88,13 @@ internal static partial class ReportContentReader
             }
         }
         profile.Text = text.ToString();
+        // Office package parts are implementation details; a later document provider owns their richer interpretation.
+        if (profile.Reader == "zip-inventory")
+        {
+            foreach (var child in children) child.Item.Report = context.ReadChild(child.Bytes, child.Item.Name, depth, issues);
+            if (options.MaxNestedReports > 0 && options.MaxNestedDepth > 0 && entries.Count(e => e.Sha256 != null) > children.Count)
+                issues.Add("content:nested-report-limit");
+        }
     }
 
     private const string WordNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -112,7 +124,7 @@ internal static partial class ReportContentReader
         var remaining = options.MaxTextCharacters - text.Length;
         if (value.Length + 1 > remaining) issues.Add("content:text-character-limit");
         if (remaining <= 0) return;
-        text.Append(value, 0, Math.Min(value.Length, remaining));
+        text.Append(ReportReadContext.Prefix(value, remaining));
         if (text.Length < options.MaxTextCharacters) text.Append('\n');
     }
 
