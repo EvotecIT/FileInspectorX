@@ -42,7 +42,7 @@ function Start-IncompleteUpload([int] $Port, [string] $Token, [string] $Name = '
     $network.Write([byte[]]::new(16384)); $network.Flush()
     return $client
 }
-function Assert-ConnectionClosed([Net.Sockets.TcpClient] $Client, [Diagnostics.Stopwatch] $Clock, [double] $LimitSeconds, [IO.Stream] $Network = $null) {
+function Assert-ConnectionClosed([Net.Sockets.TcpClient] $Client, [Diagnostics.Stopwatch] $Clock, [double] $LimitSeconds, [IO.Stream] $Network = $null, [switch] $RequireConnectionClose) {
     $buffer = [byte[]]::new(1024)
     $received = [IO.MemoryStream]::new()
     if (!$Network) { $Network = $Client.GetStream() }
@@ -70,6 +70,9 @@ function Assert-ConnectionClosed([Net.Sockets.TcpClient] $Client, [Diagnostics.S
         }
         $reply = [Text.Encoding]::ASCII.GetString($received.ToArray())
         Assert-Deadline ($reply -notmatch '^HTTP/1\.[01] 2[0-9][0-9]') 'An incomplete upload was accepted after cancellation.'
+        if ($RequireConnectionClose) {
+            Assert-Deadline ($reply -match '(?im)^Connection:[^\r\n]*\bclose\b') 'A rejected request body did not receive Connection: close.'
+        }
         if ($reply -match '^HTTP/1\.[01] ([0-9]{3})') { return [int]$Matches[1] }
         return 0
     } finally { $received.Dispose() }
@@ -93,9 +96,10 @@ try {
         @{ check = 'bad-name-unread-body'; token = $service.token; name = ''; length = 67108864; status = 400 },
         @{ check = 'oversize-unread-body'; token = $service.token; name = 'fixture.bin'; length = 67108865; status = 413 }
     )) {
+        $receipt.activeCheck = $rejection.check
         $clock = [Diagnostics.Stopwatch]::StartNew()
         $client = Start-IncompleteUpload $port $rejection.token $rejection.name $rejection.length $true
-        $status = Assert-ConnectionClosed $client $clock 5
+        $status = Assert-ConnectionClosed $client $clock 5 -RequireConnectionClose
         Assert-Deadline ($status -eq $rejection.status) 'A rejected unread body did not produce its expected response.'
         $receipt.observations += @{ check = $rejection.check; seconds = [Math]::Round($clock.Elapsed.TotalSeconds, 2); status = $status }
         $client.Dispose(); $connections.Clear()
@@ -104,6 +108,7 @@ try {
     Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.job.json').Count -eq 0) 'Early rejection created upload metadata.'
     $null = Invoke-RestMethod -Uri "$base/api/reports" -Headers $auth -TimeoutSec 5
     # Closing the sending side before Content-Length is satisfied must not commit a prefix.
+    $receipt.activeCheck = 'premature-body-eof'
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $client = Start-IncompleteUpload $port $service.token
     $network = $client.GetStream()
@@ -115,6 +120,7 @@ try {
     $receipt.observations += @{ check = 'premature-body-eof'; result = 'no uploaded prefix or job committed' }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     # Fill all handler slots: one stalled body owns the upload gate; fifteen requests wait for it.
+    $receipt.activeCheck = 'body-and-upload-gate-deadline'
     foreach ($index in 1..16) { $null = Start-IncompleteUpload $port $service.token }
     $partial = $null
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
@@ -132,6 +138,7 @@ try {
     Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.upload').Count -eq 0) 'Cancellation retained an interrupted upload.'
     Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.job.json').Count -eq 0) 'Cancellation committed an incomplete upload.'
     $null = Invoke-RestMethod -Uri "$base/api/reports" -Headers $auth -TimeoutSec 5
+    $receipt.activeCheck = 'valid-next-upload-and-report'
     $headers = @{ Authorization = $auth.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'after-deadline.txt' }
     $body = [Text.Encoding]::UTF8.GetBytes('A valid upload succeeds after stalled requests expire.')
     $job = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $headers -ContentType 'application/octet-stream' -Body $body -TimeoutSec 5
@@ -151,6 +158,7 @@ try {
 
     # Model the backend contract where cancellation occurs with a successful EOF read.
     # The catalog must check cancellation before it durably publishes that input.
+    $receipt.activeCheck = 'cancellation-at-final-eof'
     Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -191,6 +199,7 @@ public sealed class CancelAtEofStream : MemoryStream {
 
     # Run the same production listener in a separate host with its real shutdown token.
     # This avoids platform-specific console-signal APIs and adds no production test hooks.
+    $receipt.activeCheck = 'shutdown-pending-body'
     $shutdownHost = Join-Path $scratch 'shutdown-host.ps1'
     [IO.File]::WriteAllText($shutdownHost, @'
 param([string] $Application, [int] $Port, [string] $CatalogRoot)
@@ -222,10 +231,11 @@ try {
     $shutdownErrors = Stop-Service $shutdownService; $shutdownService = $null
     [IO.File]::WriteAllText((Join-Path $scratch 'shutdown-errors.txt'), $shutdownErrors)
     $receipt.result = 'passed'
+    $receipt.Remove('activeCheck')
     Write-Output 'Local service deadlines passed: 16 stalled/serialized uploads expired, partial input was removed, valid GET/upload/report succeeded, and shutdown drained a pending body.'
 } catch {
     $receipt.result = 'failed'; $receipt.failure = $_.Exception.Message
-    throw
+    throw "Deadline validation failed during '$($receipt.activeCheck)': $($_.Exception.Message)"
 } finally {
     if ($service) { [IO.File]::WriteAllText((Join-Path $scratch 'service-errors.txt'), (Stop-Service $service)) }
     if ($shutdownService) { [IO.File]::WriteAllText((Join-Path $scratch 'shutdown-errors.txt'), (Stop-Service $shutdownService)) }

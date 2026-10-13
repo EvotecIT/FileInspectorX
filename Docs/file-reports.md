@@ -105,8 +105,10 @@ changing them. The application does not change URL permissions automatically.
 See [Microsoft's URL reservation documentation](https://learn.microsoft.com/en-us/windows/win32/http/add-urlacl).
 
 Accepted requests have a 30-second deadline. The host closes stalled connections
-and removes unfinished uploads so later uploads can proceed. A canceled upload
-does not create a queued job.
+and removes unfinished uploads so later uploads can proceed. Error responses to
+requests with a body close the connection. Uploads canceled before publication
+are discarded. If an upload response fails after publication, check the report
+list before uploading again; its job may already be queued or running.
 
 Each queued analysis runs in a separate child process. The host stops workers after
 30 seconds or when an observed working set exceeds 512 MiB. That memory check is

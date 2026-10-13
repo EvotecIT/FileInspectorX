@@ -62,6 +62,9 @@ internal static class LocalServer
             response.Headers["Cache-Control"] = "no-store";
             var result = await Route(context.Request, port, catalog, access, timeout.Token);
             timeout.Token.ThrowIfCancellationRequested();
+            // Rejected bodies may still be unread. Explicitly close their transport
+            // instead of leaving HTTP.sys or the managed listener to drain/reuse it.
+            if (result.Status >= 400 && context.Request.HasEntityBody) response.KeepAlive = false;
             response.StatusCode = result.Status;
             response.ContentType = result.ContentType;
             if (result.Status == 204 || context.Request.HttpMethod == "HEAD") return;
