@@ -45,15 +45,23 @@ internal static class LocalServer
     private static async Task Handle(HttpListenerContext context, int port, Catalog catalog, LocalAccess access, CancellationToken token)
     {
         var response = context.Response;
-        response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-        response.Headers["X-Content-Type-Options"] = "nosniff";
-        response.Headers["Referrer-Policy"] = "no-referrer";
-        response.Headers["Cache-Control"] = "no-store";
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        // Managed HttpListener body reads can remain pending after their token is
+        // canceled. Abort the connection to release the read, upload gate and handler.
+        using var abort = timeout.Token.Register(static state => AbortResponse((HttpListenerResponse)state!), response);
         try
         {
+            timeout.Token.ThrowIfCancellationRequested();
+            // Abort may flush the current headers on some backends. Until routing
+            // succeeds, a prematurely closed request must not look successful.
+            response.StatusCode = 500;
+            response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+            response.Headers["X-Content-Type-Options"] = "nosniff";
+            response.Headers["Referrer-Policy"] = "no-referrer";
+            response.Headers["Cache-Control"] = "no-store";
             var result = await Route(context.Request, port, catalog, access, timeout.Token);
+            timeout.Token.ThrowIfCancellationRequested();
             response.StatusCode = result.Status;
             response.ContentType = result.ContentType;
             if (result.Status == 204 || context.Request.HttpMethod == "HEAD") return;
@@ -61,10 +69,26 @@ internal static class LocalServer
             response.ContentLength64 = data.Length;
             await response.OutputStream.WriteAsync(data, timeout.Token);
         }
-        catch (OperationCanceledException) { response.StatusCode = 408; }
-        catch (Exception ex) when (ex is IOException or HttpListenerException or InvalidDataException)
-        { response.StatusCode = 500; Console.Error.WriteLine("Local request failed (" + ex.GetType().Name + ")."); }
-        finally { response.Close(); }
+        catch (Exception ex) when (timeout.IsCancellationRequested && ex is (OperationCanceledException or IOException or HttpListenerException or ObjectDisposedException))
+        { Console.Error.WriteLine("Local request canceled (" + ex.GetType().Name + ")."); }
+        catch (Exception ex) when (ex is IOException or HttpListenerException or ObjectDisposedException)
+        {
+            AbortResponse(response);
+            Console.Error.WriteLine("Local request failed (" + ex.GetType().Name + ").");
+        }
+        finally
+        {
+            try { response.Close(); }
+            catch (Exception ex) when (ex is IOException or HttpListenerException or ObjectDisposedException) { AbortResponse(response); }
+        }
+    }
+
+    private static void AbortResponse(HttpListenerResponse response)
+    {
+        // Cancellation callbacks must remain safe when completion/Stop has already
+        // closed the response; teardown failures cannot escape the timer callback.
+        try { response.Abort(); }
+        catch (Exception ex) when (ex is IOException or HttpListenerException or ObjectDisposedException) { }
     }
 
     private static async Task<WebResponse> Route(HttpListenerRequest request, int port, Catalog catalog, LocalAccess access, CancellationToken token)

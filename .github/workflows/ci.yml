@@ -64,6 +64,10 @@ jobs:
         shell: pwsh
         run: ./Build/Test-CatalogRecovery.ps1 -ApplicationPath ./FileInspectorX.Web/bin/Release/net8.0/FileInspectorX.Web.dll -ScratchDirectory ./TestResults/catalog-recovery
 
+      - name: Smoke test local request deadlines
+        shell: pwsh
+        run: ./Build/Test-LocalServiceDeadlines.ps1 -ApplicationPath ./FileInspectorX.Web/bin/Release/net8.0/FileInspectorX.Web.dll -ScratchDirectory ./TestResults/service-deadlines
+
       - name: Smoke test PowerShell 7 Magika default
         shell: pwsh
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll

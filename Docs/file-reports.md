@@ -104,6 +104,10 @@ Use the actual account and selected port; inspect existing reservations before
 changing them. The application does not change URL permissions automatically.
 See [Microsoft's URL reservation documentation](https://learn.microsoft.com/en-us/windows/win32/http/add-urlacl).
 
+Accepted requests have a 30-second deadline. The host closes stalled connections
+and removes unfinished uploads so later uploads can proceed. A canceled upload
+does not create a queued job.
+
 Each queued analysis runs in a separate child process. The host stops workers after
 30 seconds or when an observed working set exceeds 512 MiB. That memory check is
 sampled rather than a hard OS limit. Workers retain the user's OS permissions.
@@ -158,5 +162,8 @@ Invoke-RestMethod -Uri "http://127.0.0.1:5088/api/reports/$($job.id)" -Headers $
 
 For validation, `Build/Test-LocalService.ps1` exercises the live upload/worker/report,
 search, exact similarity, name encoding, origin controls and deletion contracts.
+`Build/Test-CatalogRecovery.ps1` checks interrupted uploads and stored report
+publication; `Build/Test-LocalServiceDeadlines.ps1` checks stalled request cleanup
+and service cancellation. CI runs these checks on Windows, Linux and macOS.
 Deeper engine options and the evidence needed before adoption are in the
 [dependency assessment](dependency-assessment.md).

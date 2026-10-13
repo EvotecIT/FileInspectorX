@@ -165,6 +165,7 @@ internal sealed class Catalog : IDisposable
             lock (_gate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
+                token.ThrowIfCancellationRequested();
                 // Publish metadata before waking the worker. Roll back if the bounded queue cannot accept it.
                 Save(job); _jobs.Add(job.Id, job);
                 if (!Queue.Writer.TryWrite(job.Id)) { _jobs.Remove(job.Id); throw new CatalogFullException(); }
