@@ -53,19 +53,21 @@ try {
     Assert-Service ($report.schemaVersion -eq 1 -and $report.file.name -eq 'invoices.txt') 'Report identity contract failed.'
     Assert-Service ($report.content.text.Contains('customer invoices')) 'Text extraction failed.'
     Assert-Service ($report.file.sha256.Length -eq 64) 'Whole-file hash is missing.'
-    $lookup = @(Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)" -Headers $authHeaders)
+    $lookup = Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)" -Headers $authHeaders
     Assert-Service ($lookup.Count -eq 1 -and $lookup[0].id -eq $first.id) 'Hash lookup failed.'
     $decoyHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = "$($report.file.sha256).txt" }
     $decoy = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $decoyHeaders -ContentType 'application/octet-stream' -Body ([Text.Encoding]::UTF8.GetBytes("Reference digest: $($report.file.sha256)"))
     $null = Wait-Report $decoy.id
-    $lookup = @(Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256.ToUpperInvariant())" -Headers $authHeaders)
+    $lookup = Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256.ToUpperInvariant())" -Headers $authHeaders
     Assert-Service ($lookup.Count -eq 1 -and $lookup[0].id -eq $first.id) 'Hash lookup matched a name or text instead of exact bytes.'
-    $search = @(Invoke-RestMethod -Uri "$base/api/reports?q=consulting" -Headers $authHeaders)
-    Assert-Service ($search.Count -eq 1) 'Extracted-text search failed.'
+    $search = Invoke-RestMethod -Uri "$base/api/reports?q=consulting" -Headers $authHeaders
+    Assert-Service ($search.Count -eq 1 -and $search[0].id -eq $first.id) 'Extracted-text search failed.'
     $second = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $headers -ContentType 'application/octet-stream' -Body $body
     $null = Wait-Report $second.id
-    $similar = @(Invoke-RestMethod -Uri "$base/api/reports/$($first.id)/similar" -Headers $authHeaders)
-    Assert-Service ($similar.Count -eq 1 -and $similar[0].basis -eq 'exact-bytes' -and $similar[0].score -eq 1) 'Exact similarity failed.'
+    $duplicateLookup = Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)" -Headers $authHeaders
+    Assert-Service ($duplicateLookup.Count -eq 2 -and $duplicateLookup.id -contains $first.id -and $duplicateLookup.id -contains $second.id) 'Hash lookup did not return exactly both uploads with matching bytes.'
+    $similar = Invoke-RestMethod -Uri "$base/api/reports/$($first.id)/similar" -Headers $authHeaders
+    Assert-Service ($similar.Count -eq 1 -and $similar[0].job.id -eq $second.id -and $similar[0].basis -eq 'exact-bytes' -and $similar[0].score -eq 1) 'Exact similarity failed.'
     $unicode = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = [uri]::EscapeDataString('zażółć[1].txt'); 'X-File-Name-Encoded' = 'uri' }
     $third = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $unicode -ContentType 'application/octet-stream' -Body $body
     Assert-Service ((Wait-Report $third.id).file.name -eq 'zażółć[1].txt') 'Unicode/literal upload name failed.'
