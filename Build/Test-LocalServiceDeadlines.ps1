@@ -77,6 +77,33 @@ function Assert-ConnectionClosed([Net.Sockets.TcpClient] $Client, [Diagnostics.S
         return 0
     } finally { $received.Dispose() }
 }
+function Get-UploadArtifacts([string] $CatalogRoot) {
+    @(Get-ChildItem -LiteralPath $CatalogRoot -File | Where-Object { $_.Name -match '\.(upload|job\.json(?:\.tmp)?|report\.json(?:\.tmp)?)$' } | ForEach-Object {
+        @{ name = $_.Name; bytes = $_.Length }
+    })
+}
+function Assert-UploadDiscarded([string] $CatalogRoot, [Diagnostics.Stopwatch] $Clock, [double] $LimitSeconds, [Diagnostics.Process] $Process = $null) {
+    # A transport close can precede the pending read's IO completion and rollback.
+    # Observe owner cleanup within the same deadline; publication always fails immediately.
+    $observation = @{ check = $receipt.activeCheck; transportClosedSeconds = [Math]::Round($Clock.Elapsed.TotalSeconds, 3); limitSeconds = $LimitSeconds; artifactsAtClose = @(Get-UploadArtifacts $CatalogRoot) }
+    $receipt.observations += $observation
+    while ($true) {
+        $artifacts = @(Get-UploadArtifacts $CatalogRoot)
+        $observation.remainingArtifacts = $artifacts
+        Assert-Deadline (@($artifacts | Where-Object { $_.name -notlike '*.upload' }).Count -eq 0) 'Incomplete input published job metadata or a report.'
+        if ($Process) {
+            $observation.serviceExited = $Process.HasExited
+            if ($Process.HasExited) { $observation.serviceExitCode = $Process.ExitCode }
+            Assert-Deadline (!$Process.HasExited) 'The service exited before interrupted upload cleanup completed.'
+        }
+        Assert-Deadline ($Clock.Elapsed.TotalSeconds -lt $LimitSeconds) 'Incomplete input retained partial upload bytes beyond its cleanup deadline.'
+        if ($artifacts.Count -eq 0) {
+            $observation.cleanupCompletedSeconds = [Math]::Round($Clock.Elapsed.TotalSeconds, 3)
+            return
+        }
+        Start-Sleep -Milliseconds 25
+    }
+}
 function Stop-Service($Owner) {
     if (!$Owner) { return }
     if (!$Owner.process.HasExited) { $Owner.process.Kill($true); $Owner.process.WaitForExit() }
@@ -112,10 +139,18 @@ try {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $client = Start-IncompleteUpload $port $service.token
     $network = $client.GetStream()
+    do {
+        $eofUpload = Get-ChildItem -LiteralPath $catalog -Filter '*.upload' | Select-Object -First 1
+        if (!$eofUpload) {
+            Assert-Deadline ($clock.Elapsed.TotalSeconds -lt 5) 'The EOF request never entered upload storage.'
+            Start-Sleep -Milliseconds 25
+        }
+    } while (!$eofUpload)
+    $eofId = [IO.Path]::GetFileNameWithoutExtension($eofUpload.Name)
+    $receipt.eofUploadId = $eofId
     $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send)
     $null = Assert-ConnectionClosed $client $clock 5 $network
-    Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.upload').Count -eq 0) 'Premature EOF retained partial upload bytes.'
-    Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.job.json').Count -eq 0) 'Premature EOF committed a partial upload.'
+    Assert-UploadDiscarded $catalog $clock 5 $service.process
     $client.Dispose(); $connections.Clear()
     $receipt.observations += @{ check = 'premature-body-eof'; result = 'no uploaded prefix or job committed' }
     $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -131,12 +166,7 @@ try {
     Assert-Deadline ($null -ne $partial) 'The incomplete request never entered catalog upload storage.'
     foreach ($client in $connections) { $null = Assert-ConnectionClosed $client $clock 38 }
     $receipt.observations += @{ check = 'body-and-upload-gate-deadline'; seconds = [Math]::Round($clock.Elapsed.TotalSeconds, 2); connections = 16 }
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        if (@(Get-ChildItem -LiteralPath $catalog -Filter '*.upload').Count -eq 0) { break }
-        Start-Sleep -Milliseconds 50
-    }
-    Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.upload').Count -eq 0) 'Cancellation retained an interrupted upload.'
-    Assert-Deadline (@(Get-ChildItem -LiteralPath $catalog -Filter '*.job.json').Count -eq 0) 'Cancellation committed an incomplete upload.'
+    Assert-UploadDiscarded $catalog $clock 38 $service.process
     $null = Invoke-RestMethod -Uri "$base/api/reports" -Headers $auth -TimeoutSec 5
     $receipt.activeCheck = 'valid-next-upload-and-report'
     $headers = @{ Authorization = $auth.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'after-deadline.txt' }
@@ -151,6 +181,9 @@ try {
         Start-Sleep -Milliseconds 100
     }
     Assert-Deadline ($report.schemaVersion -eq 1 -and $report.content.text.Contains('valid upload succeeds')) 'The valid next upload did not produce its report.'
+    Assert-Deadline (!(Test-Path -LiteralPath (Join-Path $catalog ($eofId + '.upload')))) 'The earlier EOF upload reappeared after the upload gate was released.'
+    $listed = @(Invoke-RestMethod -Uri "$base/api/reports" -Headers $auth -TimeoutSec 5)
+    Assert-Deadline ($listed.Count -eq 1 -and $listed[0].id -eq $job.id) 'Incomplete input appeared in the catalog after the next valid upload.'
     $receipt.observations += @{ check = 'handler-and-upload-gates-released'; result = 'GET, valid upload and report succeeded' }
     $serviceErrors = Stop-Service $service; $service = $null
     [IO.File]::WriteAllText((Join-Path $scratch 'service-errors.txt'), $serviceErrors)
@@ -226,7 +259,7 @@ try {
     $client = Start-IncompleteUpload $port $shutdownService.token
     $null = Assert-ConnectionClosed $client $clock 15
     Assert-Deadline ($shutdownService.process.WaitForExit(5000) -and $shutdownService.process.ExitCode -eq 0) 'Shutdown did not drain the canceled listener handler.'
-    Assert-Deadline (@(Get-ChildItem -LiteralPath $shutdownCatalog -Filter '*.upload').Count -eq 0) 'Shutdown retained interrupted upload bytes.'
+    Assert-UploadDiscarded $shutdownCatalog $clock 15
     $receipt.observations += @{ check = 'shutdown-pending-body'; seconds = [Math]::Round($clock.Elapsed.TotalSeconds, 2); result = 'process exited cleanly; partial bytes removed' }
     $shutdownErrors = Stop-Service $shutdownService; $shutdownService = $null
     [IO.File]::WriteAllText((Join-Path $scratch 'shutdown-errors.txt'), $shutdownErrors)
@@ -241,5 +274,16 @@ try {
     if ($shutdownService) { [IO.File]::WriteAllText((Join-Path $scratch 'shutdown-errors.txt'), (Stop-Service $shutdownService)) }
     foreach ($client in $connections) { $client.Dispose() }
     [IO.File]::WriteAllText((Join-Path $scratch 'deadline-receipt.json'), ($receipt | ConvertTo-Json -Depth 6))
+    if ($receipt.result -eq 'failed') {
+        # Keep timing/state evidence in CI logs even when artifact upload is skipped.
+        Write-Output ('Deadline failure receipt: ' + ($receipt | ConvertTo-Json -Depth 6 -Compress))
+        foreach ($log in @('service-errors.txt', 'shutdown-errors.txt')) {
+            $path = Join-Path $scratch $log
+            if (Test-Path -LiteralPath $path) {
+                $errors = [IO.File]::ReadAllText($path)
+                Write-Output ($log + ': ' + $errors.Substring(0, [Math]::Min(2048, $errors.Length)))
+            }
+        }
+    }
     Write-Output "Deadline validation scratch: $scratch"
 }
