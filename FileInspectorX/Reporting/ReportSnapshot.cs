@@ -21,7 +21,8 @@ internal sealed class ReportSnapshot : IDisposable
                 token.ThrowIfCancellationRequested();
                 var count = input.Read(buffer, 0, (int)Math.Min(buffer.Length, (long)options.MaxInputBytes - snapshot.Length + 1));
                 if (count == 0) break;
-                if (snapshot.Length + count > options.MaxInputBytes) throw new InvalidDataException("report:input-size-limit");
+                if (snapshot.Length + count > options.MaxInputBytes)
+                    throw new InspectionInputSizeLimitException(options.MaxInputBytes, snapshot.Length + count);
                 if (snapshot.Stream is MemoryStream memory && memory.Length + count > options.MaxMemorySnapshotBytes)
                 {
                     var disk = OpenPrivateFile(options.SnapshotDirectory);

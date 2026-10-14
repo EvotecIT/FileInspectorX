@@ -31,6 +31,46 @@ async function list() {
   }
 }
 function section(parent, title, value) { parent.append(make('h3', title), make('p', value)); }
+function logicalSource(source) {
+  if (!source) return '';
+  return [['Part', source.part], ['Story', source.story], ['Sheet', source.sheet], ['Cells', source.a1Range],
+    ['Page', source.page], ['Slide', source.slide], ['Block', source.blockAnchor ?? source.sourceBlockIndex],
+    ['Line', source.startLine], ['Character', source.sourceCharacterOffset]].filter(([, value]) => value != null && value !== '')
+    .map(([name, value]) => `${name} ${value}`).join(' · ');
+}
+function factSource(fact) {
+  const source = fact.source, logical = logicalSource(fact.logicalSource), parts = [source?.part, source?.record];
+  if (source?.byteOffset != null) parts.push(`${source.byteSpace || 'Unknown'} byte ${source.byteOffset}${source.byteLength != null ? ` + ${source.byteLength}` : ''}`);
+  if (logical) parts.push('Logical: ' + logical);
+  return parts.filter(Boolean).join(' · ');
+}
+function extractionLabel(extraction) {
+  return extraction ? `${extraction.readerId} ${extraction.readerVersion} · ${extraction.profileId} · ${extraction.textBasis}` : 'Unknown extraction profile';
+}
+function contentEvidence(parent, content) {
+  section(parent, 'Extraction profile', extractionLabel(content.extraction));
+  if (content.extraction?.settings && Object.keys(content.extraction.settings).length) {
+    const settings = make('details'); settings.append(make('summary', 'Reader settings'));
+    table(settings, ['Setting', 'Value'], Object.entries(content.extraction.settings)); parent.append(settings);
+  }
+  if (content.documentUnits?.length) {
+    parent.append(make('h3', 'Document units'));
+    table(parent, ['Unit', 'Logical location', 'Coverage', 'Retained text'], content.documentUnits.map(unit => [
+      `${unit.ordinal} · ${unit.kind}`, logicalSource(unit.location), unit.status,
+      unit.textStart != null && unit.textLength != null ? `characters ${unit.textStart} + ${unit.textLength}` : 'No retained span']));
+  }
+  if (content.diagnostics?.length) {
+    parent.append(make('h3', 'Reader diagnostics'));
+    table(parent, ['Severity', 'Code', 'Explanation', 'Logical location', 'Recovery'], content.diagnostics.map(diagnostic => [
+      diagnostic.severity, diagnostic.code, diagnostic.message, logicalSource(diagnostic.logicalSource),
+      `${diagnostic.recovery || 'None'}${diagnostic.isRecoverable ? ' · recovery permitted' : ''}`]));
+  }
+  if (content.omissions?.length) {
+    parent.append(make('h3', 'Omitted content'));
+    table(parent, ['Reason', 'Scope', 'Count', 'Logical location'], content.omissions.map(omission => [
+      omission.code, omission.scope, omission.count ?? 'Unknown', logicalSource(omission.logicalSource)]));
+  }
+}
 function table(parent, headers, rows) {
   const wrapper = make('div', undefined, 'table-wrap'), table = make('table'), head = make('thead'), tr = make('tr');
   if (headers.length >= 4) { table.className = headers.length >= 6 ? 'wide-table regions-table' : 'wide-table'; wrapper.tabIndex = 0; wrapper.setAttribute('aria-label', 'Scrollable evidence table'); }
@@ -59,17 +99,19 @@ async function show(id) {
   const observations = make('ul', undefined, 'observations');
   for (const item of report.observations) { const li = make('li', item.text); li.append(make('span', item.evidence, 'evidence')); observations.append(li); } detail.append(observations);
   section(detail, 'Content reader', report.content.reader);
+  contentEvidence(detail, report.content);
   if (report.content.facts?.length) {
     detail.append(make('h3', 'Located facts'));
     table(detail, ['Property', 'Value', 'Origin', 'Source'], report.content.facts.map(f => [f.name,
-      f.value + (f.truncated ? ' (prefix only)' : ''), f.origin,
-      [f.source?.part, f.source?.record, f.source?.byteOffset != null ? `byte ${f.source.byteOffset}${f.source.byteLength ? ` + ${f.source.byteLength}` : ''}` : null].filter(Boolean).join(' · ')]));
+      [f.value + (f.truncated ? ' (prefix only)' : ''), ...Object.entries(f.attributes || {}).map(([key, value]) => `${key}: ${value}`)].filter(Boolean).join(' · '),
+      f.origin === 'Embedded' ? 'Embedded file claim' : f.origin, factSource(f)]));
   } else if (Object.keys(report.content.metadata).length) table(detail, ['Property', 'Value'], Object.entries(report.content.metadata));
   if (report.content.text) { detail.append(make('h3', 'Extracted text'), make('pre', report.content.text)); }
   if (report.content.entries.length) {
     detail.append(make('h3', 'Archive inventory'));
-    table(detail, ['Member', 'Expanded bytes', 'SHA-256 (whole member)', 'Nested analysis'], report.content.entries.map(e => [
-      `${e.ordinal ?? '—'} · ${e.name}${e.nameTruncated ? ' (name prefix)' : ''}`, e.sizeBytes, e.sha256,
+    table(detail, ['Member / identity', 'Inventory', 'Expanded bytes', 'SHA-256 (whole member)', 'Nested analysis'], report.content.entries.map(e => [
+      `${e.ordinal ?? '—'} · ${e.name}${e.nameTruncated ? ' (name prefix)' : ''}${e.memberId ? ' · ID: ' + e.memberId : ''}`,
+      e.inventorySource || 'Unknown', e.sha256 || e.report ? `${e.sizeBytes} read` : e.declaredSizeBytes != null ? `${e.declaredSizeBytes} declared` : e.inventorySource === 'ContentReader' ? 'Unknown' : e.sizeBytes, e.sha256,
       e.report ? `${e.report.analysis.detectedExtension || 'Unknown'} · ${e.report.outcome}` : 'Not analyzed']));
     nestedReports(detail, report.content.entries, 0);
   }
@@ -90,6 +132,10 @@ async function show(id) {
     for (const evidence of match.evidence || []) {
       const coverage = evidence.partial ? ' · limited coverage' : '';
       detail.append(make('p', `${evidence.basis}: ${evidence.comparedLeft} / ${evidence.comparedRight} comparable items${coverage}. This describes the named evidence, not meaning or behavior.`, 'muted'));
+      if (evidence.leftExtraction || evidence.rightExtraction) {
+        detail.append(make('p', 'This extraction: ' + extractionLabel(evidence.leftExtraction), 'muted'),
+          make('p', 'Compared extraction: ' + extractionLabel(evidence.rightExtraction), 'muted'));
+      }
       if (evidence.matches?.length) table(detail, ['This file', 'Other file', 'Matched bytes'], evidence.matches.map(m => [m.leftName, m.rightName, m.byteLength]));
     }
   }
@@ -103,8 +149,11 @@ function nestedReports(parent, entries, depth) {
     if (!entry.report) continue;
     const report = entry.report, group = make('details'); group.append(make('summary', `${entry.name} · ${report.outcome}`));
     group.append(make('p', `SHA-256: ${report.file.sha256}`, 'hash'));
+    contentEvidence(group, report.content);
     if (report.content.text) group.append(make('pre', report.content.text));
-    if (report.content.facts?.length) table(group, ['Property', 'Value', 'Origin'], report.content.facts.map(f => [f.name, f.value + (f.truncated ? ' (prefix only)' : ''), f.origin]));
+    if (report.content.facts?.length) table(group, ['Property', 'Value', 'Origin', 'Source'], report.content.facts.map(f => [f.name,
+      [f.value + (f.truncated ? ' (prefix only)' : ''), ...Object.entries(f.attributes || {}).map(([key, value]) => `${key}: ${value}`)].filter(Boolean).join(' · '),
+      f.origin === 'Embedded' ? 'Embedded file claim' : f.origin, factSource(f)]));
     if (report.content.issues.length) group.append(make('p', report.content.issues.join(' · '), 'coverage'));
     nestedReports(group, report.content.entries || [], depth + 1); parent.append(group);
   }

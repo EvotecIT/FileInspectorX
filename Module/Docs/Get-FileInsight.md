@@ -11,17 +11,17 @@ Analyzes files and returns a full FileAnalysis object by default, with optional 
 ## SYNTAX
 ### Path (Default)
 ```powershell
-Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+Get-FileInsight [-Path] <string[]> [-View <InsightView>] [-ReportReader <string>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
 ```
 
 ### LiteralPath
 ```powershell
-Get-FileInsight [-LiteralPath] <string[]> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+Get-FileInsight [-LiteralPath] <string[]> [-View <InsightView>] [-ReportReader <string>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
 ```
 
 ### FileInfo
 ```powershell
-Get-FileInsight -InputObject <FileInfo> [-View <InsightView>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
+Get-FileInsight -InputObject <FileInfo> [-View <InsightView>] [-ReportReader <string>] [-DetectOnly] [-ComputeSha256] [-CollectMetrics] [-MagicHeaderBytes <int>] [-ExcludePermissions] [-ExcludeSignature] [-ExcludeReferences] [-ExcludeInstaller] [-EnableInstaller] [-ExcludeContainer] [-ExcludeAssessment] [-ExcludeShellProperties] [-EnableShellProperties] [-DisableMagika] [-MagikaPredictionMode <string>] [-LearnedClassificationMode <LearnedClassificationMode>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -425,6 +425,22 @@ Required: True
 Position: 0
 Default value: None
 Accept pipeline input: True (ByValue, ByPropertyName)
+Accept wildcard characters: False
+```
+
+### -ReportReader
+Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.
+
+```yaml
+Type: String
+Parameter Sets: Path, LiteralPath, FileInfo
+Aliases: None
+Possible values: OfficeIMO, Builtin
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
 Accept wildcard characters: False
 ```
 

@@ -33,10 +33,14 @@
         <!-- PowerShell uses Magika in safe Assist mode by default and exposes an opt-out.
              C# consumers still opt in by referencing the separate provider package. -->
         <IncludeMagika Condition="'$(IncludeMagika)' == ''">true</IncludeMagika>
+        <IncludeOfficeIMO Condition="'$(IncludeOfficeIMO)' == ''">true</IncludeOfficeIMO>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(IncludeMagika)' == 'true'">
         <DefineConstants>$(DefineConstants);FILEINSPECTORX_MAGIKA</DefineConstants>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(IncludeOfficeIMO)' == 'true'">
+        <DefineConstants>$(DefineConstants);FILEINSPECTORX_OFFICEIMO</DefineConstants>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -65,6 +69,8 @@
 
     <ItemGroup>
         <ProjectReference Include="..\FileInspectorX\FileInspectorX.csproj" />
+        <ProjectReference Include="..\FileInspectorX.OfficeIMO\FileInspectorX.OfficeIMO.csproj"
+            Condition="'$(IncludeOfficeIMO)' == 'true'" />
         <ProjectReference Include="..\FileInspectorX.Magika\FileInspectorX.Magika.csproj"
             Condition="'$(IncludeMagika)' == 'true'" />
     </ItemGroup>

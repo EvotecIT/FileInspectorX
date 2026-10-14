@@ -4,20 +4,28 @@ namespace FileInspectorX;
 
 internal static partial class ReportContentReader
 {
-    internal static ContentProfile Read(Stream source, FileAnalysis analysis, InspectionReportOptions options, ReportReadContext context, int depth)
+    internal static ContentProfile Read(Stream source, string hash, string name, FileAnalysis analysis, InspectionReportOptions options,
+        ReportReadContext context, int depth, CancellationToken cancellationToken)
     {
         var profile = new ContentProfile();
         var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
         var issues = new HashSet<string>(StringComparer.Ordinal);
-        try
+        var descendants = new List<(ReportArchiveEntry Item, byte[] Bytes)>();
+        var claimed = TryReadOptional(source, hash, name, analysis, options, context, depth, cancellationToken, issues, out var optional);
+        if (claimed)
+        {
+            profile = optional!;
+            ReadClaimedZipInventory(source, profile, options, context, issues);
+        }
+        else try
         {
             source.Position = 0;
             var bytes = new byte[(int)Math.Min(source.Length, Math.Min(options.MaxMetadataBytes, 256 * 1024))];
             var read = 0;
             while (read < bytes.Length) { InspectionOperation.CheckCancellation(); var count = source.Read(bytes, read, bytes.Length - read); if (count == 0) break; read += count; }
             source.Position = 0;
-            if (bytes.Length >= 4 && bytes[0] == 'P' && bytes[1] == 'K') ReadZip(source, profile, metadata, issues, options, context, depth);
-            else if (analysis.DetectedExtension == "tar") ReadTar(source, profile, metadata, issues, options, context, depth);
+            if (bytes.Length >= 4 && bytes[0] == 'P' && bytes[1] == 'K') ReadZip(source, profile, metadata, issues, options, context, descendants);
+            else if (analysis.DetectedExtension == "tar") ReadTar(source, profile, metadata, issues, options, context, descendants);
             else if (ReportMediaReader.TryRead(source, bytes, profile, metadata, issues, options)) { }
             else if (TryImage(bytes, metadata))
             {
@@ -41,22 +49,46 @@ internal static partial class ReportContentReader
                 issues.Add("content:reader-unavailable");
             }
         }
-        catch (Exception ex) when (ex is IOException or System.Xml.XmlException or ArgumentException or System.Text.DecoderFallbackException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or System.Xml.XmlException or ArgumentException or System.Text.DecoderFallbackException)
         {
             issues.Add("content:invalid-or-unreadable");
             profile.Status = InspectionStageStatus.Failed;
         }
-        profile.Metadata = metadata;
-        if (profile.Facts.Count == 0) profile.Facts = ReportFacts.FromMetadata(metadata, options, issues);
-        context.BoundContent(profile, metadata, issues);
+        if (!claimed)
+        {
+            profile.Metadata = metadata;
+            if (profile.Facts.Count == 0) profile.Facts = ReportFacts.FromMetadata(metadata, options, issues);
+            profile.Extraction = BuiltinExtraction(profile, metadata);
+            profile = context.AdmitContent(profile, issues, optionalReader: false);
+            // Parsing has ended and its owners have been disposed. Provider/configuration failures from descendants
+            // must never be classified as failures of the enclosing archive parser.
+            foreach (var child in descendants)
+            {
+                var entry = profile.Entries.SingleOrDefault(e => e.InventorySource == child.Item.InventorySource &&
+                    e.MemberId == child.Item.MemberId && e.Ordinal == child.Item.Ordinal);
+                if (entry is null || entry.MemberId is null) { issues.Add("content:selected-member-identity-not-retained"); continue; }
+                entry.Report = context.ReadChild(child.Bytes, entry.Name, depth, issues);
+            }
+        }
+        foreach (var issue in profile.Issues) issues.Add(issue);
         profile.Regions = ReportRegionReader.Read(source, analysis, options, issues);
         if (profile.Entries.Any(entry => entry.Report?.Outcome == InspectionOutcome.Partial)) issues.Add("content:nested-analysis-partial");
         profile.Issues = issues.OrderBy(x => x, StringComparer.Ordinal).ToArray();
-        if (profile.Status != InspectionStageStatus.Failed)
-            profile.Status = issues.Count == 0 ? InspectionStageStatus.Completed : InspectionStageStatus.Partial;
+        if (profile.Status is not InspectionStageStatus.Failed and not InspectionStageStatus.Unavailable)
+            profile.Status = issues.Count == 0 && profile.Omissions.Count == 0 &&
+                !profile.Diagnostics.Any(d => d.Severity is ReportDiagnosticSeverity.Warning or ReportDiagnosticSeverity.Error) &&
+                profile.Status != InspectionStageStatus.Partial ? InspectionStageStatus.Completed : InspectionStageStatus.Partial;
         ReportText.Enrich(profile);
         return profile;
     }
+
+    private static ReportExtractionDescriptor BuiltinExtraction(ContentProfile profile, Dictionary<string, string> metadata)
+        => new() { ReaderId = profile.Reader, ReaderVersion = "1", ProfileId = "fileinspector-builtin/v1",
+            TextBasis = profile.Reader == "utf-text" ? ReportTextBasis.BuiltinPlainText :
+                profile.Reader.StartsWith("ooxml-", StringComparison.Ordinal) ? ReportTextBasis.CanonicalDocumentText : ReportTextBasis.None,
+            Settings = profile.Reader == "utf-text" ? new Dictionary<string, string>(StringComparer.Ordinal)
+                { ["Encoding"] = metadata.TryGetValue("Encoding", out var encoding) ? encoding : "unknown", ["InvalidBytes"] = "reject", ["BOM"] = "detect" } :
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["Scope"] = metadata.TryGetValue("Scope", out var scope) ? scope : "inventory-and-signals" } };
 
     private static void ReadText(Stream input, ContentProfile profile, Dictionary<string, string> metadata, HashSet<string> issues, InspectionReportOptions options)
     {

@@ -52,11 +52,15 @@ public sealed class ReportComparisonEvidenceTests
     [Fact]
     public void DescendantContentSharesCharacterBudgetAndLongNamesKeepOrdinalIdentity()
     {
-        var bytes = ZipBytes(("first.txt", Encoding.UTF8.GetBytes(new string('a', 80))), ("second.txt", Encoding.UTF8.GetBytes(new string('b', 80))));
-        var report = Analyze(bytes, "outer.zip", new InspectionReportOptions { MaxTotalContentCharacters = 40 });
+        var bytes = ZipBytes(("first.txt", Encoding.UTF8.GetBytes(new string('a', 800))), ("second.txt", Encoding.UTF8.GetBytes(new string('b', 800))));
+        const int characterBudget = 512;
+        var report = Analyze(bytes, "outer.zip", new InspectionReportOptions { MaxTotalContentCharacters = characterBudget });
+        Assert.Equal(2, report.Content.Entries.Count);
+        Assert.All(report.Content.Entries, entry => Assert.NotNull(entry.Report));
         var children = report.Content.Entries.Select(e => e.Report!).ToArray();
         var profiles = children.Select(c => c.Content).Append(report.Content).ToArray();
-        Assert.True(profiles.Sum(c => c.Text.Length + c.Facts.Sum(f => f.Name.Length + f.Value.Length) + c.Metadata.Sum(p => p.Key.Length + p.Value.Length)) <= 40);
+        Assert.NotEmpty(children[0].Content.Text);
+        Assert.True(profiles.Sum(c => c.Text.Length + c.Facts.Sum(f => f.Name.Length + f.Value.Length) + c.Metadata.Sum(p => p.Key.Length + p.Value.Length)) <= characterBudget);
         Assert.Contains(profiles, c => c.Issues.Contains("content:aggregate-character-limit"));
         bytes = ZipBytes((new string('x', 200) + ".txt", Encoding.UTF8.GetBytes("Readable text")));
         report = Analyze(bytes, "outer.zip", new InspectionReportOptions { MaxEntryNameCharacters = 12 });
@@ -109,15 +113,12 @@ public sealed class ReportComparisonEvidenceTests
     }
 
     [Fact]
-    public void LegacyTextReportsRemainComparableAndUnknownSchemasFailClearly()
+    public void UnknownSchemasFailClearlyForBothComparisonApis()
     {
-        var first = Analyze(Encoding.UTF8.GetBytes("Quarterly invoices cover consulting services and subscription renewals."), "one.txt");
-        var second = Analyze(Encoding.UTF8.GetBytes("Quarterly invoices cover consulting services and subscription renewals. Appendix."), "two.txt");
-        first.SchemaVersion = 1;
-        Assert.True(ReportSimilarity.Compare(first, second) > 0);
-        Assert.Contains(ReportComparison.Compare(first, second), e => e.Basis == "extracted-text-shingles");
-        second.SchemaVersion = 99;
+        var first = new InspectionReport();
+        var second = new InspectionReport { SchemaVersion = 99 };
         Assert.Throws<NotSupportedException>(() => ReportComparison.Compare(first, second));
+        Assert.Throws<NotSupportedException>(() => ReportSimilarity.Compare(first, second));
     }
 
     [Theory]

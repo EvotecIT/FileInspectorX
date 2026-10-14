@@ -180,7 +180,7 @@ try {
         Assert-Deadline ($report.state -ne 'failed') 'The valid request failed after deadline cleanup.'
         Start-Sleep -Milliseconds 100
     }
-    Assert-Deadline ($report.schemaVersion -eq 2 -and $report.content.text.Contains('valid upload succeeds')) 'The valid next upload did not produce its report.'
+    Assert-Deadline ($report.schemaVersion -eq 3 -and $report.content.text.Contains('valid upload succeeds')) 'The valid next upload did not produce its report.'
     Assert-Deadline (!(Test-Path -LiteralPath (Join-Path $catalog ($eofId + '.upload')))) 'The earlier EOF upload reappeared after the upload gate was released.'
     $listed = Invoke-RestMethod -Uri "$base/api/reports" -Headers $auth -TimeoutSec 5
     Assert-Deadline ($listed.Count -eq 1 -and $listed[0].id -eq $job.id) 'Incomplete input appeared in the catalog after the next valid upload.'
@@ -247,7 +247,8 @@ $shutdown = [Threading.CancellationTokenSource]::new()
 try {
     $shutdown.CancelAfter([TimeSpan]::FromSeconds(8))
     $method = $assembly.GetType('FileInspectorX.Web.LocalServer', $true).GetMethod('Run', ($binding -bor [Reflection.BindingFlags]::Static))
-    $task = $method.Invoke($null, [object[]]@($Port, $catalog, $shutdown.Token))
+    $profile = [Enum]::Parse($assembly.GetType('FileInspectorX.Web.ContentReaderProfile', $true), 'OfficeIMO')
+    $task = $method.Invoke($null, [object[]]@($Port, $catalog, $profile, $shutdown.Token))
     $task.GetAwaiter().GetResult()
 } finally { $shutdown.Dispose(); $catalog.Dispose() }
 '@)

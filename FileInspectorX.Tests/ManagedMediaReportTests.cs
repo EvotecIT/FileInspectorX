@@ -145,8 +145,9 @@ public sealed class ManagedMediaReportTests
         try
         {
             using var stream = new MemoryStream(Movie(false)); stream.Position = 7;
-            Assert.Throws<InvalidDataException>(() => FileInspector.AnalyzeReport(stream, "film.mp4",
+            var error = Assert.Throws<InspectionInputSizeLimitException>(() => FileInspector.AnalyzeReport(stream, "film.mp4",
                 new InspectionReportOptions { SnapshotDirectory = directory, MaxInputBytes = 16384, MaxMemorySnapshotBytes = 1024 }));
+            Assert.Equal(16384, error.MaximumBytes); Assert.True(error.ObservedBytes > error.MaximumBytes);
             Assert.Equal(7, stream.Position); Assert.True(stream.CanRead); Assert.Empty(Directory.GetFiles(directory));
         }
         finally { Directory.Delete(directory, true); }

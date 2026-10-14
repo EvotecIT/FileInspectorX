@@ -4,8 +4,9 @@ using System.Text.Json;
 
 namespace FileInspectorX.Web;
 
-internal sealed class AnalysisQueue(Catalog catalog)
+internal sealed class AnalysisQueue(Catalog catalog, ContentReaderProfile profile)
 {
+    private sealed class NativeBudgetExceededException : Exception;
     internal async Task RunAsync(CancellationToken stoppingToken)
     {
         await foreach (var id in catalog.Queue.Reader.ReadAllAsync(stoppingToken))
@@ -16,7 +17,7 @@ internal sealed class AnalysisQueue(Catalog catalog)
                 var job = catalog.Find(id)!;
                 var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
                 if (Path.GetFileNameWithoutExtension(Environment.ProcessPath!).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) start.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
-                foreach (var argument in new[] { "--worker", catalog.Blob(id), job.Name }) start.ArgumentList.Add(argument);
+                foreach (var argument in new[] { "--worker", catalog.Blob(id), job.Name, profile.ToString() }) start.ArgumentList.Add(argument);
                 using var process = Process.Start(start) ?? throw new IOException("Unable to start analysis worker.");
                 // Only the live catalog owner can publish. A surviving child has no report destination.
                 var report = ReadReport(process.StandardOutput.BaseStream, stoppingToken);
@@ -33,6 +34,7 @@ internal sealed class AnalysisQueue(Catalog catalog)
                             throw new TimeoutException("Worker exceeded its time or observed memory limit.");
                         await Task.Delay(100, stoppingToken);
                     }
+                    if (process.ExitCode == Worker.NativeBudgetExitCode) throw new NativeBudgetExceededException();
                     if (process.ExitCode != 0) throw new InvalidDataException("Worker could not produce a report.");
                     catalog.PublishReport(id, await report);
                 }
@@ -45,7 +47,7 @@ internal sealed class AnalysisQueue(Catalog catalog)
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 Console.Error.WriteLine("Analysis " + id + " did not complete (" + ex.GetType().Name + ").");
-                catalog.Update(id, "failed", ex is TimeoutException ? "Worker exceeded its resource budget." : "Analysis failed or was interrupted.");
+                catalog.Update(id, "failed", ex is TimeoutException or NativeBudgetExceededException ? "Worker exceeded its resource budget." : "Analysis failed or was interrupted.");
                 File.Delete(catalog.ReportPath(id)); File.Delete(catalog.ReportPath(id) + ".tmp");
                 if (stoppingToken.IsCancellationRequested) break;
             }
@@ -68,11 +70,13 @@ internal sealed class AnalysisQueue(Catalog catalog)
 
 internal static class Worker
 {
+    internal const int NativeBudgetExitCode = 3;
     internal static int Run(string[] args)
     {
-        if (args.Length != 3) return 2;
+        if (args.Length is not 3 and not 4) return 2;
         try
         {
+            var profile = args.Length == 4 ? ContentReaderProfiles.Parse(args[3]) : ContentReaderProfile.OfficeIMO;
             var settings = InspectionSettings.CaptureDefaults() with
             {
                 IncludeInstaller = false, BreadcrumbsEnabled = false,
@@ -85,12 +89,14 @@ internal static class Worker
             using var input = File.OpenRead(args[1]);
             var report = FileInspector.AnalyzeReport(input, args[2], new InspectionReportOptions
             {
+                ContentReader = ContentReaderProfiles.Create(profile),
                 Detection = new FileInspector.DetectionOptions { Settings = settings, IncludePermissions = false, IncludeShellProperties = false, IncludeInstaller = false }
             });
             using var output = Console.OpenStandardOutput();
             JsonSerializer.Serialize(output, report, ReportJson.Options);
             return 0;
         }
+        catch (InspectionContentLimitException) { return NativeBudgetExitCode; }
         catch (Exception ex) when (ex is not OutOfMemoryException) { return 1; }
     }
 }

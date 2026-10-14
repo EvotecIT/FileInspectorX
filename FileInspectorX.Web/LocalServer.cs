@@ -11,7 +11,7 @@ internal sealed record WebResponse(int Status, object? Value = null, string? Fil
 
 internal static class LocalServer
 {
-    internal static async Task Run(int port, Catalog catalog, CancellationToken token)
+    internal static async Task Run(int port, Catalog catalog, ContentReaderProfile profile, CancellationToken token)
     {
         using var listener = new HttpListener();
         listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
@@ -20,7 +20,7 @@ internal static class LocalServer
         Console.WriteLine("FileInspectorX local reports: http://127.0.0.1:" + port + "/#token=" + access.Token);
         using var capacity = new SemaphoreSlim(16);
         var requests = new List<Task>();
-        var worker = new AnalysisQueue(catalog).RunAsync(token);
+        var worker = new AnalysisQueue(catalog, profile).RunAsync(token);
         try
         {
             while (!token.IsCancellationRequested)

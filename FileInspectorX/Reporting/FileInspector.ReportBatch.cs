@@ -76,7 +76,7 @@ public static partial class FileInspector
     private static ReportBatchItem ReportItem(string path, string source, InspectionReportOptions? options)
     {
         try { return new ReportBatchItem { Source = source, Report = AnalyzeReport(path, options) }; }
-        catch (InvalidDataException) { return new ReportBatchItem { Source = source, Issue = "batch:input-size-limit" }; }
+        catch (InspectionInputSizeLimitException) { return new ReportBatchItem { Source = source, Issue = "batch:input-size-limit" }; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ReportBatchItem { Source = source, Issue = "batch:input-unavailable" }; }
     }
 }

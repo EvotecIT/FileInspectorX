@@ -234,6 +234,22 @@ Required reports a terminating per-file error.</maml:para>
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>ReportReader</maml:name>
+          <maml:description>
+            <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>View</maml:name>
           <maml:description>
@@ -478,6 +494,22 @@ Required reports a terminating per-file error.</maml:para>
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>ReportReader</maml:name>
+          <maml:description>
+            <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>View</maml:name>
           <maml:description>
@@ -715,6 +747,22 @@ Required reports a terminating per-file error.</maml:para>
             <command:parameterValue required="false" variableLength="false">HighConfidence</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">MediumConfidence</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">BestGuess</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>ReportReader</maml:name>
+          <maml:description>
+            <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
           </command:parameterValueGroup>
           <dev:type>
             <maml:name>String</maml:name>
@@ -986,6 +1034,22 @@ Required reports a terminating per-file error.</maml:para>
         <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
         <dev:type>
           <maml:name>String[]</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+        <maml:name>ReportReader</maml:name>
+        <maml:description>
+          <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+        <command:parameterValueGroup>
+          <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+        </command:parameterValueGroup>
+        <dev:type>
+          <maml:name>String</maml:name>
           <maml:uri />
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>

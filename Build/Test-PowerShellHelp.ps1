@@ -64,7 +64,7 @@ try {
         throw 'FullName property binding did not preserve a literal path.'
     }
     $report = Get-FileInsight -LiteralPath $literalFixturePath -View Report -ExcludePermissions -DisableMagika
-    if ($report.SchemaVersion -ne 2 -or $report.File.Name -ne 'sample[1].txt' -or $report.File.Sha256.Length -ne 64) {
+    if ($report.SchemaVersion -ne 3 -or $report.File.Name -ne 'sample[1].txt' -or $report.File.Sha256.Length -ne 64) {
         throw 'The Report view did not return the versioned content report for the literal file.'
     }
     $wildcardDetection = Get-FileInsight -Path $literalFixturePath -View Detection -DisableMagika

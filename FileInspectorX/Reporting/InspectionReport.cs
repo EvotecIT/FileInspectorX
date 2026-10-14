@@ -3,10 +3,10 @@ namespace FileInspectorX;
 /// <summary>A portable, versioned report shared by API, local service and report consumers.</summary>
 public sealed class InspectionReport
 {
-    /// <summary>Current portable report contract. Version 1 remains readable by current consumers.</summary>
-    public const int CurrentSchemaVersion = 2;
+    /// <summary>Current portable report contract. Versions 1 and 2 remain readable by current consumers.</summary>
+    public const int CurrentSchemaVersion = 3;
     /// <summary>Whether the supplied saved-report version can be interpreted by this library.</summary>
-    public static bool SupportsSchema(int version) => version is 1 or CurrentSchemaVersion;
+    public static bool SupportsSchema(int version) => version is 1 or 2 or 3;
     /// <summary>Schema contract version. Consumers must reject unsupported major versions.</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     /// <summary>Version of the analysis library that produced this report.</summary>
@@ -47,6 +47,14 @@ public sealed class ContentProfile
     public InspectionStageStatus Status { get; set; } = InspectionStageStatus.NotApplicable;
     /// <summary>Stable limits, failures and unsupported features. Absence is never a claim of full format fidelity.</summary>
     public IReadOnlyList<string> Issues { get; set; } = Array.Empty<string>();
+    /// <summary>Declared extraction provenance. Null means unknown, including reports saved before schema 3.</summary>
+    public ReportExtractionDescriptor? Extraction { get; set; }
+    /// <summary>Logical document units and outcomes, with spans into the retained text.</summary>
+    public IReadOnlyList<ReportDocumentUnit> DocumentUnits { get; set; } = Array.Empty<ReportDocumentUnit>();
+    /// <summary>Structured reader diagnostics, kept separate from primary text.</summary>
+    public IReadOnlyList<ReportDiagnostic> Diagnostics { get; set; } = Array.Empty<ReportDiagnostic>();
+    /// <summary>Reader omissions with explicit scope and optional counts.</summary>
+    public IReadOnlyList<ReportContentOmission> Omissions { get; set; } = Array.Empty<ReportContentOmission>();
     /// <summary>Bounded readable text. May contain sensitive input data; consumers control retention.</summary>
     public string Text { get; set; } = string.Empty;
     /// <summary>Format-specific facts and counts; sampled counts are explicitly named as such.</summary>
@@ -76,6 +84,19 @@ public enum ReportArchiveEntryKind
     Other
 }
 
+/// <summary>The producing inventory scope of a member identity, independently of its payload format.</summary>
+public enum ReportArchiveInventorySource
+{
+    /// <summary>No producing inventory was recorded, including saved reports before schema 3.</summary>
+    Unknown,
+    /// <summary>The operation's optional content reader supplied this native identity.</summary>
+    ContentReader,
+    /// <summary>Core inventoried the original ZIP container.</summary>
+    RawZip,
+    /// <summary>Core inventoried the original TAR container.</summary>
+    RawTar
+}
+
 /// <summary>Inventory evidence for an archive member.</summary>
 public sealed class ReportArchiveEntry
 {
@@ -83,7 +104,13 @@ public sealed class ReportArchiveEntry
     public string Name { get; set; } = string.Empty;
     /// <summary>Source member kind, independent of the retained display-name prefix.</summary>
     public ReportArchiveEntryKind Kind { get; set; }
-    /// <summary>Declared expanded length.</summary>
+    /// <summary>Producing inventory. Identity is this scope together with MemberId and Ordinal.</summary>
+    public ReportArchiveInventorySource InventorySource { get; set; }
+    /// <summary>Reader-scoped member identity. Null when native identity was not recorded.</summary>
+    public string? MemberId { get; set; }
+    /// <summary>Declared expanded length when known, independent of actual selected payload length.</summary>
+    public long? DeclaredSizeBytes { get; set; }
+    /// <summary>Expanded member length retained by the inventory reader.</summary>
     public long SizeBytes { get; set; }
     /// <summary>Declared compressed length.</summary>
     public long CompressedBytes { get; set; }
@@ -108,45 +135,4 @@ public sealed class ReportObservation
     public string Text { get; set; } = string.Empty;
     /// <summary>Property path within this schema, for example Analysis.Detection.</summary>
     public string Evidence { get; set; } = string.Empty;
-}
-
-/// <summary>Explicit bounded extraction policy. No external services or engines are invoked.</summary>
-public sealed class InspectionReportOptions
-{
-    /// <summary>Maximum whole input buffered for a stable byte identity. Default 64 MiB.</summary>
-    public int MaxInputBytes { get; set; } = 64 * 1024 * 1024;
-    /// <summary>Maximum text characters retained. Default 64 Ki characters.</summary>
-    public int MaxTextCharacters { get; set; } = 64 * 1024;
-    /// <summary>Maximum inventory/OOXML parts visited. Default 256.</summary>
-    public int MaxArchiveEntries { get; set; } = 256;
-    /// <summary>Maximum expanded bytes per member. Default 1 MiB.</summary>
-    public int MaxEntryBytes { get; set; } = 1024 * 1024;
-    /// <summary>Maximum expanded member bytes read in total. Default 16 MiB.</summary>
-    public int MaxExpandedBytes { get; set; } = 16 * 1024 * 1024;
-    /// <summary>Maximum bytes retained in memory before the exact snapshot spills to a private temporary file. Default 64 MiB.</summary>
-    public int MaxMemorySnapshotBytes { get; set; } = 64 * 1024 * 1024;
-    /// <summary>Optional existing directory for private temporary snapshots. Null uses the host's temporary directory.</summary>
-    public string? SnapshotDirectory { get; set; }
-    /// <summary>Maximum cumulative bytes probed by a media metadata reader. Payloads are skipped by seeking.</summary>
-    public int MaxMetadataBytes { get; set; } = 1024 * 1024;
-    /// <summary>Maximum typed facts retained by each content reader.</summary>
-    public int MaxFacts { get; set; } = 256;
-    /// <summary>Maximum characters in one retained fact value.</summary>
-    public int MaxFactCharacters { get; set; } = 4096;
-    /// <summary>Maximum aggregate text/fact/metadata characters across root and descendant content profiles.</summary>
-    public int MaxTotalContentCharacters { get; set; } = 256 * 1024;
-    /// <summary>Maximum characters retained in each decoded archive member name.</summary>
-    public int MaxEntryNameCharacters { get; set; } = 1024;
-    /// <summary>Maximum region or fixed-block records emitted for one input.</summary>
-    public int MaxRegions { get; set; } = 32;
-    /// <summary>Maximum bytes hashed for one complete binary region.</summary>
-    public int MaxRegionBytes { get; set; } = 2 * 1024 * 1024;
-    /// <summary>Maximum aggregate region bytes hashed for one input.</summary>
-    public int MaxRegionHashBytes { get; set; } = 16 * 1024 * 1024;
-    /// <summary>Maximum descendant reports across one root report. Zero disables nested analysis.</summary>
-    public int MaxNestedReports { get; set; } = 32;
-    /// <summary>Maximum descendant depth; the root is depth zero. Zero disables nested analysis.</summary>
-    public int MaxNestedDepth { get; set; } = 2;
-    /// <summary>Existing core settings. Null uses bounded, portable analysis without filesystem enrichment.</summary>
-    public FileInspector.DetectionOptions? Detection { get; set; }
 }

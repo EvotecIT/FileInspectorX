@@ -18,21 +18,7 @@ public static partial class FileInspector
         if (stream == null) throw new ArgumentNullException(nameof(stream));
         if (!stream.CanRead) throw new ArgumentException("A readable stream is required.", nameof(stream));
         options ??= new InspectionReportOptions();
-        if (options.MaxInputBytes <= 0 || options.MaxTextCharacters <= 0 || options.MaxArchiveEntries <= 0 || options.MaxEntryBytes <= 0 || options.MaxExpandedBytes <= 0 ||
-            options.MaxMemorySnapshotBytes <= 0 || options.MaxMetadataBytes <= 0 || options.MaxFacts <= 0 || options.MaxFactCharacters <= 0 ||
-            options.MaxRegions <= 0 || options.MaxRegionBytes <= 0 || options.MaxRegionHashBytes <= 0 || options.MaxNestedReports < 0 || options.MaxNestedDepth < 0 ||
-            options.MaxTotalContentCharacters <= 0 || options.MaxEntryNameCharacters <= 0)
-            throw new ArgumentOutOfRangeException(nameof(options), "Report budgets must be positive.");
-        var policy = new InspectionReportOptions
-        {
-            MaxInputBytes = options.MaxInputBytes, MaxTextCharacters = options.MaxTextCharacters,
-            MaxArchiveEntries = options.MaxArchiveEntries, MaxEntryBytes = options.MaxEntryBytes, MaxExpandedBytes = options.MaxExpandedBytes,
-            MaxMemorySnapshotBytes = options.MaxMemorySnapshotBytes, SnapshotDirectory = options.SnapshotDirectory,
-            MaxMetadataBytes = options.MaxMetadataBytes, MaxFacts = options.MaxFacts, MaxFactCharacters = options.MaxFactCharacters,
-            MaxTotalContentCharacters = options.MaxTotalContentCharacters, MaxEntryNameCharacters = options.MaxEntryNameCharacters,
-            MaxRegions = options.MaxRegions, MaxRegionBytes = options.MaxRegionBytes, MaxRegionHashBytes = options.MaxRegionHashBytes,
-            MaxNestedReports = options.MaxNestedReports, MaxNestedDepth = options.MaxNestedDepth
-        };
+        var policy = options.Copy();
         var detection = options.Detection?.Copy() ?? new DetectionOptions { IncludePermissions = false, IncludeInstaller = false, IncludeShellProperties = false };
         detection.Settings ??= InspectionSettings.CaptureDefaults();
         detection.OfflineCertificateValidation = true;
@@ -60,7 +46,7 @@ public static partial class FileInspector
         snapshot.Position = 0;
         var analysis = Analyze(snapshot, detection, name);
         using var operation = InspectionOperation.Begin(detection);
-        var content = ReportContentReader.Read(snapshot, analysis, policy, context, depth);
+        var content = ReportContentReader.Read(snapshot, hash, name, analysis, policy, context, depth, detection.CancellationToken);
         var report = new InspectionReport
         {
             AnalyzerVersion = typeof(FileInspector).Assembly.GetName().Version?.ToString() ?? "unknown",

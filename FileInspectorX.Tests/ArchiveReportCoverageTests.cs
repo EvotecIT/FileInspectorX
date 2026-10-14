@@ -91,7 +91,7 @@ public sealed class ArchiveReportCoverageTests
         Assert.Equal(InspectionStageStatus.Partial, report.Content.Status);
     }
 
-    private static MemoryStream Archive(string format, params (string Name, byte[] Content)[] members)
+    internal static MemoryStream Archive(string format, params (string Name, byte[] Content)[] members)
     {
         var output = new MemoryStream();
         if (format == "zip")

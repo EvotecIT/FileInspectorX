@@ -6,6 +6,7 @@
   "ExcludeProjects": [
     "FileInspectorX.Tests",
     "FileInspectorX.Magika.Tests",
+    "FileInspectorX.OfficeIMO.Tests",
     "FileInspectorX.Examples",
     "FileInspectorX.PowerShell"
   ],

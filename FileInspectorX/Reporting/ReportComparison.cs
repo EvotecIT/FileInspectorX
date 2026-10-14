@@ -23,6 +23,10 @@ public sealed class ReportComparisonEvidence
     public long? ComparedBytesRight { get; set; }
     /// <summary>True when extraction, region hashing or inventory coverage was incomplete.</summary>
     public bool Partial { get; set; }
+    /// <summary>Detached left extraction descriptor for a primary-text comparison; null for other bases.</summary>
+    public ReportExtractionDescriptor? LeftExtraction { get; set; }
+    /// <summary>Detached right extraction descriptor for a primary-text comparison; null for other bases.</summary>
+    public ReportExtractionDescriptor? RightExtraction { get; set; }
     /// <summary>Whole-region matches, preserving names and physical offsets where available.</summary>
     public IReadOnlyList<ReportRegionMatch> Matches { get; set; } = Array.Empty<ReportRegionMatch>();
 }
@@ -38,6 +42,14 @@ public sealed class ReportRegionMatch
     public int LeftOrdinal { get; set; }
     /// <summary>Source ordinal on the right.</summary>
     public int RightOrdinal { get; set; }
+    /// <summary>Producing member inventory on the left; unknown for binary regions or older reports.</summary>
+    public ReportArchiveInventorySource LeftInventorySource { get; set; }
+    /// <summary>Producing member inventory on the right; unknown for binary regions or older reports.</summary>
+    public ReportArchiveInventorySource RightInventorySource { get; set; }
+    /// <summary>Left reader-scoped member identity, when recorded.</summary>
+    public string? LeftMemberId { get; set; }
+    /// <summary>Right reader-scoped member identity, when recorded.</summary>
+    public string? RightMemberId { get; set; }
     /// <summary>Physical left offset when this is a binary region.</summary>
     public long? LeftOffset { get; set; }
     /// <summary>Physical right offset when this is a binary region.</summary>
@@ -59,14 +71,15 @@ public static class ReportComparison
         if (!InspectionReport.SupportsSchema(left.SchemaVersion) || !InspectionReport.SupportsSchema(right.SchemaVersion))
             throw new NotSupportedException("Unsupported report schema.");
         var result = new List<ReportComparisonEvidence>();
-        if (ValidHash(left.File.Sha256) && string.Equals(left.File.Sha256, right.File.Sha256, StringComparison.OrdinalIgnoreCase))
+        if (SameSnapshotBytes(left, right))
             result.Add(new ReportComparisonEvidence { Basis = "exact-bytes", Algorithm = "sha256", Score = 1,
                 ComparedLeft = 1, ComparedRight = 1, ComparedBytesLeft = left.File.SizeBytes, ComparedBytesRight = right.File.SizeBytes });
         else
         {
             var text = ReportSimilarity.Compare(left, right);
             if (text.HasValue) result.Add(new ReportComparisonEvidence { Basis = "extracted-text-shingles", Algorithm = "bottom-k-word-sha256-128/v1",
-                Score = text.Value, ComparedLeft = left.Content.TextFingerprint.Count, ComparedRight = right.Content.TextFingerprint.Count,
+                Score = text.Value, LeftExtraction = ReportTextCompatibility.Copy(left.Content.Extraction!),
+                RightExtraction = ReportTextCompatibility.Copy(right.Content.Extraction!), ComparedLeft = left.Content.TextFingerprint.Count, ComparedRight = right.Content.TextFingerprint.Count,
                 Partial = left.Outcome == InspectionOutcome.Partial || right.Outcome == InspectionOutcome.Partial });
         }
         AddComparison(result, "whole-archive-members", Members(left), Members(right), left, right);
@@ -75,6 +88,9 @@ public static class ReportComparison
         return result;
     }
 
+    internal static bool SameSnapshotBytes(InspectionReport left, InspectionReport right) =>
+        ValidHash(left.File.Sha256) && string.Equals(left.File.Sha256, right.File.Sha256, StringComparison.OrdinalIgnoreCase);
+
     private sealed class Item
     {
         internal string Name = string.Empty;
@@ -82,11 +98,15 @@ public static class ReportComparison
         internal int Ordinal;
         internal long Length;
         internal long? Offset;
+        internal ReportArchiveInventorySource InventorySource;
+        internal string? MemberId;
     }
     private static Item[] Members(InspectionReport report) => report.Content.Entries.Select((entry, index) => new { entry, index })
         .Where(item => report.SchemaVersion == 1 ? !item.entry.Name.EndsWith("/", StringComparison.Ordinal) : item.entry.Kind != ReportArchiveEntryKind.Directory)
         .Select(item => new Item { Name = item.entry.Name, Hash = item.entry.Sha256, Length = item.entry.SizeBytes,
-            Ordinal = report.SchemaVersion == 1 ? item.index : item.entry.Ordinal }).ToArray();
+            Ordinal = report.SchemaVersion == 1 ? item.index : item.entry.Ordinal,
+            InventorySource = report.SchemaVersion >= 3 ? item.entry.InventorySource : ReportArchiveInventorySource.Unknown,
+            MemberId = report.SchemaVersion >= 3 ? item.entry.MemberId : null }).ToArray();
     private static Item[] Regions(InspectionReport report, string kind) => report.Content.Regions.Where(r => r.Kind == kind)
         .Select((r, i) => new Item { Name = r.Name, Hash = r.HashBytes == r.ByteLength && r.Status == InspectionStageStatus.Completed ? r.Sha256 : null,
             Length = r.ByteLength, Offset = r.ByteOffset, Ordinal = i }).ToArray();
@@ -107,6 +127,8 @@ public static class ReportComparison
             if (!available.TryGetValue(key, out var candidates) || candidates.Count == 0) continue;
             var other = candidates.Dequeue();
             matches.Add(new ReportRegionMatch { LeftName = item.Name, RightName = other.Name, LeftOrdinal = item.Ordinal, RightOrdinal = other.Ordinal,
+                LeftInventorySource = item.InventorySource, RightInventorySource = other.InventorySource,
+                LeftMemberId = item.MemberId, RightMemberId = other.MemberId,
                 LeftOffset = item.Offset, RightOffset = other.Offset, ByteLength = item.Length, Sha256 = item.Hash.ToLowerInvariant() });
         }
         output.Add(new ReportComparisonEvidence { Basis = basis, Algorithm = "sha256-multiset-overlap/v1", Score = matches.Count / (double)(a.Length + b.Length - matches.Count),

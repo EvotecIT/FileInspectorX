@@ -72,7 +72,7 @@ Build-Module -ModuleName 'FileInspectorX' {
     New-ConfigurationFormat -ApplyTo 'DefaultPSD1', 'OnMergePSD1' -PSD1Style 'Minimal'
 
     # configuration for documentation, at the same time it enables documentation processing
-    New-ConfigurationDocumentation -Enable -PathReadme 'Docs\Readme.md' -Path 'Docs' -SyncExternalHelpToProjectRoot
+    New-ConfigurationDocumentation -Enable -PathReadme 'Docs/Readme.md' -Path 'Docs' -SyncExternalHelpToProjectRoot
 
     New-ConfigurationImportModule -ImportSelf -ImportRequiredModules
 
@@ -89,6 +89,7 @@ Build-Module -ModuleName 'FileInspectorX' {
         NETProjectPath                    = '..\FileInspectorX.PowerShell\FileInspectorX.PowerShell.csproj'
         ResolveBinaryConflicts            = $true
         ResolveBinaryConflictsName        = 'FileInspectorX.PowerShell'
+        NETAssemblyLoadContext            = $true
         NETProjectName                    = 'FileInspectorX.PowerShell'
         NETBinaryModule                   = 'FileInspectorX.PowerShell.dll'
         NETConfiguration                  = 'Release'

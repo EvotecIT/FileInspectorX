@@ -95,7 +95,7 @@ internal static partial class ReportMediaReader
                 text = text.Substring(0, length); truncated = true; _issues.Add("content:fact-character-limit");
             }
             Facts.Add(new ReportFact { Name = name, Kind = kind, Value = text, Truncated = truncated, Origin = derived ? ReportFactOrigin.Derived : ReportFactOrigin.Embedded,
-                Source = new ReportSourceLocation { Part = part, ByteOffset = offset, ByteLength = bytes } });
+                Source = new ReportSourceLocation { Part = part, ByteSpace = ReportByteSpace.SnapshotBytes, ByteOffset = offset, ByteLength = bytes } });
         }
     }
 }

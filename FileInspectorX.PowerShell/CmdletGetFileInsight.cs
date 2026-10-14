@@ -9,6 +9,9 @@ using FileInspectorX;
 #if FILEINSPECTORX_MAGIKA
 using FileInspectorX.Magika;
 #endif
+#if FILEINSPECTORX_OFFICEIMO
+using FileInspectorX.OfficeIMO;
+#endif
 
 namespace FileInspectorX.PowerShell {
     /// <summary>
@@ -19,6 +22,7 @@ namespace FileInspectorX.PowerShell {
     /// <para>Path expands wildcard patterns. LiteralPath preserves wildcard characters in file names, and FileInfo pipeline input is always resolved literally.</para>
     /// <para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; these views expose Raw for drill-down. Report returns the versioned InspectionReport contract with exact byte identity, bounded extracted content and coverage evidence.</para>
     /// <para>The Report view reads a stable snapshot limited to 64 MiB per file. Larger files produce a per-file error. Content extraction retains at most 64 Ki characters and records limit issues. Report analysis is portable; requested filesystem-only stages are reported as unavailable.</para>
+    /// <para>Report uses the bundled OfficeIMO reader for supported documents, image metadata and passive CAB/MSI files. Use -ReportReader Builtin to select the core readers. OfficeIMO native input is limited to 32 MiB; OCR, rendering, legacy conversion and formula calculation are not performed. Native resource failures are per-file errors.</para>
     /// <para>Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.</para>
     /// </remarks>
     /// <example>
@@ -102,6 +106,16 @@ namespace FileInspectorX.PowerShell {
         /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.</summary>
         [Parameter()]
         public InsightView View { get; set; } = InsightView.Raw;
+
+        /// <summary>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</summary>
+        [Parameter()]
+        [ValidateSet("OfficeIMO", "Builtin")]
+        public string ReportReader { get; set; } =
+#if FILEINSPECTORX_OFFICEIMO
+            "OfficeIMO";
+#else
+            "Builtin";
+#endif
 
         /// <summary>Return only detection result (skip analysis). Back-compat shim for -View Detection.</summary>
         [Parameter()]
@@ -273,7 +287,7 @@ namespace FileInspectorX.PowerShell {
                         if (DetectOnly) view = InsightView.Detection;
                         switch (view) {
                             case InsightView.Report: {
-                                var report = FileInspector.AnalyzeReport(p, new InspectionReportOptions { Detection = options });
+                                var report = FileInspector.AnalyzeReport(p, new InspectionReportOptions { Detection = options, ContentReader = CreateReportReader() });
                                 WriteObject(report);
                                 break; }
                             case InsightView.Raw: {
@@ -388,6 +402,16 @@ namespace FileInspectorX.PowerShell {
             throw new InvalidOperationException(
                 "Magika is optional and is not included in this PowerShell module build. " +
                 "Install or publish a module built with IncludeMagika=true.");
+#endif
+        }
+
+        private IInspectionContentReader? CreateReportReader()
+        {
+            if (string.Equals(ReportReader, "Builtin", StringComparison.OrdinalIgnoreCase)) return null;
+#if FILEINSPECTORX_OFFICEIMO
+            return new OfficeImoContentReader();
+#else
+            throw new InvalidOperationException("OfficeIMO is not included in this module build. Select -ReportReader Builtin or use a module built with IncludeOfficeIMO=true.");
 #endif
         }
 

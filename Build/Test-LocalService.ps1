@@ -78,9 +78,31 @@ try {
     $body = [Text.Encoding]::UTF8.GetBytes('Quarterly customer invoices summarize revenue from consulting work and subscription renewals.')
     $first = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $headers -ContentType 'application/octet-stream' -Body $body
     $report = Wait-Report $first.id
-    Assert-Service ($report.schemaVersion -eq 2 -and $report.file.name -eq 'invoices.txt') 'Report identity contract failed.'
+    Assert-Service ($report.schemaVersion -eq 3 -and $report.file.name -eq 'invoices.txt') 'Report identity contract failed.'
     Assert-Service ($report.content.text.Contains('customer invoices')) 'Text extraction failed.'
     Assert-Service ($report.file.sha256.Length -eq 64) 'Whole-file hash is missing.'
+    $nativeHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = 'native.rtf' }
+    $nativeJob = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $nativeHeaders -ContentType 'application/octet-stream' -Body ([Text.Encoding]::ASCII.GetBytes('{\rtf1 Native document invoices from the isolated worker.}'))
+    $nativeReport = Wait-Report $nativeJob.id
+    Assert-Service ($nativeReport.content.reader -eq 'officeimo-rtf' -and $nativeReport.content.text.Contains('Native document invoices')) 'Native document projection did not run in the worker.'
+    Assert-Service ($nativeReport.content.extraction.textBasis -eq 'CanonicalDocumentText' -and $nativeReport.content.documentUnits.Count -gt 0) 'Native worker provenance or logical units were lost.'
+    # A valid input can fit the upload envelope while exceeding the selected native reader's input profile.
+    $nativeHeaders['X-File-Name'] = 'over-native-budget.rtf'
+    $overBudget = [byte[]]::new(33 * 1024 * 1024)
+    $prefix = [Text.Encoding]::ASCII.GetBytes('{\rtf1 ')
+    [Array]::Copy($prefix, $overBudget, $prefix.Length)
+    [Array]::Fill($overBudget, [byte]32, $prefix.Length, $overBudget.Length - $prefix.Length - 1)
+    $overBudget[$overBudget.Length - 1] = [byte]125
+    $budgetJob = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $nativeHeaders -ContentType 'application/octet-stream' -Body $overBudget
+    $budgetFailure = $null
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $budgetFailure = Invoke-RestMethod -Uri "$base/api/reports/$($budgetJob.id)" -Headers $authHeaders
+        if ($budgetFailure.state -eq 'failed') { break }
+        Start-Sleep -Milliseconds 300
+    }
+    Assert-Service ($budgetFailure.state -eq 'failed' -and $budgetFailure.error -eq 'Worker exceeded its resource budget.') 'A native terminal limit was not reported as a bounded worker failure.'
+    Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($budgetJob.id).report.json")) -and !(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($budgetJob.id).report.json.tmp"))) 'Native limit failure published a partial report.'
+    $overBudget = $null
     $lookup = Invoke-RestMethod -Uri "$base/api/hash/$($report.file.sha256)" -Headers $authHeaders
     Assert-Service ($lookup.Count -eq 1 -and $lookup[0].id -eq $first.id) 'Hash lookup failed.'
     $decoyHeaders = @{ Authorization = $authHeaders.Authorization; 'X-FileInspector-Client' = 'local'; 'X-File-Name' = "$($report.file.sha256).txt" }
@@ -110,7 +132,7 @@ try {
     $archiveReport = Wait-Report $archive.id
     Assert-Service ($archiveReport.content.entries.Count -eq 2 -and $archiveReport.content.entries[0].ordinal -eq 0 -and $archiveReport.content.entries[1].ordinal -eq 1) 'Archive source identity was lost.'
     foreach ($entry in $archiveReport.content.entries) {
-        Assert-Service ($entry.report.schemaVersion -eq 2 -and $entry.sha256 -eq $entry.report.file.sha256 -and $entry.report.content.text.Contains('Nested invoice evidence')) 'Nested report evidence was lost in worker publication.'
+        Assert-Service ($entry.report.schemaVersion -eq 3 -and $entry.sha256 -eq $entry.report.file.sha256 -and $entry.report.content.text.Contains('Nested invoice evidence')) 'Nested report evidence was lost in worker publication.'
     }
     $evidenceHeaders['X-File-Name'] = 'renamed-members.zip'
     $renamed = Invoke-RestMethod -Uri "$base/api/uploads" -Method Post -Headers $evidenceHeaders -ContentType 'application/octet-stream' -Body (New-ArchiveFixture 'renamed-first.txt' 'renamed-second.txt')
@@ -137,7 +159,7 @@ try {
     Invoke-RestMethod -Uri "$base/api/reports/$($first.id)" -Method Delete -Headers $headers | Out-Null
     Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($first.id).upload"))) 'Deleting a report retained its upload.'
     Assert-Service (!(Test-Path -LiteralPath (Join-Path $scratch "catalog/$($first.id).report.json"))) 'Deleting a report retained its extracted content.'
-    Write-Output 'Local service smoke passed: upload, queue/worker, report v2, located media facts, nested reports, whole-member comparisons, text search, hash lookup, similarity, Unicode names, private catalog access, origin protection and deletion.'
+    Write-Output 'Local service smoke passed: upload, queue/worker, report v3, native document profile, terminal native budget failure, located media facts, nested reports, whole-member comparisons, text search, hash lookup, similarity, Unicode names, private catalog access, origin protection and deletion.'
 }
 finally {
     if ($process -and !$process.HasExited) { $process.Kill($true); $process.WaitForExit() }

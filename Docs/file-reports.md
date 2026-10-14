@@ -6,19 +6,21 @@ It never executes scripts, opens documents in Office or sends content to a servi
 
 ## Report contract
 
-Schema version 2 contains `File`, `Analysis`, `Content` and `Observations`.
+Schema version 3 contains `File`, `Analysis`, `Content` and `Observations`.
 `File` records the display name, exact byte length and whole-input SHA-256.
 `Analysis` retains detection, validation, learned-classifier evidence when requested,
 signatures and typed stage outcomes. `Content` records the reader, text, metadata,
-archive inventory, typed facts, binary regions and explicit issues. Each observation
+archive inventory, typed facts, binary regions, extraction provenance, logical document
+units, diagnostics and omissions. Each observation
 points to a supporting field.
 
 `InspectionReport.CurrentSchemaVersion` identifies the producer contract.
-`InspectionReport.SupportsSchema(version)` accepts versions 1 and 2; other versions
+`InspectionReport.SupportsSchema(version)` accepts versions 1, 2 and 3; other versions
 must be rejected. Saved version-1 reports retain their original evidence and can be
 read by the local catalog or compared through either comparison API. Missing version-2
 collections are empty, so a version-1 report does not acquire facts, regions or nested
-reports merely by being loaded.
+reports merely by being loaded. Reports saved without an extraction descriptor retain
+unknown provenance; a reader name alone does not establish text compatibility.
 
 The producer version and UTC creation time accompany every report. Consumers should
 check `SchemaVersion` before interpreting a saved report. `Outcome` is partial when
@@ -56,13 +58,22 @@ emit embedded declarations and explicitly derived durations or counts. Legacy me
 is projected as derived facts when a reader has no native fact records.
 
 An optional `Source` identifies a container part or record and a zero-based byte offset
-and length. Offsets refer to the exact input of that report; offsets in a nested report
-refer to the member bytes. Some derived facts have no physical byte range. Locations
+and length. `ByteSpace` distinguishes original `SnapshotBytes`, decoded `PartBytes`,
+native `ProfileBytes` and `Unknown` coordinates. Snapshot offsets in a nested report
+refer to that member's bytes. `LogicalSource` separately records document pages,
+slides, sheets, cell ranges, stories and block or character coordinates. A logical
+character position is never a snapshot byte offset. Some derived facts have no physical byte range. Locations
 never contain the host's filesystem path. Duplicate tags can remain separate facts,
 even when the compatibility `Metadata` dictionary cannot retain every occurrence.
 Text prefixes set `Truncated`; numeric values that cannot fit are omitted rather than
 shortened. Embedded dates, camera details, codec names and dimensions are file claims,
 not proof of authenticity.
+
+Native metadata object IDs are retained in `Source.Record`. When the native reader
+provides no byte range, `ByteSpace` is `Unknown` and the offsets remain absent.
+An object descriptor can have an empty `Value` while retaining its name, identity
+and attributes, such as creator-only XMP or a tagged PDF structure element without
+alternate text. These attributes remain source claims and do not become primary text.
 
 ```csharp
 var report = FileInspector.AnalyzeReport("recording.wav");
@@ -99,19 +110,26 @@ allocations or process memory.
 | `MaxMetadataBytes` | 1 MiB | Bytes probed by each media metadata reader |
 | `MaxFacts` | 256 | Facts retained by each content reader |
 | `MaxFactCharacters` | 4 Ki characters | One retained fact value |
-| `MaxTotalContentCharacters` | 256 Ki characters | Text, fact names/values and metadata keys/values across root and descendants |
+| `MaxTotalContentCharacters` | 256 Ki characters | Retained reader text, identifiers, metadata, logical locations, diagnostics and omissions across root and descendants |
 | `MaxEntryNameCharacters` | 1,024 | Retained decoded member name |
+| `MaxIdentifierCharacters` | 1,024 | Complete member IDs, field names and location keys; oversized identifiers are omitted |
 | `MaxRegions` | 32 | Binary regions emitted per input |
 | `MaxRegionBytes` | 2 MiB | One complete region to hash |
 | `MaxRegionHashBytes` | 16 MiB | Region bytes hashed per input |
 | `MaxNestedReports` | 32 | Descendant reports across one root |
 | `MaxNestedDepth` | 2 | Descendant depth; root is zero |
+| `MaxDocumentUnits` | 256 | Logical units retained per input |
+| `MaxDiagnostics` | 256 | Diagnostics and omissions retained per input |
+| `MaxNativeExpandedBytes` | 64 MiB | Native model expansion reserved per optional invocation |
+| `MaxTotalNativeExpandedBytes` | 256 MiB | Native model expansion across root and descendants |
+| `MaxNativeReadBytes` | 256 MiB | Actual optional-reader source and payload reads across the root |
+| `MaxDecompressionWorkBytes` | 256 MiB | Native decompression work across the root |
 
-Budgets must be positive, except `MaxNestedReports` and `MaxNestedDepth`, where zero
-disables nested analysis. Existing archive-directory, compression-ratio and XML
+Output budgets must be positive. Zero nesting limits disable nested analysis;
+zero native allowances refuse mandatory native work. Existing archive-directory, compression-ratio and XML
 depth/DTD safeguards also apply. These limits govern report content extraction;
 the existing `Analysis` section retains its own detection and analyzer settings.
-Oversized input throws `InvalidDataException`; cancellation propagates. Bounded
+Oversized input throws `InspectionInputSizeLimitException`; cancellation propagates. Bounded
 omissions appear in content or region issues and make coverage partial.
 
 For a larger local input on .NET 8, configure the input and snapshot budgets explicitly:
@@ -134,6 +152,8 @@ certificates. On older targets, offline chain trust remains unknown and the repo
 records `cert:offline-chain-validation-unavailable`. Envelope signature verification
 and certificate metadata remain available; neither establishes package integrity.
 
+The base library provides the following readers when no optional adapter is selected.
+
 | Reader | Available content | Boundary |
 | --- | --- | --- |
 | UTF text | Text sample, encoding, sampled lines, frequent words | Invalid encodings and truncation are explicit |
@@ -152,6 +172,50 @@ and certificate metadata remain available; neither establishes package integrity
 The OOXML readers accept Transitional and Strict namespaces. Unsupported package
 XML namespaces are reported explicitly.
 
+### Optional native document inspection
+
+`FileInspectorX.OfficeIMO` maps selected OfficeIMO owners into the same report contract.
+The base library does not reference OfficeIMO. Compose the adapter explicitly in C#:
+
+```csharp
+using FileInspectorX.OfficeIMO;
+
+var reader = new OfficeImoContentReader();
+var report = FileInspector.AnalyzeReport("report.pdf", new InspectionReportOptions {
+    ContentReader = reader
+});
+foreach (var unit in report.Content.DocumentUnits)
+    Console.WriteLine($"{unit.Kind}: {unit.Status}");
+```
+
+The finite profile covers modern XML Word, Excel and PowerPoint, native PDF text,
+selected OpenDocument formats, RTF, image metadata and passive CAB/MSI inventory.
+The default native input ceiling is 32 MiB. Each input loads one native owner model;
+the canonical Reader projects its text and metadata while that owner is alive.
+Image inspection does not decode pixels. PDF page failures, warnings, metadata and
+repair descriptions remain separate from searchable primary text.
+
+`Content.Extraction` records reader versions, the profile, text basis and text-changing
+settings. Saved Excel formula values remain uncomputed cache evidence; a formula is
+never silently replaced by a calculated result. Embedded author names, dates, Exif,
+XMP and ICC declarations remain file claims. Unsupported legacy/encrypted profiles
+produce a claimed refusal, and malformed native input retains a failed result. These
+outcomes do not enable a different text reader. Genuine unsupported formats use the
+core readers.
+
+`InspectionContentLimitException` preserves typed native resource/admission limits,
+including fractional measurements and the original exception. It remains terminal.
+Native model expansion without a complete measured counter consumes the entire finite
+reservation conservatively. Selected complete payloads consume one bridge copy and
+one core copy; archive decode work can exceed the retained selected bytes. No prefix
+member becomes a child report. The core owns hashing and descendant dispatch, using
+exact member ID and ordinal rather than display names.
+
+The enhanced PowerShell module selects this profile for `-View Report`; use
+`-ReportReader Builtin` for the core readers. Builds can set `IncludeOfficeIMO=false`
+to exclude the adapter. The local application selects OfficeIMO inside its child
+worker and accepts `--ContentReader Builtin` as an explicit alternative.
+
 Media readers report declarations and provenance without validating playback. They
 always retain `media:payload-not-decoded`. ISO-BMFF inspection accepts an `ftyp`
 container; an image-oriented brand with no movie tracks does not become a video
@@ -168,8 +232,11 @@ and hashes without descendant analysis.
 
 Member names remain display data. `Kind` retains the source file, directory or other
 record type independently of any truncated name. `Ordinal` preserves zero-based identity when names
-repeat. A long name retains a prefix, sets `NameTruncated` and records its full decoded
-`SourceNameCharacters`; such a member is not admitted to nested analysis. A missing
+repeat. `InventorySource` distinguishes native content-reader, raw ZIP and raw TAR
+inventories. Correlation uses that scope together with `MemberId` and `Ordinal`;
+equal ordinals or names in two inventories do not identify the same member.
+A long display name retains a prefix, sets `NameTruncated` and records its full decoded
+`SourceNameCharacters`. Complete native IDs retain their separate identifier allowance. A missing
 whole-member hash or nested report is an omission, not an empty member or successful
 read.
 Comparison recovers schema-1 member ordinals from saved inventory order because that
@@ -200,7 +267,7 @@ can still accompany it.
 | Basis | Meaning |
 | --- | --- |
 | `exact-bytes` | Equal whole-input SHA-256; score 1 |
-| `extracted-text-shingles` | Overlap of three-word shingles using a deterministic 128-hash sample |
+| `extracted-text-shingles` | Overlap of three-word shingles using a deterministic 128-hash sample, only for compatible declared extraction profiles |
 | `whole-archive-members` | Multiset overlap of complete member SHA-256 and byte lengths |
 | `whole-pe-sections` | Multiset overlap of complete raw-section SHA-256 and byte lengths |
 | `sampled-fixed-blocks` | Multiset overlap of inspected complete fixed blocks |
@@ -234,8 +301,8 @@ dotnet run --project FileInspectorX.Web -- --Port 5088 --DataDirectory ./local-c
 Open the private link printed at startup. Its fragment contains a random access
 token for this running instance; keep the link private. The browser clears the
 fragment and retains access in its tab session. Restarting the host invalidates
-the old link. The application uses only the .NET 8 runtime and existing
-core references, with no ASP.NET shared framework or new packages. It accepts raw
+the old link. The application uses the .NET 8 runtime and includes the selected
+OfficeIMO adapter and its native owners; it needs no ASP.NET shared framework. It accepts raw
 uploads, queues work, and exposes searchable reports. Names and file-derived text
 are rendered as text; they cannot introduce markup into the page.
 The report view shows fact origins/source locations, nested member reports and binary
@@ -292,7 +359,7 @@ strong OS resource isolation and a reviewed hosting boundary.
 | --- | --- |
 | `POST /api/uploads` | Raw bytes with `X-File-Name`; returns queued job with ID |
 | `GET /api/reports?q=...` | Jobs matching name, exact hash, extracted text, type or keywords |
-| `GET /api/reports/{id}` | Current job state or saved report JSON; new reports use schema v2 |
+| `GET /api/reports/{id}` | Current job state or saved report JSON; new reports use schema 3 |
 | `GET /api/hash/{sha256}` | Matching local uploads; names may differ for identical bytes |
 | `GET /api/reports/{id}/similar` | Up to 20 positive-overlap matches, with best basis/score and all comparison evidence |
 | `DELETE /api/reports/{id}` | Removes completed/failed job, upload and report; active jobs reject deletion |

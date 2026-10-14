@@ -23,7 +23,8 @@ public class InspectionReportTests
     public void ReportRejectsOversizeInputAndRetainsPosition()
     {
         using var stream = new MemoryStream(new byte[33]); stream.Position = 4;
-        Assert.Throws<InvalidDataException>(() => FileInspector.AnalyzeReport(stream, options: new InspectionReportOptions { MaxInputBytes = 32 }));
+        var error = Assert.Throws<InspectionInputSizeLimitException>(() => FileInspector.AnalyzeReport(stream, options: new InspectionReportOptions { MaxInputBytes = 32 }));
+        Assert.Equal(32, error.MaximumBytes); Assert.Equal(33, error.ObservedBytes);
         Assert.Equal(4, stream.Position);
     }
 

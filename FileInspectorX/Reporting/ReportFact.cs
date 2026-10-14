@@ -19,6 +19,10 @@ public sealed class ReportFact
     public ReportFactOrigin Origin { get; set; }
     /// <summary>Optional source location, never a host filesystem path.</summary>
     public ReportSourceLocation? Source { get; set; }
+    /// <summary>Logical document location, independent of physical byte offsets.</summary>
+    public ReportLogicalLocation? LogicalSource { get; set; }
+    /// <summary>Reader-qualified scalar annotations. Embedded annotations remain source claims.</summary>
+    public IReadOnlyDictionary<string, string> Attributes { get; set; } = new Dictionary<string, string>();
     /// <summary>True when a text value is a budget-limited prefix. Numeric values are omitted rather than shortened.</summary>
     public bool Truncated { get; set; }
 }
@@ -30,6 +34,8 @@ public sealed class ReportSourceLocation
     public string? Part { get; set; }
     /// <summary>Optional source record ordinal or identifier.</summary>
     public string? Record { get; set; }
+    /// <summary>Coordinate space of byte offsets. Unknown when the reader did not declare it.</summary>
+    public ReportByteSpace ByteSpace { get; set; }
     /// <summary>Zero-based physical byte offset when meaningful for this reader.</summary>
     public long? ByteOffset { get; set; }
     /// <summary>Source byte length, distinct from output character length.</summary>

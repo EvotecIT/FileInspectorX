@@ -40,10 +40,11 @@ dotnet add package FileInspectorX
 ```
 
 The base package uses deterministic signatures and heuristics and does not load a model or
-ONNX Runtime. Install the optional package only when you want learned classification:
+ONNX Runtime. Install the optional packages for the capabilities your application uses:
 
 ```bash
 dotnet add package FileInspectorX.Magika
+dotnet add package FileInspectorX.OfficeIMO
 ```
 
 ### PowerShell (Module)
@@ -85,7 +86,7 @@ foreach (var observation in report.Observations)
     Console.WriteLine($"{observation.Text} [{observation.Evidence}]");
 ```
 
-`AnalyzeReport` produces schema-v2 reports with exact byte identity, existing analysis
+`AnalyzeReport` produces schema-v3 reports with exact byte identity, existing analysis
 evidence, bounded content and factual explanations. Content includes UTF text, selected
 Office XML, ZIP/TAR member inventories and nested reports, image header dimensions,
 and WAV, FLAC, ID3 and ISO-BMFF declarations. Typed facts retain their origin and source
@@ -95,7 +96,36 @@ remain outside these readers.
 `ReportComparison.Compare(first, second)` explains exact-file, extracted-text,
 whole-member, PE-section and sampled-block overlap separately. It includes matched
 names, ordinals and coverage; byte overlap does not establish what a program does.
-Saved schema-v1 reports remain readable and comparable using their available evidence.
+Saved schema-v1 and schema-v2 reports remain readable. Their missing extraction profiles
+remain unknown; text overlap requires compatible declared reader profiles.
+
+For native document text and evidence, compose the optional adapter explicitly:
+
+```csharp
+using FileInspectorX.OfficeIMO;
+
+var reader = new OfficeImoContentReader();
+var report = FileInspector.AnalyzeReport("quarterly-report.docx", new InspectionReportOptions {
+    ContentReader = reader
+});
+Console.WriteLine(report.Content.Text);
+foreach (var diagnostic in report.Content.Diagnostics)
+    Console.WriteLine($"{diagnostic.Code}: {diagnostic.Message}");
+```
+
+The adapter uses the selected OfficeIMO Word, Excel, PowerPoint, PDF, OpenDocument
+and RTF owners, Core image metadata and passive CAB/MSI inspection. It preserves
+logical locations, embedded claims, page outcomes, repairs and explicit omissions.
+Supported complete embedded payloads return to FileInspectorX for bounded nested
+analysis. Formulas retain their authored expressions and saved values; inspection
+does not calculate them. OCR, rendering, legacy conversion, password entry and
+external resource resolution are outside this profile.
+
+The default native source limit is 32 MiB. Source reads, native expansion,
+decompression work, retained members and response text have separate finite
+allowances. An exhausted native allowance throws `InspectionContentLimitException`;
+it does not switch to another text reader. These counters do not establish a hard
+process-memory bound. The base `FileInspectorX` package remains independent of OfficeIMO.
 
 The default input limit is 64 MiB with 64 Ki characters of text per reader. Larger
 configured inputs can spill their captured snapshot to a private temporary file using
@@ -107,13 +137,17 @@ the [report and local service guide](Docs/file-reports.md).
 ```powershell
 Get-Item -LiteralPath './sample[1].docx' | Get-FileInsight -View Report -DisableMagika
 Get-FileInsight -LiteralPath './sample[1].txt' -View Detection -DisableMagika
+Get-FileInsight -LiteralPath './sample[1].docx' -View Report -ReportReader Builtin -DisableMagika
 ```
 
 The [local report application](FileInspectorX.Web) runs on .NET 8 using its included
 HTTP and JSON APIs. It provides uploads, a bounded analysis queue with child workers,
 hash lookup, text search, JSON export and related files with comparison evidence.
-It displays fact origins, nested member reports and region coverage, and listens
-only on localhost.
+It displays extraction profiles, logical document units, diagnostics, omissions,
+fact origins, nested member reports and region coverage, and listens only on localhost.
+The enhanced application and PowerShell Report view use OfficeIMO by default.
+PowerShell accepts `-ReportReader Builtin`; the local application accepts
+`--ContentReader Builtin` to select the core readers.
 
 ```bash
 dotnet run --project FileInspectorX.Web -- --Port 5088
@@ -121,9 +155,8 @@ dotnet run --project FileInspectorX.Web -- --Port 5088
 
 Open the private link printed at startup. Uploads and extracted content remain in the local catalog
 until deleted. This host is for local use; public hosting requires authentication,
-tenant isolation and operating-system sandboxing. No new package or document-engine
-dependency is required. FileInspectorX and OfficeIMO keep their format capabilities
-independent; integration and package choices are assessed in the
+tenant isolation and operating-system sandboxing. FileInspectorX and OfficeIMO keep
+their format capabilities independent through the optional adapter described in the
 [dependency assessment](Docs/dependency-assessment.md).
 
 ### Optional learned classification

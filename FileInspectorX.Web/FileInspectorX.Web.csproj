@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../FileInspectorX/FileInspectorX.csproj" />
+    <ProjectReference Include="../FileInspectorX.OfficeIMO/FileInspectorX.OfficeIMO.csproj" />
     <None Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
