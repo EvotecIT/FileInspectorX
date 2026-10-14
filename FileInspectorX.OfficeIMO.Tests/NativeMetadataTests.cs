@@ -25,6 +25,22 @@ public sealed class NativeMetadataTests
         }
     }
 
+    [Fact]
+    public void ReadablePageAfterFailureKeepsItsNativeSelectionIdentity()
+    {
+        InspectionReport report = Read(NativeFixtures.Pdf(failedFirstPage: true), "mixed-pages.pdf");
+        ReportDocumentUnit page = Assert.Single(report.Content.DocumentUnits, unit => unit.Kind == "page");
+        Assert.Equal(2, page.Location?.Page);
+        Assert.Equal(1, page.Location?.SourceBlockIndex);
+        Assert.Equal("page-2-selection-0001", page.Location?.BlockAnchor);
+        ReportDocumentUnit failed = Assert.Single(report.Content.DocumentUnits, unit => unit.Kind == "page-outcome" && unit.Status == InspectionStageStatus.Failed);
+        Assert.Equal(0, failed.Location?.SourceBlockIndex);
+        ReportDiagnostic diagnostic = Assert.Single(report.Content.Diagnostics, item => item.Code == "pdf-page-unsupported-content-filter");
+        Assert.True(diagnostic.IsRecoverable); Assert.Equal(ReportRecoveryKind.Skipped, diagnostic.Recovery);
+        Assert.Contains(NativeFixtures.Text, report.Content.Text);
+        Assert.DoesNotContain("unsupported", report.Content.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(false, "creator", "Creator-only fixture")]
     [InlineData(true, "pdfAConformance", "B")]

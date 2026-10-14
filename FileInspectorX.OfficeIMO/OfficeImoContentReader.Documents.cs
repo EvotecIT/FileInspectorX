@@ -122,9 +122,8 @@ public sealed partial class OfficeImoContentReader
             {
                 var document = PdfDocument.Load(source, PdfLoad(output), token);
                 var inspection = document.ReadForInspection(PdfRead(output), token);
-                output.Map(inspection.Document.ReadDocument(output.Name, reader, new ReaderPdfOptions
+                output.Map(inspection.ReadDocument(output.Name, reader, new ReaderPdfOptions
                 { ChunkByPage = true, IncludeParagraphContinuationMetadata = false }, token), token);
-                output.MapPdfInspection(inspection, token);
                 ReadPdfAttachments(document, inspection, output, source, token);
                 break;
             }

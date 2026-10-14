@@ -76,7 +76,7 @@ public sealed class NativeIntegrationTests
         Assert.Empty(report.Content.Text); Assert.Empty(report.Content.TextFingerprint); Assert.Empty(report.Content.Keywords);
         Assert.Contains(report.Content.DocumentUnits, unit => unit.Kind == "page-outcome" && unit.Status == InspectionStageStatus.Failed);
         Assert.Contains(report.Content.Diagnostics, diagnostic => diagnostic.Code == "pdf-page-unsupported-content-filter" && diagnostic.Recovery == ReportRecoveryKind.Skipped);
-        Assert.Contains(report.Content.Facts, fact => fact.Name == "pdf.source.pageCount" && fact.Value == "1");
+        Assert.Contains(report.Content.Facts, fact => fact.Name == "pdf.source.structure.SourcePageCount" && fact.Value == "1");
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed class NativeIntegrationTests
     {
         InspectionReport report = Read(NativeFixtures.Pdf(incorrectLength: true), "repair.pdf");
         Assert.Contains(NativeFixtures.Text, report.Content.Text);
-        Assert.Contains(report.Content.Diagnostics, diagnostic => diagnostic.Code == "IncorrectStreamLength" && diagnostic.Recovery == ReportRecoveryKind.Repaired);
+        Assert.Contains(report.Content.Diagnostics, diagnostic => diagnostic.Code == "pdf-repair-IncorrectStreamLength" && diagnostic.Recovery == ReportRecoveryKind.Repaired);
     }
 
     [Fact]

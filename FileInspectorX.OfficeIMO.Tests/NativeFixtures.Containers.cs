@@ -7,7 +7,7 @@ internal static partial class NativeFixtures
 {
     // One-page synthetic PDF writer, with an optional unsupported filter and one inert attachment.
     internal static byte[] Pdf(bool unsupportedFilter = false, bool attachment = false, bool incorrectLength = false,
-        string? xmp = null, bool tagged = false)
+        string? xmp = null, bool tagged = false, bool failedFirstPage = false)
     {
         var objects = new List<byte[]>
         {
@@ -15,7 +15,7 @@ internal static partial class NativeFixtures
             Ascii("<< /Type /Pages /Count 1 /Kids [3 0 R] >>"),
             Ascii("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"),
             Ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
-            PdfStream(Ascii("BT /F1 12 Tf 20 100 Td (" + Text + ") Tj ET"), unsupportedFilter ? "/Filter /UnsupportedFixtureFilter" : "", incorrectLength)
+            PdfStream(Ascii("BT /F1 12 Tf 20 100 Td (" + Text + ") Tj ET"), unsupportedFilter || failedFirstPage ? "/Filter /UnsupportedFixtureFilter" : "", incorrectLength)
         };
         if (attachment)
         {
@@ -37,6 +37,13 @@ internal static partial class NativeFixtures
         }
         objects[0] = Ascii("<< /Type /Catalog /Pages 2 0 R " + catalogMetadata +
             (attachment ? "/Names << /EmbeddedFiles << /Names [(payload.bin) 6 0 R] >> >> " : "") + ">>");
+        if (failedFirstPage)
+        {
+            int page = objects.Count + 1, content = page + 1;
+            objects[1] = Ascii("<< /Type /Pages /Count 2 /Kids [3 0 R " + page + " 0 R] >>");
+            objects.Add(Ascii("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 200] /Resources << /Font << /F1 4 0 R >> >> /Contents " + content + " 0 R >>"));
+            objects.Add(PdfStream(Ascii("BT /F1 12 Tf 20 100 Td (" + Text + ") Tj ET"), ""));
+        }
         using var output = new MemoryStream(); Write(output, Ascii("%PDF-1.7\n"));
         var offsets = new List<long>();
         for (int index = 0; index < objects.Count; index++)

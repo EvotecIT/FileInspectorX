@@ -218,46 +218,6 @@ internal sealed partial class Projection
         if (retainedId != null && retainedKind != null) _units.Add(new ReportDocumentUnit
         { Id = retainedId, Kind = retainedKind, Ordinal = _units.Count, Location = Location(location), Status = status, TextStart = start, TextLength = length });
     }
-    internal void MapPdfInspection(PdfInspectionReadResult inspection, CancellationToken token)
-    {
-        Fact("pdf.source.pageCount", inspection.SourceInfo.PageCount.ToString(CultureInfo.InvariantCulture), ReportFactOrigin.Derived, ReportFactKind.Integer);
-        Fact("pdf.source.formFieldCount", inspection.SourceInfo.FormFieldCount.ToString(CultureInfo.InvariantCulture), ReportFactOrigin.Derived, ReportFactKind.Integer);
-        Fact("pdf.source.formWidgetCount", inspection.SourceInfo.FormWidgetCount.ToString(CultureInfo.InvariantCulture), ReportFactOrigin.Derived, ReportFactKind.Integer);
-        Fact("pdf.source.headerVersion", inspection.SourceInfo.HeaderVersion);
-        foreach (PdfPageInfo page in inspection.SourceInfo.Pages)
-        {
-            token.ThrowIfCancellationRequested();
-            var sourceLocation = new ReaderLocation { Page = page.PageNumber, SourceBlockKind = "source-page" };
-            Fact("pdf.source.page.width", page.Width.ToString("R", CultureInfo.InvariantCulture), kind: ReportFactKind.Decimal, location: sourceLocation);
-            Fact("pdf.source.page.height", page.Height.ToString("R", CultureInfo.InvariantCulture), kind: ReportFactKind.Decimal, location: sourceLocation);
-            Fact("pdf.source.page.rotation", page.RotationDegrees.ToString(CultureInfo.InvariantCulture), kind: ReportFactKind.Integer, location: sourceLocation);
-            foreach (PdfLinkAnnotation link in page.LinkAnnotations)
-                Fact("pdf.source.link.target", link.Uri ?? link.DestinationName ?? link.NamedAction ?? link.RemoteFile, location: sourceLocation);
-            foreach (PdfAnnotation annotation in page.Annotations)
-                Fact("pdf.source.annotation", annotation.Contents ?? annotation.Subtype, location: sourceLocation,
-                    attributes: new Dictionary<string, string> { ["subtype"] = annotation.Subtype, ["objectNumber"] = annotation.ObjectNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty });
-            foreach (var widget in page.FormWidgets)
-                Fact("pdf.source.form-widget", widget.FieldName, location: sourceLocation);
-            foreach (PdfPageAction action in page.PageActions)
-                Fact("pdf.source.page-action", action.ActionType, location: sourceLocation,
-                    attributes: new Dictionary<string, string> { ["trigger"] = action.TriggerName, ["actionPath"] = action.ActionPath, ["uri"] = action.Uri ?? string.Empty });
-        }
-        foreach (PdfPageReadOutcome outcome in inspection.PageOutcomes)
-        {
-            token.ThrowIfCancellationRequested();
-            var location = new ReaderLocation { Page = outcome.PageNumber, SourceBlockIndex = outcome.SelectionIndex, SourceBlockKind = "page-outcome" };
-            Unit("pdf-selection-" + outcome.SelectionIndex.ToString(CultureInfo.InvariantCulture), "page-outcome", location,
-                outcome.Succeeded ? InspectionStageStatus.Completed : InspectionStageStatus.Failed);
-            Fact("pdf.page.nativeTextOutcome", outcome.Status.ToString(), ReportFactOrigin.Derived, location: location);
-            if (!outcome.Succeeded) Diagnostic(outcome.MappingFailure != null ? "pdf-page-unmappable-text" : "pdf-page-unsupported-content-filter",
-                outcome.MappingFailure?.Message ?? "The native page content filter is unsupported.", ReportDiagnosticSeverity.Error, location,
-                recoverable: true, recovery: ReportRecoveryKind.Skipped,
-                attributes: new Dictionary<string, string> { ["unsupportedFilters"] = string.Join(",", outcome.UnsupportedFilters) });
-        }
-        foreach (PdfRepairDiagnostic repair in inspection.RepairReport.Diagnostics)
-            Diagnostic(repair.Code, repair.Message, recovery: repair.WasRecovered ? ReportRecoveryKind.Repaired : ReportRecoveryKind.None,
-                attributes: new Dictionary<string, string> { ["disposition"] = repair.Disposition.ToString(), ["objectNumber"] = repair.ObjectNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty });
-    }
     internal InspectionContentReadResult Failure(InspectionContentReadDisposition disposition, string code, string message,
         IReadOnlyDictionary<string, string>? attributes = null)
     {
