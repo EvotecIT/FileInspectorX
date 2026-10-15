@@ -86,6 +86,47 @@ Describe 'Direct NTFS metadata and link decoding' {
     It 'uses the 64-bit unnamed data size for nonresident data' {
         (Field (Read-Record (New-FileRecord -Nonresident)) Length) | Should -Be 8589934592
     }
+    It 'fixes raw sector trailers before decoding the same logical metadata' {
+        $logical = New-FileRecord
+        $raw = [byte[]]::new(1024)
+        [Array]::Copy($logical,12,$raw,0,1024)
+        foreach ($end in @(510,1022)) { [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($raw,$end) }
+        $rawParse = $type.GetMethod('ParseRaw',$flags)
+        $record = $rawParse.Invoke($null,[object[]]@($raw,0,1024,[uint64]0x42,512))
+        (Field $record Length) | Should -Be 5
+        (Field $record Id) | Should -Be ([uint64]0x1234000000000042)
+        @(Field $record Links).Count | Should -Be 2
+        $raw[510] | Should -Be $logical[522]
+    }
+    It 'rejects a torn raw record without partially applying its fixups' {
+        $logical = New-FileRecord
+        $raw = [byte[]]::new(1024)
+        [Array]::Copy($logical,12,$raw,0,1024)
+        [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($raw,510)
+        [BitConverter]::GetBytes([uint16]0x1234).CopyTo($raw,1022)
+        $original = [Convert]::ToBase64String($raw)
+        { $type.GetMethod('ParseRaw',$flags).Invoke($null,[object[]]@($raw,0,1024,[uint64]0x42,512)) } | Should -Throw
+        [Convert]::ToBase64String($raw) | Should -BeExactly $original
+    }
+    It 'skips unused raw slots while refusing invalid in-use signatures' {
+        $rawParse = $type.GetMethod('ParseRaw',$flags)
+        $rawParse.Invoke($null,[object[]]@([byte[]]::new(1024),0,1024,[uint64]42,512)) | Should -BeNullOrEmpty
+        $bytes = [byte[]]::new(1024); $bytes[22]=1
+        { $rawParse.Invoke($null,[object[]]@($bytes,0,1024,[uint64]42,512)) } | Should -Throw
+    }
+    It 'decodes signed fragmented runs and rejects sparse truncated or escaping mappings' {
+        $runsType = [FileInspectorX.Prototypes.FileSystem.MftSnapshot].Assembly.GetType('FileInspectorX.Prototypes.FileSystem.NtfsDataRuns')
+        $decode = $runsType.GetMethod('Decode',$flags)
+        $bytes = [byte[]](0x11,3,10,0x11,2,0xFE,0)
+        $runs = @($decode.Invoke($null,[object[]]@($bytes,0,$bytes.Length,[long]0,[long]4)))
+        $runs.Count | Should -Be 2
+        (Field $runs[0] Lcn) | Should -Be 10
+        (Field $runs[1] Lcn) | Should -Be 8
+        (Field $runs[1] Vcn) | Should -Be 3
+        foreach ($bad in @([byte[]](1,3,0),[byte[]](0x11,3),[byte[]](0x11,6,10,0),[byte[]](0x11,3,0xFE,0))) {
+            { $decode.Invoke($null,[object[]]@($bad,0,$bad.Length,[long]0,[long]4)) } | Should -Throw
+        }
+    }
     It 'preserves logical API bytes when update-sequence values are stale' {
         $bytes = New-FileRecord
         [BitConverter]::GetBytes([uint16]0).CopyTo($bytes,62)

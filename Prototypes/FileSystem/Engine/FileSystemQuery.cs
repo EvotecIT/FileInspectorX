@@ -28,7 +28,7 @@ public static class FileSystemQuery
                 throw new NotSupportedException("MFT snapshot visibility and freshness are not caller-visible enumeration semantics. Auto keeps normal enumeration; forced Mft is an explicit experimental inventory.");
             MftSnapshot.CheckRoot(root);
             snapshot ??= await MftSnapshot.CaptureAsync(root, options.CancellationToken, options.MaximumMftBytes,
-                options.MaximumIndexRecords, options.MaximumIndexBytes, options.MaximumCaptureTime).ConfigureAwait(false);
+                options.MaximumIndexRecords, options.MaximumIndexBytes, options.MaximumCaptureTime, options.MftReadMode).ConfigureAwait(false);
             return new QueryResult
             {
                 Backend = "Mft", Compatibility = "ExperimentalVolumeInventory",

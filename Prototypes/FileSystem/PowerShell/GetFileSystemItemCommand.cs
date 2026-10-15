@@ -26,6 +26,7 @@ public sealed class GetFileSystemItemCommand : AsyncPSCmdlet
     [Parameter] [ValidateRange(1, long.MaxValue)] public long MaximumIndexBytes { get; set; } = 2L * 1024 * 1024 * 1024;
     [Parameter] [ValidateRange(1, 3600)] public int MaximumCaptureSeconds { get; set; } = 120;
     [Parameter] public MftSnapshot? Snapshot { get; set; }
+    [Parameter] public MftReadMode MftReadMode { get; set; } = MftReadMode.Bulk;
 
     protected override async Task ProcessRecordAsync()
     {
@@ -45,7 +46,8 @@ public sealed class GetFileSystemItemCommand : AsyncPSCmdlet
                 Recurse = recurse, Depth = Depth, File = File, Directory = Directory, Force = Force,
                 Filter = Filter, MaximumMftBytes = MaximumMftBytes, CancellationToken = CancelToken,
                 MaximumIndexRecords = MaximumIndexRecords, MaximumIndexBytes = MaximumIndexBytes,
-                MaximumCaptureTime = TimeSpan.FromSeconds(MaximumCaptureSeconds)
+                MaximumCaptureTime = TimeSpan.FromSeconds(MaximumCaptureSeconds), MftReadMode = MftReadMode,
+                OnError = (exception, path) => WriteError(new ErrorRecord(exception, "FileSystemPrototypeDirectoryReadFailed", ErrorCategory.ReadError, path))
             };
             QueryResult result;
             try { result = await FileSystemQuery.OpenAsync(options, Snapshot).ConfigureAwait(false); }

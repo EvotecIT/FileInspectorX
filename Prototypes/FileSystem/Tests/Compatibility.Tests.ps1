@@ -60,6 +60,32 @@ Describe 'Normal enumeration filesystem subset' {
 }
 
 Describe 'Routing and cancellation' {
+    It 'reports a disappeared directory through the optional normal-enumeration error sink' {
+        $gone=Join-Path $TestDrive 'disappeared'
+        $null=New-Item -ItemType Directory -Path $gone
+        $options=[FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
+        $options.Root=$gone; $options.Backend='Walk'
+        $errors=[FileInspectorX.Prototypes.FileSystem.InventoryErrors]::new()
+        $options.OnError=$errors.Handler
+        $query=[FileInspectorX.Prototypes.FileSystem.FileSystemQuery]::OpenAsync($options).GetAwaiter().GetResult()
+        [IO.Directory]::Delete($gone)
+        @($query.Entries).Count | Should -Be 0
+        $errors.Count | Should -Be 1
+        $errors.FirstException | Should -Be 'System.IO.DirectoryNotFoundException'
+    }
+    It 'aggregates logical folder totals in CSharp without a PowerShell entry consumer' {
+        $options=[FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
+        $options.Root=$root; $options.Recurse=$true; $options.Force=$true
+        $totals=[FileInspectorX.Prototypes.FileSystem.FolderTotals]::MeasureAsync($options).GetAwaiter().GetResult()
+        foreach ($total in $totals) {
+            $expected=@(Get-ChildItem -LiteralPath $total.Path -Recurse -Force -File)
+            $total.Files | Should -Be $expected.Count
+            $total.LogicalBytes | Should -Be (($expected | Measure-Object Length -Sum).Sum)
+        }
+        { [FileInspectorX.Prototypes.FileSystem.FolderTotals]::MeasureAsync($options,$null,1).GetAwaiter().GetResult() } | Should -Throw
+        $options.File=$true
+        { [FileInspectorX.Prototypes.FileSystem.FolderTotals]::MeasureAsync($options).GetAwaiter().GetResult() } | Should -Throw
+    }
     It 'keeps snapshot visibility and freshness out of automatic caller-visible routing' {
         $options = [FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
         $options.Root = $root
