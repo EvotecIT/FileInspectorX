@@ -7,7 +7,7 @@ internal sealed class NtfsLink
     internal NtfsFileRecord Owner = null!;
 }
 
-/// <summary>Only metadata needed by the inventory; file data and security descriptors are never read.</summary>
+/// <summary>Retains inventory metadata only. Raw MFT buffers can contain resident data, which is neither inspected nor retained.</summary>
 internal sealed class NtfsFileRecord
 {
     internal ulong Id, BaseId;

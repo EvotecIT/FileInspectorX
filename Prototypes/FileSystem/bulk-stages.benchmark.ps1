@@ -54,7 +54,7 @@ New-BenchmarkSuite -Name 'FileInspectorX-BulkStages' {
             Add-BenchmarkOperation Measure {
                 param($case,$run)
                 $run.Errors=[FileInspectorX.Prototypes.FileSystem.InventoryErrors]::new()
-                $run.Result=$null; $run.Snapshot=$null
+                $run.Result=$null; $run.Snapshot=$null; $run.OutputAborted=$false; $run.OutputErrors=0
                 $options=[FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
                 $options.Root=$case.Root; $options.Recurse=$true; $options.Force=$true
                 $options.Backend=if($case.Engine -eq 'CachedMft'){'Mft'}else{'Walk'}
@@ -72,6 +72,7 @@ New-BenchmarkSuite -Name 'FileInspectorX-BulkStages' {
                     if ($case.Engine -eq 'CachedMft') { $run.Result=Get-FileSystemItem -LiteralPath $case.Root -Backend Mft -Snapshot $snapshot -Recurse -Force -ErrorAction Continue -ErrorVariable errors | Measure-Object }
                     else { $run.Result=Get-ChildItem -LiteralPath $case.Root -Recurse -Force -ErrorAction Continue -ErrorVariable errors | Measure-Object }
                     $run.OutputErrors=$errors.Count
+                    $run.OutputAborted=@($errors | Where-Object FullyQualifiedErrorId -match '^FileSystemPrototype(Query|Enumeration)Failed').Count -gt 0
                 } else {
                     $run.Result=[FileInspectorX.Prototypes.FileSystem.InventoryScan]::MeasureAsync($options,$(if($case.Engine -eq 'CachedMft'){$snapshot}else{$null})).GetAwaiter().GetResult()
                 }
@@ -87,9 +88,10 @@ New-BenchmarkSuite -Name 'FileInspectorX-BulkStages' {
             $rootTotal=@($run.Result | Where-Object Path -eq $case.Root)[0]
             $compactResult=[pscustomobject]@{FolderCount=$run.Result.Count;Files=$rootTotal.Files;Directories=$rootTotal.Directories;LogicalBytes=$rootTotal.LogicalBytes}
         }
-        $checkpoint=[ordered]@{Stage=$case.Stage;Engine=$case.Engine;Root=$case.Root;Whole=$case.Whole;ErrorCount=$run.Errors.Count;OutputErrors=$run.OutputErrors;Result=$compactResult;Snapshot=$run.Snapshot;Expected=$(if(-not $case.Whole){$expected[$case.Root]}else{$null})}
+        $checkpoint=[ordered]@{Stage=$case.Stage;Engine=$case.Engine;Root=$case.Root;Whole=$case.Whole;ErrorCount=$run.Errors.Count;OutputErrors=$run.OutputErrors;Aborted=$run.OutputAborted;Result=$compactResult;Snapshot=$run.Snapshot;Expected=$(if(-not $case.Whole){$expected[$case.Root]}else{$null})}
         $checkpoint | ConvertTo-Json -Depth 4 -Compress | Add-Content -LiteralPath $evidencePath
         if ($run.Snapshot) { Assert-BenchmarkValue -Actual $run.Snapshot.IncompleteRecordCount -Expected 0 -Message 'Incomplete capture is not a passing acquisition.' }
+        Assert-BenchmarkValue -Actual $run.OutputAborted -Expected $false -Message 'An aborted output traversal is not a successful sample.'
         if (-not $case.Whole) {
             Assert-BenchmarkValue -Actual $run.Errors.Count -Expected 0L -Message 'Synthetic query must have no errors.'
             $baseline=$expected[$case.Root]

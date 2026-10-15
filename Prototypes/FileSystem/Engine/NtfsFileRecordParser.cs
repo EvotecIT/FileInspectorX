@@ -6,6 +6,7 @@ namespace FileInspectorX.Prototypes.FileSystem;
 internal static class NtfsFileRecordParser
 {
     internal const ulong SlotMask = 0x0000FFFFFFFFFFFFUL;
+    private const int ProtectionStride = 512;
     private static readonly char[] InvalidNameCharacters = { '\\', '/', ':', '\0' };
 
     // This input is filesystem control output, never a raw on-disk record or disk image.
@@ -31,13 +32,13 @@ internal static class NtfsFileRecordParser
         ValidateSequenceLayout(bytes, start, size, sectorBytes);
         int usa = start + BitConverter.ToUInt16(bytes, start + 4);
         ushort expected = BitConverter.ToUInt16(bytes, usa);
-        for (int i = 1; i <= size / sectorBytes; i++)
-            if (BitConverter.ToUInt16(bytes, start + i * sectorBytes - 2) != expected)
+        for (int i = 1; i <= size / ProtectionStride; i++)
+            if (BitConverter.ToUInt16(bytes, start + i * ProtectionStride - 2) != expected)
                 throw new IOException("Raw update-sequence mismatch at slot " + slot + ".");
-        for (int i = 1; i <= size / sectorBytes; i++)
+        for (int i = 1; i <= size / ProtectionStride; i++)
         {
-            bytes[start + i * sectorBytes - 2] = bytes[usa + i * 2];
-            bytes[start + i * sectorBytes - 1] = bytes[usa + i * 2 + 1];
+            bytes[start + i * ProtectionStride - 2] = bytes[usa + i * 2];
+            bytes[start + i * ProtectionStride - 1] = bytes[usa + i * 2 + 1];
         }
         return ParseRecord(bytes, start, size, slot, sectorBytes);
     }
@@ -131,8 +132,8 @@ internal static class NtfsFileRecordParser
     {
         int offset = BitConverter.ToUInt16(bytes, start + 4), count = BitConverter.ToUInt16(bytes, start + 6);
         int firstAttribute = BitConverter.ToUInt16(bytes, start + 20);
-        if (sectorBytes < 512 || size % sectorBytes != 0 || count != size / sectorBytes + 1 || offset < 42 ||
-            offset > size - count * 2 || offset + count * 2 > firstAttribute)
+        if (sectorBytes < 512 || size % ProtectionStride != 0 || count != size / ProtectionStride + 1 || offset < 42 ||
+            offset > size - count * 2 || offset + count * 2 > firstAttribute || offset + count * 2 > ProtectionStride - 2)
             throw new IOException("Invalid update sequence array.");
         // Windows supplies logical bytes. In live API output the USA can retain old
         // values after the logical record changes. Applying raw-sector fixups here

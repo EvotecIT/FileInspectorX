@@ -60,6 +60,32 @@ Describe 'Normal enumeration filesystem subset' {
 }
 
 Describe 'Routing and cancellation' {
+    It 'keeps handled access errors in the returned CSharp inventory summary' {
+        $scanRoot=Join-Path $TestDrive 'partial-scan'
+        $denied=Join-Path $scanRoot 'denied'
+        $null=New-Item -ItemType Directory -Path $denied
+        [IO.File]::WriteAllBytes((Join-Path $scanRoot 'visible.bin'),[byte[]](1,2,3,4))
+        [IO.File]::WriteAllBytes((Join-Path $denied 'hidden-by-acl.bin'),[byte[]](5,6,7))
+        $original=Get-Acl -LiteralPath $denied
+        $restricted=Get-Acl -LiteralPath $denied
+        $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+        $rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::ListDirectory,[Security.AccessControl.AccessControlType]::Deny)
+        $restricted.AddAccessRule($rule)
+        try {
+            Set-Acl -LiteralPath $denied -AclObject $restricted
+            $options=[FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
+            $options.Root=$scanRoot;$options.Recurse=$true;$options.Force=$true
+            $errors=[FileInspectorX.Prototypes.FileSystem.InventoryErrors]::new()
+            $options.OnError=$errors.Handler
+            $summary=[FileInspectorX.Prototypes.FileSystem.InventoryScan]::MeasureAsync($options).GetAwaiter().GetResult()
+            $summary.Files | Should -Be 1
+            $summary.LogicalBytes | Should -Be 4
+            $errors.Count | Should -Be 1
+            $summary.Errors | Should -Be 1
+            $summary.Aborted | Should -BeFalse
+            $options.OnError | Should -Be $errors.Handler
+        } finally {Set-Acl -LiteralPath $denied -AclObject $original}
+    }
     It 'reports a disappeared directory through the optional normal-enumeration error sink' {
         $gone=Join-Path $TestDrive 'disappeared'
         $null=New-Item -ItemType Directory -Path $gone

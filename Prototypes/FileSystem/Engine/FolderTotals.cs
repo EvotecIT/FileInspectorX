@@ -10,6 +10,7 @@ public sealed class FolderTotal
 }
 
 /// <summary>C# consumer that retains only folder summaries and never sends individual entries through PowerShell.</summary>
+/// <remarks>When OnError is supplied, callers must inspect that sink for partial coverage. Without a sink, enumeration errors are fatal.</remarks>
 public static class FolderTotals
 {
     public static async Task<FolderTotal[]> MeasureAsync(QueryOptions options, MftSnapshot? snapshot = null, int maximumFolders = 1_000_000)

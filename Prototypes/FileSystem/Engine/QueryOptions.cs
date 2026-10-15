@@ -24,6 +24,13 @@ public sealed class QueryOptions
     /// <summary>Optional directory-enumeration error sink. Without a sink, errors remain fatal.</summary>
     public Action<Exception, string>? OnError { get; set; }
 
+    internal QueryOptions WithErrorHandler(Action<Exception, string> handler)
+    {
+        var copy = (QueryOptions)MemberwiseClone();
+        copy.OnError = handler;
+        return copy;
+    }
+
     internal bool Accept(FileSystemEntry entry, int depth)
     {
         if (depth > (Recurse ? Depth : 0)) return false;

@@ -18,8 +18,14 @@ public static class InventoryScan
 {
     public static async Task<InventorySummary> MeasureAsync(QueryOptions options, MftSnapshot? snapshot = null)
     {
-        var query = await FileSystemQuery.OpenAsync(options, snapshot).ConfigureAwait(false);
         var summary = new InventorySummary();
+        var callerSink = options.OnError;
+        var queryOptions = callerSink == null ? options : options.WithErrorHandler((exception, path) =>
+        {
+            summary.AddError();
+            callerSink(exception, path);
+        });
+        var query = await FileSystemQuery.OpenAsync(queryOptions, snapshot).ConfigureAwait(false);
         foreach (var entry in query.Entries)
             summary.Add(entry.FullName, (int)entry.Attributes, entry.Length ?? 0, entry.CreationTimeUtc.Ticks, entry.LastWriteTimeUtc.Ticks);
         return summary;

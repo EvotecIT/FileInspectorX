@@ -16,14 +16,16 @@ internal sealed partial class WindowsMftVolume : IDisposable
     internal long SerialNumber { get; }
     internal long MftStartCluster { get; }
 
-    internal WindowsMftVolume(string volumeRoot, long maximumMftBytes)
+    internal WindowsMftVolume(string volumeRoot, long maximumMftBytes, Action checkBudget)
     {
         if (maximumMftBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumMftBytes));
+        checkBudget();
         _handle = CreateFileW(@"\\.\" + volumeRoot.TrimEnd('\\'), 0x80000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
         if (_handle.IsInvalid) { int error = Marshal.GetLastWin32Error(); _handle.Dispose(); throw new Win32Exception(error); }
         try
         {
             var metadata = new byte[128];
+            checkBudget();
             if (!DeviceIoControl(_handle, 0x90064, null, 0, metadata, metadata.Length, out int returned, IntPtr.Zero))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             if (returned < 96) throw new IOException("Truncated NTFS_VOLUME_DATA_BUFFER.");
@@ -35,7 +37,7 @@ internal sealed partial class WindowsMftVolume : IDisposable
             MftStartCluster = BitConverter.ToInt64(metadata, 64);
             if (ClusterBytes < SectorBytes || ClusterBytes % SectorBytes != 0)
                 throw new NotSupportedException("Unsupported NTFS cluster geometry.");
-            if (RecordBytes < 512 || RecordBytes > 65536 || SectorBytes < 512 || RecordBytes % SectorBytes != 0)
+            if (RecordBytes < 512 || RecordBytes > 65536 || RecordBytes % 512 != 0 || SectorBytes < 512 || SectorBytes > 65536 || (SectorBytes & (SectorBytes - 1)) != 0)
                 throw new NotSupportedException("Unsupported NTFS file-record geometry.");
             if (returned < 104 || BitConverter.ToUInt16(metadata, 100) != 3 || BitConverter.ToUInt16(metadata, 102) > 1)
                 throw new NotSupportedException("File-record decoder requires NTFS 3.0 or 3.1.");
