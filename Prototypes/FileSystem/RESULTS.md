@@ -108,7 +108,7 @@ D: has wcifs, PrjFlt and FileCrypt instances absent from C:. Bounded static insp
 
 This is a strong explanation consistent with the live D:/C:/physical-route controls. **Live predicate values and the actual rejected request stack were not observed**, so wcifs causality remains an inference. No filter was detached, no kernel debugger attached and no security policy changed. FileCrypt's sole literal status match inspected belonged to destination-name processing; PrjFlt was not imported after the wcifs path supplied a useful discriminating result.
 
-Analysis identity: REA 6.5.0 stock package, Ghidra 12.1.4, JDK 21.0.12.1; driver version 10.0.26100.9711. wcifs SHA-256 C87F098524FD6FE5718B010CA77C7FCC8726A48965646318CCE595169930B66B. No matching PDB was loaded. Complete bounded evidence is retained in the machine-local raw-read-filter-analysis.json; the owned native session was closed.
+Analysis identity: REA 6.5.0 stock package, Ghidra 12.1.4, JDK 21.0.12.1; driver version 10.0.26100.9711. wcifs SHA-256 C87F098524FD6FE5718B010CA77C7FCC8726A48965646318CCE595169930B66B. PDB load state was unknown; original function names and types were unavailable. Complete bounded evidence is retained in the machine-local raw-read-filter-analysis.json; the owned native session was closed.
 
 ## Compatibility, safeguards and review
 
