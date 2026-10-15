@@ -2,6 +2,9 @@ using System.Diagnostics;
 
 namespace FileInspectorX.Prototypes.FileSystem;
 
+/// <summary>Bulk sector reads are separate from the retained logical-record diagnostic reader.</summary>
+public enum MftReadMode { Bulk, RecordApi }
+
 /// <summary>Bounded NTFS metadata and long-name link snapshot acquired through Windows file-record controls.</summary>
 public sealed class MftSnapshot
 {
@@ -19,23 +22,32 @@ public sealed class MftSnapshot
     public int IncompleteRecordCount { get; }
     /// <summary>Identity-checked live link-count probes used to validate contradictory file-record header hints.</summary>
     public int LinkCountProbeCount { get; }
-    public string MetadataSource => "FSCTL_GET_NTFS_FILE_RECORD";
+    public string MetadataSource { get; }
+    public string ReadRoute { get; }
+    public int VolumeReadError { get; }
+    public long BulkReadCalls { get; }
+    public long RawSlots { get; }
+    public double BulkReadMilliseconds { get; }
+    public double ParseMilliseconds { get; }
 
     private MftSnapshot(string volumeRoot, long mftBytes, Dictionary<ulong, List<NtfsLink>> children,
         Dictionary<ulong, NtfsFileRecord> records, int count, int links, int extensions, int incomplete,
-        long estimatedBytes, long nativeBytesRead, int linkCountProbes)
+        long estimatedBytes, long nativeBytesRead, int linkCountProbes, WindowsMftVolume volume, MftReadMode readMode)
     {
         VolumeRoot = volumeRoot; MftBytes = mftBytes; _children = children; RecordCount = count;
         EstimatedIndexBytes = estimatedBytes; NativeBytesRead = nativeBytesRead; CapturedUtc = DateTime.UtcNow;
         _records = records; LinkCount = links; ExtensionRecordCount = extensions; IncompleteRecordCount = incomplete;
         LinkCountProbeCount = linkCountProbes;
+        MetadataSource = readMode == MftReadMode.Bulk ? "BulkMftExtents" : "FSCTL_GET_NTFS_FILE_RECORD";
+        ReadRoute = volume.ReadRoute; VolumeReadError = volume.VolumeReadError; BulkReadCalls = volume.BulkReadCalls;
+        RawSlots = volume.RawSlots; BulkReadMilliseconds = volume.BulkReadMilliseconds; ParseMilliseconds = volume.ParseMilliseconds;
     }
 
     /// <summary>Reads every in-use base and extension record, merging by full sequence-qualified identity.</summary>
     /// <remarks>Cancellation and timeout are checked between synchronous control calls and parsed records, not inside a kernel call.</remarks>
     public static Task<MftSnapshot> CaptureAsync(string root, CancellationToken cancellationToken,
         long maximumMftBytes = 512L * 1024 * 1024, int maximumIndexRecords = 4_000_000,
-        long maximumIndexBytes = 2L * 1024 * 1024 * 1024, TimeSpan? maximumCaptureTime = null)
+        long maximumIndexBytes = 2L * 1024 * 1024 * 1024, TimeSpan? maximumCaptureTime = null, MftReadMode readMode = MftReadMode.Bulk)
     {
         cancellationToken.ThrowIfCancellationRequested();
         CheckRoot(root);
@@ -46,13 +58,14 @@ public sealed class MftSnapshot
         if (maximumIndexRecords <= 0 || maximumIndexBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumIndexRecords));
         var timeLimit = maximumCaptureTime ?? TimeSpan.FromMinutes(2);
         if (timeLimit <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maximumCaptureTime));
+        if (readMode != MftReadMode.Bulk && readMode != MftReadMode.RecordApi) throw new ArgumentOutOfRangeException(nameof(readMode));
         using var volume = new WindowsMftVolume(volumeRoot, maximumMftBytes);
         var records = new Dictionary<ulong, NtfsFileRecord>();
         var extensions = new List<NtfsFileRecord>();
         var timer = Stopwatch.StartNew();
         int count = 0;
         long estimatedBytes = 0;
-        foreach (var record in volume.EnumerateFileRecords(cancellationToken))
+        foreach (var record in readMode == MftReadMode.Bulk ? volume.EnumerateBulk(volumeRoot, cancellationToken, CheckBudget) : volume.EnumerateFileRecords(cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (timer.Elapsed > timeLimit) throw new NotSupportedException("MFT capture exceeded its explicit time budget.");
@@ -100,7 +113,7 @@ public sealed class MftSnapshot
         cancellationToken.ThrowIfCancellationRequested();
         if (timer.Elapsed > timeLimit) throw new NotSupportedException("MFT capture exceeded its explicit time budget.");
         return Task.FromResult(new MftSnapshot(volumeRoot, volume.MftBytes, children, records, count,
-            links, extensions.Count, incomplete, estimatedBytes, volume.BytesRead, linkCountProbes));
+            links, extensions.Count, incomplete, estimatedBytes, volume.BytesRead, linkCountProbes, volume, readMode));
 
         void CheckBudget()
         {

@@ -5,13 +5,16 @@ using Microsoft.Win32.SafeHandles;
 namespace FileInspectorX.Prototypes.FileSystem;
 
 /// <summary>Read-only Windows volume control calls. No sector reads, journal creation or filesystem mutation.</summary>
-internal sealed class WindowsMftVolume : IDisposable
+internal sealed partial class WindowsMftVolume : IDisposable
 {
     private readonly SafeFileHandle _handle;
     internal long MftBytes { get; }
     internal long BytesRead { get; private set; }
     internal int RecordBytes { get; }
     internal int SectorBytes { get; }
+    internal int ClusterBytes { get; }
+    internal long SerialNumber { get; }
+    internal long MftStartCluster { get; }
 
     internal WindowsMftVolume(string volumeRoot, long maximumMftBytes)
     {
@@ -27,6 +30,11 @@ internal sealed class WindowsMftVolume : IDisposable
             MftBytes = BitConverter.ToInt64(metadata, 56);
             RecordBytes = checked((int)BitConverter.ToUInt32(metadata, 48));
             SectorBytes = checked((int)BitConverter.ToUInt32(metadata, 40));
+            ClusterBytes = checked((int)BitConverter.ToUInt32(metadata, 44));
+            SerialNumber = BitConverter.ToInt64(metadata, 0);
+            MftStartCluster = BitConverter.ToInt64(metadata, 64);
+            if (ClusterBytes < SectorBytes || ClusterBytes % SectorBytes != 0)
+                throw new NotSupportedException("Unsupported NTFS cluster geometry.");
             if (RecordBytes < 512 || RecordBytes > 65536 || SectorBytes < 512 || RecordBytes % SectorBytes != 0)
                 throw new NotSupportedException("Unsupported NTFS file-record geometry.");
             if (returned < 104 || BitConverter.ToUInt16(metadata, 100) != 3 || BitConverter.ToUInt16(metadata, 102) > 1)
@@ -57,6 +65,17 @@ internal sealed class WindowsMftVolume : IDisposable
             if (slot == 0) yield break;
             requested = slot - 1;
         }
+    }
+
+    internal byte[] ReadLogicalRecord(ulong id)
+    {
+        byte[] output = new byte[RecordBytes + 16];
+        if (!DeviceIoControl(_handle, 0x90068, BitConverter.GetBytes(id), 8, output, output.Length, out int returned, IntPtr.Zero))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (returned < 12 || BitConverter.ToUInt32(output, 8) != RecordBytes ||
+            (BitConverter.ToUInt64(output, 0) & NtfsFileRecordParser.SlotMask) != (id & NtfsFileRecordParser.SlotMask))
+            throw new IOException("MFT layout identity disappeared during acquisition.");
+        return output;
     }
 
     internal static ulong GetDirectoryId(string path)

@@ -15,6 +15,35 @@ internal static class NtfsFileRecordParser
         int size = checked((int)BitConverter.ToUInt32(output, 8));
         if (size < 48 || size > returned - 12) throw new IOException("Invalid file-record size.");
         const int start = 12;
+        return ParseRecord(output, start, size, BitConverter.ToUInt64(output, 0) & SlotMask, sectorBytes);
+    }
+
+    // Raw sector trailers must all match before replacing any bytes. Logical API
+    // output deliberately bypasses this route because its USA values can be stale.
+    internal static NtfsFileRecord? ParseRaw(byte[] bytes, int start, int size, ulong slot, int sectorBytes)
+    {
+        if (start < 0 || size < 48 || start > bytes.Length - size || slot > SlotMask)
+            throw new IOException("Raw record escapes its buffer.");
+        uint signature = BitConverter.ToUInt32(bytes, start);
+        if (signature == 0 && BitConverter.ToUInt16(bytes, start + 22) == 0) return null;
+        if (signature != 0x454C4946) throw new IOException("Invalid raw FILE signature at slot " + slot + ".");
+        if ((BitConverter.ToUInt16(bytes, start + 22) & 1) == 0) return null;
+        ValidateSequenceLayout(bytes, start, size, sectorBytes);
+        int usa = start + BitConverter.ToUInt16(bytes, start + 4);
+        ushort expected = BitConverter.ToUInt16(bytes, usa);
+        for (int i = 1; i <= size / sectorBytes; i++)
+            if (BitConverter.ToUInt16(bytes, start + i * sectorBytes - 2) != expected)
+                throw new IOException("Raw update-sequence mismatch at slot " + slot + ".");
+        for (int i = 1; i <= size / sectorBytes; i++)
+        {
+            bytes[start + i * sectorBytes - 2] = bytes[usa + i * 2];
+            bytes[start + i * sectorBytes - 1] = bytes[usa + i * 2 + 1];
+        }
+        return ParseRecord(bytes, start, size, slot, sectorBytes);
+    }
+
+    private static NtfsFileRecord ParseRecord(byte[] output, int start, int size, ulong slot, int sectorBytes)
+    {
         if (BitConverter.ToUInt32(output, start) != 0x454C4946) throw new IOException("Missing FILE signature.");
         ValidateSequenceLayout(output, start, size, sectorBytes);
         int used = checked((int)BitConverter.ToUInt32(output, start + 24));
@@ -22,7 +51,6 @@ internal static class NtfsFileRecordParser
         ushort flags = BitConverter.ToUInt16(output, start + 22);
         if ((flags & 1) == 0 || used > size || used < 48 || offset < 48 || offset % 8 != 0 || offset > used - 4)
             throw new IOException("Invalid in-use file-record header.");
-        ulong slot = BitConverter.ToUInt64(output, 0) & SlotMask;
         ushort sequence = BitConverter.ToUInt16(output, start + 16);
         if (sequence == 0) throw new IOException("In-use record has no identity sequence.");
         var record = new NtfsFileRecord
