@@ -26,6 +26,17 @@ if (-not $planning) {
         $baseline=[FileInspectorX.Prototypes.FileSystem.InventoryScan]::MeasureAsync($options).GetAwaiter().GetResult()
         $values=@{}
         foreach($field in @('Files','Directories','LogicalBytes','PathXor','PathSum','MetadataXor','MetadataSum')) { $values[$field]=$baseline.$field.ToString() }
+        $repeat=[FileInspectorX.Prototypes.FileSystem.InventoryScan]::MeasureAsync($options).GetAwaiter().GetResult()
+        $mftOptions=[FileInspectorX.Prototypes.FileSystem.QueryOptions]::new()
+        $mftOptions.Root=$root.Root; $mftOptions.Recurse=$true; $mftOptions.Force=$true; $mftOptions.Backend='Mft'
+        $captured=[FileInspectorX.Prototypes.FileSystem.InventoryScan]::MeasureAsync($mftOptions,$snapshot).GetAwaiter().GetResult()
+        [ordered]@{Root=$root.Root;CapturedUtc=$snapshot.CapturedUtc;Normal=$baseline;NormalRepeat=$repeat;CachedMft=$captured} |
+            ConvertTo-Json -Depth 4 -Compress | Add-Content -LiteralPath (Join-Path (Split-Path $evidencePath -Parent) 'baseline-checkpoints.jsonl')
+        foreach($field in @('Files','Directories','LogicalBytes','PathXor','PathSum','MetadataXor','MetadataSum')) {
+            if($repeat.$field.ToString() -ne $values[$field] -or $captured.$field.ToString() -ne $values[$field]) {
+                throw "Synthetic baseline differs before timing at $($root.Root), field $field. Preserve baseline-checkpoints.jsonl; no timed matrix was started."
+            }
+        }
         $expected[$root.Root]=$values
         $expected[$root.Root+'Folders']=[FileInspectorX.Prototypes.FileSystem.FolderTotals]::MeasureAsync($options).GetAwaiter().GetResult() | Sort-Object Path | ConvertTo-Json -Depth 3 -Compress
     }
