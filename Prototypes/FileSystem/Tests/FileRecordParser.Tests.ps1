@@ -114,6 +114,28 @@ Describe 'Direct NTFS metadata and link decoding' {
         $bytes = [byte[]]::new(1024); $bytes[22]=1
         { $rawParse.Invoke($null,[object[]]@($bytes,0,1024,[uint64]42,512)) } | Should -Throw
     }
+    It 'uses fixed 512-byte update-sequence strides on a 4KiB-sector volume' {
+        $small=New-FileRecord
+        $record=[byte[]]::new(4096)
+        [Array]::Copy($small,12,$record,0,48)
+        $used=[BitConverter]::ToUInt32($small,36)
+        [Array]::Copy($small,68,$record,72,$used-56)
+        [BitConverter]::GetBytes([uint16]9).CopyTo($record,6)
+        [BitConverter]::GetBytes([uint16]72).CopyTo($record,20)
+        [BitConverter]::GetBytes([uint32]($used+16)).CopyTo($record,24)
+        [BitConverter]::GetBytes([uint32]4096).CopyTo($record,28)
+        [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($record,48)
+        for($i=1;$i -le 8;$i++) { [Array]::Copy($record,$i*512-2,$record,48+$i*2,2) }
+        $logical=[byte[]]::new(4108)
+        [BitConverter]::GetBytes([uint64]0x42).CopyTo($logical,0)
+        [BitConverter]::GetBytes([uint32]4096).CopyTo($logical,8)
+        $record.CopyTo($logical,12)
+        (Field ($parse.Invoke($null,[object[]]@($logical,4108,4096))) Length) | Should -Be 5
+        for($i=1;$i -le 8;$i++) { [BitConverter]::GetBytes([uint16]0xABCD).CopyTo($record,$i*512-2) }
+        $decoded=$type.GetMethod('ParseRaw',$flags).Invoke($null,[object[]]@($record,0,4096,[uint64]0x42,4096))
+        (Field $decoded Length) | Should -Be 5
+        for($i=1;$i -le 8;$i++) { [BitConverter]::ToUInt16($record,$i*512-2) | Should -Be 0 }
+    }
     It 'decodes signed fragmented runs and rejects sparse truncated or escaping mappings' {
         $runsType = [FileInspectorX.Prototypes.FileSystem.MftSnapshot].Assembly.GetType('FileInspectorX.Prototypes.FileSystem.NtfsDataRuns')
         $decode = $runsType.GetMethod('Decode',$flags)
@@ -151,7 +173,7 @@ Describe 'Direct NTFS metadata and link decoding' {
     It 'rejects invalid geometry and truncated response lengths' {
         $bytes = New-FileRecord
         { $parse.Invoke($null, [object[]]@($bytes, 100, 512)) } | Should -Throw
-        { $parse.Invoke($null, [object[]]@($bytes, $bytes.Length, 4096)) } | Should -Throw
+        { $parse.Invoke($null, [object[]]@($bytes, $bytes.Length, 1)) } | Should -Throw
     }
     It 'validates extension ownership using sequence-qualified base identity' {
         $owner = Read-Record (New-FileRecord)

@@ -18,9 +18,9 @@ internal sealed partial class WindowsMftVolume
     internal IEnumerable<NtfsFileRecord> EnumerateBulk(string volumeRoot, CancellationToken cancellationToken, Action checkBudget)
     {
         if (MftBytes < RecordBytes || MftBytes % RecordBytes != 0) throw new IOException("Invalid MFT length.");
-        using var raw = new WindowsRawMftSource(_handle, volumeRoot, this);
+        using var raw = new WindowsRawMftSource(_handle, volumeRoot, this, checkBudget);
         ReadRoute = raw.Route; VolumeReadError = raw.VolumeReadError;
-        var runs = GetMftRuns(raw, cancellationToken);
+        var runs = GetMftRuns(raw, cancellationToken, checkBudget);
         var buffer = new byte[WindowsRawMftSource.BufferBytes];
         long position = 0;
         while (position < MftBytes)
@@ -29,7 +29,7 @@ internal sealed partial class WindowsMftVolume
             checkBudget();
             int count = (int)Math.Min(buffer.Length, MftBytes - position);
             long clock = Stopwatch.GetTimestamp();
-            ReadMapped(raw, runs, position, buffer, count, cancellationToken);
+            ReadMapped(raw, runs, position, buffer, count, cancellationToken, checkBudget);
             BulkReadMilliseconds += (Stopwatch.GetTimestamp() - clock) * 1000.0 / Stopwatch.Frequency;
             BytesRead = raw.BytesRead; BulkReadCalls = raw.ReadCalls;
             for (int offset = 0; offset < count; offset += RecordBytes)
@@ -45,13 +45,15 @@ internal sealed partial class WindowsMftVolume
             position += count;
         }
         // Detect relocation/growth while reading. This is still not an atomic snapshot.
-        var final = GetMftRuns(raw, cancellationToken);
+        var final = GetMftRuns(raw, cancellationToken, checkBudget);
         if (runs.Count != final.Count || runs.Where((run, i) => run.Vcn != final[i].Vcn || run.Lcn != final[i].Lcn || run.Clusters != final[i].Clusters).Any())
             throw new IOException("MFT extents changed during bulk acquisition.");
+        BytesRead = raw.BytesRead; BulkReadCalls = raw.ReadCalls;
     }
 
-    private List<NtfsDataRun> GetMftRuns(WindowsRawMftSource raw, CancellationToken token)
+    private List<NtfsDataRun> GetMftRuns(WindowsRawMftSource raw, CancellationToken token, Action checkBudget)
     {
+        checkBudget();
         byte[] first = ReadLogicalRecord(0);
         var firstRecord = NtfsFileRecordParser.Parse(first, first.Length, SectorBytes);
         if ((firstRecord.Id & NtfsFileRecordParser.SlotMask) != 0 || firstRecord.BaseId != 0)
@@ -60,6 +62,7 @@ internal sealed partial class WindowsMftVolume
         byte[]? list = null;
         foreach (var attribute in NtfsDataRuns.Attributes(first))
         {
+            checkBudget();
             int p = attribute.Offset;
             if (first[p + 9] != 0) continue;
             if (attribute.Type == 0x80) AddData(first, attribute.Offset, attribute.Length, runs);
@@ -77,7 +80,7 @@ internal sealed partial class WindowsMftVolume
                 long size = BitConverter.ToInt64(first, p + 48);
                 if (size <= 0 || size > 16 * 1024 * 1024) throw new NotSupportedException("MFT attribute-list budget exceeded.");
                 var listRuns = NtfsDataRuns.Attribute(first, p, attribute.Length);
-                list = new byte[(int)size]; ReadMapped(raw, listRuns, 0, list, list.Length, token);
+                list = new byte[(int)size]; ReadMapped(raw, listRuns, 0, list, list.Length, token, checkBudget);
             }
         }
         var fetched = new HashSet<ulong> { firstRecord.Id };
@@ -85,6 +88,7 @@ internal sealed partial class WindowsMftVolume
             for (int p = 0; p < list.Length;)
             {
                 token.ThrowIfCancellationRequested();
+                checkBudget();
                 if (list.Length - p < 26) throw new IOException("Truncated MFT attribute-list entry.");
                 int size = BitConverter.ToUInt16(list, p + 4), named = list[p + 6], nameOffset = list[p + 7];
                 if (size < 26 || size > list.Length - p || named != 0 && (nameOffset < 26 || nameOffset > size - named * 2))
@@ -121,7 +125,7 @@ internal sealed partial class WindowsMftVolume
         runs.AddRange(NtfsDataRuns.Attribute(record, p, length));
     }
 
-    private void ReadMapped(WindowsRawMftSource raw, List<NtfsDataRun> runs, long offset, byte[] buffer, int count, CancellationToken token)
+    private void ReadMapped(WindowsRawMftSource raw, List<NtfsDataRun> runs, long offset, byte[] buffer, int count, CancellationToken token, Action checkBudget)
     {
         int written = 0;
         foreach (var run in runs)
@@ -132,6 +136,7 @@ internal sealed partial class WindowsMftVolume
             while (written < count && offset < end)
             {
                 token.ThrowIfCancellationRequested();
+                checkBudget();
                 int part = (int)Math.Min(Math.Min(count - written, end - offset), WindowsRawMftSource.BufferBytes - SectorBytes);
                 raw.ReadVolume(checked(run.Lcn * ClusterBytes + offset - start), buffer, written, part);
                 offset += part; written += part;

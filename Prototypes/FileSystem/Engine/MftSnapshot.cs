@@ -5,7 +5,7 @@ namespace FileInspectorX.Prototypes.FileSystem;
 /// <summary>Bulk sector reads are separate from the retained logical-record diagnostic reader.</summary>
 public enum MftReadMode { Bulk, RecordApi }
 
-/// <summary>Bounded NTFS metadata and long-name link snapshot acquired through Windows file-record controls.</summary>
+/// <summary>Bounded NTFS metadata and long-name link snapshot acquired through bulk extents or logical file-record controls.</summary>
 public sealed class MftSnapshot
 {
     private readonly Dictionary<ulong, List<NtfsLink>> _children;
@@ -25,6 +25,7 @@ public sealed class MftSnapshot
     public string MetadataSource { get; }
     public string ReadRoute { get; }
     public int VolumeReadError { get; }
+    /// <summary>Mapped metadata read calls, including bootstrap/final attribute-list reads; excludes boot probes and filesystem-control calls.</summary>
     public long BulkReadCalls { get; }
     public long RawSlots { get; }
     public double BulkReadMilliseconds { get; }
@@ -59,10 +60,10 @@ public sealed class MftSnapshot
         var timeLimit = maximumCaptureTime ?? TimeSpan.FromMinutes(2);
         if (timeLimit <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maximumCaptureTime));
         if (readMode != MftReadMode.Bulk && readMode != MftReadMode.RecordApi) throw new ArgumentOutOfRangeException(nameof(readMode));
-        using var volume = new WindowsMftVolume(volumeRoot, maximumMftBytes);
+        var timer = Stopwatch.StartNew();
+        using var volume = new WindowsMftVolume(volumeRoot, maximumMftBytes, CheckBudget);
         var records = new Dictionary<ulong, NtfsFileRecord>();
         var extensions = new List<NtfsFileRecord>();
-        var timer = Stopwatch.StartNew();
         int count = 0;
         long estimatedBytes = 0;
         foreach (var record in readMode == MftReadMode.Bulk ? volume.EnumerateBulk(volumeRoot, cancellationToken, CheckBudget) : volume.EnumerateFileRecords(cancellationToken))

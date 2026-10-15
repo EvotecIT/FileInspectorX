@@ -11,14 +11,17 @@ internal sealed class WindowsRawMftSource : IDisposable
     private readonly IntPtr _allocation, _buffer;
     private readonly long _baseOffset, _volumeBytes;
     private readonly int _sectorBytes;
+    private readonly Action _checkBudget;
     internal const int BufferBytes = 4 * 1024 * 1024;
     internal string Route { get; }
     internal int VolumeReadError { get; }
     internal long ReadCalls { get; private set; }
     internal long BytesRead { get; private set; }
 
-    internal WindowsRawMftSource(SafeFileHandle volume, string volumeRoot, WindowsMftVolume geometry)
+    internal WindowsRawMftSource(SafeFileHandle volume, string volumeRoot, WindowsMftVolume geometry, Action checkBudget)
     {
+        _checkBudget = checkBudget;
+        checkBudget();
         _sectorBytes = geometry.SectorBytes;
         _allocation = Marshal.AllocHGlobal(BufferBytes + 65536);
         _buffer = new IntPtr((_allocation.ToInt64() + 65535) & ~65535L);
@@ -26,6 +29,7 @@ internal sealed class WindowsRawMftSource : IDisposable
         try
         {
             byte[] extents = new byte[64];
+            checkBudget();
             if (!WindowsMftVolume.Control(volume, 0x560000, null, extents, out int returned))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot establish volume-to-disk mapping.");
             if (returned < 32 || BitConverter.ToUInt32(extents, 0) != 1)
@@ -35,6 +39,7 @@ internal sealed class WindowsRawMftSource : IDisposable
             _volumeBytes = BitConverter.ToInt64(extents, 24);
             if (disk < 0 || partition < 0 || _volumeBytes <= 0 || partition % _sectorBytes != 0 || _volumeBytes % _sectorBytes != 0)
                 throw new IOException("Invalid partition mapping.");
+            checkBudget();
             opened = Open(@"\\.\" + volumeRoot.TrimEnd('\\'));
             int error = Read(opened, 0, _sectorBytes);
             if (error == 0) { Route = "Volume"; _baseOffset = 0; }
@@ -43,8 +48,10 @@ internal sealed class WindowsRawMftSource : IDisposable
                 VolumeReadError = error;
                 if (error != 50) throw new Win32Exception(error, "Volume metadata read failed.");
                 opened.Dispose();
+                checkBudget();
                 opened = Open(@"\\.\PhysicalDrive" + disk);
                 byte[] length = new byte[8];
+                checkBudget();
                 if (!WindowsMftVolume.Control(opened, 0x7405C, null, length, out returned) || returned < 8)
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot establish physical-disk bounds.");
                 if (checked(partition + _volumeBytes) > BitConverter.ToInt64(length, 0)) throw new IOException("Partition escapes its disk.");
@@ -88,8 +95,10 @@ internal sealed class WindowsRawMftSource : IDisposable
 
     private int Read(SafeFileHandle handle, long offset, int length)
     {
+        _checkBudget();
         if (!SetFilePointerEx(handle, offset, out long positioned, 0)) return Marshal.GetLastWin32Error();
         if (positioned != offset) throw new IOException("Metadata seek position mismatch.");
+        _checkBudget();
         if (!ReadFile(handle, _buffer, length, out int returned, IntPtr.Zero)) return Marshal.GetLastWin32Error();
         if (returned != length) throw new IOException("Short raw metadata read.");
         return 0;
