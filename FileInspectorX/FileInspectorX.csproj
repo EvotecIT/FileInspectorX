@@ -47,8 +47,8 @@
 
     <!-- Authenticode requires SignedCms + ASN.1; reference for all TFMs we target -->
     <ItemGroup>
-        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
-        <PackageReference Include="System.Formats.Asn1" Version="10.0.12" />
+        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+        <PackageReference Include="System.Formats.Asn1" Version="10.0.13" />
     </ItemGroup>
 
     <ItemGroup>
