@@ -19,7 +19,7 @@ compose it explicitly.
 
 The selected closure contains Core, Archives, the six native document owners,
 Reader.Core and the six matching Reader adapters. Public consumer references use
-OfficeIMO 3.4.6 or later. Reader.All, Reader.Zip, OCR, AI and rendering packages are
+OfficeIMO 3.5.1 or later. Reader.All, Reader.Zip, OCR, AI and rendering packages are
 outside this adapter. The base FileInspectorX and optional Magika packages retain
 their independent capability boundaries.
 

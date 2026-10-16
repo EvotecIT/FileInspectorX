@@ -106,8 +106,8 @@ Build-Module -ModuleName 'FileInspectorX' {
     New-ConfigurationProjectBuild -Name 'FileInspectorX' -ConfigPath $ProjectBuildConfigPath -Enabled -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget
     New-ConfigurationRelease -StageRoot '..\Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'FileInspectorX' -SynchronizeModuleVersion -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
-    New-ConfigurationArtefact -Type Unpacked -Enable -Path '..\Artefacts\Unpacked' -ModulesPath '..\Artefacts\Unpacked\Modules' -RequiredModulesPath '..\Artefacts\Unpacked\Modules'
-    New-ConfigurationArtefact -Type Packed -Enable -Path '..\Artefacts\Packed' -ModulesPath '..\Artefacts\Packed\Modules' -IncludeTagName -ArtefactName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>.zip' -ID 'ToGitHub'
+    New-ConfigurationArtefact -Type Unpacked -Enable -Path '..\Artefacts\Unpacked' -ModulesPath 'Modules' -RequiredModulesPath 'Modules'
+    New-ConfigurationArtefact -Type Packed -Enable -Path '..\Artefacts\Packed' -ModulesPath 'Modules' -IncludeTagName -ArtefactName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>.zip' -ID 'ToGitHub'
 
     New-ConfigurationPublish -Type PowerShellGallery -FilePath $PowerShellGalleryApiKeyPath -Enabled:$false
     New-ConfigurationPublish -Type GitHub -FilePath $GitHubApiKeyPath -UserName 'EvotecIT' -RepositoryName 'FileInspectorX' -Enabled:$false -GenerateReleaseNotes -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
