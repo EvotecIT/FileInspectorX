@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FileInspectorX · File reports</title><link rel="stylesheet" href="/app.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <header><div><span class="mark">FX</span><strong>FileInspectorX</strong><span class="tag">Local file analysis</span></div><p>Understand a file without running it.</p></header>
+  <main>
+    <aside>
+      <section class="upload"><h1>Inspect a file</h1><p>Files and reports stay on this machine. Maximum upload: 64 MiB.</p><label class="button" for="file">Choose a file</label><input id="file" type="file"><p id="notice" role="status" aria-live="polite"></p></section>
+      <label for="search">Find a report</label><input id="search" type="search" placeholder="Name, SHA-256, type or text" autocomplete="off"><p id="count" class="muted"></p><nav id="reports" aria-label="Saved reports"></nav>
+    </aside>
+    <article id="detail" aria-live="polite"><div class="empty"><h2>What is this file about?</h2><p>Choose a file to see its detected type, document text, archive contents and the evidence behind each observation.</p><p class="muted">Analysis is bounded. Every report shows the parts inspected and the limits encountered.</p></div></article>
+  </main>
+  <footer>Static inspection · No file execution · No cloud upload · Text similarity uses extracted samples</footer>
+</body>
+</html>

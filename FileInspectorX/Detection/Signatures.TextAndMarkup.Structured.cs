@@ -111,6 +111,17 @@ internal static partial class Signatures
                         return true;
                     }
                 }
+                // Empty objects/arrays and single primitive array values have
+                // no key/colon or comma cues, but complete JSON is authoritative.
+                if (JsonStructureValidator.TryValidate(headStr, head.Length, out _))
+                {
+                    result = new ContentTypeDetectionResult
+                    {
+                        Extension = "json", MimeType = "application/json", Confidence = "Medium",
+                        Reason = "text:json", ReasonDetails = "json:validated-sample"
+                    };
+                    return true;
+                }
             }
         }
 

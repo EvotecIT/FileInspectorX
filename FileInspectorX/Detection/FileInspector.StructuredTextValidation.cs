@@ -178,6 +178,17 @@ public static partial class FileInspector
             else
             {
                 det.ValidationStatus = budgetLimited ? "skipped" : "passed";
+                if (complete && Signatures.TryGetGltfAssetVersion(Encoding.UTF8.GetBytes(sample), out var version))
+                {
+                    det.Extension = "gltf";
+                    det.MimeType = "model/gltf+json";
+                    det.Confidence = "Medium";
+                    det.Reason = "gltf:json";
+                    det.ReasonDetails = "gltf:asset-version-" + version + ";schema-not-validated";
+                    det.Score = ScoreFromConfidence(det.Confidence);
+                    det.Candidates = new[] { CreateCandidate(det) };
+                    det.Alternatives = null;
+                }
             }
             return;
         }

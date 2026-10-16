@@ -147,10 +147,7 @@ internal static partial class Signatures
         }
 
         // Windows batch (.bat/.cmd) heuristic
-        if (headLower.Contains("@echo off") || headLower.Contains("setlocal") || headLower.Contains("endlocal") ||
-            headLower.Contains("\ngoto ") || headLower.Contains("\r\ngoto ") ||
-            headLower.Contains(" goto ") ||
-            headLower.StartsWith("rem ") || headLower.Contains("\nrem ") || headLower.Contains("\r\nrem ") || headLower.Contains(":end")) {
+        if (LooksLikeBatchScript(headLower)) {
             var ext = declaredCmd ? "cmd" : "bat";
             result = new ContentTypeDetectionResult { Extension = ext, MimeType = "text/x-batch", Confidence = "Medium", Reason = ext == "cmd" ? "text:cmd" : "text:bat", ReasonDetails = "bat:echo|setlocal|goto|rem" };
             return true;
@@ -302,7 +299,10 @@ internal static partial class Signatures
             if (len > 3) {
                 var token = span.Slice(start, len);
                 int dash = token.IndexOf('-');
-                if (dash > 0 && dash < token.Length - 1) {
+                int before = start - 1;
+                while (before >= 0 && (span[before] == ' ' || span[before] == '\t')) before--;
+                bool invocationPosition = before < 0 || span[before] is '\r' or '\n' or ';' or '(' or '{' or '|' or '=' or '&';
+                if (invocationPosition && dash > 0 && dash < token.Length - 1) {
                     var verb = token.Slice(0, dash);
                     var noun = token.Slice(dash + 1);
                     if (noun.Length >= 2 && IsCommonPsVerb(verb)) return true;
@@ -322,16 +322,7 @@ internal static partial class Signatures
                    "format" or "register" or "unregister" or "resolve" or "find";
         }
 
-        static bool IsSep(char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';' || c == '(' || c == '{';
-    }
-
-    private static bool LooksLikeVbsScript(string lower)
-    {
-        return lower.Contains("wscript.") || lower.Contains("wscript.echo") ||
-               lower.Contains("createobject(") || lower.Contains("vbscript") ||
-               lower.Contains("dim ") || lower.Contains("end sub") ||
-               lower.Contains("option explicit") || lower.Contains("on error resume next") ||
-               lower.Contains("msgbox");
+        static bool IsSep(char c) => char.IsWhiteSpace(c) || c is ';' or '(' or ')' or '{' or '}' or '|' or '=' or '&';
     }
 
     private static bool LooksLikeJavaScript(string s, string sl)

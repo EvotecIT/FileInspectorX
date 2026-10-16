@@ -19,6 +19,9 @@ public class ContentTypeDetectionResult {
     };
 
     /// <summary>Immutable measurements for a public Detect call when CollectMetrics was requested. Use FileAnalysis.Metrics for analysis calls.</summary>
+#if NET8_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonInclude]
+#endif
     public InspectionMetrics? Metrics { get; internal set; }
 
     /// <summary>Detected canonical extension (without leading dot), e.g., "png".</summary>

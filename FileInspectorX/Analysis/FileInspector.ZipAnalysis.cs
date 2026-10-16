@@ -32,6 +32,7 @@ public static partial class FileInspector
             bool ooxmlRemoteTemplate = false; bool ooxmlDde = false; bool ooxmlExtLinks = false; int extLinksCount = 0;
             int ooxmlAllowed = 0, ooxmlDisallowed = 0, ooxmlUnc = 0;
             var ooxmlHosts = new List<string>(5);
+            var externalWorkbookLinks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool sawEncryptionInfo = false; bool sawEncryptedPackage = false;
             int deepScanned = 0; int deepMax = OperationSettings.DeepContainerMaxEntries;
             int deepBytes = OperationSettings.DeepContainerMaxEntryBytes;
@@ -101,21 +102,24 @@ public static partial class FileInspector
                     }
                     if (name.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
                     {
-                        ooxmlExtLinks = true; extLinksCount++;
+                        externalWorkbookLinks.Add(name);
                     }
                     if (name.Equals("xl/_rels/workbook.xml.rels", StringComparison.OrdinalIgnoreCase))
                     {
-                        var rels = budget.ReadText(e) ?? string.Empty;
-                        // Count targets that point to externalLinks folder
-                        int pos = 0; int local = 0; while (true) { int at = rels.IndexOf("externalLinks/", pos, StringComparison.OrdinalIgnoreCase); if (at < 0) break; local++; pos = at + 8; }
-                        if (local > 0) { ooxmlExtLinks = true; extLinksCount += local; }
+                        var relationships = ReadOoxmlRelationships(budget.ReadBytes(e), budget);
+                        foreach (var relationship in relationships)
+                        {
+                            if (!string.Equals(relationship.Mode, "External", StringComparison.OrdinalIgnoreCase) &&
+                                ExternalWorkbookLinkPart(relationship.Target) is { } part)
+                                externalWorkbookLinks.Add(part);
+                        }
                         // Roughly count external http(s) and UNC targets in workbook relationships
-                        CountOoxmlExternalTargets(rels, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
+                        CountOoxmlExternalTargets(relationships, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
                     }
                     if (name.StartsWith("xl/externalLinks/_rels/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
                     {
-                        var rels2 = budget.ReadText(e) ?? string.Empty;
-                        CountOoxmlExternalTargets(rels2, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
+                        var relationships = ReadOoxmlRelationships(budget.ReadBytes(e), budget);
+                        CountOoxmlExternalTargets(relationships, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
                     }
                 } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
 
@@ -405,6 +409,8 @@ public static partial class FileInspector
             if (hasNestedArchives && containerSubtype == null) containerSubtype = "nested-archive";
             hasRemoteTemplate = ooxmlRemoteTemplate;
             hasDde = ooxmlDde;
+            extLinksCount = externalWorkbookLinks.Count;
+            ooxmlExtLinks = extLinksCount > 0;
             hasExternalLinks = ooxmlExtLinks;
             externalLinksCount = extLinksCount;
             if (innerScriptEncoded && !localFindings.Contains("archive:inner-script-encoded")) localFindings.Add("archive:inner-script-encoded");

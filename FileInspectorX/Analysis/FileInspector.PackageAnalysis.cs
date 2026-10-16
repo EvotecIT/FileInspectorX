@@ -6,7 +6,7 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    private static void TryPopulateAppxSignature(InspectionInput input, FileAnalysis res)
+    private static void TryPopulateAppxSignature(InspectionInput input, FileAnalysis res, DetectionOptions? options)
     {
         var path = input.Name;
 #if NET8_0_OR_GREATER || NET472
@@ -19,11 +19,21 @@ public static partial class FileInspector
             if (sigEntry == null) return;
             var data = budget.ReadBytes(sigEntry);
             if (data == null || data.Length == 0) return;
+            if (sigEntry.FullName.EndsWith(".p7x", StringComparison.OrdinalIgnoreCase))
+            {
+                // P7X wraps the DER SignedData in a four-byte package signature marker.
+                if (data.Length <= 4 || data[0] != 'P' || data[1] != 'K' || data[2] != 'C' || data[3] != 'X')
+                    throw new InvalidDataException("Invalid P7X signature marker.");
+                var envelope = new byte[data.Length - 4];
+                Buffer.BlockCopy(data, 4, envelope, 0, envelope.Length);
+                data = envelope;
+            }
             var cms = new System.Security.Cryptography.Pkcs.SignedCms();
             cms.Decode(data);
+            if (cms.SignerInfos.Count == 0) throw new InvalidDataException("The package signature has no signer.");
             var ai = res.Authenticode ?? new AuthenticodeInfo();
             ai.Present = true;
-            ai.VerificationNote = "Package signature (AppxSignature)";
+            ai.VerificationNote = "Package signature envelope; package content digest not verified";
             var signer = cms.SignerInfos.Count > 0 ? cms.SignerInfos[0] : null;
             var cert = signer?.Certificate;
             if (cert != null)
@@ -31,12 +41,13 @@ public static partial class FileInspector
                 ai.SignerSubject = cert.Subject; ai.SignerIssuer = cert.Issuer; ai.SignatureAlgorithm = cert.SignatureAlgorithm?.FriendlyName;
                 ai.NotBefore = cert.NotBefore; ai.NotAfter = cert.NotAfter; ai.DigestAlgorithm = signer?.DigestAlgorithm?.FriendlyName;
                 ai.SignerThumbprint = cert.Thumbprint; ai.SignerSerialHex = cert.SerialNumber; FillCertFields(cert, ai);
-                try { var ch = new System.Security.Cryptography.X509Certificates.X509Chain(); ch.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck; ai.ChainValid = ch.Build(cert); } catch { }
+                ai.ChainValid = TryBuildCertificateChain(cert, options, res, out _);
                 try { cms.CheckSignature(true); ai.EnvelopeSignatureValid = true; } catch { ai.EnvelopeSignatureValid = false; }
             }
             res.Authenticode = ai;
         } catch (OutOfMemoryException) { throw; }
-        catch { }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        { budget.AddIssue("archive:package-signature-unavailable"); }
         finally { ApplyArchiveInspectionBudget(res, budget); }
 #endif
     }
@@ -54,14 +65,24 @@ public static partial class FileInspector
     }
 
     private static string MapShebang(string line) {
-        var l = line.ToLowerInvariant();
-        if (l.Contains("bash")) return "bash";
-        if (l.Contains("sh")) return "sh";
-        if (l.Contains("python")) return "python";
-        if (l.Contains("node")) return "javascript";
-        if (l.Contains("pwsh") || l.Contains("powershell")) return "powershell";
-        if (l.Contains("perl")) return "perl";
-        if (l.Contains("ruby")) return "ruby";
+        var tokens = line.Substring(2).Trim().Split(new[] { ' ', '\t', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length == 0) return "unknown";
+        int interpreterIndex = 0;
+        if (System.IO.Path.GetFileName(tokens[0]) == "env")
+        {
+            interpreterIndex++;
+            while (interpreterIndex < tokens.Length && (tokens[interpreterIndex].StartsWith("-", StringComparison.Ordinal) || tokens[interpreterIndex].IndexOf('=') >= 0))
+                interpreterIndex++;
+        }
+        if (interpreterIndex >= tokens.Length) return "unknown";
+        var interpreter = System.IO.Path.GetFileName(tokens[interpreterIndex]).ToLowerInvariant();
+        if (interpreter is "pwsh" or "powershell") return "powershell";
+        if (interpreter == "bash") return "bash";
+        if (interpreter is "sh" or "zsh" or "ksh") return "sh";
+        if (interpreter.StartsWith("python", StringComparison.Ordinal)) return "python";
+        if (interpreter is "node" or "nodejs") return "javascript";
+        if (interpreter == "perl") return "perl";
+        if (interpreter == "ruby") return "ruby";
         return "unknown";
     }
 
@@ -115,48 +136,4 @@ public static partial class FileInspector
         } catch { return null; }
     }
 
-    private static bool ContainsIgnoreCase(string s, string needle) {
-        if (string.IsNullOrEmpty(s) || string.IsNullOrEmpty(needle)) return false;
-        return s.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    private static bool IsPe(InspectionInput input, out string? machine, out string? subsystem, out bool hasClr, out bool hasSec) {
-        var path = input.Name;
-        machine = null; subsystem = null; hasClr = false; hasSec = false;
-        try {
-            using var fs = input.OpenRead();
-            var br = new BinaryReader(fs);
-            if (fs.Length < 0x40) return false;
-            if (br.ReadByte() != 0x4D || br.ReadByte() != 0x5A) return false; // MZ
-            fs.Seek(0x3C, SeekOrigin.Begin);
-            int e_lfanew = br.ReadInt32();
-            if (e_lfanew <= 0 || e_lfanew > fs.Length - 256) return false;
-            fs.Seek(e_lfanew, SeekOrigin.Begin);
-            if (br.ReadByte() != (byte)'P' || br.ReadByte() != (byte)'E' || br.ReadByte() != 0 || br.ReadByte() != 0) return false;
-            ushort mach = br.ReadUInt16();
-            machine = mach switch { 0x014c => "x86", 0x8664 => "x86_64", 0x01c0 => "arm", 0xaa64 => "aarch64", _ => "unknown" };
-            br.ReadUInt16(); // NumberOfSections
-            br.ReadUInt32(); // TimeDateStamp
-            br.ReadUInt32(); // PointerToSymbolTable
-            br.ReadUInt32(); // NumberOfSymbols
-            ushort sizeOptionalHeader = br.ReadUInt16();
-            br.ReadUInt16(); // Characteristics
-            long optStart = fs.Position;
-            ushort magic = br.ReadUInt16();
-            bool isPlus = magic == 0x20b;
-            int subsysOffset = isPlus ? 0x5C : 0x44;
-            fs.Seek(optStart + subsysOffset, SeekOrigin.Begin);
-            ushort subsys = br.ReadUInt16();
-            subsystem = subsys switch { 2 => "Windows GUI", 3 => "Windows CUI", 9 => "Windows CE", _ => "unknown" };
-            int ddOffset = isPlus ? 0x70 : 0x60;
-            fs.Seek(optStart + ddOffset, SeekOrigin.Begin);
-            uint va, sz;
-            for (int i = 0; i < 16; i++) {
-                va = br.ReadUInt32(); sz = br.ReadUInt32();
-                if (i == 4) hasSec = sz != 0; // Security
-                if (i == 14) hasClr = sz != 0; // CLR
-            }
-            return true;
-        } catch { return false; }
-    }
 }

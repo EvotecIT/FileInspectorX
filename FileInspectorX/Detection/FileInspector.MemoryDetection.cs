@@ -62,7 +62,7 @@ public static partial class FileInspector
         if (Signatures.TryMatchHdf5(data, out var hdf5)) return Finish(Enrich(hdf5, data, null, options));
         if (Signatures.TryMatchRegistryExport(data, out var registryExport)) return Finish(Enrich(registryExport, data, null, options));
         if (Signatures.TryMatchZip(data, out var validatedZip)) return Finish(Enrich(RefineZip(data, dataMemory, validatedZip), data, null, options));
-        if (Signatures.TryMatchOle2(data, out var validatedOle)) return Finish(Enrich(validatedOle, data, null, options));
+        if (Signatures.TryMatchOle2(data, out var validatedOle)) return Finish(Enrich(RefineMemoryDetection(data, dataMemory, validatedOle), data, null, options));
         if (Signatures.TryMatchExtendedHeaderFormats(data, out var extendedBinary)) return Finish(Enrich(extendedBinary, data, null, options));
         if (Signatures.TryMatchTar(data, out var tar)) return Finish(Enrich(tar, data, null, options));
         if (Signatures.TryMatchRiff(data, out var riff)) return Finish(Enrich(riff, data, null, options));
@@ -117,7 +117,11 @@ public static partial class FileInspector
                 };
                 return Finish(Enrich(basic, data, null, options));
             }
-        if (Signatures.TryMatchText(data, out var text, declaredExtension)) return Finish(Enrich(text, data, null, options));
+        if (Signatures.TryMatchText(data, out var text, declaredExtension))
+        {
+            var biased = ApplyDeclaredBias(text, declaredExtension);
+            return Finish(Enrich(RefineMemoryDetection(data, dataMemory, biased), data, null, options));
+        }
         return Finish(Enrich(null, data, null, options));
     }
 

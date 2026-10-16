@@ -39,7 +39,7 @@ internal static class PeReader {
             stream.Seek(e_lfanew, SeekOrigin.Begin);
             if (br.ReadByte() != (byte)'P' || br.ReadByte() != (byte)'E' || br.ReadByte() != 0 || br.ReadByte() != 0) return false;
             info.IsPE = true;
-            br.ReadUInt16(); // Machine
+            info.Machine = br.ReadUInt16();
             ushort numberOfSections = br.ReadUInt16();
             // PE/COFF section counts are normally tiny. Cap attacker-controlled
             // section work before allocating or walking the table.

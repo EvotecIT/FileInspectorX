@@ -8,30 +8,8 @@ public static partial class FileInspector
 {
     private static ContentTypeDetectionResult? TryRefineOle2Subtype(Stream stream) {
         try {
-            long pos = stream.CanSeek ? stream.Position : 0;
-            if (stream.CanSeek) stream.Seek(0, SeekOrigin.Begin);
-            int cap = Math.Max(8 * 1024, Math.Min(OperationSettings.DetectionReadBudgetBytes, 512 * 1024));
-            var buf = new byte[cap];
-            int n = ReadAvailable(stream, buf, 0, buf.Length);
-            if (stream.CanSeek) stream.Seek(pos, SeekOrigin.Begin);
-            var ascii = System.Text.Encoding.ASCII.GetString(buf, 0, n);
-            if (ascii.IndexOf("WordDocument", StringComparison.OrdinalIgnoreCase) >= 0)
-                return new ContentTypeDetectionResult { Extension = "doc", MimeType = "application/msword", Confidence = "Medium", Reason = "ole2:word" };
-            if (ascii.IndexOf("Workbook", StringComparison.OrdinalIgnoreCase) >= 0)
-                return new ContentTypeDetectionResult { Extension = "xls", MimeType = "application/vnd.ms-excel", Confidence = "Medium", Reason = "ole2:xls" };
-            if (ascii.IndexOf("PowerPoint Document", StringComparison.OrdinalIgnoreCase) >= 0)
-                return new ContentTypeDetectionResult { Extension = "ppt", MimeType = "application/vnd.ms-powerpoint", Confidence = "Medium", Reason = "ole2:ppt" };
-            // MSI hint: raise confidence to High when multiple typical MSI table names occur alongside SummaryInformation
-            bool hasSum = ascii.IndexOf("SummaryInformation", StringComparison.OrdinalIgnoreCase) >= 0;
-            int cnt = 0;
-            if (ascii.IndexOf("Property", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
-            if (ascii.IndexOf("Directory", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
-            if (ascii.IndexOf("Media", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
-            if (ascii.IndexOf("Component", StringComparison.OrdinalIgnoreCase) >= 0) cnt++;
-            if (hasSum && cnt >= 2)
-                return new ContentTypeDetectionResult { Extension = "msi", MimeType = "application/x-msi", Confidence = "Medium", Reason = "ole2:msi-hint;sector-chains-not-validated" };
-
-            // Try mini CFBF directory parse for higher confidence
+            // Stream names, rather than text stored in arbitrary payload sectors,
+            // identify a compound-document subtype. Sector chains remain partial.
             if (TryGetOleDirectoryNames(stream, out var names))
             {
                 if (names.Any(nm => nm.Equals("WordDocument", StringComparison.OrdinalIgnoreCase)))

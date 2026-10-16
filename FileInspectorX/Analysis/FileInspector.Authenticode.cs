@@ -7,7 +7,7 @@ namespace FileInspectorX;
 /// </summary>
 public static partial class FileInspector
 {
-    private static void TryPopulateAuthenticode(InspectionInput input, FileAnalysis res)
+    private static void TryPopulateAuthenticode(InspectionInput input, FileAnalysis res, DetectionOptions? options)
     {
         var path = input.Name;
         res.Authenticode = null;
@@ -67,16 +67,9 @@ public static partial class FileInspector
                         }
                     } catch { }
 
-                    // Chain build (best-effort, no revocation)
-                    try {
-                        var chain = new System.Security.Cryptography.X509Certificates.X509Chain();
-                        chain.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck;
-                        chain.ChainPolicy.VerificationFlags = System.Security.Cryptography.X509Certificates.X509VerificationFlags.NoFlag;
-                        bool ok = chain.Build(cert);
-                        ai.ChainValid = ok;
-                        if (ok) res.Flags |= ContentFlags.PeAuthenticodeChainValid;
-                        try { ai.IsSelfSigned = string.Equals(cert.Subject, cert.Issuer, StringComparison.OrdinalIgnoreCase); } catch { }
-                    } catch { }
+                    ai.ChainValid = TryBuildCertificateChain(cert, options, res, out _);
+                    if (ai.ChainValid == true) res.Flags |= ContentFlags.PeAuthenticodeChainValid;
+                    try { ai.IsSelfSigned = string.Equals(cert.Subject, cert.Issuer, StringComparison.OrdinalIgnoreCase); } catch { }
                 }
 
                 // File digest (cross-platform recomputation)

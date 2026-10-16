@@ -1,7 +1,7 @@
 namespace FileInspectorX;
 
 /// <summary>Immutable, opt-in measurements of a synchronous inspection and its nested library work.</summary>
-public sealed class InspectionMetrics
+public sealed partial class InspectionMetrics
 {
     /// <summary>Elapsed wall time through result creation, measured with a monotonic clock.</summary>
     public TimeSpan Elapsed { get; }
@@ -35,7 +35,7 @@ public sealed class InspectionMetrics
 }
 
 /// <summary>Immutable inclusive duration and invocation count for a measured stage.</summary>
-public sealed class InspectionStageMetric
+public sealed partial class InspectionStageMetric
 {
     /// <summary>The measured boundary.</summary>
     public InspectionStage Stage { get; }
@@ -44,6 +44,9 @@ public sealed class InspectionStageMetric
     /// <summary>Sum of inclusive invocation durations, measured with a monotonic clock.</summary>
     public TimeSpan Elapsed { get; }
 
+#if NET8_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonConstructor]
+#endif
     internal InspectionStageMetric(InspectionStage stage, long invocations, TimeSpan elapsed)
     { Stage = stage; Invocations = invocations; Elapsed = elapsed; }
 }

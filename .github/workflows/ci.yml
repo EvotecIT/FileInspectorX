@@ -56,6 +56,18 @@ jobs:
       - name: Build
         run: dotnet build FileInspectorX.sln -c Release --no-restore
 
+      - name: Smoke test local report service
+        shell: pwsh
+        run: ./Build/Test-LocalService.ps1 -ApplicationPath ./FileInspectorX.Web/bin/Release/net8.0/FileInspectorX.Web.dll
+
+      - name: Smoke test catalog recovery
+        shell: pwsh
+        run: ./Build/Test-CatalogRecovery.ps1 -ApplicationPath ./FileInspectorX.Web/bin/Release/net8.0/FileInspectorX.Web.dll -ScratchDirectory ./TestResults/catalog-recovery
+
+      - name: Smoke test local request deadlines
+        shell: pwsh
+        run: ./Build/Test-LocalServiceDeadlines.ps1 -ApplicationPath ./FileInspectorX.Web/bin/Release/net8.0/FileInspectorX.Web.dll -ScratchDirectory ./TestResults/service-deadlines
+
       - name: Smoke test PowerShell 7 Magika default
         shell: pwsh
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll
@@ -64,10 +76,33 @@ jobs:
         shell: pwsh
         run: ./Build/Test-PowerShellHelp.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net8.0/FileInspectorX.PowerShell.dll
 
+      - name: Install shared module builder
+        shell: pwsh
+        run: Install-Module PSPublishModule -MinimumVersion '3.0.98' -Scope CurrentUser -Force
+
+      - name: Build unsigned packaged PowerShell module
+        shell: pwsh
+        run: ./Module/Build/Build-Module.ps1 -ConfigurationGateMode Build -SignModule:$false
+
+      - name: Smoke test packaged PowerShell report profiles
+        shell: pwsh
+        run: |
+          $modules = @(Get-ChildItem ./Artefacts/Unpacked/Modules/FileInspectorX -Filter FileInspectorX.psd1 -File -Recurse)
+          if ($modules.Count -ne 1) { throw 'Expected one module from the native build.' }
+          ./Build/Test-PowerShellReports.ps1 -ModulePath $modules[0].FullName
+
       - name: Smoke test Windows PowerShell 5.1 Magika default
         if: runner.os == 'Windows'
         shell: powershell
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./FileInspectorX.PowerShell/bin/Release/net472/FileInspectorX.PowerShell.dll
+
+      - name: Smoke test packaged Windows PowerShell report profiles
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $modules = @(Get-ChildItem ./Artefacts/Unpacked/Modules/FileInspectorX -Filter FileInspectorX.psd1 -File -Recurse)
+          if ($modules.Count -ne 1) { throw 'Expected one module from the native build.' }
+          ./Build/Test-PowerShellReports.ps1 -ModulePath $modules[0].FullName
 
       - name: Smoke test generated Windows PowerShell help
         if: runner.os == 'Windows'
@@ -90,6 +125,20 @@ jobs:
         shell: pwsh
         run: ./Build/Test-PowerShellMagika.ps1 -ModulePath ./TestResults/powershell-no-magika/FileInspectorX.PowerShell.dll -ExpectedDefault DeterministicOnly
 
+      - name: Build packaged PowerShell with core readers only
+        shell: pwsh
+        env:
+          IncludeOfficeIMO: 'false'
+          IncludeMagika: 'false'
+        run: ./Module/Build/Build-Module.ps1 -ConfigurationGateMode Build -SignModule:$false
+
+      - name: Smoke test packaged core-only report profiles
+        shell: pwsh
+        run: |
+          $modules = @(Get-ChildItem ./Artefacts/Unpacked/Modules/FileInspectorX -Filter FileInspectorX.psd1 -File -Recurse)
+          if ($modules.Count -ne 1) { throw 'Expected one core-only module from the native build.' }
+          ./Build/Test-PowerShellReports.ps1 -ModulePath $modules[0].FullName -BuiltinOnly
+
       - name: Test (net8.0)
         if: runner.os != 'Linux'
         run: dotnet test FileInspectorX.Tests/FileInspectorX.Tests.csproj -c Release -f net8.0 --no-build --logger "trx;LogFileName=test-results-net8.trx" --results-directory ./TestResults/net8
@@ -105,12 +154,23 @@ jobs:
       - name: Test Magika provider
         run: dotnet test FileInspectorX.Magika.Tests/FileInspectorX.Magika.Tests.csproj -c Release --no-build --logger "trx;LogFileName=test-results-magika.trx" --results-directory ./TestResults/magika
 
+      - name: Test OfficeIMO adapter
+        run: dotnet test FileInspectorX.OfficeIMO.Tests/FileInspectorX.OfficeIMO.Tests.csproj -c Release -f net8.0 --no-build --logger "trx;LogFileName=test-results-officeimo.trx" --results-directory ./TestResults/officeimo
+
+      - name: Test OfficeIMO adapter (.NET Framework)
+        if: runner.os == 'Windows'
+        run: dotnet test FileInspectorX.OfficeIMO.Tests/FileInspectorX.OfficeIMO.Tests.csproj -c Release -f net472 --no-build --logger "trx;LogFileName=test-results-officeimo-net472.trx" --results-directory ./TestResults/officeimo-net472
+
       - name: Upload test results
-        if: always() && hashFiles('TestResults/**/*.trx') != ''
+        if: always() && hashFiles('TestResults/**/*.trx', 'TestResults/service-deadlines/deadline-receipt.json') != ''
         uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.os }}
-          path: ./TestResults/**/*.trx
+          path: |
+            ./TestResults/**/*.trx
+            ./TestResults/service-deadlines/deadline-receipt.json
+            ./TestResults/service-deadlines/service-errors.txt
+            ./TestResults/service-deadlines/shutdown-errors.txt
 
       - name: Upload coverage artifact
         if: always() && runner.os == 'Linux' && hashFiles('TestResults/**/coverage.cobertura.xml') != ''

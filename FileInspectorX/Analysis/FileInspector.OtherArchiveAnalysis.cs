@@ -6,67 +6,22 @@ namespace FileInspectorX;
 
 public static partial class FileInspector
 {
-    // Parse OOXML .rels fragments to count external targets and categorize by allowed domains.
-    private static void CountOoxmlExternalTargets(string xml, ref int allowed, ref int disallowed, ref int unc)
+    // Count external relationships using decoded XML attributes, including single quotes.
+    private static void CountOoxmlExternalTargets(IReadOnlyList<(string Target, string Mode)> relationships, ref int allowed, ref int disallowed, ref int unc, List<string> hosts)
     {
-        try
+        foreach (var relationship in relationships)
         {
-            int idx = 0;
-            while (idx < xml.Length)
+            if (!string.Equals(relationship.Mode, "External", StringComparison.OrdinalIgnoreCase)) continue;
+            var raw = relationship.Target.Trim();
+            if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("//", StringComparison.Ordinal))
             {
-                int at = xml.IndexOf("Target=\"", idx, StringComparison.OrdinalIgnoreCase);
-                if (at < 0) break; at += 8; // after Target="
-                int end = xml.IndexOf('"', at);
-                if (end < 0) break;
-                var raw = xml.Substring(at, end - at).Trim();
-                idx = end + 1;
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("//"))
-                {
-                    var host = TryGetHost(raw);
-                    if (!string.IsNullOrEmpty(host))
-                    {
-                        if (IsAllowedDomain(host!)) allowed++; else disallowed++;
-                    }
-                }
-                else if (raw.StartsWith("\\\\") || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
-                {
-                    unc++;
-                }
+                var host = TryGetHost(raw);
+                if (string.IsNullOrEmpty(host)) continue;
+                if (IsAllowedDomain(host!)) allowed++; else disallowed++;
+                if (hosts.Count < 5 && !hosts.Contains(host!, StringComparer.OrdinalIgnoreCase)) hosts.Add(host!);
             }
-        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
-    }
-
-    // Overload: also captures up to 5 unique hosts encountered (order of first appearance)
-    private static void CountOoxmlExternalTargets(string xml, ref int allowed, ref int disallowed, ref int unc, List<string> hosts)
-    {
-        try
-        {
-            int idx = 0;
-            while (idx < xml.Length)
-            {
-                int at = xml.IndexOf("Target=\"", idx, StringComparison.OrdinalIgnoreCase);
-                if (at < 0) break; at += 8;
-                int end = xml.IndexOf('"', at);
-                if (end < 0) break;
-                var raw = xml.Substring(at, end - at).Trim();
-                idx = end + 1;
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("//"))
-                {
-                    var host = TryGetHost(raw);
-                    if (!string.IsNullOrEmpty(host))
-                    {
-                        if (IsAllowedDomain(host!)) allowed++; else disallowed++;
-                        if (hosts.Count < 5 && !hosts.Contains(host!, StringComparer.OrdinalIgnoreCase)) hosts.Add(host!);
-                    }
-                }
-                else if (raw.StartsWith("\\\\") || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
-                {
-                    unc++;
-                }
-            }
-        } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+            else if (raw.StartsWith("\\\\", StringComparison.Ordinal) || raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase)) unc++;
+        }
     }
 
     private static string? TryGetHost(string url)
@@ -118,7 +73,16 @@ public static partial class FileInspector
                     filesSeen++; total = filesSeen;
                     // In RAR v2/3/4, FILE_HEADER flags bit 0x04 means password/encrypted
                     if ((headFlags & 0x04) != 0) enc++;
-                    // Skip extra fields (pack & unpack sizes already inside header; we just jump to next)
+                    if (headSize < 32 || next > fs.Length) return false;
+                    ulong packedSize = br.ReadUInt32();
+                    if ((headFlags & 0x0100) != 0)
+                    {
+                        if (headSize < 40) return false;
+                        fs.Seek(fs.Position + 21, SeekOrigin.Begin);
+                        packedSize |= (ulong)br.ReadUInt32() << 32;
+                    }
+                    if (packedSize > (ulong)(fs.Length - next)) return false;
+                    next = checked(next + (long)packedSize);
                 }
                 // Move to next block
                 if (next < fs.Position || next > fs.Length || next - walkStart > byteBudget) break;

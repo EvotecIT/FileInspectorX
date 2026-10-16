@@ -40,7 +40,7 @@ public class DetectionDetailsTests : IDisposable
             Assert.Equal(rv.DetectionReasonDetails, map["DetectionReasonDetails"] as string);
 
             var md = MarkdownRenderer.From(rv);
-            Assert.Contains("js:cues-", md, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("js&#58;cues-", md, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -215,8 +215,8 @@ public class DetectionDetailsTests : IDisposable
         Assert.Contains("GCP API key: 1", md);
         Assert.Contains("npm token-family: 2", md);
         Assert.Contains("Azure SAS token-family: 1", md);
-        Assert.Contains("[High] secret:token:gcp-apikey line 12 -> `AIzaSy...9x2Q`", md);
-        Assert.Contains("[Medium] secret:token:npm line 24 -> `npm_12...abCD`", md);
+        Assert.Contains("[High] secret&#58;token&#58;gcp-apikey line 12 -> `AIzaSy...9x2Q`", md);
+        Assert.Contains("[Medium] secret&#58;token&#58;npm line 24 -> `npm_12...abCD`", md);
     }
 
     [Fact]
@@ -350,7 +350,7 @@ public class DetectionDetailsTests : IDisposable
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Archive", md);
-        Assert.Contains("Binaries: 1", md);
+        Assert.Contains("Binaries&#58; 1", md);
         Assert.Contains("Inner publishers: Contoso (2 files, valid)", md);
         Assert.Contains("Inner executable types: dll=2, exe=1", md);
         Assert.Contains("Preview: setup.exe (exe)", md);
@@ -567,8 +567,8 @@ public class DetectionDetailsTests : IDisposable
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Security", md);
         Assert.Contains("MOTW ZoneId: 3", md);
-        Assert.Contains("MOTW Referrer URL: https://contoso.example/ref", md);
-        Assert.Contains("MOTW Host URL: https://download.contoso.example/file.exe", md);
+        Assert.Contains("MOTW Referrer URL: https&#58;//contoso.example/ref", md);
+        Assert.Contains("MOTW Host URL: https&#58;//download.contoso.example/file.exe", md);
         Assert.Contains("Alternate stream count: 2", md);
     }
 
@@ -715,9 +715,9 @@ public class DetectionDetailsTests : IDisposable
         Assert.Contains("### Security", md);
         Assert.Contains("Hidden: yes", md);
         Assert.Contains("Read-only: yes", md);
-        Assert.Contains("Owner: CONTOSO\\svc-deploy", md);
+        Assert.Contains("Owner: CONTOSO\\\\svc-deploy", md);
         Assert.Contains("Owner ID: S-1-5-21-1000", md);
-        Assert.Contains("Group: CONTOSO\\Deployment", md);
+        Assert.Contains("Group: CONTOSO\\\\Deployment", md);
         Assert.Contains("Group ID: S-1-5-32-544", md);
         Assert.Contains("Mode (octal): 0755", md);
         Assert.Contains("Mode (symbolic): rwxr-xr-x", md);
@@ -958,7 +958,7 @@ public class DetectionDetailsTests : IDisposable
         Assert.Contains("Signer issuer: CN=Contoso Issuing CA, O=Contoso PKI, C=US", md);
         Assert.Contains("Signer subject CN: Contoso Code Signing", md);
         Assert.Contains("Signer subject O: Contoso Ltd", md);
-        Assert.Contains("Timestamp Authority: http://tsa.contoso.example", md);
+        Assert.Contains("Timestamp Authority: http&#58;//tsa.contoso.example", md);
         Assert.Contains("Timestamp time: 2025-02-03 04:05:06Z", md);
         Assert.Contains("Signer self-signed: no", md);
         Assert.Contains("Signer thumbprint: ABCDEF1234", md);
@@ -967,7 +967,7 @@ public class DetectionDetailsTests : IDisposable
         Assert.Contains("Signer not before: 2024-01-02 03:04:05Z", md);
         Assert.Contains("Signer not after: 2027-08-09 10:11:12Z", md);
         Assert.Contains("Authenticode file hash matches: yes", md);
-        Assert.Contains("Verification note: Verified PKCS#7 envelope and file digest.", md);
+        Assert.Contains("Verification note: Verified PKCS\\#7 envelope and file digest.", md);
     }
 
     [Fact]
@@ -1116,8 +1116,8 @@ public class DetectionDetailsTests : IDisposable
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### File Type", md);
-        Assert.Contains("Candidates: ps1 High 92 dangerous (text:ps1)", md);
-        Assert.Contains("Alternatives: cmd Medium 61 dangerous (text:cmd)", md);
+        Assert.Contains("Candidates: ps1 High 92 dangerous (text&#58;ps1)", md);
+        Assert.Contains("Alternatives: cmd Medium 61 dangerous (text&#58;cmd)", md);
     }
 
     [Fact]
@@ -1440,10 +1440,10 @@ public class DetectionDetailsTests : IDisposable
         Assert.Contains("Author: Release Engineering", md);
         Assert.Contains("Comments: Installs the Contoso background agent.", md);
         Assert.Contains("Capabilities: runFullTrust, internetClient, documentsLibrary", md);
-        Assert.Contains("Extensions: windows.protocol:contoso-agent, windows.fileTypeAssociation:.ctg", md);
+        Assert.Contains("Extensions: windows.protocol&#58;contoso-agent, windows.fileTypeAssociation&#58;.ctg", md);
         Assert.Contains("MSI custom actions (EXE): 1", md);
         Assert.Contains("MSI custom actions (other): 4", md);
-        Assert.Contains("MSI custom action samples: 3073:BinaryKey/InstallAgent", md);
+        Assert.Contains("MSI custom action samples: 3073&#58;BinaryKey/InstallAgent", md);
     }
 
     [Fact]
@@ -1552,7 +1552,7 @@ public class DetectionDetailsTests : IDisposable
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### Properties", md);
         Assert.Contains("Shell properties: 3", md);
-        Assert.Contains("Shell property preview: Title: Contoso Agent; System.Author: Ops Team; fmtid:12: Utility", md);
+        Assert.Contains("Shell property preview: Title&#58; Contoso Agent; System.Author&#58; Ops Team; fmtid&#58;12&#58; Utility", md);
     }
 
     [Fact]
@@ -1639,10 +1639,10 @@ public class DetectionDetailsTests : IDisposable
 
         var md = MarkdownRenderer.From(rv);
         Assert.Contains("### References", md);
-        Assert.Contains("HTML external links: https://contoso.example/a", md);
-        Assert.Contains("HTML UNC paths: \\\\server\\share", md);
-        Assert.Contains("Script URLs: https://contoso.example/script.js", md);
-        Assert.Contains("Script UNC paths: \\\\server\\scripts", md);
+        Assert.Contains("HTML external links: https&#58;//contoso.example/a", md);
+        Assert.Contains("HTML UNC paths: \\\\\\\\server\\\\share", md);
+        Assert.Contains("Script URLs: https&#58;//contoso.example/script.js", md);
+        Assert.Contains("Script UNC paths: \\\\\\\\server\\\\scripts", md);
     }
 
     [Fact]
@@ -2478,9 +2478,9 @@ public class DetectionDetailsTests : IDisposable
         var md = MarkdownRenderer.From(rv);
 
         Assert.Contains("### Heuristics", md);
-        Assert.Contains("Findings: ps:encoded, js:eval", md);
+        Assert.Contains("Findings: ps&#58;encoded, js&#58;eval", md);
         Assert.Contains("### Inner Findings", md);
-        Assert.Contains("Findings: inner:exe, inner:macro", md);
+        Assert.Contains("Findings: inner&#58;exe, inner&#58;macro", md);
     }
 
     [Fact]
@@ -2637,7 +2637,7 @@ public class DetectionDetailsTests : IDisposable
         Assert.Contains("### Risk Assessment", md);
         Assert.Contains("Drivers: JWT tokens, key patterns", md);
         Assert.Contains("Drivers (long): JWT-like tokens found, long key/secret assignment patterns detected", md);
-        Assert.Contains("Factors: secret:jwt=40, secret:keypattern=25, inner:signed=-5", md);
+        Assert.Contains("Factors: secret&#58;jwt=40, secret&#58;keypattern=25, inner&#58;signed=-5", md);
     }
 
     [Fact]

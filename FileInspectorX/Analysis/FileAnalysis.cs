@@ -8,7 +8,12 @@ public class FileAnalysis {
     // Retain immutable policy for projections and later assessments without holding an operation/token.
     internal InspectionSettings? SettingsSnapshot { get; init; }
     internal bool HasFileSystemSource { get; init; } = true;
-    internal string SourceFileName { get; init; } = string.Empty;
+    internal string SourceFileName { get; set; } = string.Empty;
+    /// <summary>Source display name for correlating batch results. Host directory paths are omitted.</summary>
+#if NET8_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonInclude]
+#endif
+    public string SourceName { get => FileInspector.DisplayFileName(SourceFileName); internal set => SourceFileName = FileInspector.DisplayFileName(value); }
     internal InspectionStageStatus? ContentInstallerStatus { get; set; }
     internal IReadOnlyList<string>? ContentInstallerIssues { get; set; }
 
@@ -22,9 +27,15 @@ public class FileAnalysis {
             ? InspectionOutcome.Partial : InspectionOutcome.Complete;
 
     /// <summary>Immutable outcomes for detection, structured validation, hashing, learned classification, supported container inspection and assessment.</summary>
+#if NET8_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonInclude]
+#endif
     public IReadOnlyList<InspectionStageResult> StageOutcomes { get; internal set; } = Array.Empty<InspectionStageResult>();
 
     /// <summary>Immutable per-operation measurements when CollectMetrics was requested. Null otherwise.</summary>
+#if NET8_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonInclude]
+#endif
     public InspectionMetrics? Metrics { get; internal set; }
 
     /// <summary>True when all requested analyzers completed within their safety budgets.</summary>

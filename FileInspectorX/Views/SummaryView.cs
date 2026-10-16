@@ -78,6 +78,6 @@ public sealed class SummaryView
                 return string.Empty;
         }
 
-        static string TrimSpaces(string s) => s.Replace("  ", " ").Trim().TrimEnd(' ', ')');
+        static string TrimSpaces(string s) => s.Replace("  ", " ").Trim();
     }
 }

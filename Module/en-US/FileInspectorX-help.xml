@@ -11,13 +11,15 @@
     </command:details>
     <maml:description>
       <maml:para>Supply one or more existing file paths, or pipe files from Get-ChildItem. Directories are enumerated with Get-ChildItem -File before analysis.</maml:para>
-      <maml:para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; each view exposes Raw for drill-down.</maml:para>
+      <maml:para>Path expands wildcard patterns. LiteralPath preserves wildcard characters in file names, and FileInfo pipeline input is always resolved literally.</maml:para>
+      <maml:para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; these views expose Raw for drill-down. Report returns the versioned InspectionReport contract with exact byte identity, bounded extracted content and coverage evidence.</maml:para>
+      <maml:para>The Report view reads a stable snapshot limited to 64 MiB per file. Larger files produce a per-file error. Content extraction retains at most 64 Ki characters and records limit issues. Report analysis is portable; requested filesystem-only stages are reported as unavailable.</maml:para>
       <maml:para>Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem parameterSetName="Path">
         <maml:name>Get-FileInsight</maml:name>
-        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>CollectMetrics</maml:name>
           <maml:description>
             <maml:para>Capture per-operation read, hash, archive and classifier counters and stage timings.</maml:para>
@@ -65,7 +67,7 @@
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
-        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>EnableInstaller</maml:name>
           <maml:description>
             <maml:para>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</maml:para>
@@ -77,7 +79,7 @@
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
-        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>EnableShellProperties</maml:name>
           <maml:description>
             <maml:para>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</maml:para>
@@ -176,7 +178,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>LearnedClassificationMode</maml:name>
           <maml:description>
-            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;&#xD;
+            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
 Required reports a terminating per-file error.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
@@ -220,10 +222,10 @@ Required reports a terminating per-file error.</maml:para>
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
-        <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByValue, ByPropertyName)" position="0" aliases="FullName">
+        <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByValue, ByPropertyName)" position="0" aliases="None">
           <maml:name>Path</maml:name>
           <maml:description>
-            <maml:para>One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.</maml:para>
+            <maml:para>One or more existing file paths to analyze. Supports wildcard patterns and pipeline strings. FileInfo pipeline input is treated literally; use LiteralPath for names containing wildcard characters.</maml:para>
           </maml:description>
           <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
           <dev:type>
@@ -232,10 +234,26 @@ Required reports a terminating per-file error.</maml:para>
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>ReportReader</maml:name>
+          <maml:description>
+            <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>View</maml:name>
           <maml:description>
-            <maml:para>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties.</maml:para>
+            <maml:para>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">InsightView</command:parameterValue>
           <command:parameterValueGroup>
@@ -250,6 +268,527 @@ Required reports a terminating per-file error.</maml:para>
             <command:parameterValue required="false" variableLength="false">Installer</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">ShellProperties</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">Policy</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Report</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>InsightView</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+      </command:syntaxItem>
+      <command:syntaxItem parameterSetName="LiteralPath">
+        <maml:name>Get-FileInsight</maml:name>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>CollectMetrics</maml:name>
+          <maml:description>
+            <maml:para>Capture per-operation read, hash, archive and classifier counters and stage timings.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ComputeSha256</maml:name>
+          <maml:description>
+            <maml:para>Compute SHA-256 of the file and include in output.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>DetectOnly</maml:name>
+          <maml:description>
+            <maml:para>Return only detection result (skip analysis). Back-compat shim for -View Detection.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>DisableMagika</maml:name>
+          <maml:description>
+            <maml:para>Disable the default Magika assistance and use deterministic analysis only.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>EnableInstaller</maml:name>
+          <maml:description>
+            <maml:para>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>EnableShellProperties</maml:name>
+          <maml:description>
+            <maml:para>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeAssessment</maml:name>
+          <maml:description>
+            <maml:para>Exclude assessment (score/decision/codes).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeContainer</maml:name>
+          <maml:description>
+            <maml:para>Exclude container triage (ZIP/TAR sampling, subtype and inner hints).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeInstaller</maml:name>
+          <maml:description>
+            <maml:para>Exclude installer/package metadata (MSIX/APPX/VSIX/MSI).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludePermissions</maml:name>
+          <maml:description>
+            <maml:para>Exclude permissions/ownership snapshot from the analysis.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeReferences</maml:name>
+          <maml:description>
+            <maml:para>Exclude references extraction (Task XML, scripts.ini/xml).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeShellProperties</maml:name>
+          <maml:description>
+            <maml:para>Exclude Windows shell properties (Explorer Details).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeSignature</maml:name>
+          <maml:description>
+            <maml:para>Exclude signature/Authenticode and package signature analysis.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>LearnedClassificationMode</maml:name>
+          <maml:description>
+            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
+Required reports a terminating per-file error.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">Off</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Assist</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Required</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>LearnedClassificationMode</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByPropertyName)" position="0" aliases="FullName,PSPath,LP">
+          <maml:name>LiteralPath</maml:name>
+          <maml:description>
+            <maml:para>One or more file paths to analyze without interpreting wildcard characters. Accepts FullName or PSPath properties from pipeline objects.</maml:para>
+          </maml:description>
+          <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
+          <dev:type>
+            <maml:name>String[]</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>MagicHeaderBytes</maml:name>
+          <maml:description>
+            <maml:para>Capture first N bytes of the header as uppercase hex.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
+          <dev:type>
+            <maml:name>Int32</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>MagikaPredictionMode</maml:name>
+          <maml:description>
+            <maml:para>Magika probability policy. Defaults to HighConfidence.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">HighConfidence</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">MediumConfidence</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">BestGuess</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>ReportReader</maml:name>
+          <maml:description>
+            <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>View</maml:name>
+          <maml:description>
+            <maml:para>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">InsightView</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">Raw</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Analysis</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Detection</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Permissions</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Signature</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Summary</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">References</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Assessment</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Installer</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">ShellProperties</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Policy</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Report</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>InsightView</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+      </command:syntaxItem>
+      <command:syntaxItem parameterSetName="FileInfo">
+        <maml:name>Get-FileInsight</maml:name>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>CollectMetrics</maml:name>
+          <maml:description>
+            <maml:para>Capture per-operation read, hash, archive and classifier counters and stage timings.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ComputeSha256</maml:name>
+          <maml:description>
+            <maml:para>Compute SHA-256 of the file and include in output.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>DetectOnly</maml:name>
+          <maml:description>
+            <maml:para>Return only detection result (skip analysis). Back-compat shim for -View Detection.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>DisableMagika</maml:name>
+          <maml:description>
+            <maml:para>Disable the default Magika assistance and use deterministic analysis only.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>EnableInstaller</maml:name>
+          <maml:description>
+            <maml:para>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>EnableShellProperties</maml:name>
+          <maml:description>
+            <maml:para>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeAssessment</maml:name>
+          <maml:description>
+            <maml:para>Exclude assessment (score/decision/codes).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeContainer</maml:name>
+          <maml:description>
+            <maml:para>Exclude container triage (ZIP/TAR sampling, subtype and inner hints).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeInstaller</maml:name>
+          <maml:description>
+            <maml:para>Exclude installer/package metadata (MSIX/APPX/VSIX/MSI).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludePermissions</maml:name>
+          <maml:description>
+            <maml:para>Exclude permissions/ownership snapshot from the analysis.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeReferences</maml:name>
+          <maml:description>
+            <maml:para>Exclude references extraction (Task XML, scripts.ini/xml).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeShellProperties</maml:name>
+          <maml:description>
+            <maml:para>Exclude Windows shell properties (Explorer Details).</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ExcludeSignature</maml:name>
+          <maml:description>
+            <maml:para>Exclude signature/Authenticode and package signature analysis.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="True (ByValue)" position="named" aliases="None">
+          <maml:name>InputObject</maml:name>
+          <maml:description>
+            <maml:para>FileInfo objects from Get-ChildItem or Get-Item. Their full names are resolved literally.</maml:para>
+          </maml:description>
+          <command:parameterValue required="true" variableLength="false">FileInfo</command:parameterValue>
+          <dev:type>
+            <maml:name>FileInfo</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>LearnedClassificationMode</maml:name>
+          <maml:description>
+            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
+Required reports a terminating per-file error.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">Off</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Assist</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Required</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>LearnedClassificationMode</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>MagicHeaderBytes</maml:name>
+          <maml:description>
+            <maml:para>Capture first N bytes of the header as uppercase hex.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
+          <dev:type>
+            <maml:name>Int32</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>MagikaPredictionMode</maml:name>
+          <maml:description>
+            <maml:para>Magika probability policy. Defaults to HighConfidence.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">HighConfidence</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">MediumConfidence</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">BestGuess</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+          <maml:name>ReportReader</maml:name>
+          <maml:description>
+            <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>View</maml:name>
+          <maml:description>
+            <maml:para>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">InsightView</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">Raw</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Analysis</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Detection</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Permissions</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Signature</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Summary</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">References</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Assessment</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Installer</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">ShellProperties</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Policy</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Report</command:parameterValue>
           </command:parameterValueGroup>
           <dev:type>
             <maml:name>InsightView</maml:name>
@@ -260,7 +799,7 @@ Required reports a terminating per-file error.</maml:para>
       </command:syntaxItem>
     </command:syntax>
     <command:parameters>
-      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>CollectMetrics</maml:name>
         <maml:description>
           <maml:para>Capture per-operation read, hash, archive and classifier counters and stage timings.</maml:para>
@@ -308,7 +847,7 @@ Required reports a terminating per-file error.</maml:para>
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
-      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>EnableInstaller</maml:name>
         <maml:description>
           <maml:para>Read MSI product properties on Windows and APPX/MSIX/VSIX manifests on all supported platforms. Pair with -View Installer to display them. Does not install or execute the package. -ExcludeInstaller takes precedence.</maml:para>
@@ -320,7 +859,7 @@ Required reports a terminating per-file error.</maml:para>
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
-      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>EnableShellProperties</maml:name>
         <maml:description>
           <maml:para>Read Explorer Details through Windows shell property handlers. Requires Windows. Pair with -View ShellProperties to display them. -ExcludeShellProperties takes precedence.</maml:para>
@@ -416,10 +955,22 @@ Required reports a terminating per-file error.</maml:para>
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
+      <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="True (ByValue)" position="named" aliases="None">
+        <maml:name>InputObject</maml:name>
+        <maml:description>
+          <maml:para>FileInfo objects from Get-ChildItem or Get-Item. Their full names are resolved literally.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">FileInfo</command:parameterValue>
+        <dev:type>
+          <maml:name>FileInfo</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>LearnedClassificationMode</maml:name>
         <maml:description>
-          <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;&#xD;
+          <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
 Required reports a terminating per-file error.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
@@ -430,6 +981,18 @@ Required reports a terminating per-file error.</maml:para>
         </command:parameterValueGroup>
         <dev:type>
           <maml:name>LearnedClassificationMode</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByPropertyName)" position="0" aliases="FullName,PSPath,LP">
+        <maml:name>LiteralPath</maml:name>
+        <maml:description>
+          <maml:para>One or more file paths to analyze without interpreting wildcard characters. Accepts FullName or PSPath properties from pipeline objects.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
+        <dev:type>
+          <maml:name>String[]</maml:name>
           <maml:uri />
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
@@ -463,10 +1026,10 @@ Required reports a terminating per-file error.</maml:para>
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
-      <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByValue, ByPropertyName)" position="0" aliases="FullName">
+      <command:parameter required="true" variableLength="true" globbing="false" pipelineInput="True (ByValue, ByPropertyName)" position="0" aliases="None">
         <maml:name>Path</maml:name>
         <maml:description>
-          <maml:para>One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.</maml:para>
+          <maml:para>One or more existing file paths to analyze. Supports wildcard patterns and pipeline strings. FileInfo pipeline input is treated literally; use LiteralPath for names containing wildcard characters.</maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">String[]</command:parameterValue>
         <dev:type>
@@ -475,10 +1038,26 @@ Required reports a terminating per-file error.</maml:para>
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="none">
+        <maml:name>ReportReader</maml:name>
+        <maml:description>
+          <maml:para>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+        <command:parameterValueGroup>
+          <command:parameterValue required="false" variableLength="false">OfficeIMO</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">Builtin</command:parameterValue>
+        </command:parameterValueGroup>
+        <dev:type>
+          <maml:name>String</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>View</maml:name>
         <maml:description>
-          <maml:para>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties.</maml:para>
+          <maml:para>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">InsightView</command:parameterValue>
         <command:parameterValueGroup>
@@ -493,6 +1072,7 @@ Required reports a terminating per-file error.</maml:para>
           <command:parameterValue required="false" variableLength="false">Installer</command:parameterValue>
           <command:parameterValue required="false" variableLength="false">ShellProperties</command:parameterValue>
           <command:parameterValue required="false" variableLength="false">Policy</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">Report</command:parameterValue>
         </command:parameterValueGroup>
         <dev:type>
           <maml:name>InsightView</maml:name>
@@ -505,6 +1085,11 @@ Required reports a terminating per-file error.</maml:para>
       <command:inputType>
         <dev:type>
           <maml:name>System.String[]</maml:name>
+        </dev:type>
+      </command:inputType>
+      <command:inputType>
+        <dev:type>
+          <maml:name>System.IO.FileInfo</maml:name>
         </dev:type>
       </command:inputType>
     </command:inputTypes>
@@ -562,6 +1147,11 @@ Required reports a terminating per-file error.</maml:para>
       <command:returnValue>
         <dev:type>
           <maml:name>FileInspectorX.ShellPropertiesView</maml:name>
+        </dev:type>
+      </command:returnValue>
+      <command:returnValue>
+        <dev:type>
+          <maml:name>FileInspectorX.InspectionReport</maml:name>
         </dev:type>
       </command:returnValue>
     </command:returnValues>
@@ -622,20 +1212,34 @@ Required reports a terminating per-file error.</maml:para>
       </command:example>
       <command:example>
         <maml:title>EXAMPLE 8</maml:title>
+        <dev:code>Get-FileInsight -LiteralPath '.\report[1].json' -View Detection</dev:code>
+        <dev:remarks>
+          <maml:para>Inspect a file whose name contains brackets</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 9</maml:title>
+        <dev:code>Get-FileInsight -LiteralPath .\document.docx -View Report -ExcludePermissions</dev:code>
+        <dev:remarks>
+          <maml:para>Get a versioned content report with hashes and bounded text extraction</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>EXAMPLE 10</maml:title>
         <dev:code>Get-FileInsight -Path .\package.msi -View Installer -EnableInstaller</dev:code>
         <dev:remarks>
           <maml:para>Read MSI product metadata on Windows without installing the package. The package can target x86, x64 or ARM64.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
-        <maml:title>EXAMPLE 9</maml:title>
+        <maml:title>EXAMPLE 11</maml:title>
         <dev:code>Get-FileInsight -Path .\package.msix -View Installer -EnableInstaller</dev:code>
         <dev:remarks>
           <maml:para>Read an MSIX manifest</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
-        <maml:title>EXAMPLE 10</maml:title>
+        <maml:title>EXAMPLE 12</maml:title>
         <dev:code>Get-FileInsight -Path .\source.txt -CollectMetrics</dev:code>
         <dev:remarks>
           <maml:para>Collect read counters and stage timings on the full analysis</maml:para>

@@ -126,6 +126,7 @@ public static partial class FileInspector
             IncludeContainer = includeContainer && (source?.IncludeContainer ?? true),
             IncludePermissions = source?.IncludePermissions ?? true,
             IncludeAuthenticode = source?.IncludeAuthenticode ?? true,
+            OfflineCertificateValidation = source?.OfflineCertificateValidation ?? false,
             IncludeReferences = source?.IncludeReferences ?? true,
             IncludeInstaller = source?.IncludeInstaller ?? false,
             IncludeAssessment = source?.IncludeAssessment ?? true,

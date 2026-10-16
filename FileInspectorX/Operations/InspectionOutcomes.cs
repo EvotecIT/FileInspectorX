@@ -84,7 +84,7 @@ public enum InspectionStageStatus
 }
 
 /// <summary>Immutable completion evidence for one stage, with stable issue codes.</summary>
-public sealed class InspectionStageResult
+public sealed partial class InspectionStageResult
 {
     /// <summary>The inspected boundary.</summary>
     public InspectionStage Stage { get; }

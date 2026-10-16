@@ -121,6 +121,7 @@ public static partial class FileInspector {
             } catch { }
 
             // Best-effort service entry indicator (ASCII scan for 'ServiceMain')
+            if (det?.Extension is "exe" or "dll" or "sys" or "cpl")
             try
             {
                 using var fsSvc = input.OpenRead();
@@ -283,7 +284,7 @@ public static partial class FileInspector {
 
                 // Lightweight script security assessment
                 var sf = SecurityHeuristics.AssessScriptFromText(heuristicsText, declaredExt, includeSecrets: false);
-                if (sf.Count > 0) res.SecurityFindings = sf;
+                if (sf.Count > 0) res.SecurityFindings = (res.SecurityFindings ?? Array.Empty<string>()).Concat(sf).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 var sfEvidence = SecurityHeuristics.AssessScriptEvidenceFromText(heuristicsText, declaredExt);
                 sfEvidence = sfEvidence
                     .Where(detail => !SecurityHeuristics.IsDuplicateCredentialDumpHint(detail.Code, sf))
@@ -342,7 +343,7 @@ public static partial class FileInspector {
             // PE Authenticode (best-effort, cross-platform) for PE files
             InspectionOperation.CheckCancellation();
             if ((options?.IncludeAuthenticode != false) && (det?.Extension is "exe" or "dll" or "sys" or "cpl")) {
-                TryPopulateAuthenticode(input, res);
+                TryPopulateAuthenticode(input, res, options);
             }
             // PKCS#7 certificate/signature payload (.p7b/.spc/.p7s)
             if (det?.Extension is "p7b" or "spc" or "p7s")
@@ -372,7 +373,7 @@ public static partial class FileInspector {
                 (peOrExecutableFamily || packageFamily))
             {
                 if (res.Authenticode == null) res.Authenticode = new AuthenticodeInfo();
-                TryVerifyAuthenticodeWinTrust(path, res);
+                TryVerifyAuthenticodeWinTrust(path, res, options);
             }
 #endif
 
@@ -395,19 +396,11 @@ public static partial class FileInspector {
                     try { ci.Thumbprint = cert.Thumbprint; } catch { }
                     try { ci.KeyAlgorithm = cert.PublicKey?.Oid?.FriendlyName ?? cert.PublicKey?.Oid?.Value; } catch { }
                     try { ci.SelfSigned = string.Equals(cert.Subject, cert.Issuer, StringComparison.OrdinalIgnoreCase); } catch { }
-                    try {
-                        using var chain = new X509Chain();
-                        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-                        chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
-                        if (chain.Build(cert))
-                        {
-                            ci.ChainTrusted = true;
-                            try { var last = chain.ChainElements[chain.ChainElements.Count - 1]?.Certificate; if (last != null) ci.RootSubject = last.Subject; } catch { }
-                        }
-                        else ci.ChainTrusted = false;
-                    } catch { }
+                    ci.ChainTrusted = TryBuildCertificateChain(cert, options, res, out var rootSubject);
+                    ci.RootSubject = rootSubject;
                     try { var san = cert.Extensions["2.5.29.17"]; if (san != null) ci.SanPresent = true; } catch { }
                     res.Certificate = ci;
+                    cert.Dispose();
                 }
             }
 
@@ -461,32 +454,9 @@ public static partial class FileInspector {
 
             TryPopulateTextMetrics(res, det, input, ReadHeadTextCached);
 
-            // PDF heuristics
+            // PDF name-token hints with explicit lexical inspection limits.
             if (det != null && det.Extension == "pdf") {
-                var txt = ReadHeadTextCached(1 << 20); // cap 1MB
-                if (ContainsIgnoreCase(txt, "/JavaScript") || ContainsIgnoreCase(txt, "/JS")) res.Flags |= ContentFlags.PdfHasJavaScript;
-                if (ContainsIgnoreCase(txt, "/OpenAction")) res.Flags |= ContentFlags.PdfHasOpenAction;
-                if (ContainsIgnoreCase(txt, "/AA")) res.Flags |= ContentFlags.PdfHasAA;
-                // Embedded files via /EmbeddedFiles name tree, /Filespec dictionary and /EF streams
-                if (ContainsIgnoreCase(txt, "/EmbeddedFiles") || (ContainsIgnoreCase(txt, "/Filespec") && ContainsIgnoreCase(txt, "/EF"))) res.Flags |= ContentFlags.PdfHasEmbeddedFiles;
-                if (ContainsIgnoreCase(txt, "/Launch")) res.Flags |= ContentFlags.PdfHasLaunch;
-                if (ContainsIgnoreCase(txt, "/Names")) res.Flags |= ContentFlags.PdfHasNamesTree;
-                // Heuristic: many embedded files (count /Filespec occurrences, threshold > 3)
-                int filespecCount = 0;
-                int idx = 0;
-                while (true) {
-                    int at = txt.IndexOf("/Filespec", idx, StringComparison.OrdinalIgnoreCase);
-                    if (at < 0) break;
-                    filespecCount++;
-                    idx = at + 8;
-                    if (filespecCount > 3) { res.Flags |= ContentFlags.PdfHasManyEmbeddedFiles; break; }
-                }
-                // XFA and Encrypt markers
-                if (ContainsIgnoreCase(txt, "/XFA")) res.Flags |= ContentFlags.PdfHasXfa;
-                if (ContainsIgnoreCase(txt, "/Encrypt")) res.Flags |= ContentFlags.PdfEncrypted;
-                // Incremental updates: multiple startxref
-                int sxf = 0; int pos = 0; while (true) { int at = txt.IndexOf("startxref", pos, StringComparison.OrdinalIgnoreCase); if (at < 0) break; sxf++; pos = at + 8; if (sxf > 2) break; }
-                if (sxf > 2) res.Flags |= ContentFlags.PdfManyIncrementalUpdates;
+                AnalyzePdf(input, res);
             }
 
             // OLE2 Office macros (VBA) check for legacy formats (.doc/.xls/.ppt)
@@ -497,7 +467,7 @@ public static partial class FileInspector {
                     using var oleInput = input.OpenRead();
                     if (TryGetOleDirectoryNames(oleInput, out var names))
                     {
-                        bool hasVba = names.Any(nm => nm.IndexOf("VBA", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("dir", StringComparison.OrdinalIgnoreCase) >= 0);
+                        bool hasVba = names.Any(nm => string.Equals(nm, "VBA", StringComparison.OrdinalIgnoreCase) || string.Equals(nm, "_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) || string.Equals(nm, "_VBA_PROJECT", StringComparison.OrdinalIgnoreCase));
                         if (hasVba) { res.Flags |= ContentFlags.OleHasVbaMacros; var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>()); if (!list.Contains("office:vba")) list.Add("office:vba"); res.SecurityFindings = list; }
                     }
                 }

@@ -26,5 +26,7 @@ public enum InsightView
     /// <summary>Windows shell properties view (Explorer Details).</summary>
     ShellProperties = 9,
     /// <summary>Policy-oriented assessment summary for operator workflows.</summary>
-    Policy = 10
+    Policy = 10,
+    /// <summary>Versioned content report with byte identity, extracted content and explicit coverage.</summary>
+    Report = 11
 }

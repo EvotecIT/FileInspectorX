@@ -93,9 +93,4 @@ public static partial class FileInspector
 #endif
     }
 
-    private static ContentTypeDetectionResult? TryRefineGltfJson(ReadOnlyMemory<byte> prefix)
-    {
-        using var stream = new MemoryReadStream(prefix);
-        return TryRefineGltfJson(stream);
-    }
 }

@@ -9,7 +9,7 @@ namespace FileInspectorX;
 /// Lightweight Markdown renderer for FileInspectorX results.
 /// Keeps dependency-free formatting suitable for emails, CLI, or docs.
 /// </summary>
-public static class MarkdownRenderer
+public static partial class MarkdownRenderer
 {
     /// <summary>
     /// Renders a concise Markdown report for a <see cref="FileAnalysis"/>.
@@ -26,60 +26,84 @@ public static class MarkdownRenderer
     public static string From(ReportView r)
     {
         var sb = new StringBuilder();
-        if (!r.AnalysisComplete)
+        if (!r.AnalysisComplete || r.Outcome != InspectionOutcome.Complete)
         {
             sb.AppendLine("### Analysis incomplete");
-            sb.AppendLine("Some requested analyzers did not finish; keep this file for manual review.");
+            sb.AppendLine("Some requested inspection stages did not complete. Review the recorded stage outcomes before relying on this report.");
             if (r.AnalysisIssues is { Count: > 0 })
-                sb.AppendLine($"- Issues: {string.Join(", ", r.AnalysisIssues)}");
+                sb.AppendSafeLine($"- Issues: {string.Join(", ", r.AnalysisIssues)}");
+            foreach (var stage in r.StageOutcomes.Where(stage => stage.Status is InspectionStageStatus.Partial or InspectionStageStatus.Unavailable or InspectionStageStatus.Failed))
+                sb.AppendSafeLine($"- {stage.Stage}: {stage.Status} ({string.Join(", ", stage.Issues)})");
+            sb.AppendLine();
+        }
+        if (!string.IsNullOrEmpty(r.Sha256Hex) || !string.IsNullOrEmpty(r.MagicHeaderHex))
+        {
+            sb.AppendLine("### Content identity");
+            if (!string.IsNullOrEmpty(r.Sha256Hex)) sb.AppendSafeLine($"- SHA-256: {Code(r.Sha256Hex!)}");
+            if (!string.IsNullOrEmpty(r.MagicHeaderHex)) sb.AppendSafeLine($"- Header (hex): {Code(r.MagicHeaderHex!)}");
+            sb.AppendLine();
+        }
+        if (r.LearnedClassification is { } learned)
+        {
+            sb.AppendLine("### Learned classification");
+            sb.AppendSafeLine($"- Disposition: {learned.Disposition}");
+            if (!string.IsNullOrEmpty(learned.DeterministicExtension)) sb.AppendSafeLine($"- Deterministic type: {learned.DeterministicExtension}");
+            if (learned.Prediction is { } prediction)
+            {
+                sb.AppendSafeLine($"- Provider: {prediction.Provider}");
+                sb.AppendSafeLine($"- Prediction: {prediction.Extension} ({prediction.MimeType})");
+                sb.AppendSafeLine($"- Probability: {prediction.Probability:0.####}");
+                sb.AppendSafeLine($"- Threshold met: {prediction.ThresholdMet}");
+            }
+            if (!string.IsNullOrEmpty(learned.Message)) sb.AppendSafeLine($"- Detail: {learned.Message}");
             sb.AppendLine();
         }
         // Header
         if (HasTypeAnalysis(r))
         {
-            sb.AppendLine($"### File Type");
+            sb.AppendLine("### File Type");
             var type = (r.DetectedTypeName ?? r.DetectedTypeFriendly ?? "").Trim();
             if (!string.IsNullOrEmpty(r.DetectedTypeExtension)) type += $" ({r.DetectedTypeExtension})";
             if (!string.IsNullOrEmpty(r.DetectionConfidence)) type += $" — {r.DetectionConfidence}";
             if (!string.IsNullOrEmpty(r.DetectionReason)) type += $" — {r.DetectionReason}";
             if (!string.IsNullOrEmpty(r.DetectionReasonDetails)) type += $" ({r.DetectionReasonDetails})";
             if (!string.IsNullOrWhiteSpace(type))
-                sb.AppendLine(type);
+                sb.AppendTextLine(type);
             if (!string.IsNullOrEmpty(r.DetectionValidationStatus))
-                sb.AppendLine($"- Validation: {r.DetectionValidationStatus}");
+                sb.AppendSafeLine($"- Validation: {r.DetectionValidationStatus}");
             if (r.DetectionScore.HasValue)
-                sb.AppendLine($"- Score: {r.DetectionScore.Value}");
+                sb.AppendSafeLine($"- Score: {r.DetectionScore.Value}");
             if (r.DetectionIsDangerous.HasValue)
-                sb.AppendLine($"- Dangerous type: {(r.DetectionIsDangerous.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Dangerous type: {(r.DetectionIsDangerous.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.GuessedExtension))
-                sb.AppendLine($"- Guessed extension: {r.GuessedExtension}");
+                sb.AppendSafeLine($"- Guessed extension: {r.GuessedExtension}");
             if (!string.IsNullOrEmpty(r.ContainerSubtype))
-                sb.AppendLine($"- Container subtype: {r.ContainerSubtype}");
+                sb.AppendSafeLine($"- Container subtype: {r.ContainerSubtype}");
             if (!string.IsNullOrEmpty(r.TextSubtype))
-                sb.AppendLine($"- Text subtype: {r.TextSubtype}");
+                sb.AppendSafeLine($"- Text subtype: {r.TextSubtype}");
             if (r.EstimatedLineCount.HasValue)
-                sb.AppendLine($"- Estimated lines: {r.EstimatedLineCount.Value}");
+                sb.AppendSafeLine($"- Estimated lines: {r.EstimatedLineCount.Value}");
             if (!string.IsNullOrEmpty(r.PeMachine))
-                sb.AppendLine($"- PE machine: {r.PeMachine}");
+                sb.AppendSafeLine($"- PE machine: {r.PeMachine}");
             if (!string.IsNullOrEmpty(r.PeSubsystem))
-                sb.AppendLine($"- PE subsystem: {r.PeSubsystem}");
+                sb.AppendSafeLine($"- PE subsystem: {r.PeSubsystem}");
             if (!string.IsNullOrEmpty(r.PeKind))
-                sb.AppendLine($"- PE kind: {r.PeKind}");
+                sb.AppendSafeLine($"- PE kind: {r.PeKind}");
             if (!string.IsNullOrEmpty(r.EncodedKind))
             {
-                var encoded = $"- Encoded payload: {r.EncodedKind}";
+                var encoded = r.EncodedKind;
                 if (!string.IsNullOrEmpty(r.EncodedInnerDetectedFriendly))
                     encoded += $" -> {r.EncodedInnerDetectedFriendly}";
                 else if (!string.IsNullOrEmpty(r.EncodedInnerDetectedName) || !string.IsNullOrEmpty(r.EncodedInnerDetectedExtension))
                     encoded += $" -> {(r.EncodedInnerDetectedName ?? "").Trim()}".TrimEnd();
                 if (!string.IsNullOrEmpty(r.EncodedInnerDetectedExtension))
                     encoded += $" ({r.EncodedInnerDetectedExtension})";
-                sb.AppendLine(encoded);
+                sb.AppendSafeLine($"- Encoded payload: {encoded}");
             }
             if (r.DetectionCandidates is { Count: > 0 })
-                sb.AppendLine($"- Candidates: {string.Join(", ", r.DetectionCandidates.Take(4).Select(FormatCandidate))}");
+                sb.AppendSafeLine($"- Candidates: {string.Join(", ", r.DetectionCandidates.Take(4).Select(FormatCandidate))}");
             if (r.DetectionAlternatives is { Count: > 0 })
-                sb.AppendLine($"- Alternatives: {string.Join(", ", r.DetectionAlternatives.Take(4).Select(FormatCandidate))}");
+                sb.AppendSafeLine($"- Alternatives: {string.Join(", ", r.DetectionAlternatives.Take(4).Select(FormatCandidate))}");
             sb.AppendLine();
         }
 
@@ -88,96 +112,96 @@ public static class MarkdownRenderer
         {
             sb.AppendLine("### Signature");
             if (r.SignatureIsSigned.HasValue)
-                sb.AppendLine($"- Signature blob present: {(r.SignatureIsSigned.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Signature blob present: {(r.SignatureIsSigned.Value ? "yes" : "no")}");
             if (r.AuthenticodePresent.HasValue)
-                sb.AppendLine($"- Authenticode present: {(r.AuthenticodePresent.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Authenticode present: {(r.AuthenticodePresent.Value ? "yes" : "no")}");
             if (r.AuthenticodeEnvelopeValid.HasValue)
-                sb.AppendLine($"- Authenticode envelope valid: {(r.AuthenticodeEnvelopeValid.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Authenticode envelope valid: {(r.AuthenticodeEnvelopeValid.Value ? "yes" : "no")}");
             if (r.AuthenticodeChainValid.HasValue)
-                sb.AppendLine($"- Authenticode chain valid: {(r.AuthenticodeChainValid.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Authenticode chain valid: {(r.AuthenticodeChainValid.Value ? "yes" : "no")}");
             if (r.AuthenticodeTimestampPresent.HasValue)
-                sb.AppendLine($"- Authenticode timestamp present: {(r.AuthenticodeTimestampPresent.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Authenticode timestamp present: {(r.AuthenticodeTimestampPresent.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.AuthenticodeDigestAlgorithm))
-                sb.AppendLine($"- Authenticode digest algorithm: {r.AuthenticodeDigestAlgorithm}");
+                sb.AppendSafeLine($"- Authenticode digest algorithm: {r.AuthenticodeDigestAlgorithm}");
             if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithm))
-                sb.AppendLine($"- File digest algorithm: {r.AuthenticodeFileDigestAlgorithm}");
+                sb.AppendSafeLine($"- File digest algorithm: {r.AuthenticodeFileDigestAlgorithm}");
             if (!string.IsNullOrEmpty(r.AuthenticodeFileDigestAlgorithmOid))
-                sb.AppendLine($"- File digest algorithm OID: {r.AuthenticodeFileDigestAlgorithmOid}");
+                sb.AppendSafeLine($"- File digest algorithm OID: {r.AuthenticodeFileDigestAlgorithmOid}");
             if (!string.IsNullOrEmpty(r.SignerSubject))
-                sb.AppendLine($"- Signer subject: {r.SignerSubject}");
+                sb.AppendSafeLine($"- Signer subject: {r.SignerSubject}");
             if (!string.IsNullOrEmpty(r.SignerIssuer))
-                sb.AppendLine($"- Signer issuer: {r.SignerIssuer}");
+                sb.AppendSafeLine($"- Signer issuer: {r.SignerIssuer}");
             if (r.WinTrustStatusCode.HasValue)
             {
                 var ok = r.IsTrustedWindowsPolicy == true ? "Trusted" : "Untrusted";
-                sb.AppendLine($"- WinTrust: {ok} (Status={r.WinTrustStatusCode})");
+                sb.AppendSafeLine($"- WinTrust: {ok} (Status={r.WinTrustStatusCode})");
             }
             else if (r.IsTrustedWindowsPolicy.HasValue)
             {
-                sb.AppendLine($"- WinTrust policy trusted: {(r.IsTrustedWindowsPolicy.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- WinTrust policy trusted: {(r.IsTrustedWindowsPolicy.Value ? "yes" : "no")}");
             }
             if (r.CertificateTableSize.HasValue)
-                sb.AppendLine($"- Certificate Table: {r.CertificateTableSize} bytes");
+                sb.AppendSafeLine($"- Certificate Table: {r.CertificateTableSize} bytes");
             if (!string.IsNullOrEmpty(r.CertificateBlobSha256))
-                sb.AppendLine($"- PKCS#7 SHA-256: `{r.CertificateBlobSha256}`");
+                sb.AppendSafeLine($"- PKCS#7 SHA-256: {Code(r.CertificateBlobSha256!)}");
             if (r.DotNetStrongNameSigned.HasValue)
-                sb.AppendLine($"- .NET strong-name signed: {(r.DotNetStrongNameSigned.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- .NET strong-name signed: {(r.DotNetStrongNameSigned.Value ? "yes" : "no")}");
             if (r.EnhancedKeyUsages != null && r.EnhancedKeyUsages.Count > 0)
-                sb.AppendLine($"- EKUs: {string.Join(", ", r.EnhancedKeyUsages)}");
+                sb.AppendSafeLine($"- EKUs: {string.Join(", ", r.EnhancedKeyUsages)}");
             if (!string.IsNullOrEmpty(r.SignerSubjectCN))
-                sb.AppendLine($"- Signer subject CN: {r.SignerSubjectCN}");
+                sb.AppendSafeLine($"- Signer subject CN: {r.SignerSubjectCN}");
             if (!string.IsNullOrEmpty(r.SignerSubjectO))
-                sb.AppendLine($"- Signer subject O: {r.SignerSubjectO}");
+                sb.AppendSafeLine($"- Signer subject O: {r.SignerSubjectO}");
             if (!string.IsNullOrEmpty(r.TimestampAuthorityCN))
-                sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthorityCN}");
+                sb.AppendSafeLine($"- Timestamp Authority: {r.TimestampAuthorityCN}");
             else if (!string.IsNullOrEmpty(r.TimestampAuthority))
-                sb.AppendLine($"- Timestamp Authority: {r.TimestampAuthority}");
+                sb.AppendSafeLine($"- Timestamp Authority: {r.TimestampAuthority}");
             if (r.TimestampTime.HasValue)
-                sb.AppendLine($"- Timestamp time: {r.TimestampTime.Value:u}");
+                sb.AppendSafeLine($"- Timestamp time: {r.TimestampTime.Value:u}");
             if (!string.IsNullOrEmpty(r.SignerIssuerCN))
-                sb.AppendLine($"- Signer issuer CN: {r.SignerIssuerCN}");
+                sb.AppendSafeLine($"- Signer issuer CN: {r.SignerIssuerCN}");
             if (!string.IsNullOrEmpty(r.SignerIssuerO))
-                sb.AppendLine($"- Signer issuer O: {r.SignerIssuerO}");
+                sb.AppendSafeLine($"- Signer issuer O: {r.SignerIssuerO}");
             if (r.SignerSelfSigned.HasValue)
-                sb.AppendLine($"- Signer self-signed: {(r.SignerSelfSigned.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Signer self-signed: {(r.SignerSelfSigned.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.SignerThumbprint))
-                sb.AppendLine($"- Signer thumbprint: {r.SignerThumbprint}");
+                sb.AppendSafeLine($"- Signer thumbprint: {r.SignerThumbprint}");
             if (!string.IsNullOrEmpty(r.SignerSerialHex))
-                sb.AppendLine($"- Signer serial: {r.SignerSerialHex}");
+                sb.AppendSafeLine($"- Signer serial: {r.SignerSerialHex}");
             if (!string.IsNullOrEmpty(r.SignerSignatureAlgorithm))
-                sb.AppendLine($"- Signer signature algorithm: {r.SignerSignatureAlgorithm}");
+                sb.AppendSafeLine($"- Signer signature algorithm: {r.SignerSignatureAlgorithm}");
             if (r.SignerNotBefore.HasValue)
-                sb.AppendLine($"- Signer not before: {r.SignerNotBefore.Value:u}");
+                sb.AppendSafeLine($"- Signer not before: {r.SignerNotBefore.Value:u}");
             if (r.SignerNotAfter.HasValue)
-                sb.AppendLine($"- Signer not after: {r.SignerNotAfter.Value:u}");
+                sb.AppendSafeLine($"- Signer not after: {r.SignerNotAfter.Value:u}");
             if (r.AuthenticodeFileHashMatches.HasValue)
-                sb.AppendLine($"- Authenticode file hash matches: {(r.AuthenticodeFileHashMatches.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Authenticode file hash matches: {(r.AuthenticodeFileHashMatches.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.AuthenticodeVerificationNote))
-                sb.AppendLine($"- Verification note: {r.AuthenticodeVerificationNote}");
+                sb.AppendSafeLine($"- Verification note: {r.AuthenticodeVerificationNote}");
             if (!string.IsNullOrEmpty(r.CertSubject))
-                sb.AppendLine($"- Certificate subject: {r.CertSubject}");
+                sb.AppendSafeLine($"- Certificate subject: {r.CertSubject}");
             if (!string.IsNullOrEmpty(r.CertIssuer))
-                sb.AppendLine($"- Certificate issuer: {r.CertIssuer}");
+                sb.AppendSafeLine($"- Certificate issuer: {r.CertIssuer}");
             if (r.CertNotBefore.HasValue)
-                sb.AppendLine($"- Certificate not before: {r.CertNotBefore.Value:u}");
+                sb.AppendSafeLine($"- Certificate not before: {r.CertNotBefore.Value:u}");
             if (r.CertNotAfter.HasValue)
-                sb.AppendLine($"- Certificate not after: {r.CertNotAfter.Value:u}");
+                sb.AppendSafeLine($"- Certificate not after: {r.CertNotAfter.Value:u}");
             if (!string.IsNullOrEmpty(r.CertThumbprint))
-                sb.AppendLine($"- Certificate thumbprint: {r.CertThumbprint}");
+                sb.AppendSafeLine($"- Certificate thumbprint: {r.CertThumbprint}");
             if (!string.IsNullOrEmpty(r.CertKeyAlgorithm))
-                sb.AppendLine($"- Certificate key algorithm: {r.CertKeyAlgorithm}");
+                sb.AppendSafeLine($"- Certificate key algorithm: {r.CertKeyAlgorithm}");
             if (r.CertSelfSigned.HasValue)
-                sb.AppendLine($"- Certificate self-signed: {(r.CertSelfSigned.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Certificate self-signed: {(r.CertSelfSigned.Value ? "yes" : "no")}");
             if (r.CertChainTrusted.HasValue)
-                sb.AppendLine($"- Certificate chain trusted: {(r.CertChainTrusted.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Certificate chain trusted: {(r.CertChainTrusted.Value ? "yes" : "no")}");
             if (!string.IsNullOrEmpty(r.CertRootSubject))
-                sb.AppendLine($"- Certificate root subject: {r.CertRootSubject}");
+                sb.AppendSafeLine($"- Certificate root subject: {r.CertRootSubject}");
             if (r.CertSanPresent.HasValue)
-                sb.AppendLine($"- Certificate SAN present: {(r.CertSanPresent.Value ? "yes" : "no")}");
+                sb.AppendSafeLine($"- Certificate SAN present: {(r.CertSanPresent.Value ? "yes" : "no")}");
             if (r.CertBundleCount.HasValue)
-                sb.AppendLine($"- Certificate bundle count: {r.CertBundleCount.Value}");
+                sb.AppendSafeLine($"- Certificate bundle count: {r.CertBundleCount.Value}");
             if (r.CertBundleSubjects != null && r.CertBundleSubjects.Count > 0)
-                sb.AppendLine($"- Certificate bundle subjects: {string.Join(", ", r.CertBundleSubjects)}");
+                sb.AppendSafeLine($"- Certificate bundle subjects: {string.Join(", ", r.CertBundleSubjects)}");
             sb.AppendLine();
         }
 
@@ -185,15 +209,15 @@ public static class MarkdownRenderer
         if (HasPropertiesData(r))
         {
             sb.AppendLine("### Properties");
-            if (r.ShellPropertyCount.HasValue) sb.AppendLine($"- Shell properties: {r.ShellPropertyCount.Value}");
+            if (r.ShellPropertyCount.HasValue) sb.AppendSafeLine($"- Shell properties: {r.ShellPropertyCount.Value}");
             if (r.ShellPropertyPreview != null && r.ShellPropertyPreview.Count > 0)
-                sb.AppendLine($"- Shell property preview: {string.Join("; ", r.ShellPropertyPreview.Take(4))}");
-            if (!string.IsNullOrEmpty(r.CompanyName)) sb.AppendLine($"- Company: {r.CompanyName}");
-            if (!string.IsNullOrEmpty(r.ProductName)) sb.AppendLine($"- Product: {r.ProductName}");
-            if (!string.IsNullOrEmpty(r.FileDescription)) sb.AppendLine($"- Description: {r.FileDescription}");
-            if (!string.IsNullOrEmpty(r.FileVersion)) sb.AppendLine($"- FileVersion: {r.FileVersion}");
-            if (!string.IsNullOrEmpty(r.ProductVersion)) sb.AppendLine($"- ProductVersion: {r.ProductVersion}");
-            if (!string.IsNullOrEmpty(r.OriginalFilename)) sb.AppendLine($"- OriginalFilename: {r.OriginalFilename}");
+                sb.AppendSafeLine($"- Shell property preview: {string.Join("; ", r.ShellPropertyPreview.Take(4))}");
+            if (!string.IsNullOrEmpty(r.CompanyName)) sb.AppendSafeLine($"- Company: {r.CompanyName}");
+            if (!string.IsNullOrEmpty(r.ProductName)) sb.AppendSafeLine($"- Product: {r.ProductName}");
+            if (!string.IsNullOrEmpty(r.FileDescription)) sb.AppendSafeLine($"- Description: {r.FileDescription}");
+            if (!string.IsNullOrEmpty(r.FileVersion)) sb.AppendSafeLine($"- FileVersion: {r.FileVersion}");
+            if (!string.IsNullOrEmpty(r.ProductVersion)) sb.AppendSafeLine($"- ProductVersion: {r.ProductVersion}");
+            if (!string.IsNullOrEmpty(r.OriginalFilename)) sb.AppendSafeLine($"- OriginalFilename: {r.OriginalFilename}");
             if (r.VersionInfo != null && r.VersionInfo.Count > 0)
             {
                 var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -210,7 +234,7 @@ public static class MarkdownRenderer
                     .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
                     .Take(12))
                 {
-                    sb.AppendLine($"- {entry.Key}: {entry.Value}");
+                    sb.AppendSafeLine($"- {entry.Key}: {entry.Value}");
                 }
             }
             sb.AppendLine();
@@ -219,106 +243,106 @@ public static class MarkdownRenderer
         if (HasSecurityData(r))
         {
             sb.AppendLine("### Security");
-            if (r.IsSymlink.HasValue) sb.AppendLine($"- Symlink: {(r.IsSymlink.Value ? "yes" : "no")}");
-            if (r.IsHidden.HasValue) sb.AppendLine($"- Hidden: {(r.IsHidden.Value ? "yes" : "no")}");
-            if (r.IsReadOnly.HasValue) sb.AppendLine($"- Read-only: {(r.IsReadOnly.Value ? "yes" : "no")}");
-            if (!string.IsNullOrEmpty(r.Owner)) sb.AppendLine($"- Owner: {r.Owner}");
-            if (!string.IsNullOrEmpty(r.OwnerId)) sb.AppendLine($"- Owner ID: {r.OwnerId}");
-            if (!string.IsNullOrEmpty(r.Group)) sb.AppendLine($"- Group: {r.Group}");
-            if (!string.IsNullOrEmpty(r.GroupId)) sb.AppendLine($"- Group ID: {r.GroupId}");
-            if (!string.IsNullOrEmpty(r.ModeOctal)) sb.AppendLine($"- Mode (octal): {r.ModeOctal}");
-            if (!string.IsNullOrEmpty(r.ModeSymbolic)) sb.AppendLine($"- Mode (symbolic): {r.ModeSymbolic}");
-            if (r.IsExecutable.HasValue) sb.AppendLine($"- Executable: {(r.IsExecutable.Value ? "yes" : "no")}");
-            if (r.IsWorldWritable.HasValue) sb.AppendLine($"- World-writable: {(r.IsWorldWritable.Value ? "yes" : "no")}");
-            if (r.EveryoneWriteAllowed.HasValue) sb.AppendLine($"- Everyone write allowed: {(r.EveryoneWriteAllowed.Value ? "yes" : "no")}");
-            if (r.AuthenticatedUsersWriteAllowed.HasValue) sb.AppendLine($"- Authenticated Users write allowed: {(r.AuthenticatedUsersWriteAllowed.Value ? "yes" : "no")}");
-            if (r.EveryoneReadAllowed.HasValue) sb.AppendLine($"- Everyone read allowed: {(r.EveryoneReadAllowed.Value ? "yes" : "no")}");
-            if (r.BuiltinUsersWriteAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Users write allowed: {(r.BuiltinUsersWriteAllowed.Value ? "yes" : "no")}");
-            if (r.BuiltinUsersReadAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Users read allowed: {(r.BuiltinUsersReadAllowed.Value ? "yes" : "no")}");
-            if (r.AdministratorsWriteAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Administrators write allowed: {(r.AdministratorsWriteAllowed.Value ? "yes" : "no")}");
-            if (r.AdministratorsReadAllowed.HasValue) sb.AppendLine($"- BUILTIN\\Administrators read allowed: {(r.AdministratorsReadAllowed.Value ? "yes" : "no")}");
-            if (r.HasDenyEntries.HasValue) sb.AppendLine($"- Has deny ACEs: {(r.HasDenyEntries.Value ? "yes" : "no")}");
-            if (r.TotalAllowCount.HasValue) sb.AppendLine($"- Total allow ACEs: {r.TotalAllowCount.Value}");
-            if (r.TotalDenyCount.HasValue) sb.AppendLine($"- Total deny ACEs: {r.TotalDenyCount.Value}");
-            if (r.ExplicitAllowCount.HasValue) sb.AppendLine($"- Explicit allow ACEs: {r.ExplicitAllowCount.Value}");
-            if (r.ExplicitDenyCount.HasValue) sb.AppendLine($"- Explicit deny ACEs: {r.ExplicitDenyCount.Value}");
-            if (r.MotwZoneId.HasValue) sb.AppendLine($"- MOTW ZoneId: {r.MotwZoneId.Value}");
-            if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
-            if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendLine($"- MOTW Host URL: {r.MotwHostUrl}");
-            if (r.AlternateStreamCount.HasValue) sb.AppendLine($"- Alternate stream count: {r.AlternateStreamCount.Value}");
-            if (!string.IsNullOrEmpty(r.NameIssuesCsv)) sb.AppendLine($"- Name issues: {r.NameIssuesCsv}");
+            if (r.IsSymlink.HasValue) sb.AppendSafeLine($"- Symlink: {(r.IsSymlink.Value ? "yes" : "no")}");
+            if (r.IsHidden.HasValue) sb.AppendSafeLine($"- Hidden: {(r.IsHidden.Value ? "yes" : "no")}");
+            if (r.IsReadOnly.HasValue) sb.AppendSafeLine($"- Read-only: {(r.IsReadOnly.Value ? "yes" : "no")}");
+            if (!string.IsNullOrEmpty(r.Owner)) sb.AppendSafeLine($"- Owner: {r.Owner}");
+            if (!string.IsNullOrEmpty(r.OwnerId)) sb.AppendSafeLine($"- Owner ID: {r.OwnerId}");
+            if (!string.IsNullOrEmpty(r.Group)) sb.AppendSafeLine($"- Group: {r.Group}");
+            if (!string.IsNullOrEmpty(r.GroupId)) sb.AppendSafeLine($"- Group ID: {r.GroupId}");
+            if (!string.IsNullOrEmpty(r.ModeOctal)) sb.AppendSafeLine($"- Mode (octal): {r.ModeOctal}");
+            if (!string.IsNullOrEmpty(r.ModeSymbolic)) sb.AppendSafeLine($"- Mode (symbolic): {r.ModeSymbolic}");
+            if (r.IsExecutable.HasValue) sb.AppendSafeLine($"- Executable: {(r.IsExecutable.Value ? "yes" : "no")}");
+            if (r.IsWorldWritable.HasValue) sb.AppendSafeLine($"- World-writable: {(r.IsWorldWritable.Value ? "yes" : "no")}");
+            if (r.EveryoneWriteAllowed.HasValue) sb.AppendSafeLine($"- Everyone write allowed: {(r.EveryoneWriteAllowed.Value ? "yes" : "no")}");
+            if (r.AuthenticatedUsersWriteAllowed.HasValue) sb.AppendSafeLine($"- Authenticated Users write allowed: {(r.AuthenticatedUsersWriteAllowed.Value ? "yes" : "no")}");
+            if (r.EveryoneReadAllowed.HasValue) sb.AppendSafeLine($"- Everyone read allowed: {(r.EveryoneReadAllowed.Value ? "yes" : "no")}");
+            if (r.BuiltinUsersWriteAllowed.HasValue) sb.AppendSafeLine($"- BUILTIN\\Users write allowed: {(r.BuiltinUsersWriteAllowed.Value ? "yes" : "no")}");
+            if (r.BuiltinUsersReadAllowed.HasValue) sb.AppendSafeLine($"- BUILTIN\\Users read allowed: {(r.BuiltinUsersReadAllowed.Value ? "yes" : "no")}");
+            if (r.AdministratorsWriteAllowed.HasValue) sb.AppendSafeLine($"- BUILTIN\\Administrators write allowed: {(r.AdministratorsWriteAllowed.Value ? "yes" : "no")}");
+            if (r.AdministratorsReadAllowed.HasValue) sb.AppendSafeLine($"- BUILTIN\\Administrators read allowed: {(r.AdministratorsReadAllowed.Value ? "yes" : "no")}");
+            if (r.HasDenyEntries.HasValue) sb.AppendSafeLine($"- Has deny ACEs: {(r.HasDenyEntries.Value ? "yes" : "no")}");
+            if (r.TotalAllowCount.HasValue) sb.AppendSafeLine($"- Total allow ACEs: {r.TotalAllowCount.Value}");
+            if (r.TotalDenyCount.HasValue) sb.AppendSafeLine($"- Total deny ACEs: {r.TotalDenyCount.Value}");
+            if (r.ExplicitAllowCount.HasValue) sb.AppendSafeLine($"- Explicit allow ACEs: {r.ExplicitAllowCount.Value}");
+            if (r.ExplicitDenyCount.HasValue) sb.AppendSafeLine($"- Explicit deny ACEs: {r.ExplicitDenyCount.Value}");
+            if (r.MotwZoneId.HasValue) sb.AppendSafeLine($"- MOTW ZoneId: {r.MotwZoneId.Value}");
+            if (!string.IsNullOrEmpty(r.MotwReferrerUrl)) sb.AppendSafeLine($"- MOTW Referrer URL: {r.MotwReferrerUrl}");
+            if (!string.IsNullOrEmpty(r.MotwHostUrl)) sb.AppendSafeLine($"- MOTW Host URL: {r.MotwHostUrl}");
+            if (r.AlternateStreamCount.HasValue) sb.AppendSafeLine($"- Alternate stream count: {r.AlternateStreamCount.Value}");
+            if (!string.IsNullOrEmpty(r.NameIssuesCsv)) sb.AppendSafeLine($"- Name issues: {r.NameIssuesCsv}");
             sb.AppendLine();
         }
 
         if (HasScriptData(r))
         {
             sb.AppendLine("### Script");
-            if (!string.IsNullOrEmpty(r.ScriptLanguageHuman)) sb.AppendLine($"- Language: {r.ScriptLanguageHuman}");
-            else if (!string.IsNullOrEmpty(r.ScriptLanguage)) sb.AppendLine($"- Language: {r.ScriptLanguage}");
-            if (!string.IsNullOrEmpty(r.ScriptCmdlets)) sb.AppendLine($"- Cmdlets: {r.ScriptCmdlets}");
+            if (!string.IsNullOrEmpty(r.ScriptLanguageHuman)) sb.AppendSafeLine($"- Language: {r.ScriptLanguageHuman}");
+            else if (!string.IsNullOrEmpty(r.ScriptLanguage)) sb.AppendSafeLine($"- Language: {r.ScriptLanguage}");
+            if (!string.IsNullOrEmpty(r.ScriptCmdlets)) sb.AppendSafeLine($"- Cmdlets: {r.ScriptCmdlets}");
             sb.AppendLine();
         }
 
         if (HasReferenceData(r))
         {
             sb.AppendLine("### References");
-            if (!string.IsNullOrEmpty(r.HtmlExternalLinksSample)) sb.AppendLine($"- HTML external links: {r.HtmlExternalLinksSample}");
-            if (!string.IsNullOrEmpty(r.HtmlUncSample)) sb.AppendLine($"- HTML UNC paths: {r.HtmlUncSample}");
-            if (!string.IsNullOrEmpty(r.ScriptUrlsSample)) sb.AppendLine($"- Script URLs: {r.ScriptUrlsSample}");
-            if (!string.IsNullOrEmpty(r.ScriptUncSample)) sb.AppendLine($"- Script UNC paths: {r.ScriptUncSample}");
-            if (r.OfficeExternalLinksCount.HasValue) sb.AppendLine($"- Office external links: {r.OfficeExternalLinksCount.Value}");
-            if (!string.IsNullOrEmpty(r.HtmlExternalLinksFull)) sb.AppendLine($"- HTML external links (full): {r.HtmlExternalLinksFull}");
-            if (!string.IsNullOrEmpty(r.HtmlUncFull)) sb.AppendLine($"- HTML UNC paths (full): {r.HtmlUncFull}");
-            if (!string.IsNullOrEmpty(r.ScriptUrlsFull)) sb.AppendLine($"- Script URLs (full): {r.ScriptUrlsFull}");
-            if (!string.IsNullOrEmpty(r.ScriptUncFull)) sb.AppendLine($"- Script UNC paths (full): {r.ScriptUncFull}");
+            if (!string.IsNullOrEmpty(r.HtmlExternalLinksSample)) sb.AppendSafeLine($"- HTML external links: {r.HtmlExternalLinksSample}");
+            if (!string.IsNullOrEmpty(r.HtmlUncSample)) sb.AppendSafeLine($"- HTML UNC paths: {r.HtmlUncSample}");
+            if (!string.IsNullOrEmpty(r.ScriptUrlsSample)) sb.AppendSafeLine($"- Script URLs: {r.ScriptUrlsSample}");
+            if (!string.IsNullOrEmpty(r.ScriptUncSample)) sb.AppendSafeLine($"- Script UNC paths: {r.ScriptUncSample}");
+            if (r.OfficeExternalLinksCount.HasValue) sb.AppendSafeLine($"- Office external links: {r.OfficeExternalLinksCount.Value}");
+            if (!string.IsNullOrEmpty(r.HtmlExternalLinksFull)) sb.AppendSafeLine($"- HTML external links (full): {r.HtmlExternalLinksFull}");
+            if (!string.IsNullOrEmpty(r.HtmlUncFull)) sb.AppendSafeLine($"- HTML UNC paths (full): {r.HtmlUncFull}");
+            if (!string.IsNullOrEmpty(r.ScriptUrlsFull)) sb.AppendSafeLine($"- Script URLs (full): {r.ScriptUrlsFull}");
+            if (!string.IsNullOrEmpty(r.ScriptUncFull)) sb.AppendSafeLine($"- Script UNC paths (full): {r.ScriptUncFull}");
             sb.AppendLine();
         }
 
         if (HasInstallerData(r))
         {
             sb.AppendLine("### Installer");
-            if (!string.IsNullOrEmpty(r.InstallerKind)) sb.AppendLine($"- Kind: {r.InstallerKind}");
-            if (!string.IsNullOrEmpty(r.InstallerName)) sb.AppendLine($"- Name: {r.InstallerName}");
-            if (!string.IsNullOrEmpty(r.InstallerManufacturer)) sb.AppendLine($"- Manufacturer: {r.InstallerManufacturer}");
-            if (!string.IsNullOrEmpty(r.InstallerIdentityName)) sb.AppendLine($"- Identity: {r.InstallerIdentityName}");
-            if (!string.IsNullOrEmpty(r.InstallerVersion)) sb.AppendLine($"- Version: {r.InstallerVersion}");
-            if (!string.IsNullOrEmpty(r.InstallerProductCode)) sb.AppendLine($"- ProductCode: {r.InstallerProductCode}");
-            if (!string.IsNullOrEmpty(r.InstallerUpgradeCode)) sb.AppendLine($"- UpgradeCode: {r.InstallerUpgradeCode}");
-            if (!string.IsNullOrEmpty(r.InstallerPackageCode)) sb.AppendLine($"- PackageCode: {r.InstallerPackageCode}");
-            if (!string.IsNullOrEmpty(r.InstallerScope)) sb.AppendLine($"- Scope: {r.InstallerScope}");
-            if (!string.IsNullOrEmpty(r.InstallerAuthor)) sb.AppendLine($"- Author: {r.InstallerAuthor}");
-            if (!string.IsNullOrEmpty(r.InstallerComments)) sb.AppendLine($"- Comments: {r.InstallerComments}");
-            if (!string.IsNullOrEmpty(r.InstallerUrlInfoAbout)) sb.AppendLine($"- Info URL: {r.InstallerUrlInfoAbout}");
-            if (!string.IsNullOrEmpty(r.InstallerUrlUpdateInfo)) sb.AppendLine($"- Update URL: {r.InstallerUrlUpdateInfo}");
-            if (!string.IsNullOrEmpty(r.InstallerHelpLink)) sb.AppendLine($"- Help link: {r.InstallerHelpLink}");
-            if (!string.IsNullOrEmpty(r.InstallerSupportUrl)) sb.AppendLine($"- Support URL: {r.InstallerSupportUrl}");
-            if (!string.IsNullOrEmpty(r.InstallerContact)) sb.AppendLine($"- Contact: {r.InstallerContact}");
-            if (!string.IsNullOrEmpty(r.InstallerCreated)) sb.AppendLine($"- Created: {r.InstallerCreated}");
-            if (!string.IsNullOrEmpty(r.InstallerLastSaved)) sb.AppendLine($"- Last saved: {r.InstallerLastSaved}");
-            if (!string.IsNullOrEmpty(r.InstallerCapabilities)) sb.AppendLine($"- Capabilities: {r.InstallerCapabilities}");
-            if (!string.IsNullOrEmpty(r.InstallerExtensions)) sb.AppendLine($"- Extensions: {r.InstallerExtensions}");
-            if (r._MsiCAExe.HasValue) sb.AppendLine($"- MSI custom actions (EXE): {r._MsiCAExe.Value}");
-            if (r._MsiCADll.HasValue) sb.AppendLine($"- MSI custom actions (DLL): {r._MsiCADll.Value}");
-            if (r._MsiCAScript.HasValue) sb.AppendLine($"- MSI custom actions (script): {r._MsiCAScript.Value}");
-            if (r._MsiCAOther.HasValue) sb.AppendLine($"- MSI custom actions (other): {r._MsiCAOther.Value}");
-            if (!string.IsNullOrEmpty(r._MsiCASamples)) sb.AppendLine($"- MSI custom action samples: {r._MsiCASamples}");
+            if (!string.IsNullOrEmpty(r.InstallerKind)) sb.AppendSafeLine($"- Kind: {r.InstallerKind}");
+            if (!string.IsNullOrEmpty(r.InstallerName)) sb.AppendSafeLine($"- Name: {r.InstallerName}");
+            if (!string.IsNullOrEmpty(r.InstallerManufacturer)) sb.AppendSafeLine($"- Manufacturer: {r.InstallerManufacturer}");
+            if (!string.IsNullOrEmpty(r.InstallerIdentityName)) sb.AppendSafeLine($"- Identity: {r.InstallerIdentityName}");
+            if (!string.IsNullOrEmpty(r.InstallerVersion)) sb.AppendSafeLine($"- Version: {r.InstallerVersion}");
+            if (!string.IsNullOrEmpty(r.InstallerProductCode)) sb.AppendSafeLine($"- ProductCode: {r.InstallerProductCode}");
+            if (!string.IsNullOrEmpty(r.InstallerUpgradeCode)) sb.AppendSafeLine($"- UpgradeCode: {r.InstallerUpgradeCode}");
+            if (!string.IsNullOrEmpty(r.InstallerPackageCode)) sb.AppendSafeLine($"- PackageCode: {r.InstallerPackageCode}");
+            if (!string.IsNullOrEmpty(r.InstallerScope)) sb.AppendSafeLine($"- Scope: {r.InstallerScope}");
+            if (!string.IsNullOrEmpty(r.InstallerAuthor)) sb.AppendSafeLine($"- Author: {r.InstallerAuthor}");
+            if (!string.IsNullOrEmpty(r.InstallerComments)) sb.AppendSafeLine($"- Comments: {r.InstallerComments}");
+            if (!string.IsNullOrEmpty(r.InstallerUrlInfoAbout)) sb.AppendSafeLine($"- Info URL: {r.InstallerUrlInfoAbout}");
+            if (!string.IsNullOrEmpty(r.InstallerUrlUpdateInfo)) sb.AppendSafeLine($"- Update URL: {r.InstallerUrlUpdateInfo}");
+            if (!string.IsNullOrEmpty(r.InstallerHelpLink)) sb.AppendSafeLine($"- Help link: {r.InstallerHelpLink}");
+            if (!string.IsNullOrEmpty(r.InstallerSupportUrl)) sb.AppendSafeLine($"- Support URL: {r.InstallerSupportUrl}");
+            if (!string.IsNullOrEmpty(r.InstallerContact)) sb.AppendSafeLine($"- Contact: {r.InstallerContact}");
+            if (!string.IsNullOrEmpty(r.InstallerCreated)) sb.AppendSafeLine($"- Created: {r.InstallerCreated}");
+            if (!string.IsNullOrEmpty(r.InstallerLastSaved)) sb.AppendSafeLine($"- Last saved: {r.InstallerLastSaved}");
+            if (!string.IsNullOrEmpty(r.InstallerCapabilities)) sb.AppendSafeLine($"- Capabilities: {r.InstallerCapabilities}");
+            if (!string.IsNullOrEmpty(r.InstallerExtensions)) sb.AppendSafeLine($"- Extensions: {r.InstallerExtensions}");
+            if (r._MsiCAExe.HasValue) sb.AppendSafeLine($"- MSI custom actions (EXE): {r._MsiCAExe.Value}");
+            if (r._MsiCADll.HasValue) sb.AppendSafeLine($"- MSI custom actions (DLL): {r._MsiCADll.Value}");
+            if (r._MsiCAScript.HasValue) sb.AppendSafeLine($"- MSI custom actions (script): {r._MsiCAScript.Value}");
+            if (r._MsiCAOther.HasValue) sb.AppendSafeLine($"- MSI custom actions (other): {r._MsiCAOther.Value}");
+            if (!string.IsNullOrEmpty(r._MsiCASamples)) sb.AppendSafeLine($"- MSI custom action samples: {r._MsiCASamples}");
             sb.AppendLine();
         }
 
         if (HasArchiveData(r))
         {
             sb.AppendLine("### Archive");
-            if (r.EncryptedEntryCount.HasValue) sb.AppendLine($"- Encrypted entries: {r.EncryptedEntryCount.Value}");
-            if (r.ArchiveEntryCount.HasValue) sb.AppendLine($"- Entry count: {r.ArchiveEntryCount.Value}");
+            if (r.EncryptedEntryCount.HasValue) sb.AppendSafeLine($"- Encrypted entries: {r.EncryptedEntryCount.Value}");
+            if (r.ArchiveEntryCount.HasValue) sb.AppendSafeLine($"- Entry count: {r.ArchiveEntryCount.Value}");
             if (r.ArchiveTopExtensions != null && r.ArchiveTopExtensions.Count > 0)
-                sb.AppendLine($"- Top extensions: {string.Join(", ", r.ArchiveTopExtensions)}");
-            if (r.InnerExecutablesSampled.HasValue) sb.AppendLine($"- Inner binaries sampled: {r.InnerExecutablesSampled.Value}");
-            if (r.InnerSignedExecutables.HasValue) sb.AppendLine($"- Inner signed binaries: {r.InnerSignedExecutables.Value}");
-            if (r.InnerValidSignedExecutables.HasValue) sb.AppendLine($"- Inner validly signed binaries: {r.InnerValidSignedExecutables.Value}");
+                sb.AppendSafeLine($"- Top extensions: {string.Join(", ", r.ArchiveTopExtensions)}");
+            if (r.InnerExecutablesSampled.HasValue) sb.AppendSafeLine($"- Inner binaries sampled: {r.InnerExecutablesSampled.Value}");
+            if (r.InnerSignedExecutables.HasValue) sb.AppendSafeLine($"- Inner signed binaries: {r.InnerSignedExecutables.Value}");
+            if (r.InnerValidSignedExecutables.HasValue) sb.AppendSafeLine($"- Inner validly signed binaries: {r.InnerValidSignedExecutables.Value}");
             if (!string.IsNullOrEmpty(r.InnerPublishersHuman))
-                sb.AppendLine($"- Inner publishers: {r.InnerPublishersHuman}");
+                sb.AppendSafeLine($"- Inner publishers: {r.InnerPublishersHuman}");
             else if (r.InnerPublisherCounts != null && r.InnerPublisherCounts.Count > 0)
-                sb.AppendLine($"- Inner publishers: {string.Join(", ", FormatInnerPublishers(r).Take(5))}");
+                sb.AppendSafeLine($"- Inner publishers: {string.Join(", ", FormatInnerPublishers(r).Take(5))}");
             if (r.InnerExecutableExtCounts != null && r.InnerExecutableExtCounts.Count > 0)
             {
                 var topExts = r.InnerExecutableExtCounts
@@ -326,12 +350,12 @@ public static class MarkdownRenderer
                     .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
                     .Take(6)
                     .Select(kv => $"{kv.Key}={kv.Value}");
-                sb.AppendLine($"- {GetInnerTypeSummaryLabel(r.InnerExecutableExtCounts)}: {string.Join(", ", topExts)}");
+                sb.AppendSafeLine($"- {GetInnerTypeSummaryLabel(r.InnerExecutableExtCounts)}: {string.Join(", ", topExts)}");
             }
             if (!string.IsNullOrEmpty(r.InnerBinariesSummary))
-                sb.AppendLine($"- {r.InnerBinariesSummary}");
+                sb.AppendSafeLine($"- {r.InnerBinariesSummary}");
             if (r.ArchivePreview != null && r.ArchivePreview.Count > 0)
-                sb.AppendLine($"- Preview: {string.Join(", ", r.ArchivePreview.Take(6))}");
+                sb.AppendSafeLine($"- Preview: {string.Join(", ", r.ArchivePreview.Take(6))}");
             sb.AppendLine();
         }
 
@@ -340,13 +364,13 @@ public static class MarkdownRenderer
         {
             sb.AppendLine("### Analysis Flags");
             if (!string.IsNullOrEmpty(r.FlagsHumanShort))
-                sb.AppendLine(r.FlagsHumanShort);
+                sb.AppendTextLine(r.FlagsHumanShort);
             else if (!string.IsNullOrEmpty(r.FlagsCsv))
-                sb.AppendLine($"Flags: {r.FlagsCsv}");
+                sb.AppendSafeLine($"Flags: {r.FlagsCsv}");
             if (!string.IsNullOrEmpty(r.FlagsHumanLong) &&
                 !string.Equals(r.FlagsHumanLong, r.FlagsHumanShort, StringComparison.Ordinal))
             {
-                sb.AppendLine($"Details: {r.FlagsHumanLong}");
+                sb.AppendSafeLine($"Details: {r.FlagsHumanLong}");
             }
             sb.AppendLine();
         }
@@ -356,16 +380,16 @@ public static class MarkdownRenderer
         {
             sb.AppendLine("### Heuristics");
             if (!string.IsNullOrEmpty(r.SecurityFindingsHumanShort))
-                sb.AppendLine(r.SecurityFindingsHumanShort);
+                sb.AppendTextLine(r.SecurityFindingsHumanShort);
             else if (r.SecurityFindings is { Count: > 0 })
-                sb.AppendLine($"Findings: {string.Join(", ", r.SecurityFindings.Take(8))}");
+                sb.AppendSafeLine($"Findings: {string.Join(", ", r.SecurityFindings.Take(8))}");
             if (!string.IsNullOrEmpty(r.SecurityFindingsHumanLong) &&
                 !string.Equals(r.SecurityFindingsHumanLong, r.SecurityFindingsHumanShort, StringComparison.Ordinal))
             {
-                sb.AppendLine($"Details: {r.SecurityFindingsHumanLong}");
+                sb.AppendSafeLine($"Details: {r.SecurityFindingsHumanLong}");
             }
             if (r.TopTokens is { Count: > 0 })
-                sb.AppendLine($"Top tokens: {string.Join(", ", r.TopTokens.Take(8))}");
+                sb.AppendSafeLine($"Top tokens: {string.Join(", ", r.TopTokens.Take(8))}");
             sb.AppendLine();
         }
         if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort) ||
@@ -374,13 +398,13 @@ public static class MarkdownRenderer
         {
             sb.AppendLine("### Inner Findings");
             if (!string.IsNullOrEmpty(r.InnerFindingsHumanShort))
-                sb.AppendLine(r.InnerFindingsHumanShort);
+                sb.AppendTextLine(r.InnerFindingsHumanShort);
             else if (r.InnerFindings is { Count: > 0 })
-                sb.AppendLine($"Findings: {string.Join(", ", r.InnerFindings.Take(8))}");
+                sb.AppendSafeLine($"Findings: {string.Join(", ", r.InnerFindings.Take(8))}");
             if (!string.IsNullOrEmpty(r.InnerFindingsHumanLong) &&
                 !string.Equals(r.InnerFindingsHumanLong, r.InnerFindingsHumanShort, StringComparison.Ordinal))
             {
-                sb.AppendLine($"Details: {r.InnerFindingsHumanLong}");
+                sb.AppendSafeLine($"Details: {r.InnerFindingsHumanLong}");
             }
             sb.AppendLine();
         }
@@ -406,8 +430,8 @@ public static class MarkdownRenderer
                 {
                     if (f == null) continue;
                     var linePart = f.Line.HasValue ? $" line {f.Line.Value}" : string.Empty;
-                    var evidence = string.IsNullOrWhiteSpace(f.Evidence) ? string.Empty : $" -> `{f.Evidence}`";
-                    sb.AppendLine($"  - [{f.Confidence}] {f.Code}{linePart}{evidence}");
+                    var evidence = InlineEvidence(f.Evidence);
+                    sb.AppendSafeLine($"  - [{f.Confidence}] {f.Code}{linePart}{evidence}");
                 }
             }
             sb.AppendLine();
@@ -426,17 +450,17 @@ public static class MarkdownRenderer
         {
             sb.AppendLine("### Risk Assessment");
             if (r.AssessmentScore.HasValue)
-                sb.AppendLine($"- Score: {r.AssessmentScore.Value}");
-            if (!string.IsNullOrEmpty(r.AssessmentDecision)) sb.AppendLine($"- Decision: {r.AssessmentDecision}");
+                sb.AppendSafeLine($"- Score: {r.AssessmentScore.Value}");
+            if (!string.IsNullOrEmpty(r.AssessmentDecision)) sb.AppendSafeLine($"- Decision: {r.AssessmentDecision}");
             if (!string.IsNullOrEmpty(r.AssessmentDecisionStrict) ||
                 !string.IsNullOrEmpty(r.AssessmentDecisionBalanced) ||
                 !string.IsNullOrEmpty(r.AssessmentDecisionLenient))
             {
-                sb.AppendLine($"- Profile decisions: Strict={r.AssessmentDecisionStrict ?? "n/a"}, Balanced={r.AssessmentDecisionBalanced ?? r.AssessmentDecision ?? "n/a"}, Lenient={r.AssessmentDecisionLenient ?? "n/a"}");
+                sb.AppendSafeLine($"- Profile decisions: Strict={r.AssessmentDecisionStrict ?? "n/a"}, Balanced={r.AssessmentDecisionBalanced ?? r.AssessmentDecision ?? "n/a"}, Lenient={r.AssessmentDecisionLenient ?? "n/a"}");
             }
-            if (!string.IsNullOrEmpty(r.AssessmentCodesHuman)) sb.AppendLine($"- Drivers: {r.AssessmentCodesHuman}");
-            else if (r.AssessmentCodes is { Count: > 0 }) sb.AppendLine($"- Codes: {string.Join(", ", r.AssessmentCodes)}");
-            if (!string.IsNullOrEmpty(r.AssessmentCodesHumanLong)) sb.AppendLine($"- Drivers (long): {r.AssessmentCodesHumanLong}");
+            if (!string.IsNullOrEmpty(r.AssessmentCodesHuman)) sb.AppendSafeLine($"- Drivers: {r.AssessmentCodesHuman}");
+            else if (r.AssessmentCodes is { Count: > 0 }) sb.AppendSafeLine($"- Codes: {string.Join(", ", r.AssessmentCodes)}");
+            if (!string.IsNullOrEmpty(r.AssessmentCodesHumanLong)) sb.AppendSafeLine($"- Drivers (long): {r.AssessmentCodesHumanLong}");
             if (r.AssessmentFactors != null && r.AssessmentFactors.Count > 0)
             {
                 var topFactors = r.AssessmentFactors
@@ -444,7 +468,7 @@ public static class MarkdownRenderer
                     .ThenBy(kv => kv.Key, StringComparer.Ordinal)
                     .Take(6)
                     .Select(kv => $"{kv.Key}={kv.Value}");
-                sb.AppendLine($"- Factors: {string.Join(", ", topFactors)}");
+                sb.AppendSafeLine($"- Factors: {string.Join(", ", topFactors)}");
             }
             sb.AppendLine();
         }
@@ -468,7 +492,7 @@ public static class MarkdownRenderer
         static void AppendSecretCount(StringBuilder builder, string label, int? value)
         {
             if (!value.HasValue || value.Value <= 0) return;
-            builder.AppendLine($"- {label}: {value.Value}");
+            builder.AppendSafeLine($"- {label}: {value.Value}");
         }
 
         static bool HasTypeAnalysis(ReportView view)

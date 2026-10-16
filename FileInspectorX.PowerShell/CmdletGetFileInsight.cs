@@ -9,6 +9,9 @@ using FileInspectorX;
 #if FILEINSPECTORX_MAGIKA
 using FileInspectorX.Magika;
 #endif
+#if FILEINSPECTORX_OFFICEIMO
+using FileInspectorX.OfficeIMO;
+#endif
 
 namespace FileInspectorX.PowerShell {
     /// <summary>
@@ -16,7 +19,10 @@ namespace FileInspectorX.PowerShell {
     /// </summary>
     /// <remarks>
     /// <para>Supply one or more existing file paths, or pipe files from Get-ChildItem. Directories are enumerated with Get-ChildItem -File before analysis.</para>
-    /// <para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; each view exposes Raw for drill-down.</para>
+    /// <para>Path expands wildcard patterns. LiteralPath preserves wildcard characters in file names, and FileInfo pipeline input is always resolved literally.</para>
+    /// <para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; these views expose Raw for drill-down. Report returns the versioned InspectionReport contract with exact byte identity, bounded extracted content and coverage evidence.</para>
+    /// <para>The Report view reads a stable snapshot limited to 64 MiB per file. Larger files produce a per-file error. Content extraction retains at most 64 Ki characters and records limit issues. Report analysis is portable; requested filesystem-only stages are reported as unavailable.</para>
+    /// <para>Report uses the bundled OfficeIMO reader for supported documents, image metadata and passive CAB/MSI files. Use -ReportReader Builtin to select the core readers. OfficeIMO native input is limited to 32 MiB; OCR, rendering, legacy conversion and formula calculation are not performed. Native resource failures are per-file errors.</para>
     /// <para>Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.</para>
     /// </remarks>
     /// <example>
@@ -47,6 +53,14 @@ namespace FileInspectorX.PowerShell {
     ///  <para>Run deterministic-only detection without Magika</para>
     ///  <code>Get-FileInsight -Path .\source.txt -DisableMagika -View Detection</code>
     /// </example>
+    /// <example>
+    ///  <para>Inspect a file whose name contains brackets</para>
+    ///  <code>Get-FileInsight -LiteralPath '.\report[1].json' -View Detection</code>
+    /// </example>
+    /// <example>
+    ///  <para>Get a versioned content report with hashes and bounded text extraction</para>
+    ///  <code>Get-FileInsight -LiteralPath .\document.docx -View Report -ExcludePermissions</code>
+    /// </example>
     /// <seealso cref="FileInspectorX.PowerShell.AsyncPSCmdlet" />
     /// <example>
     ///  <para>Read MSI product metadata on Windows without installing the package. The package can target x86, x64 or ARM64.</para>
@@ -72,17 +86,36 @@ namespace FileInspectorX.PowerShell {
     [OutputType(typeof(InstallerView))]
     [OutputType(typeof(ReferencesView))]
     [OutputType(typeof(ShellPropertiesView))]
+    [OutputType(typeof(InspectionReport))]
     public sealed class CmdletGetFileInsight : AsyncPSCmdlet {
         /// <summary>
-        /// One or more existing file paths to analyze. Accepts strings or FileInfo objects from the pipeline through FullName. Enumerate directories and wildcard patterns with Get-ChildItem -File before piping them to this command.
+        /// One or more existing file paths to analyze. Supports wildcard patterns and pipeline strings. FileInfo pipeline input is treated literally; use LiteralPath for names containing wildcard characters.
         /// </summary>
         [Parameter(Mandatory = true, Position = 0, ValueFromPipeline = true, ValueFromPipelineByPropertyName = true, ParameterSetName = "Path")]
-        [Alias("FullName")]
         public string[] Path { get; set; } = Array.Empty<string>();
 
-        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties.</summary>
+        /// <summary>One or more file paths to analyze without interpreting wildcard characters. Accepts FullName or PSPath properties from pipeline objects.</summary>
+        [Parameter(Mandatory = true, Position = 0, ValueFromPipelineByPropertyName = true, ParameterSetName = "LiteralPath")]
+        [Alias("FullName", "PSPath", "LP")]
+        public string[] LiteralPath { get; set; } = Array.Empty<string>();
+
+        /// <summary>FileInfo objects from Get-ChildItem or Get-Item. Their full names are resolved literally.</summary>
+        [Parameter(Mandatory = true, ValueFromPipeline = true, ParameterSetName = "FileInfo")]
+        public FileInfo? InputObject { get; set; }
+
+        /// <summary>Output shape to emit. Defaults to Raw (full FileAnalysis object). Other values: Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer, ShellProperties, Report. Report includes exact input identity and bounded content extraction, with a 64 MiB whole-input limit.</summary>
         [Parameter()]
         public InsightView View { get; set; } = InsightView.Raw;
+
+        /// <summary>Content reader for Report view: OfficeIMO uses the bundled native inspection adapter; Builtin uses the core readers.</summary>
+        [Parameter()]
+        [ValidateSet("OfficeIMO", "Builtin")]
+        public string ReportReader { get; set; } =
+#if FILEINSPECTORX_OFFICEIMO
+            "OfficeIMO";
+#else
+            "Builtin";
+#endif
 
         /// <summary>Return only detection result (skip analysis). Back-compat shim for -View Detection.</summary>
         [Parameter()]
@@ -219,12 +252,27 @@ namespace FileInspectorX.PowerShell {
             };
 
             // Resolve each incoming path through PS provider
-            foreach (var input in Path ?? Array.Empty<string>()) {
+            var literal = ParameterSetName != "Path";
+            var inputs = ParameterSetName == "FileInfo" ? new[] { InputObject?.FullName ?? string.Empty } :
+                literal ? LiteralPath : Path;
+            foreach (var input in inputs ?? Array.Empty<string>()) {
                 CancelToken.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(input)) continue;
 
                 try {
-                    var resolved = this.GetResolvedProviderPathFromPSPath(input, out var _);
+                    ProviderInfo provider;
+                    IReadOnlyList<string> resolved;
+                    if (literal)
+                    {
+                        var fullPath = SessionState.Path.GetUnresolvedProviderPathFromPSPath(input, out provider, out var _);
+                        resolved = new[] { fullPath };
+                    }
+                    else
+                    {
+                        resolved = this.GetResolvedProviderPathFromPSPath(input, out provider);
+                    }
+                    if (!string.Equals(provider.Name, "FileSystem", StringComparison.OrdinalIgnoreCase))
+                        throw new NotSupportedException("File inspection requires a FileSystem provider path.");
                     if (resolved is null || resolved.Count == 0) {
                         WriteError(new ErrorRecord(new ItemNotFoundException(input), "PathResolutionFailed", ErrorCategory.ObjectNotFound, input));
                         continue;
@@ -238,6 +286,10 @@ namespace FileInspectorX.PowerShell {
                         var view = this.View;
                         if (DetectOnly) view = InsightView.Detection;
                         switch (view) {
+                            case InsightView.Report: {
+                                var report = FileInspector.AnalyzeReport(p, new InspectionReportOptions { Detection = options, ContentReader = CreateReportReader() });
+                                WriteObject(report);
+                                break; }
                             case InsightView.Raw: {
                                 var a = FileInspector.Inspect(p, options);
                                 WriteObject(a);
@@ -350,6 +402,16 @@ namespace FileInspectorX.PowerShell {
             throw new InvalidOperationException(
                 "Magika is optional and is not included in this PowerShell module build. " +
                 "Install or publish a module built with IncludeMagika=true.");
+#endif
+        }
+
+        private IInspectionContentReader? CreateReportReader()
+        {
+            if (string.Equals(ReportReader, "Builtin", StringComparison.OrdinalIgnoreCase)) return null;
+#if FILEINSPECTORX_OFFICEIMO
+            return new OfficeImoContentReader();
+#else
+            throw new InvalidOperationException("OfficeIMO is not included in this module build. Select -ReportReader Builtin or use a module built with IncludeOfficeIMO=true.");
 #endif
         }
 
