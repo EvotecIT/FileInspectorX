@@ -4,6 +4,8 @@ param(
 
     [bool] $SignModule = $true,
 
+    [bool] $SkipInstall = $false,
+
     [string] $ProjectBuildConfigPath = '..\Build\project.build.json',
 
     [string] $PowerShellGalleryApiKeyPath = 'C:\Support\Important\PowerShellGalleryAPI.txt',
@@ -11,7 +13,7 @@ param(
     [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
 )
 
-Import-Module PSPublishModule -MinimumVersion '3.0.98' -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion '3.0.168' -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'FileInspectorX' {
     # Usual defaults as per standard module
@@ -109,8 +111,8 @@ Build-Module -ModuleName 'FileInspectorX' {
     New-ConfigurationArtefact -Type Unpacked -Enable -Path '..\Artefacts\Unpacked' -ModulesPath 'Modules' -RequiredModulesPath 'Modules'
     New-ConfigurationArtefact -Type Packed -Enable -Path '..\Artefacts\Packed' -ModulesPath 'Modules' -IncludeTagName -ArtefactName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>.zip' -ID 'ToGitHub'
 
-    New-ConfigurationPublish -Type PowerShellGallery -FilePath $PowerShellGalleryApiKeyPath -Enabled:$false
-    New-ConfigurationPublish -Type GitHub -FilePath $GitHubApiKeyPath -UserName 'EvotecIT' -RepositoryName 'FileInspectorX' -Enabled:$false -GenerateReleaseNotes -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
+    New-ConfigurationPublish -Type PowerShellGallery -FilePath $PowerShellGalleryApiKeyPath -Enabled
+    New-ConfigurationPublish -Type GitHub -FilePath $GitHubApiKeyPath -UserName 'EvotecIT' -RepositoryName 'FileInspectorX' -Enabled -GenerateReleaseNotes -OverwriteTagName 'FileInspectorX-PowerShellModule.<TagModuleVersionWithPreRelease>'
 
     New-ConfigurationGate -Mode $ConfigurationGateMode
-} -ExitCode
+} -SkipInstall:$SkipInstall -ExitCode

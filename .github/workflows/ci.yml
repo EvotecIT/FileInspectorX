@@ -78,7 +78,7 @@ jobs:
 
       - name: Install shared module builder
         shell: pwsh
-        run: Install-Module PSPublishModule -MinimumVersion '3.0.98' -Scope CurrentUser -Force
+        run: Install-Module PSPublishModule -MinimumVersion '3.0.168' -Scope CurrentUser -Force
 
       - name: Build unsigned packaged PowerShell module
         shell: pwsh

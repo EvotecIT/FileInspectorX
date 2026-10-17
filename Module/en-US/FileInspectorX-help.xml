@@ -14,6 +14,7 @@
       <maml:para>Path expands wildcard patterns. LiteralPath preserves wildcard characters in file names, and FileInfo pipeline input is always resolved literally.</maml:para>
       <maml:para>By default (-View Raw), returns FileAnalysis with detection, flags, permissions (unless excluded), signatures, references and assessment. Use -View to select Summary, Detection, Analysis, Permissions, Signature, References, Assessment, Policy, Installer or ShellProperties; these views expose Raw for drill-down. Report returns the versioned InspectionReport contract with exact byte identity, bounded extracted content and coverage evidence.</maml:para>
       <maml:para>The Report view reads a stable snapshot limited to 64 MiB per file. Larger files produce a per-file error. Content extraction retains at most 64 Ki characters and records limit issues. Report analysis is portable; requested filesystem-only stages are reported as unavailable.</maml:para>
+      <maml:para>Report uses the bundled OfficeIMO reader for supported documents, image metadata and passive CAB/MSI files. Use -ReportReader Builtin to select the core readers. OfficeIMO native input is limited to 32 MiB; OCR, rendering, legacy conversion and formula calculation are not performed. Native resource failures are per-file errors.</maml:para>
       <maml:para>Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.</maml:para>
     </maml:description>
     <command:syntax>
@@ -178,7 +179,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>LearnedClassificationMode</maml:name>
           <maml:description>
-            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
+            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;&#xD;
 Required reports a terminating per-file error.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
@@ -438,7 +439,7 @@ Required reports a terminating per-file error.</maml:para>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>LearnedClassificationMode</maml:name>
           <maml:description>
-            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
+            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;&#xD;
 Required reports a terminating per-file error.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
@@ -710,7 +711,7 @@ Required reports a terminating per-file error.</maml:para>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>LearnedClassificationMode</maml:name>
           <maml:description>
-            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
+            <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;&#xD;
 Required reports a terminating per-file error.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>
@@ -970,7 +971,7 @@ Required reports a terminating per-file error.</maml:para>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>LearnedClassificationMode</maml:name>
         <maml:description>
-          <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;
+          <maml:para>Failure behavior for the optional classifier. Assist records provider failures and continues;&#xD;
 Required reports a terminating per-file error.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">LearnedClassificationMode</command:parameterValue>

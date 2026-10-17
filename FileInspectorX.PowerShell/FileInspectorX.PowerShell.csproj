@@ -12,10 +12,11 @@
             content detection and file analysis APIs.</Description>
         <AssemblyName>FileInspectorX.PowerShell</AssemblyName>
         <AssemblyTitle>FileInspectorX PowerShell Module</AssemblyTitle>
-        <VersionPrefix>1.1.0</VersionPrefix>
-        <AssemblyVersion>1.1.0</AssemblyVersion>
-        <FileVersion>1.1.0</FileVersion>
+        <VersionPrefix>1.1.5</VersionPrefix>
+        <AssemblyVersion>1.1.5</AssemblyVersion>
+        <FileVersion>1.1.5</FileVersion>
         <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+        <IsPackable>false</IsPackable>
         <Company>Evotec</Company>
         <Authors>Przemyslaw Klys</Authors>
         <Copyright>(c) 2011 - 2025 Przemyslaw Klys @ Evotec. All rights reserved.</Copyright>

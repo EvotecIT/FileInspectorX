@@ -33,6 +33,8 @@ By default (-View Raw), returns FileAnalysis with detection, flags, permissions 
 
 The Report view reads a stable snapshot limited to 64 MiB per file. Larger files produce a per-file error. Content extraction retains at most 64 Ki characters and records limit issues. Report analysis is portable; requested filesystem-only stages are reported as unavailable.
 
+Report uses the bundled OfficeIMO reader for supported documents, image metadata and passive CAB/MSI files. Use -ReportReader Builtin to select the core readers. OfficeIMO native input is limited to 32 MiB; OCR, rendering, legacy conversion and formula calculation are not performed. Native resource failures are per-file errors.
+
 Installer metadata requires -EnableInstaller, and Windows shell properties require -EnableShellProperties. Selecting a view does not enable those parsers. MSI properties require a file path on Windows; APPX/MSIX and VSIX manifests can be read on every supported platform. Native parsers process input in the current process.
 
 ## EXAMPLES
@@ -434,7 +436,7 @@ Content reader for Report view: OfficeIMO uses the bundled native inspection ada
 ```yaml
 Type: String
 Parameter Sets: Path, LiteralPath, FileInfo
-Aliases: None
+Aliases: none
 Possible values: OfficeIMO, Builtin
 
 Required: False
