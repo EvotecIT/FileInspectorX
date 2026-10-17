@@ -38,5 +38,27 @@
   "GitHubReleaseMode": "Single",
   "GitHubPrimaryProject": "FileInspectorX",
   "GitHubTagTemplate": "{Repo}-v{Version}",
-  "GitHubReleaseName": "{Repo} {Version}"
+  "GitHubReleaseName": "{Repo} {Version}",
+  "VersionBindings": [
+    {
+      "Project": "FileInspectorX",
+      "Path": "FileInspectorX.PowerShell/FileInspectorX.PowerShell.csproj",
+      "Pattern": "(?<=<VersionPrefix>)[^<]+(?=</VersionPrefix>)"
+    },
+    {
+      "Project": "FileInspectorX",
+      "Path": "FileInspectorX.PowerShell/FileInspectorX.PowerShell.csproj",
+      "Pattern": "(?<=<AssemblyVersion>)[^<]+(?=</AssemblyVersion>)"
+    },
+    {
+      "Project": "FileInspectorX",
+      "Path": "FileInspectorX.PowerShell/FileInspectorX.PowerShell.csproj",
+      "Pattern": "(?<=<FileVersion>)[^<]+(?=</FileVersion>)"
+    },
+    {
+      "Project": "FileInspectorX",
+      "Path": "FileInspectorX.Web/FileInspectorX.Web.csproj",
+      "Pattern": "(?<=<VersionPrefix>)[^<]+(?=</VersionPrefix>)"
+    }
+  ]
 }
