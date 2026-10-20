@@ -160,7 +160,7 @@ public static partial class FileInspector
                 }
 
                 // Deep scan of entries for disguised executables and known tool names (bounded by budgets)
-                if (deep && budget.TryBeginDeepEntry(e.Length, deepScanned, deepMax, deepBytes))
+                if (deep && budget.TryBeginDeepEntry(e.Length, deepScanned, deepMax, deepBytes, deferByteLimit: true))
                 {
                     try {
                         // Known tool names by filename
@@ -182,6 +182,9 @@ public static partial class FileInspector
                         {
                             var det2 = Detect(new ReadOnlySpan<byte>(buf, 0, nn), null);
                             var declExt = GetExtension(name);
+                            var looksNestedArchive = ShouldDeepAnalyzeNestedArchiveEntry(name, declExt, det2?.Extension);
+                            if (e.Length > deepBytes && !looksNestedArchive)
+                                budget.AddIssue("archive:deep-entry-byte-limit");
                             var looksExe = det2?.Extension is "exe" or "dll" || (nn >= 2 && buf[0] == (byte)'M' && buf[1] == (byte)'Z');
                             var looksInstaller = det2?.Extension is "msi" or "msix" or "appx" or "msixbundle" || IsInstallerName(name);
                             if (looksExe)
@@ -274,7 +277,7 @@ public static partial class FileInspector
                                     }
                                 } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:deep-inspection-failed"); }
                             }
-                            else if (e.Length > 0 && e.Length <= deepBytes && ShouldDeepAnalyzeArchiveInnerTextEntry(name, declExt, det2?.Extension))
+                            else if (!looksNestedArchive && e.Length > 0 && e.Length <= deepBytes && ShouldDeepAnalyzeArchiveInnerTextEntry(name, declExt, det2?.Extension))
                             {
                                 try
                                 {

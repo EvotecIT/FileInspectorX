@@ -6,6 +6,37 @@ namespace FileInspectorX.Tests;
 public sealed class DeepInspectionCompletenessTests
 {
     [Theory]
+    [InlineData("notes.txt", 4096)]
+    [InlineData("nested.zip", 512)]
+    public void NestedArchiveUsesContentAndItsOwnByteAllowance(string name, int directBytes)
+    {
+        using var nested = new MemoryStream();
+        using (var zip = new ZipArchive(nested, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var writer = new StreamWriter(zip.CreateEntry("payload.ps1", CompressionLevel.NoCompression).Open()))
+                writer.Write("param([string]$Name); Get-Process | Select-Object Name");
+            for (var i = 0; i < 8; i++)
+            {
+                using var writer = new StreamWriter(zip.CreateEntry("part" + i + ".txt", CompressionLevel.NoCompression).Open());
+                writer.Write(new string('a', 128));
+            }
+        }
+        using var outer = new MemoryStream();
+        using (var zip = new ZipArchive(outer, ZipArchiveMode.Create, leaveOpen: true))
+        using (var entry = zip.CreateEntry(name, CompressionLevel.NoCompression).Open())
+            entry.Write(nested.ToArray(), 0, (int)nested.Length);
+        outer.Position = 0;
+        var options = Options(20, directBytes);
+        options.Settings = options.Settings! with { DeepContainerMaxNestedArchiveBytes = 32768 };
+
+        var analysis = FileInspector.Analyze(outer, options, "outer.zip");
+
+        Assert.True(analysis.Flags.HasFlag(ContentFlags.ContainerContainsScripts));
+        Assert.True(analysis.AnalysisComplete, string.Join(",", analysis.AnalysisIssues ?? Array.Empty<string>()));
+        Assert.Equal(InspectionOutcome.Complete, analysis.Outcome);
+    }
+
+    [Theory]
     [InlineData("zip", 1, false)]
     [InlineData("zip", 2, true)]
     [InlineData("zip", 3, true)]
