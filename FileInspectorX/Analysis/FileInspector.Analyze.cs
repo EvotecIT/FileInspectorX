@@ -619,7 +619,7 @@ public static partial class FileInspector {
 
     private static bool IsExecutableName(string name) {
         var lower = name.ToLowerInvariant();
-        return lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".scr") || lower.EndsWith(".com") || lower.EndsWith(".msi") || lower.EndsWith(".msix") || lower.EndsWith(".appx") || lower.EndsWith(".msixbundle");
+        return lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".sys") || lower.EndsWith(".cpl") || lower.EndsWith(".scr") || lower.EndsWith(".com") || lower.EndsWith(".msi") || lower.EndsWith(".msix") || lower.EndsWith(".appx") || lower.EndsWith(".msixbundle");
     }
 
     private static bool IsScriptName(string name)

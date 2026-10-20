@@ -50,12 +50,15 @@ public sealed class ArchiveEvidenceRegressionTests
             Assert.True(analysis.References == null || analysis.References.Count == 0);
     }
 
-    [Fact]
-    public void NativeDriverTarMemberRemainsCountedAfterPathRefinement()
+    [Theory]
+    [InlineData("driver.sys", false)]
+    [InlineData("panel.cpl", false)]
+    [InlineData("notes.txt", true)]
+    public void NativeDriverTarMemberRetainsSampleCountAndCorrectDisguiseEvidence(string name, bool disguised)
     {
         var bytes = TestHelpers.CreateMinimalPe();
         bytes[0xdc] = 1; // IMAGE_SUBSYSTEM_NATIVE in the PE32 optional header.
-        using var tar = Tar("driver.sys", bytes);
+        using var tar = Tar(name, bytes);
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tar");
         try
         {
@@ -69,6 +72,7 @@ public sealed class ArchiveEvidenceRegressionTests
             Assert.True(analysis.Flags.HasFlag(ContentFlags.ContainerContainsExecutables));
             Assert.Equal(1, analysis.InnerExecutablesSampled);
             Assert.Equal(0, analysis.InnerSignedExecutables);
+            Assert.Equal(disguised, analysis.Flags.HasFlag(ContentFlags.ContainerHasDisguisedExecutables));
         }
         finally { File.Delete(path); }
     }
