@@ -13,10 +13,17 @@ public static partial class FileInspector
         out int innerExecSampled,
         out int innerSignedSampled,
         out int innerValidSignedSampled,
-        out Dictionary<string, int>? innerPublisherSample, out ContentFlags safetyFlags, out ArchiveInspectionBudget budget) {
+        out Dictionary<string, int>? innerPublisherSample, out ContentFlags safetyFlags, out ArchiveInspectionBudget budget,
+        out IReadOnlyList<string>? findings) {
         var path = input.Name;
         safetyFlags = ContentFlags.None;
         budget = ArchiveInspectionBudget.FromSettings();
+        findings = null;
+        var localFindings = new List<string>();
+        var urls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var uncPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var suspicious = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool encoded = false, exec = false, download = false, hosts = false, unc = false, disguisedScript = false;
         entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null;
         innerExecSampled = 0; innerSignedSampled = 0; innerValidSignedSampled = 0; innerPublisherSample = null;
         var localPreviews = new List<InnerEntryPreview>();
@@ -46,8 +53,8 @@ public static partial class FileInspector
                         long pad = ((size + 511) / 512) * 512;
                         long entryDataStart = fs.Position;
                         long nextHeaderPos = entryDataStart + pad;
+                        bool looksExecutable = IsExecutableName(name);
                         // Inspect a bounded prefix regardless of the member's complete size.
-                        if (!hasNestedArchives)
                         {
                             int sample = (int)Math.Min(512, size);
                             var head = new byte[sample];
@@ -60,6 +67,13 @@ public static partial class FileInspector
                                 if (det != null)
                                 {
                                     var de = det.Extension?.ToLowerInvariant();
+                                    hasScripts |= IsScriptLikeExtension(de);
+                                    if (de is "exe" or "dll" or "msi")
+                                    {
+                                        looksExecutable = true;
+                                        hasExecutables = true;
+                                        if (!IsExecutableName(name)) safetyFlags |= ContentFlags.ContainerHasDisguisedExecutables;
+                                    }
                                     if (de is "zip" or "7z" or "rar" or "tar" or "gz" or "bz2" or "xz" or "zst" or "iso" or "udf")
                                         hasNestedArchives = true;
                                     if (IsExecutableName(name) && localPreviews.Count < 10)
@@ -70,8 +84,9 @@ public static partial class FileInspector
                         }
 
                         // 2) Deep signers sampling for executable entries within budget
-                        if (deep && IsExecutableName(name) && size <= deepBytes && deepScanned < deepMax)
+                        if (deep && budget.TryBeginDeepEntry(size, deepScanned, deepMax, deepBytes))
                         {
+                            deepScanned++;
                             try
                             {
                                 int cap = (int)Math.Min(size, deepBytes);
@@ -95,9 +110,17 @@ public static partial class FileInspector
                                 if (left > 0) continue;
 
                                 var childOptions = CreateInnerAnalysisOptions(options, GetNestedContainerBudget(options), options?.NestedContainerDepth ?? 0, includeContainer: false);
-                                var ia = AnalyzeArchiveChild(input, entryInput, name, childOptions, budget, nativeSignerSampling: true);
-                                deepScanned++;
-                                innerExecutablesSampled++;
+                                var ia = AnalyzeArchiveChild(input, entryInput, name, childOptions, budget,
+                                    nativeSignerSampling: looksExecutable && size <= deepBytes);
+                                var detected = ia.Detection?.Extension;
+                                bool executable = detected is "exe" or "dll" or "msi";
+                                if (executable) innerExecutablesSampled++;
+                                hasScripts |= IsScriptLikeExtension(detected);
+                                hasExecutables |= executable;
+                                if (executable && !IsExecutableName(name)) safetyFlags |= ContentFlags.ContainerHasDisguisedExecutables;
+                                if (ShouldDeepAnalyzeNestedArchiveEntry(name, ext, detected)) budget.AddIssue("tar:nested-content-unavailable");
+                                CollectArchiveInnerSignals(name, ia, urls, uncPaths, suspicious,
+                                    ref encoded, ref exec, ref download, ref hosts, ref unc, ref disguisedScript);
                                 if (ia?.Authenticode?.Present == true)
                                 {
                                     innerSignedExecutables++;
@@ -110,6 +133,7 @@ public static partial class FileInspector
                             }
                             catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException)
                             {
+                                budget.AddIssue("tar:deep-inspection-failed");
                                 // On error, seek to next padded header position to keep parser stable.
                                 if (nextHeaderPos <= fs.Length) fs.Seek(nextHeaderPos, SeekOrigin.Begin);
                                 else fs.Seek(0, SeekOrigin.End);
@@ -132,6 +156,14 @@ public static partial class FileInspector
             innerSignedSampled = innerSignedExecutables;
             innerValidSignedSampled = innerValidSignedExecutables;
             if (innerPublishers.Count > 0) innerPublisherSample = innerPublishers;
+            if (encoded) localFindings.Add("archive:inner-script-encoded");
+            if (exec) localFindings.Add("archive:inner-script-exec");
+            if (download) localFindings.Add("archive:inner-script-download");
+            if (hosts) localFindings.Add("archive:inner-external-hosts");
+            if (unc) localFindings.Add("archive:inner-unc");
+            if (disguisedScript) localFindings.Add("archive:inner-disguised-script");
+            if (suspicious.Count > 0) localFindings.Add("archive:inner-files=" + string.Join(", ", suspicious.Take(3)));
+            findings = localFindings.Count == 0 ? null : localFindings;
             // TAR is not a JAR/APK container; subtype/signing hints handled in ZIP logic.
         } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("tar:inspection-failed"); }
     }

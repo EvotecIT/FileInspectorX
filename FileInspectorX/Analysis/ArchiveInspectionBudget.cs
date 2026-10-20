@@ -35,6 +35,19 @@ internal sealed partial class ArchiveInspectionBudget
     internal long BytesRead => _bytesRead;
     internal IReadOnlyList<string> Issues => _issues.OrderBy(issue => issue, StringComparer.Ordinal).ToArray();
 
+    /// <summary>Records omitted deep content without preventing bounded prefix inspection.</summary>
+    internal bool TryBeginDeepEntry(long length, int inspected, int maxEntries, int maxBytes)
+    {
+        if (length == 0) return false;
+        if (inspected >= Math.Max(0, maxEntries))
+        {
+            AddIssue("archive:deep-entry-count-limit");
+            return false;
+        }
+        if (length > Math.Max(0, maxBytes)) AddIssue("archive:deep-entry-byte-limit");
+        return maxBytes > 0;
+    }
+
     internal static ArchiveInspectionBudget FromSettings()
     {
         // Snapshot all mutable settings together for this operation. Later

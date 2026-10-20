@@ -160,7 +160,7 @@ public static partial class FileInspector
                 }
 
                 // Deep scan of entries for disguised executables and known tool names (bounded by budgets)
-                if (deep && deepScanned < deepMax)
+                if (deep && budget.TryBeginDeepEntry(e.Length, deepScanned, deepMax, deepBytes))
                 {
                     try {
                         // Known tool names by filename
@@ -177,7 +177,7 @@ public static partial class FileInspector
                         if (es2 == null) throw new InvalidDataException("zip:entry-budget");
                         int cap = (int)Math.Min(Math.Min(e.Length, deepBytes), deepBytes);
                         var buf = new byte[Math.Max(64, cap)];
-                        int nn = es2.Read(buf, 0, buf.Length);
+                        int nn = ReadAvailable(es2, buf, 0, buf.Length);
                         if (nn > 0)
                         {
                             var det2 = Detect(new ReadOnlySpan<byte>(buf, 0, nn), null);
@@ -233,7 +233,7 @@ public static partial class FileInspector
                                     {
                                         if (string.Equals(kv.Value, hex, StringComparison.OrdinalIgnoreCase)) { localFindings.Add($"toolhash:{kv.Key}"); break; }
                                     }
-                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:deep-inspection-failed"); }
                             }
                             // Inner signer sampling for executables
                             if (looksExe && e.Length > 0 && e.Length <= deepBytes)
@@ -272,7 +272,7 @@ public static partial class FileInspector
                                         if (v) { if (innerPublisherValid.TryGetValue(pub, out var pv)) innerPublisherValid[pub] = pv + 1; else innerPublisherValid[pub] = 1; }
                                         if (ia.Authenticode.IsSelfSigned == true) { if (innerPublisherSelf.TryGetValue(pub, out var ps)) innerPublisherSelf[pub] = ps + 1; else innerPublisherSelf[pub] = 1; }
                                     }
-                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:deep-inspection-failed"); }
                             }
                             else if (e.Length > 0 && e.Length <= deepBytes && ShouldDeepAnalyzeArchiveInnerTextEntry(name, declExt, det2?.Extension))
                             {
@@ -314,7 +314,7 @@ public static partial class FileInspector
                                             DetectedExtension = ia?.DetectedExtension ?? ia?.Detection?.Extension ?? det2?.Extension ?? declExt
                                         });
                                     }
-                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:deep-inspection-failed"); }
                             }
                             else if (nestedDepth < Math.Max(0, OperationSettings.DeepContainerMaxDepth) &&
                                      e.Length > 0 && e.Length <= GetNestedArchiveDeepScanBytes() &&
@@ -374,10 +374,14 @@ public static partial class FileInspector
                                             DetectedExtension = ia?.DetectedExtension ?? ia?.Detection?.Extension ?? det2?.Extension ?? declExt
                                         });
                                     }
-                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+                                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:deep-inspection-failed"); }
+                            }
+                            else if (ShouldDeepAnalyzeNestedArchiveEntry(name, declExt, det2?.Extension))
+                            {
+                                budget.AddIssue("archive:nested-content-limit");
                             }
                         }
-                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:deep-inspection-failed"); }
                     deepScanned++;
                 }
             }

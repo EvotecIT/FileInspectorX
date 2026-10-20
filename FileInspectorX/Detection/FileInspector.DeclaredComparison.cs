@@ -30,7 +30,16 @@ public static partial class FileInspector
         cmp.Mismatch = baseCmp.Mismatch;
         cmp.Reason = baseCmp.Reason ?? string.Empty;
 
-        if (detected == null || string.IsNullOrEmpty(decl))
+        bool IsDangerous(string? ext)
+        {
+            if (string.IsNullOrWhiteSpace(ext)) return false;
+            return dangerousExtensions != null
+                ? ContainsDangerousExtension(dangerousExtensions, ext!)
+                : DangerousExtensions.IsDangerous(ext);
+        }
+
+        cmp.IsDeclaredDangerous = IsDangerous(decl);
+        if (detected == null)
             return cmp;
 
         var detection = detected;
@@ -69,14 +78,6 @@ public static partial class FileInspector
                     break;
                 }
             }
-        }
-
-        bool IsDangerous(string? ext)
-        {
-            if (string.IsNullOrWhiteSpace(ext)) return false;
-            return dangerousExtensions != null
-                ? ContainsDangerousExtension(dangerousExtensions, ext!)
-                : DangerousExtensions.IsDangerous(ext);
         }
 
         var dangerousAlt = GetStrongDangerousAlternativeExts(strong, IsDangerous);

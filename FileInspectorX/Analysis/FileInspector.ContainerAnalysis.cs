@@ -129,7 +129,7 @@ public static partial class FileInspector
                     out int innerExecSampled,
                     out int innerSignedSampled,
                     out int innerValidSignedSampled,
-                    out Dictionary<string, int>? innerPublisherSample, out var tarFlags, out var tarBudget);
+                    out Dictionary<string, int>? innerPublisherSample, out var tarFlags, out var tarBudget, out var tarFindings);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
@@ -145,6 +145,11 @@ public static partial class FileInspector
                         res.InnerPublisherCounts = new Dictionary<string, int>(innerPublisherSample);
                 }
                 res.Flags |= tarFlags;
+                if (tarFindings != null)
+                {
+                    res.InnerFindings = (res.InnerFindings ?? Array.Empty<string>()).Concat(tarFindings).ToArray();
+                    res.SecurityFindings = (res.SecurityFindings ?? Array.Empty<string>()).Concat(tarFindings).ToArray();
+                }
                 ApplyArchiveInspectionBudget(res, tarBudget);
             }
 
@@ -278,7 +283,17 @@ public static partial class FileInspector
                     }
                 }
             }
-            // 7z encryption detection is non-trivial; reserved for a deeper pass in future
+            if (options?.IncludeContainer != false && OperationSettings.DeepContainerScanEnabled)
+            {
+                string? omission = res.Flags.HasFlag(ContentFlags.ArchiveHasEncryptedEntries)
+                    ? "archive:encrypted-content-unavailable"
+                    : det.Extension is "rar" or "7z" ? "archive:inner-content-unavailable" : null;
+                if (omission != null)
+                {
+                    res.AnalysisComplete = false;
+                    res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { omission });
+                }
+            }
 
     }
 }
