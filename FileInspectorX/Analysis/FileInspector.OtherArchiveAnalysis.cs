@@ -96,6 +96,7 @@ public static partial class FileInspector
     private static bool TryInspectRar4Entries(
         InspectionInput input,
         out int? entryCount,
+        out bool knownEmpty,
         out IReadOnlyList<string>? topExtensions,
         out bool hasExecutables,
         out bool hasScripts,
@@ -104,6 +105,7 @@ public static partial class FileInspector
         out Dictionary<string,int>? innerExecExtCounts)
     {
         var path = input.Name;
+        knownEmpty = false;
         entryCount = null; topExtensions = null; hasExecutables = false; hasScripts = false; hasNestedArchives = false; previews = null; innerExecExtCounts = null;
         try
         {
@@ -124,18 +126,40 @@ public static partial class FileInspector
             int maxBlocks = GetRar4BlockSafetyLimit(entryLimit);
             long byteBudget = Math.Max(7, OperationSettings.DetectionReadBudgetBytes);
             long walkStart = fs.Position;
+            bool sawMainHeader = false, onlyEmptyHeaders = true;
 
             while (fs.Position + 7 <= fs.Length && count < entryLimit &&
                    blocksSeen++ < maxBlocks && fs.Position - walkStart < byteBudget)
             {
                 long hdrStart = fs.Position;
-                br.ReadUInt16(); // head crc
+                ushort headCrc = br.ReadUInt16();
                 byte headType = br.ReadByte();
                 ushort headFlags = br.ReadUInt16();
                 ushort headSize = br.ReadUInt16();
                 if (headSize < 7) break;
                 long headerEnd = hdrStart + headSize;
                 if (headerEnd <= hdrStart || headerEnd > fs.Length) return false;
+
+                // Zero enumerated files is not proof of emptiness after a truncated or
+                // budget-limited walk. Require intact main/end headers without payload.
+                if (headType is 0x73 or 0x7b)
+                {
+                    bool validHeader = headSize <= byteBudget - (hdrStart - walkStart)
+                        && IsValidRar4Header(fs, hdrStart, headSize, headCrc);
+                    if (headType == 0x73)
+                    {
+                        bool validMain = validHeader && headSize >= 13 && (headFlags & 0x8081) == 0;
+                        sawMainHeader |= validMain;
+                        onlyEmptyHeaders &= validMain;
+                    }
+                    else
+                    {
+                        knownEmpty = count == 0 && sawMainHeader && onlyEmptyHeaders && validHeader
+                            && (headFlags & 0x8001) == 0 && headerEnd == fs.Length;
+                        break;
+                    }
+                }
+                else onlyEmptyHeaders = false;
 
                 if (headType == 0x74) // FILE_HEADER
                 {
@@ -219,6 +243,20 @@ public static partial class FileInspector
             return true;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { return false; }
+    }
+
+    /// <summary>Checks a bounded RAR4 header without changing the caller's parsing position.</summary>
+    private static bool IsValidRar4Header(Stream stream, long start, ushort size, ushort expectedCrc)
+    {
+        long position = stream.Position;
+        try
+        {
+            stream.Position = start + 2;
+            var bytes = new byte[size - 2];
+            return ReadAvailable(stream, bytes, 0, bytes.Length) == bytes.Length
+                && (ushort)Signatures.ComputeCrc32(bytes) == expectedCrc;
+        }
+        finally { stream.Position = position; }
     }
 
     private static int GetRar4BlockSafetyLimit(int fileLimit)

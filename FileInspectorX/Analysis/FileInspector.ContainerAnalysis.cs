@@ -7,6 +7,7 @@ public static partial class FileInspector
     private static void AnalyzeContainers(InspectionInput input, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res)
     {
         var path = input.Name;
+        bool opaqueArchiveKnownEmpty = false;
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
             if (det.Extension is "b64" or "hex" or "b85" or "uu" or "qp")
             {
@@ -179,6 +180,7 @@ public static partial class FileInspector
                         }
                         if (TryInspectRar4Entries(input,
                             out int? entryCount,
+                            out bool knownEmpty,
                             out IReadOnlyList<string>? topExt,
                             out bool hasExecutables,
                             out bool hasScripts,
@@ -186,6 +188,7 @@ public static partial class FileInspector
                             out List<InnerEntryPreview>? previewOut,
                             out Dictionary<string,int>? innerExecExtCounts))
                         {
+                            opaqueArchiveKnownEmpty = knownEmpty;
                             if (entryCount != null) res.ContainerEntryCount = entryCount;
                             if (topExt != null) res.ContainerTopExtensions = topExt;
                             if (hasExecutables) res.Flags |= ContentFlags.ContainerContainsExecutables;
@@ -289,7 +292,7 @@ public static partial class FileInspector
             {
                 string? omission = (res.Flags & (ContentFlags.ArchiveHasEncryptedEntries | ContentFlags.OoxmlEncrypted)) != 0
                     ? "archive:encrypted-content-unavailable"
-                    : det.Extension is "rar" or "7z" ? "archive:inner-content-unavailable" : null;
+                    : (det.Extension is "rar" or "7z") && !opaqueArchiveKnownEmpty ? "archive:inner-content-unavailable" : null;
                 if (omission != null)
                 {
                     res.AnalysisComplete = false;

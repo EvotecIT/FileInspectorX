@@ -6,6 +6,57 @@ namespace FileInspectorX.Tests;
 public sealed class DeepInspectionCompletenessTests
 {
     [Fact]
+    public void TarExhaustedPrefixBudgetPreservesLaterMemberNamesAndSafetyFlags()
+    {
+        using var tar = new MemoryStream();
+        InspectionIntegrityTests.WriteTarHeader(tar, "first.txt", size: 1024);
+        tar.Write(new byte[1024], 0, 1024);
+        InspectionIntegrityTests.WriteTarHeader(tar, "../later.ps1", size: 1);
+        tar.Write(new byte[512], 0, 512);
+        tar.Write(new byte[1024], 0, 1024);
+        tar.Position = 0;
+        var options = Options(2, 4096);
+        options.Settings = options.Settings! with { ArchiveMaxTotalReadBytes = 512 };
+
+        var analysis = FileInspector.Analyze(tar, options, "bundle.tar");
+
+        Assert.Equal(2, analysis.ContainerEntryCount);
+        Assert.Contains("ps1", analysis.ContainerTopExtensions!);
+        Assert.True(analysis.Flags.HasFlag(ContentFlags.ContainerContainsScripts));
+        Assert.True(analysis.Flags.HasFlag(ContentFlags.ArchiveHasPathTraversal));
+        Assert.False(analysis.AnalysisComplete);
+        Assert.Contains("archive:total-read-limit", analysis.AnalysisIssues!);
+    }
+
+    [Theory]
+    [InlineData(false, false, 4096)]
+    [InlineData(true, false, 4096)]
+    [InlineData(false, true, 4096)]
+    [InlineData(false, false, 7)]
+    public void KnownEmptyRarDoesNotClaimUnexaminedPayload(bool truncated, bool corrupt, int metadataBudget)
+    {
+        // RAR4 marker, 13-byte main header, and 7-byte end header, with header CRCs.
+        var bytes = new byte[] { 0x52, 0x61, 0x72, 0x21, 0x1a, 7, 0,
+            0xcf, 0x90, 0x73, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0,
+            4, 0xb0, 0x7b, 0, 0, 7, 0 };
+        if (truncated) Array.Resize(ref bytes, 20);
+        if (corrupt) bytes[7] ^= 1;
+        var options = Options(2, 4096);
+        options.Settings = options.Settings! with { DetectionReadBudgetBytes = metadataBudget };
+
+        var analysis = FileInspector.Analyze(bytes, options, "empty.rar");
+
+        Assert.Equal("rar", analysis.Detection!.Extension);
+        Assert.Equal(0, analysis.ContainerEntryCount);
+        bool complete = !truncated && !corrupt && metadataBudget > 7;
+        Assert.Equal(complete, analysis.AnalysisComplete);
+        if (!complete)
+            Assert.Contains("archive:inner-content-unavailable", analysis.AnalysisIssues!);
+        else
+            Assert.DoesNotContain("archive:inner-content-unavailable", analysis.AnalysisIssues ?? Array.Empty<string>());
+    }
+
+    [Fact]
     public void OneNestedMemberUsesNestedAllowanceInsteadOfDirectAggregate()
     {
         using var nested = new MemoryStream();
