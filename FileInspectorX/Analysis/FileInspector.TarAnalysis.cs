@@ -114,7 +114,7 @@ public static partial class FileInspector
                                     nativeSignerSampling: looksExecutable && size <= deepBytes);
                                 var detected = ia.Detection?.Extension;
                                 bool executable = detected is "exe" or "dll" or "msi";
-                                if (executable) innerExecutablesSampled++;
+                                if (executable && size <= deepBytes) innerExecutablesSampled++;
                                 hasScripts |= IsScriptLikeExtension(detected);
                                 hasExecutables |= executable;
                                 if (executable && !IsExecutableName(name)) safetyFlags |= ContentFlags.ContainerHasDisguisedExecutables;

@@ -6,6 +6,26 @@ namespace FileInspectorX.Tests;
 public sealed class DeepInspectionCompletenessTests
 {
     [Theory]
+    [InlineData(1024, 0)]
+    [InlineData(8192, 1)]
+    public void TarSignerSampleCountExcludesPrefixOnlyExecutables(int limit, int expectedSamples)
+    {
+        var bytes = new byte[8192];
+        TestHelpers.CreateMinimalPe().CopyTo(bytes, 0);
+        using var tar = new MemoryStream();
+        InspectionIntegrityTests.WriteTarHeader(tar, "payload.exe", size: bytes.Length);
+        tar.Write(bytes, 0, bytes.Length);
+        tar.Write(new byte[1024], 0, 1024);
+        tar.Position = 0;
+
+        var analysis = FileInspector.Analyze(tar, Options(2, limit), "bundle.tar");
+
+        Assert.True(analysis.Flags.HasFlag(ContentFlags.ContainerContainsExecutables));
+        Assert.Equal(expectedSamples, analysis.InnerExecutablesSampled ?? 0);
+        Assert.Equal(expectedSamples == 1, analysis.AnalysisComplete);
+    }
+
+    [Theory]
     [InlineData("notes.txt", 4096)]
     [InlineData("nested.zip", 512)]
     public void NestedArchiveUsesContentAndItsOwnByteAllowance(string name, int directBytes)
