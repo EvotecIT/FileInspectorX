@@ -182,22 +182,22 @@ public sealed class InspectionContentSpiTests
         var request = Request(owner, cancellation.Token);
         var calls = 0;
         var reader = new Reader((_, _) => { Interlocked.Increment(ref calls); return Result(); });
-        var holder = Task.Run(() =>
+        var holder = Task.Factory.StartNew(() =>
         {
             lock (reader)
             {
                 held.Set();
                 if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Test reader gate was not released.");
             }
-        });
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         try
         {
             Assert.True(held.Wait(TimeSpan.FromSeconds(5)));
-            var waiter = Task.Run(() =>
+            var waiter = Task.Factory.StartNew(() =>
             {
                 started.Set();
                 return Record.Exception(() => InspectionContentReaderInvoker.Invoke(reader, request, result => result, cancellation.Token));
-            });
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
             cancellation.Cancel();
             Assert.Same(waiter, await Task.WhenAny(waiter, Task.Delay(TimeSpan.FromSeconds(5))));

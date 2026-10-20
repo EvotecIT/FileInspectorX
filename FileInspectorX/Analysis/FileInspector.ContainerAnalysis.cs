@@ -7,6 +7,7 @@ public static partial class FileInspector
     private static void AnalyzeContainers(InspectionInput input, DetectionOptions options, ContentTypeDetectionResult det, FileAnalysis res)
     {
         var path = input.Name;
+        bool opaqueArchiveKnownEmpty = false;
             // Encoded payloads (base64/hex/ascii85/uu) — bounded decode of head and inner type detection
             if (det.Extension is "b64" or "hex" or "b85" or "uu" or "qp")
             {
@@ -129,7 +130,7 @@ public static partial class FileInspector
                     out int innerExecSampled,
                     out int innerSignedSampled,
                     out int innerValidSignedSampled,
-                    out Dictionary<string, int>? innerPublisherSample, out var tarFlags, out var tarBudget);
+                    out Dictionary<string, int>? innerPublisherSample, out var tarFlags, out var tarBudget, out var tarFindings, out var tarReferences);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
@@ -145,7 +146,14 @@ public static partial class FileInspector
                         res.InnerPublisherCounts = new Dictionary<string, int>(innerPublisherSample);
                 }
                 res.Flags |= tarFlags;
+                if (tarFindings != null)
+                {
+                    res.InnerFindings = (res.InnerFindings ?? Array.Empty<string>()).Concat(tarFindings).ToArray();
+                    res.SecurityFindings = (res.SecurityFindings ?? Array.Empty<string>()).Concat(tarFindings).ToArray();
+                }
                 ApplyArchiveInspectionBudget(res, tarBudget);
+                if (options?.IncludeReferences != false && tarReferences != null)
+                    res.References = MergeReferences(res.References, tarReferences);
             }
 
             // RAR/7z quick flags + (best-effort) encrypted entries accounting under budget
@@ -172,6 +180,7 @@ public static partial class FileInspector
                         }
                         if (TryInspectRar4Entries(input,
                             out int? entryCount,
+                            out bool knownEmpty,
                             out IReadOnlyList<string>? topExt,
                             out bool hasExecutables,
                             out bool hasScripts,
@@ -179,6 +188,7 @@ public static partial class FileInspector
                             out List<InnerEntryPreview>? previewOut,
                             out Dictionary<string,int>? innerExecExtCounts))
                         {
+                            opaqueArchiveKnownEmpty = knownEmpty;
                             if (entryCount != null) res.ContainerEntryCount = entryCount;
                             if (topExt != null) res.ContainerTopExtensions = topExt;
                             if (hasExecutables) res.Flags |= ContentFlags.ContainerContainsExecutables;
@@ -278,7 +288,17 @@ public static partial class FileInspector
                     }
                 }
             }
-            // 7z encryption detection is non-trivial; reserved for a deeper pass in future
+            if (options?.IncludeContainer != false && OperationSettings.DeepContainerScanEnabled)
+            {
+                string? omission = (res.Flags & (ContentFlags.ArchiveHasEncryptedEntries | ContentFlags.OoxmlEncrypted)) != 0
+                    ? "archive:encrypted-content-unavailable"
+                    : (det.Extension is "rar" or "7z") && !opaqueArchiveKnownEmpty ? "archive:inner-content-unavailable" : null;
+                if (omission != null)
+                {
+                    res.AnalysisComplete = false;
+                    res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { omission });
+                }
+            }
 
     }
 }

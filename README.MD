@@ -430,6 +430,13 @@ if (!full.AnalysisComplete) {
 Assessments return `Defer` in that case, across all assessment profiles, so automation cannot
 treat partial evidence as an allow decision.
 
+Deep archive inspection reports entry-count and per-entry byte limits as
+`archive:deep-entry-count-limit` and `archive:deep-entry-byte-limit`. Files beyond
+those limits remain unexamined even when their names appear in the inventory.
+Encrypted payloads and RAR/7z content that cannot be deeply inspected also produce
+partial outcomes. Use `AnalysisIssues` and the container stage result when deciding
+whether an archive has enough evidence for automatic processing.
+
 `Analyze` and `Inspect` also accept `Stream`, `byte[]`, `ReadOnlyMemory<byte>` and `ReadOnlySpan<byte>` inputs. They use the same content analyzers for archives, PE metadata, certificates, scripts, references and structured text. The optional `fileName` supplies a name or extension hint; it is never opened as a path.
 
 ```csharp

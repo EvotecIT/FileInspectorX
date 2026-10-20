@@ -27,11 +27,20 @@ internal sealed class AnalysisQueue(Catalog catalog, ContentReaderProfile profil
                     while (true)
                     {
                         stoppingToken.ThrowIfCancellationRequested();
-                        process.Refresh();
-                        if (process.HasExited) break;
-                        if (report.IsFaulted || report.IsCanceled) await report;
-                        if (clock.Elapsed > TimeSpan.FromSeconds(30) || process.WorkingSet64 > 512L * 1024 * 1024)
-                            throw new TimeoutException("Worker exceeded its time or observed memory limit.");
+                        try
+                        {
+                            process.Refresh();
+                            if (process.HasExited) break;
+                            if (report.IsFaulted || report.IsCanceled) await report;
+                            if (clock.Elapsed > TimeSpan.FromSeconds(30) || process.WorkingSet64 > 512L * 1024 * 1024)
+                                throw new TimeoutException("Worker exceeded its time or observed memory limit.");
+                        }
+                        catch (InvalidOperationException) when (process.HasExited)
+                        {
+                            // Linux can reap a fast worker between HasExited and the /proc memory read.
+                            // Preserve its terminal exit code instead of replacing it with a sampling error.
+                            break;
+                        }
                         await Task.Delay(100, stoppingToken);
                     }
                     if (process.ExitCode == Worker.NativeBudgetExitCode) throw new NativeBudgetExceededException();

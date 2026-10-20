@@ -892,7 +892,7 @@ internal static partial class Signatures
         return true;
     }
 
-    private static uint ComputeCrc32(ReadOnlySpan<byte> data)
+    internal static uint ComputeCrc32(ReadOnlySpan<byte> data)
     {
         uint crc = uint.MaxValue;
         for (int i = 0; i < data.Length; i++)
