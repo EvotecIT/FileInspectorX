@@ -56,7 +56,8 @@ public static partial class FileInspector
 
     private static NestedContainerBudgetState GetNestedContainerBudget(DetectionOptions? options)
         => options?.NestedContainerBudget ?? new NestedContainerBudgetState(OperationSettings.DeepContainerMaxEntries,
-            (long)Math.Max(0, OperationSettings.DeepContainerMaxEntries) * Math.Max(0, OperationSettings.DeepContainerMaxEntryBytes));
+            Math.Min(Math.Max(0, OperationSettings.ArchiveMaxTotalReadBytes),
+                (long)Math.Max(0, OperationSettings.DeepContainerMaxEntries) * GetNestedArchiveDeepScanBytes()));
 
     private static IReadOnlyList<Reference>? MergeReferences(IReadOnlyList<Reference>? primary, IReadOnlyList<Reference>? secondary)
     {

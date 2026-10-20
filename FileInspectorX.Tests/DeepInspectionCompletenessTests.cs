@@ -5,6 +5,28 @@ namespace FileInspectorX.Tests;
 
 public sealed class DeepInspectionCompletenessTests
 {
+    [Fact]
+    public void OneNestedMemberUsesNestedAllowanceInsteadOfDirectAggregate()
+    {
+        using var nested = new MemoryStream();
+        using (var zip = new ZipArchive(nested, ZipArchiveMode.Create, leaveOpen: true))
+        using (var writer = new StreamWriter(zip.CreateEntry("payload.ps1", CompressionLevel.NoCompression).Open()))
+            writer.Write("param([string]$Name); Get-Process | Select-Object Name\n" + new string(' ', 400));
+        Assert.InRange(nested.Length, 513, 32768);
+        using var outer = new MemoryStream();
+        using (var zip = new ZipArchive(outer, ZipArchiveMode.Create, leaveOpen: true))
+        using (var entry = zip.CreateEntry("nested.zip", CompressionLevel.NoCompression).Open())
+            entry.Write(nested.ToArray(), 0, (int)nested.Length);
+        outer.Position = 0;
+        var options = Options(1, 512);
+        options.Settings = options.Settings! with { DeepContainerMaxNestedArchiveBytes = 32768 };
+
+        var analysis = FileInspector.Analyze(outer, options, "outer.zip");
+
+        Assert.True(analysis.Flags.HasFlag(ContentFlags.ContainerContainsScripts));
+        Assert.True(analysis.AnalysisComplete, string.Join(",", analysis.AnalysisIssues ?? Array.Empty<string>()));
+    }
+
     [Theory]
     [InlineData(1024, 0)]
     [InlineData(8192, 1)]
