@@ -429,19 +429,7 @@ public static partial class FileInspector
             if (innerSuspiciousEntries.Count > 0) localFindings.Add("archive:inner-files=" + string.Join(", ", innerSuspiciousEntries.Take(3)));
             if (innerUrlSamples.Count > 0) localFindings.Add("archive:inner-urls=" + string.Join(", ", innerUrlSamples.Take(3)));
             if (innerUncSamples.Count > 0) localFindings.Add("archive:inner-unc-samples=" + string.Join(", ", innerUncSamples.Take(2)));
-            if (innerUrlSamples.Count > 0 || innerUncSamples.Count > 0)
-            {
-                var refs = new List<Reference>(innerUrlSamples.Count + innerUncSamples.Count);
-                foreach (var url in innerUrlSamples.Take(5))
-                {
-                    refs.Add(new Reference { Kind = ReferenceKind.Url, Value = url, SourceTag = "archive:inner" });
-                }
-                foreach (var unc in innerUncSamples.Take(3))
-                {
-                    refs.Add(new Reference { Kind = ReferenceKind.FilePath, Value = unc, Issues = ReferenceIssue.UncPath, SourceTag = "archive:inner" });
-                }
-                referencesOut = refs;
-            }
+            referencesOut = CreateArchiveInnerReferences(innerUrlSamples, innerUncSamples);
             // Attach OOXML external link markers
             if (ooxmlExtLinks)
             {

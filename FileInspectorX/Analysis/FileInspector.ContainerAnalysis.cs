@@ -129,7 +129,7 @@ public static partial class FileInspector
                     out int innerExecSampled,
                     out int innerSignedSampled,
                     out int innerValidSignedSampled,
-                    out Dictionary<string, int>? innerPublisherSample, out var tarFlags, out var tarBudget, out var tarFindings);
+                    out Dictionary<string, int>? innerPublisherSample, out var tarFlags, out var tarBudget, out var tarFindings, out var tarReferences);
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
                 if (hasExec) res.Flags |= ContentFlags.ContainerContainsExecutables;
@@ -151,6 +151,8 @@ public static partial class FileInspector
                     res.SecurityFindings = (res.SecurityFindings ?? Array.Empty<string>()).Concat(tarFindings).ToArray();
                 }
                 ApplyArchiveInspectionBudget(res, tarBudget);
+                if (options?.IncludeReferences != false && tarReferences != null)
+                    res.References = MergeReferences(res.References, tarReferences);
             }
 
             // RAR/7z quick flags + (best-effort) encrypted entries accounting under budget
@@ -285,7 +287,7 @@ public static partial class FileInspector
             }
             if (options?.IncludeContainer != false && OperationSettings.DeepContainerScanEnabled)
             {
-                string? omission = res.Flags.HasFlag(ContentFlags.ArchiveHasEncryptedEntries)
+                string? omission = (res.Flags & (ContentFlags.ArchiveHasEncryptedEntries | ContentFlags.OoxmlEncrypted)) != 0
                     ? "archive:encrypted-content-unavailable"
                     : det.Extension is "rar" or "7z" ? "archive:inner-content-unavailable" : null;
                 if (omission != null)

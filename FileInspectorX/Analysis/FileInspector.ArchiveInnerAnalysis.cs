@@ -90,6 +90,17 @@ public static partial class FileInspector
         return merged;
     }
 
+    /// <summary>Projects bounded child URL and UNC evidence consistently for archive formats.</summary>
+    private static List<Reference>? CreateArchiveInnerReferences(IEnumerable<string> urls, IEnumerable<string> uncPaths)
+    {
+        var references = new List<Reference>();
+        foreach (var url in urls.Take(5))
+            references.Add(new Reference { Kind = ReferenceKind.Url, Value = url, SourceTag = "archive:inner" });
+        foreach (var unc in uncPaths.Take(3))
+            references.Add(new Reference { Kind = ReferenceKind.FilePath, Value = unc, Issues = ReferenceIssue.UncPath, SourceTag = "archive:inner" });
+        return references.Count == 0 ? null : references;
+    }
+
     private static bool ShouldDeepAnalyzeArchiveInnerTextEntry(string name, string? declaredExtension, string? detectedExtension)
     {
         if (IsScriptName(name)) return true;

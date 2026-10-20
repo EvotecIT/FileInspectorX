@@ -14,11 +14,12 @@ public static partial class FileInspector
         out int innerSignedSampled,
         out int innerValidSignedSampled,
         out Dictionary<string, int>? innerPublisherSample, out ContentFlags safetyFlags, out ArchiveInspectionBudget budget,
-        out IReadOnlyList<string>? findings) {
+        out IReadOnlyList<string>? findings, out IReadOnlyList<Reference>? references) {
         var path = input.Name;
         safetyFlags = ContentFlags.None;
         budget = ArchiveInspectionBudget.FromSettings();
         findings = null;
+        references = null;
         var localFindings = new List<string>();
         var urls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var uncPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -68,7 +69,7 @@ public static partial class FileInspector
                                 {
                                     var de = det.Extension?.ToLowerInvariant();
                                     hasScripts |= IsScriptLikeExtension(de);
-                                    if (de is "exe" or "dll" or "msi")
+                                    if (de is "exe" or "dll" or "sys" or "cpl" or "scr" or "com" or "msi")
                                     {
                                         looksExecutable = true;
                                         hasExecutables = true;
@@ -113,7 +114,7 @@ public static partial class FileInspector
                                 var ia = AnalyzeArchiveChild(input, entryInput, name, childOptions, budget,
                                     nativeSignerSampling: looksExecutable && size <= deepBytes);
                                 var detected = ia.Detection?.Extension;
-                                bool executable = detected is "exe" or "dll" or "msi";
+                                bool executable = detected is "exe" or "dll" or "sys" or "cpl" or "scr" or "com" or "msi";
                                 if (executable && size <= deepBytes) innerExecutablesSampled++;
                                 hasScripts |= IsScriptLikeExtension(detected);
                                 hasExecutables |= executable;
@@ -164,6 +165,7 @@ public static partial class FileInspector
             if (disguisedScript) localFindings.Add("archive:inner-disguised-script");
             if (suspicious.Count > 0) localFindings.Add("archive:inner-files=" + string.Join(", ", suspicious.Take(3)));
             findings = localFindings.Count == 0 ? null : localFindings;
+            references = CreateArchiveInnerReferences(urls, uncPaths);
             // TAR is not a JAR/APK container; subtype/signing hints handled in ZIP logic.
         } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("tar:inspection-failed"); }
     }
