@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <VersionPrefix>1.1.6</VersionPrefix>
+    <VersionPrefix>1.1.7</VersionPrefix>
     <Description>Optional bounded OfficeIMO document, image metadata and passive archive adapter for FileInspectorX.</Description>
     <PackageProjectUrl>https://github.com/EvotecIT/FileInspectorX</PackageProjectUrl>
     <RepositoryUrl>https://github.com/EvotecIT/FileInspectorX.git</RepositoryUrl>
