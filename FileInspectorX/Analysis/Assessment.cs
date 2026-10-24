@@ -187,6 +187,11 @@ public static partial class FileInspector
         if ((a.Flags & ContentFlags.PdfHasJavaScript) != 0) Add("Pdf.JavaScript", 20);
         if ((a.Flags & ContentFlags.PdfHasOpenAction) != 0) Add("Pdf.OpenAction", 15);
         if ((a.Flags & ContentFlags.PdfHasLaunch) != 0) Add("Pdf.Launch", 20);
+        if ((a.Flags & ContentFlags.PdfHasRemoteActions) != 0) Add("Pdf.RemoteAction", 20);
+        if ((a.Flags & ContentFlags.PdfHasFormSubmission) != 0) Add("Pdf.FormSubmission", 15);
+        if ((a.Flags & ContentFlags.PdfHasRichMedia) != 0) Add("Pdf.RichMedia", 20);
+        if ((a.Flags & ContentFlags.OfficeHasActiveX) != 0) Add("Office.ActiveX", 30);
+        if ((a.Flags & ContentFlags.OfficeHasEmbeddedObjects) != 0) Add("Office.EmbeddedObjects", 15);
         if ((a.Flags & ContentFlags.PdfHasNamesTree) != 0) Add("Pdf.NamesTree", 10);
         if ((a.Flags & ContentFlags.PdfHasXfa) != 0) Add("Pdf.Xfa", 10);
         if ((a.Flags & ContentFlags.PdfEncrypted) != 0) Add("Pdf.Encrypted", 10);

@@ -629,6 +629,11 @@ public sealed partial class ReportView
         if ((f & ContentFlags.ContainerContainsExecutables) != 0) codes.Add("HasExe");
         if ((f & ContentFlags.ContainerContainsScripts) != 0) codes.Add("HasScript");
         if ((f & ContentFlags.PdfHasJavaScript) != 0) codes.Add("PdfJS");
+        if ((f & ContentFlags.PdfHasRemoteActions) != 0) codes.Add("PdfRemoteAction");
+        if ((f & ContentFlags.PdfHasFormSubmission) != 0) codes.Add("PdfFormSubmission");
+        if ((f & ContentFlags.PdfHasRichMedia) != 0) codes.Add("PdfRichMedia");
+        if ((f & ContentFlags.OfficeHasActiveX) != 0) codes.Add("OfficeActiveX");
+        if ((f & ContentFlags.OfficeHasEmbeddedObjects) != 0) codes.Add("OfficeEmbeddedObjects");
         if ((f & ContentFlags.PdfHasOpenAction) != 0) codes.Add("PdfOpen");
         if ((f & ContentFlags.PdfHasAA) != 0) codes.Add("PdfAA");
         if ((f & ContentFlags.PdfEncrypted) != 0) codes.Add("PdfEnc");

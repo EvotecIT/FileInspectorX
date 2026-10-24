@@ -105,5 +105,15 @@ public enum ContentFlags : long {
     EncodedBase85 = 1L << 41
     ,
     /// <summary>Text content appears to be UUEncoded.</summary>
-    EncodedUu = 1L << 42
+    EncodedUu = 1L << 42,
+    /// <summary>PDF name tokens indicate remote-document or imported-data actions.</summary>
+    PdfHasRemoteActions = 1L << 43,
+    /// <summary>PDF name tokens indicate a form submission action.</summary>
+    PdfHasFormSubmission = 1L << 44,
+    /// <summary>PDF name tokens indicate RichMedia, movie, sound or 3D content.</summary>
+    PdfHasRichMedia = 1L << 45,
+    /// <summary>Office package member names or content types indicate ActiveX controls.</summary>
+    OfficeHasActiveX = 1L << 46,
+    /// <summary>Office package member names or content types indicate embedded OLE objects or packages.</summary>
+    OfficeHasEmbeddedObjects = 1L << 47
 }

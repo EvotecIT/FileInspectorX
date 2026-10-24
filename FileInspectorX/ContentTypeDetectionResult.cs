@@ -4,6 +4,8 @@ namespace FileInspectorX;
 /// Result of content type detection using built-in FileInspector.
 /// </summary>
 public class ContentTypeDetectionResult {
+    // Retain canonical validation reasons for stage evidence instead of recovering them from display text.
+    internal IReadOnlyList<string> ValidationIssues { get; set; } = Array.Empty<string>();
     /// <summary>Typed recognition status. Unknown content may still have a hash or header capture.</summary>
     public InspectionInputStatus InputStatus => string.IsNullOrWhiteSpace(Extension) ? InspectionInputStatus.Unrecognized : InspectionInputStatus.Recognized;
 

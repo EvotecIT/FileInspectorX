@@ -7,7 +7,7 @@ namespace FileInspectorX;
 public static partial class FileInspector
 {
     // Count external relationships using decoded XML attributes, including single quotes.
-    private static void CountOoxmlExternalTargets(IReadOnlyList<(string Target, string Mode)> relationships, ref int allowed, ref int disallowed, ref int unc, List<string> hosts)
+    private static void CountOoxmlExternalTargets(IReadOnlyList<(string Target, string Mode, string Type)> relationships, ref int allowed, ref int disallowed, ref int unc, List<string> hosts)
     {
         foreach (var relationship in relationships)
         {

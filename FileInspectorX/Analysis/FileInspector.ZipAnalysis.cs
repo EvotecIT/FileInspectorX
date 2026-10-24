@@ -55,6 +55,17 @@ public static partial class FileInspector
                 if (string.IsNullOrEmpty(e.FullName) || e.FullName.EndsWith("/")) continue;
                 count++;
                 var name = e.FullName;
+                if (name.Equals("[Content_Types].xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        InspectOoxmlContentTypes(budget.ReadBytes(e), budget, ref hasMacros, localFindings);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException)
+                    {
+                        budget.AddIssue("archive:inspection-error");
+                    }
+                }
                 if (name.Equals("EncryptionInfo", StringComparison.OrdinalIgnoreCase)) sawEncryptionInfo = true;
                 if (name.Equals("EncryptedPackage", StringComparison.OrdinalIgnoreCase)) sawEncryptedPackage = true;
                 if (name.EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase)) hasMacros = true;
@@ -66,6 +77,10 @@ public static partial class FileInspector
 
                 // JAR/APK cues
                 var low = name.ToLowerInvariant();
+                if (low.StartsWith("word/activex/", StringComparison.Ordinal) || low.StartsWith("xl/activex/", StringComparison.Ordinal) || low.StartsWith("ppt/activex/", StringComparison.Ordinal))
+                    if (!localFindings.Contains("office:activex")) localFindings.Add("office:activex");
+                if (low.StartsWith("word/embeddings/", StringComparison.Ordinal) || low.StartsWith("xl/embeddings/", StringComparison.Ordinal) || low.StartsWith("ppt/embeddings/", StringComparison.Ordinal))
+                    if (!localFindings.Contains("office:embedded-object")) localFindings.Add("office:embedded-object");
                 if (low == "meta-inf/manifest.mf") hasManifestMf = true;
                 if (low.StartsWith("meta-inf/") && (low.EndsWith(".rsa") || low.EndsWith(".dsa"))) { hasJarSig = true; hasApkSig = true; }
                 if (low.EndsWith(".class")) hasClass = true;
@@ -88,11 +103,16 @@ public static partial class FileInspector
 
                 // OOXML remote template / DDE cues (Word primary targets)
                 try {
-                    if (!ooxmlRemoteTemplate && (name.EndsWith("word/_rels/document.xml.rels", StringComparison.OrdinalIgnoreCase) || name.EndsWith("_rels/.rels", StringComparison.OrdinalIgnoreCase)))
+                    IReadOnlyList<(string Target, string Mode, string Type)>? partRelationships = null;
+                    if (name.EndsWith(".rels", StringComparison.OrdinalIgnoreCase) &&
+                        (name.StartsWith("word/_rels/", StringComparison.OrdinalIgnoreCase) ||
+                         name.StartsWith("xl/_rels/", StringComparison.OrdinalIgnoreCase) ||
+                         name.StartsWith("ppt/_rels/", StringComparison.OrdinalIgnoreCase) ||
+                         name.Equals("_rels/.rels", StringComparison.OrdinalIgnoreCase)))
                     {
-                        var rels = budget.ReadText(e) ?? string.Empty;
-                        if (rels.IndexOf("attachedTemplate", StringComparison.OrdinalIgnoreCase) >= 0 && (rels.IndexOf("TargetMode=\"External\"", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("http://", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("https://", StringComparison.OrdinalIgnoreCase) >= 0 || rels.IndexOf("\\\\", StringComparison.OrdinalIgnoreCase) >= 0))
-                            ooxmlRemoteTemplate = true;
+                        partRelationships = ReadOoxmlRelationships(budget.ReadBytes(e), budget);
+                        if (partRelationships.Any(relationship => relationship.Mode.Equals("External", StringComparison.OrdinalIgnoreCase) &&
+                            relationship.Type.EndsWith("/attachedTemplate", StringComparison.OrdinalIgnoreCase))) ooxmlRemoteTemplate = true;
                     }
                     if (!ooxmlDde && (name.Equals("word/document.xml", StringComparison.OrdinalIgnoreCase) || name.EndsWith("/document.xml", StringComparison.OrdinalIgnoreCase)))
                     {
@@ -106,7 +126,7 @@ public static partial class FileInspector
                     }
                     if (name.Equals("xl/_rels/workbook.xml.rels", StringComparison.OrdinalIgnoreCase))
                     {
-                        var relationships = ReadOoxmlRelationships(budget.ReadBytes(e), budget);
+                        var relationships = partRelationships ?? ReadOoxmlRelationships(budget.ReadBytes(e), budget);
                         foreach (var relationship in relationships)
                         {
                             if (!string.Equals(relationship.Mode, "External", StringComparison.OrdinalIgnoreCase) &&
@@ -121,7 +141,7 @@ public static partial class FileInspector
                         var relationships = ReadOoxmlRelationships(budget.ReadBytes(e), budget);
                         CountOoxmlExternalTargets(relationships, ref ooxmlAllowed, ref ooxmlDisallowed, ref ooxmlUnc, ooxmlHosts);
                     }
-                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { }
+                } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:inspection-error"); }
 
                 // Safety preflight: traversal/absolute
                 if (ArchivePathSafety.HasTraversal(name)) hasTraversal = true;
@@ -155,7 +175,7 @@ public static partial class FileInspector
                                 }
                             }
                         }
-                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { /* ignore per-entry errors */ }
+                    } catch (Exception ex) when (ex is not OutOfMemoryException and not LearnedClassificationException and not OperationCanceledException) { budget.AddIssue("archive:inspection-error"); }
                     sampled++;
                 }
 

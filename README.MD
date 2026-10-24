@@ -159,6 +159,39 @@ tenant isolation and operating-system sandboxing. FileInspectorX and OfficeIMO k
 their format capabilities independent through the optional adapter described in the
 [dependency assessment](Docs/dependency-assessment.md).
 
+### Acceptance policy for untrusted files
+
+Inspect the bytes, then evaluate their evidence against the original client filename:
+
+```csharp
+var analysis = FileInspector.Inspect(path, InspectionProfile.Bounded().CreateOptions());
+var acceptance = FileInspector.EvaluateAcceptance(analysis, Path.GetFileName(path));
+Console.WriteLine(acceptance.Decision);
+foreach (var reason in acceptance.Reasons)
+    Console.WriteLine(reason);
+```
+
+`Accepted` means the available inspection evidence satisfies the selected policy;
+it is not a malware-free guarantee. `Rejected` identifies an observed policy
+violation. `Incomplete` means recognition or requested analysis cannot establish
+acceptance, including detection-only inspection and unavailable container analysis.
+Legacy Office directory hints, RTF and other document carriers without a complete
+core content-policy pass also remain incomplete under the default restrictions.
+Keep the decision bound to the inspected bytes when storing or transferring a file.
+
+The default policy rejects unsafe client filenames, declared-type mismatches,
+failed structured validation, resource-limit exhaustion, encrypted content,
+active Office/PDF content, embedded document payloads and unsafe archive paths.
+`FileAcceptanceOptions` lets callers select content restrictions. Relaxing a
+restriction does not turn unknown or partial evidence into `Accepted`.
+
+The built-in PDF pass remains lexical and incomplete. It recognizes remote
+actions, form submission and multimedia names outside strings, comments and
+stream payloads, but does not validate or decompress the complete PDF. A caller
+must handle `Incomplete` explicitly, for example with quarantine or a separate
+successful scanning requirement. Document parsing, macro execution and external
+resource fetching are not performed by the acceptance evaluator.
+
 ### Optional learned classification
 
 `FileInspectorX.Magika` runs Google's pinned `standard_v3_3` model in C#. It is explicit

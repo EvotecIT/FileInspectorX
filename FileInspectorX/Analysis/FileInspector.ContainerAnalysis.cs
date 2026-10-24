@@ -54,6 +54,8 @@ public static partial class FileInspector
                     out int innerExecSampled, out int innerSignedAny, out int innerValid, out Dictionary<string,int>? innerPublishers, out Dictionary<string,int>? innerPublishersValid, out Dictionary<string,int>? innerPublishersSelf, out List<InnerEntryPreview>? previewOut, out Dictionary<string,int>? innerExecExtCounts,
                     out bool archiveInspectionComplete, out IReadOnlyList<string>? archiveInspectionIssues);
                 if (hasMacros) res.Flags |= ContentFlags.HasOoxmlMacros;
+                if (findings?.Contains("office:activex") == true) res.Flags |= ContentFlags.OfficeHasActiveX;
+                if (findings?.Contains("office:embedded-object") == true) res.Flags |= ContentFlags.OfficeHasEmbeddedObjects;
                 if (subType != null) res.ContainerSubtype = subType;
                 if (count != null) res.ContainerEntryCount = count;
                 if (topExt != null) res.ContainerTopExtensions = topExt;
@@ -288,7 +290,7 @@ public static partial class FileInspector
                     }
                 }
             }
-            if (options?.IncludeContainer != false && OperationSettings.DeepContainerScanEnabled)
+            if (options?.IncludeContainer != false)
             {
                 string? omission = (res.Flags & (ContentFlags.ArchiveHasEncryptedEntries | ContentFlags.OoxmlEncrypted)) != 0
                     ? "archive:encrypted-content-unavailable"

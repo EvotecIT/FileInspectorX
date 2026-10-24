@@ -7,7 +7,7 @@ using FI = FileInspectorX.FileInspector;
 
 namespace FileInspectorX.Tests;
 
-public class DetectorTests {
+public partial class DetectorTests {
     [Fact]
     public void Detect_Png_ByMagic() {
         var tmp = Path.GetTempFileName();

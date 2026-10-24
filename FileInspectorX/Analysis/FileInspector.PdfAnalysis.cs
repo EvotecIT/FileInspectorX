@@ -76,6 +76,10 @@ public static partial class FileInspector
             if (names.Contains("AA")) result.Flags |= ContentFlags.PdfHasAA;
             if (names.Contains("EmbeddedFiles") || names.Contains("Filespec") && names.Contains("EF")) result.Flags |= ContentFlags.PdfHasEmbeddedFiles;
             if (names.Contains("Launch")) result.Flags |= ContentFlags.PdfHasLaunch;
+            if (names.Contains("GoToR") || names.Contains("GoToE") || names.Contains("ImportData")) result.Flags |= ContentFlags.PdfHasRemoteActions;
+            if (names.Contains("SubmitForm")) result.Flags |= ContentFlags.PdfHasFormSubmission;
+            if (names.Contains("RichMedia") || names.Contains("RichMediaContent") || names.Contains("RichMediaExecute") ||
+                names.Contains("Movie") || names.Contains("Sound") || names.Contains("3D")) result.Flags |= ContentFlags.PdfHasRichMedia;
             if (names.Contains("Names")) result.Flags |= ContentFlags.PdfHasNamesTree;
             if (filespecs > 3) result.Flags |= ContentFlags.PdfHasManyEmbeddedFiles;
             if (names.Contains("XFA")) result.Flags |= ContentFlags.PdfHasXfa;
