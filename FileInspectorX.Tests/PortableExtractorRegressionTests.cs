@@ -152,6 +152,23 @@ public sealed class PortableExtractorRegressionTests
         Assert.Contains("rar4:enc=1/2", result.SecurityFindings!);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RarHeaderEnumerationDoesNotEstablishContentAcceptance(bool deep)
+    {
+        using var output = new MemoryStream();
+        output.Write(new byte[] { 82, 97, 114, 33, 26, 7, 0 }, 0, 7);
+        RarFile(output, "plain.txt", false, new byte[16]);
+        var options = Options();
+        options.Settings = (options.Settings ?? InspectionSettings.CaptureDefaults()) with { DeepContainerScanEnabled = deep };
+        var analysis = FileInspector.Inspect(output.ToArray(), options, "upload.rar");
+        Assert.Equal("rar", analysis.Detection!.Extension);
+        Assert.Equal(1, analysis.ContainerEntryCount);
+        Assert.Contains("archive:inner-content-unavailable", analysis.AnalysisIssues!);
+        Assert.Equal(FileAcceptanceDecision.Incomplete, FileInspector.EvaluateAcceptance(analysis, "upload.rar").Decision);
+    }
+
     [Fact]
     public void PdfContentAndCommentsDoNotBecomeDocumentActionsOrEncryption()
     {

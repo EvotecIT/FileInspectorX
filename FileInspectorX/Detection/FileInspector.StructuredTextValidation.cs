@@ -34,6 +34,7 @@ public static partial class FileInspector
                 if (len > 0 && len > max)
                 {
                     det.ValidationStatus = "skipped";
+                    det.ValidationIssues = new[] { "xml:validation-size-limit" };
                     return;
                 }
             }
@@ -66,10 +67,12 @@ public static partial class FileInspector
                         det.Confidence = "Low";
                         det.Reason = AppendReason(det.Reason, "xml:validation-depth-limit");
                         det.ValidationStatus = "skipped";
+                        det.ValidationIssues = new[] { "xml:validation-depth-limit" };
                         return;
                     }
                 }
                 det.ValidationStatus = "passed";
+                det.ValidationIssues = Array.Empty<string>();
             }
             finally
             {
@@ -82,6 +85,7 @@ public static partial class FileInspector
                 if (detExt == "admx" || detExt == "adml" || detExt == "xml") det.Confidence = "Low";
                 det.Reason = AppendReason(det.Reason, "xml:malformed");
                 det.ValidationStatus = "failed";
+                det.ValidationIssues = new[] { "xml:malformed" };
             }
         catch (TimeoutException ex)
         {
@@ -89,6 +93,7 @@ public static partial class FileInspector
             if (detExt == "admx" || detExt == "adml" || detExt == "xml") det.Confidence = "Low";
             det.Reason = AppendReason(det.Reason, "xml:validation-timeout");
             det.ValidationStatus = "timeout";
+            det.ValidationIssues = new[] { "xml:validation-timeout" };
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
@@ -158,7 +163,10 @@ public static partial class FileInspector
             if (!looksComplete)
             {
                 if (budgetLimited && string.IsNullOrEmpty(det.ValidationStatus))
+                {
                     det.ValidationStatus = "skipped";
+                    det.ValidationIssues = new[] { "json:validation-size-limit" };
+                }
                 return;
             }
             bool jsonValid = JsonStructureValidator.TryValidate(sample, n, out bool jsonSkipped);
@@ -167,7 +175,10 @@ public static partial class FileInspector
                 if (jsonSkipped)
                 {
                     if (string.IsNullOrEmpty(det.ValidationStatus))
+                    {
                         det.ValidationStatus = "skipped";
+                        det.ValidationIssues = new[] { OperationSettings.JsonStructuralValidationEnabled ? "json:validation-limit" : "json:validation-disabled" };
+                    }
                     return;
                 }
                 det.Confidence = "Low";
@@ -178,6 +189,7 @@ public static partial class FileInspector
             else
             {
                 det.ValidationStatus = budgetLimited ? "skipped" : "passed";
+                det.ValidationIssues = budgetLimited ? new[] { "json:validation-size-limit" } : Array.Empty<string>();
                 if (complete && Signatures.TryGetGltfAssetVersion(Encoding.UTF8.GetBytes(sample), out var version))
                 {
                     det.Extension = "gltf";
@@ -199,7 +211,10 @@ public static partial class FileInspector
         if (!xmlComplete)
         {
             if (budgetLimited && string.IsNullOrEmpty(det.ValidationStatus))
+            {
                 det.ValidationStatus = "skipped";
+                det.ValidationIssues = new[] { "xml:validation-size-limit" };
+            }
             return;
         }
         var xmlValidation = ValidateXmlWellFormed(sample, out var validationReason);
@@ -207,6 +222,7 @@ public static partial class FileInspector
         {
             det.Confidence = "Low";
             det.Reason = AppendReason(det.Reason, validationReason!);
+            det.ValidationIssues = validationReason == null ? Array.Empty<string>() : new[] { validationReason };
             det.ValidationStatus = xmlValidation switch
             {
                 StructuredValidationOutcome.TimedOut => "timeout",
@@ -219,6 +235,7 @@ public static partial class FileInspector
         else
         {
             det.ValidationStatus = budgetLimited ? "skipped" : "passed";
+            det.ValidationIssues = budgetLimited ? new[] { "xml:validation-size-limit" } : Array.Empty<string>();
         }
     }
 
@@ -340,6 +357,7 @@ public static partial class FileInspector
     private static void MarkValidationUnavailable(ContentTypeDetectionResult detection)
     {
         detection.ValidationStatus = "unavailable";
+        detection.ValidationIssues = new[] { "structured:validation-unavailable" };
         detection.Confidence = "Low";
         detection.Reason = AppendReason(detection.Reason, "structured:validation-unavailable");
     }

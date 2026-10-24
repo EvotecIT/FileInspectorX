@@ -462,6 +462,8 @@ public static partial class FileInspector {
             // OLE2 Office macros (VBA) check for legacy formats (.doc/.xls/.ppt)
             if (det != null && det.Extension is "doc" or "xls" or "ppt")
             {
+                res.AnalysisComplete = false;
+                res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { "office:directory-inspection-only" });
                 try
                 {
                     using var oleInput = input.OpenRead();
@@ -471,7 +473,8 @@ public static partial class FileInspector {
                         if (hasVba) { res.Flags |= ContentFlags.OleHasVbaMacros; var list = new List<string>(res.SecurityFindings ?? Array.Empty<string>()); if (!list.Contains("office:vba")) list.Add("office:vba"); res.SecurityFindings = list; }
                     }
                 }
-                catch { }
+                catch (Exception exception) when (exception is not OutOfMemoryException and not OperationCanceledException)
+                { res.AnalysisIssues = MergeAnalysisIssues(res.AnalysisIssues, new[] { "office:directory-unavailable" }); }
             }
 
             // Extract generic references (optional)
