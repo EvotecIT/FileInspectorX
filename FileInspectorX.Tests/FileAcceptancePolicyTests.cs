@@ -253,4 +253,57 @@ public sealed class FileAcceptancePolicyTests
         Assert.Equal(FileAcceptanceDecision.Incomplete, result.Decision);
         Assert.DoesNotContain("file-policy:active-document", result.Reasons);
     }
+
+    [Theory]
+    [InlineData("[Content_Types].xml", false)]
+    [InlineData("[Content_Types].xml", true)]
+    [InlineData("word/_rels/settings.xml.rels", false)]
+    [InlineData("word/_rels/settings.xml.rels", true)]
+    [InlineData("word/document.xml", false)]
+    [InlineData("word/document.xml", true)]
+    [InlineData("custom/data.bin", false)]
+    [InlineData("custom/data.bin", true)]
+    public void DamagedZipEntriesPreserveIncompleteEvidenceAndLaterMacroDetection(string damagedEntry, bool includeMacro)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var writer = new StreamWriter(archive.CreateEntry(damagedEntry, CompressionLevel.Optimal).Open()))
+                writer.Write("<fixture>unreadable compressed entry</fixture>");
+            if (damagedEntry != "[Content_Types].xml")
+            {
+                using var writer = new StreamWriter(archive.CreateEntry("[Content_Types].xml", CompressionLevel.NoCompression).Open());
+                writer.Write("<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'><Override PartName='/word/document.xml' ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml'/></Types>");
+            }
+            if (damagedEntry != "word/document.xml")
+            {
+                using var writer = new StreamWriter(archive.CreateEntry("word/document.xml", CompressionLevel.NoCompression).Open());
+                writer.Write("<document/>");
+            }
+            if (includeMacro)
+            {
+                using var writer = new StreamWriter(archive.CreateEntry("word/vbaProject.bin", CompressionLevel.NoCompression).Open());
+                writer.Write("inert macro fixture");
+            }
+        }
+        var bytes = buffer.ToArray();
+        Assert.Equal(0x04034b50u, BitConverter.ToUInt32(bytes, 0));
+        Assert.Equal(8, BitConverter.ToUInt16(bytes, 8));
+        int payloadOffset = 30 + BitConverter.ToUInt16(bytes, 26) + BitConverter.ToUInt16(bytes, 28);
+        bytes[payloadOffset] = 0xff; // Reserved DEFLATE block type, leaving the central directory intact.
+        using (var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read))
+            Assert.Throws<InvalidDataException>(() => { using var entry = archive.Entries[0].Open(); entry.CopyTo(Stream.Null); });
+
+        var analysis = FileInspector.Inspect(bytes, new FileInspector.DetectionOptions
+        {
+            IncludePermissions = false, IncludeAuthenticode = false,
+            Settings = InspectionSettings.CaptureDefaults() with { DeepContainerScanEnabled = false }
+        }, "report.docx");
+        Assert.False(analysis.AnalysisComplete);
+        Assert.Contains("archive:inspection-error", analysis.AnalysisIssues!);
+        Assert.Equal(includeMacro, (analysis.Flags & ContentFlags.HasOoxmlMacros) != 0);
+        var verdict = FileInspector.EvaluateAcceptance(analysis, "report.docx");
+        Assert.Equal(includeMacro ? FileAcceptanceDecision.Rejected : FileAcceptanceDecision.Incomplete, verdict.Decision);
+        if (includeMacro) Assert.Contains("file-policy:active-document", verdict.Reasons);
+    }
 }
