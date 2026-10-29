@@ -1,13 +1,14 @@
 $modulePath = Get-BenchmarkInput ModulePath -Required
 $fixtureRoot = Get-BenchmarkInput FixtureRoot -Required
 $runMft = Get-BenchmarkInput RunMft -Bool -Default $false
+$planning = Get-BenchmarkInput Planning -Bool -Default $false
 $maximumMftBytes = [long](Get-BenchmarkInput MaximumMftBytes 536870912)
 Import-Module $modulePath -ErrorAction Stop
 $snapshot = $null
 $captureMs = 0
 $captureAllocated = 0
 $retainedDelta = 0
-if ($runMft) {
+if ($runMft -and -not $planning) {
     $retainedBefore = [GC]::GetTotalMemory($true)
     $allocatedBefore = [GC]::GetTotalAllocatedBytes($true)
     $captureWatch = [Diagnostics.Stopwatch]::StartNew()
@@ -19,7 +20,7 @@ if ($runMft) {
 }
 $roots = @($fixtureRoot, (Join-Path $fixtureRoot 'level-0'))
 $expected = @{}
-foreach ($root in $roots) {
+foreach ($root in $(if (-not $planning) { $roots })) {
     $items = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop)
     $expected[$root] = ($items | ForEach-Object {
         '{0}|{1}|{2}|{3}' -f $_.FullName, $(if ($_.PSIsContainer) { '' } else { $_.Length }), [int]$_.Attributes, $_.LastWriteTimeUtc.Ticks
@@ -27,7 +28,7 @@ foreach ($root in $roots) {
 }
 New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
     Add-BenchmarkMetadata PrototypeSha256 (Get-FileHash ([IO.Path]::ChangeExtension($modulePath, '.dll'))).Hash
-    Add-BenchmarkMetadata Reader 'Windows FSCTL_GET_NTFS_FILE_RECORD; direct metadata and all long-name links; evaluation only'
+    Add-BenchmarkMetadata Reader $(if ($snapshot) { $snapshot.MetadataSource } elseif ($runMft) { 'BulkMftExtents (planned)' } else { 'Normal enumeration; MFT disabled' })
     Add-BenchmarkMetadata Scope 'Live local synthetic fixture; filesystem caches warm; no reboot/cold-cache claim'
     Add-BenchmarkMetadata SnapshotCaptureMs $captureMs
     Add-BenchmarkMetadata SnapshotCaptureAllocatedBytes $captureAllocated

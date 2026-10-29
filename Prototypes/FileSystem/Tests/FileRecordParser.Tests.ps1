@@ -86,6 +86,12 @@ Describe 'Direct NTFS metadata and link decoding' {
     It 'uses the 64-bit unnamed data size for nonresident data' {
         (Field (Read-Record (New-FileRecord -Nonresident)) Length) | Should -Be 8589934592
     }
+    It 'preserves high Windows attributes while excluding NTFS directory and index flags' {
+        $bytes = New-FileRecord
+        $attributes = [uint32]0x305C0020
+        [BitConverter]::GetBytes($attributes).CopyTo($bytes, 124)
+        [uint32](Field (Read-Record $bytes) Attributes) | Should -Be ([uint32]0x005C0020)
+    }
     It 'fixes raw sector trailers before decoding the same logical metadata' {
         $logical = New-FileRecord
         $raw = [byte[]]::new(1024)

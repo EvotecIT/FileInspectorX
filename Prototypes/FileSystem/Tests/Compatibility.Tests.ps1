@@ -1,5 +1,17 @@
 param([Parameter(Mandatory)] [string] $ModulePath)
 
+Describe 'Comparison planning' {
+    It 'plans MFT lanes without reading a fixture or creating output' {
+        $fixtureRoot = Join-Path $TestDrive 'absent-fixture'
+        $outputRoot = Join-Path $TestDrive 'absent-output'
+        $wrapper = Join-Path $PSScriptRoot '../Invoke-PrototypeComparison.ps1'
+        $cases = @(& $wrapper -ModulePath $ModulePath -FixtureRoot $fixtureRoot -OutputRoot $outputRoot -Plan -RunMft)
+        $cases.Count | Should -Be 14
+        Test-Path -LiteralPath $fixtureRoot | Should -BeFalse
+        Test-Path -LiteralPath $outputRoot | Should -BeFalse
+    }
+}
+
 BeforeAll {
     Import-Module $ModulePath -ErrorAction Stop
     $root = Join-Path $TestDrive 'fixture [literal]'

@@ -85,8 +85,9 @@ internal static class NtfsFileRecordParser
                     if (valueLength < 36 || record.HasStandardInformation) throw new IOException("Invalid standard information.");
                     record.Created = Timestamp(output, value); record.Written = Timestamp(output, value + 8);
                     record.Accessed = Timestamp(output, value + 24);
-                    // Directory/index bits are in the FILE header, not FILE_ATTRIBUTE_* standard information.
-                    record.Attributes = (FileAttributes)(BitConverter.ToUInt32(output, value + 32) & 0x0003FFFF);
+                    // Keep Windows attributes, including pin/recall flags. The two NTFS
+                    // directory/index flags are internal; directory identity comes from the FILE header.
+                    record.Attributes = (FileAttributes)(BitConverter.ToUInt32(output, value + 32) & ~0x30000000u);
                     if (record.Directory) record.Attributes |= FileAttributes.Directory;
                     record.HasStandardInformation = true;
                 }
