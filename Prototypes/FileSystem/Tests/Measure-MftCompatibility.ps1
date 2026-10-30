@@ -51,19 +51,20 @@ $report = foreach ($case in $cases) {
     )
     [pscustomobject]@{ Case = $case.Name; NativeCount = $native.Count; MftCount = $actual.Count; DifferenceCount = $differences.Count; Differences = $differences }
 }
+# The pre-cancelled capture guard is deterministic; this diagnostic does not measure cancellation inside a kernel call.
 $guards = @()
-foreach ($guard in @('RecordBudget', 'MemoryBudget', 'CancellationDuringCapture')) {
+foreach ($guard in @('RecordBudget', 'MemoryBudget', 'CancellationBeforeCapture')) {
     $source = [Threading.CancellationTokenSource]::new()
     try {
         $records = if ($guard -eq 'RecordBudget') { 1 } else { 4000000 }
         $bytes = if ($guard -eq 'MemoryBudget') { 1 } else { 1073741824 }
-        if ($guard -eq 'CancellationDuringCapture') { $source.CancelAfter(10) }
+        if ($guard -eq 'CancellationBeforeCapture') { $source.Cancel() }
         $null = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($FixtureRoot, $source.Token, $MaximumMftBytes, $records, $bytes).GetAwaiter().GetResult()
         throw "Capture guard did not trigger: $guard"
     } catch {
         $exception = $_.Exception
         while ($exception.InnerException) { $exception = $exception.InnerException }
-        $passed = if ($guard -eq 'CancellationDuringCapture') { $exception -is [OperationCanceledException] } else { $exception -is [NotSupportedException] -and $exception.Message -like '*budget*' }
+        $passed = if ($guard -eq 'CancellationBeforeCapture') { $exception -is [OperationCanceledException] } else { $exception -is [NotSupportedException] -and $exception.Message -like '*budget*' }
         $guards += [pscustomobject]@{ Guard = $guard; Passed = $passed; Exception = $exception.GetType().FullName }
     } finally { $source.Dispose() }
 }

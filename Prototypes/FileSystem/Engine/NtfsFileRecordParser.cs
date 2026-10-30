@@ -122,7 +122,11 @@ internal static class NtfsFileRecordParser
             throw new IOException("Invalid FILE_NAME value.");
         record.NameAttributeCount++;
         if (bytes[value + 65] == 2) return; // Count DOS aliases for record completeness, but emit only long-name links.
-        string name = Encoding.Unicode.GetString(bytes, value + 66, bytes[value + 64] * 2);
+        // NTFS stores UTF-16 code units, including names with unpaired surrogates.
+        // A replacement decoder changes the identity of that path component.
+        char[] characters = new char[bytes[value + 64]];
+        for (int i = 0; i < characters.Length; i++) characters[i] = (char)BitConverter.ToUInt16(bytes, value + 66 + 2 * i);
+        string name = new string(characters);
         ulong parent = BitConverter.ToUInt64(bytes, value);
         if (name == ".." || name == "." && parent != record.Id || name.IndexOfAny(InvalidNameCharacters) >= 0)
             throw new IOException("Unsafe FILE_NAME path component.");

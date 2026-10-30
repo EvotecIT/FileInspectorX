@@ -20,10 +20,11 @@ BeforeAll {
         $value = [byte[]]::new(66 + $name.Length * 2)
         [BitConverter]::GetBytes([uint64]0x5678000000000020).CopyTo($value, 0)
         $value[64] = [byte]$name.Length; $value[65] = $namespace
-        [Text.Encoding]::Unicode.GetBytes($name).CopyTo($value, 66)
+        for ($i = 0; $i -lt $name.Length; $i++) { [BitConverter]::GetBytes([uint16]$name[$i]).CopyTo($value, 66 + 2 * $i) }
         return ,(Attribute 0x30 $value)
     }
-    function New-FileRecord([switch] $Nonresident, [switch] $OwnerWithoutNames, [switch] $ExtensionOnlyNames) {
+    function New-FileRecord([switch] $Nonresident, [switch] $OwnerWithoutNames, [switch] $ExtensionOnlyNames,
+        [string] $FirstName = ('file-' + [char]0x017C + '.txt')) {
         $bytes = [byte[]]::new(1036)
         [BitConverter]::GetBytes([uint64]0x42).CopyTo($bytes, 0)
         [BitConverter]::GetBytes([uint32]1024).CopyTo($bytes, 8)
@@ -50,7 +51,7 @@ BeforeAll {
         $position = 68
         $attributes = @()
         if (-not $ExtensionOnlyNames) { $attributes += ,(Attribute 0x10 $si) }
-        if (-not $OwnerWithoutNames) { $attributes += @((NameAttribute 'file-ż.txt'), (NameAttribute 'alias.txt'), (NameAttribute 'FILE~1.TXT' 2)) }
+        if (-not $OwnerWithoutNames) { $attributes += @((NameAttribute $FirstName), (NameAttribute 'alias.txt'), (NameAttribute 'FILE~1.TXT' 2)) }
         if (-not $ExtensionOnlyNames) { $attributes += ,$data }
         if ($ExtensionOnlyNames) {
             [BitConverter]::GetBytes([uint64]0x43).CopyTo($bytes,0)
@@ -71,6 +72,13 @@ BeforeAll {
 }
 
 Describe 'Direct NTFS metadata and link decoding' {
+    It 'preserves an unpaired surrogate in the stored NTFS name' {
+        $name = 'file-' + [char]0xD800 + '.txt'
+        $record = Read-Record (New-FileRecord -FirstName $name)
+        $links = @(Field $record Links)
+        (Field $links[0] Name) | Should -BeExactly $name
+        [int](Field $links[0] Name)[5] | Should -Be 0xD800
+    }
     It 'preserves full identities, all long-name aliases, timestamps and resident logical length' {
         $record = Read-Record (New-FileRecord)
         (Field $record Id) | Should -Be ([uint64]0x1234000000000042)
@@ -80,7 +88,8 @@ Describe 'Direct NTFS metadata and link decoding' {
         $links.Count | Should -Be 2
         (Field $record NameAttributeCount) | Should -Be (Field $record LinkCount)
         (Field $record NameAttributeCount) | Should -Be 3
-        (Field $links[0] Name) | Should -BeExactly 'file-ż.txt'
+        (Field $links[0] Name) | Should -BeExactly ('file-' + [char]0x017C + '.txt')
+        (Field $links[1] Name) | Should -BeExactly 'alias.txt'
         (Field $links[1] ParentId) | Should -Be ([uint64]0x5678000000000020)
     }
     It 'uses the 64-bit unnamed data size for nonresident data' {

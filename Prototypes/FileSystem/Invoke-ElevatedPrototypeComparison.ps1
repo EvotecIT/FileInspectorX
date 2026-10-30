@@ -6,17 +6,20 @@ $scratch = $env:EVOTEC_SCRATCH_ROOT
 if (-not $scratch -or -not (Test-Path -LiteralPath $scratch -PathType Container)) { throw 'Configured scratch volume must already be mounted.' }
 $scratchPrefix = [IO.Path]::GetFullPath($scratch).TrimEnd('\') + '\'
 . (Join-Path $PSScriptRoot 'Assert-PrototypeScratchPath.ps1')
-Assert-PrototypeScratchPath -Path $RequestFile -ScratchPrefix $scratchPrefix
+. (Join-Path $PSScriptRoot 'Assert-PrototypeModulePayload.ps1')
+$isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$isolation = @{ RequireElevatedIsolation = $isElevated }
+Assert-PrototypeScratchPath -Path $RequestFile -ScratchPrefix $scratchPrefix @isolation
 $request = Get-Content -LiteralPath $RequestFile -Raw | ConvertFrom-Json
 $maximumMftBytes = if ($null -ne $request.MaximumMftBytes) { [long]$request.MaximumMftBytes } else { 536870912L }
 if ($maximumMftBytes -le 0) { throw 'MaximumMftBytes must be positive.' }
 foreach ($path in @($request.FixtureRoot, $request.CompatibilityRoot, $request.OutputRoot, $request.ModulePath)) {
-    Assert-PrototypeScratchPath -Path $path -ScratchPrefix $scratchPrefix
+    Assert-PrototypeScratchPath -Path $path -ScratchPrefix $scratchPrefix @isolation
 }
 $temporaryDirectory = Join-Path (Split-Path $RequestFile -Parent) 'temp'
-Assert-PrototypeScratchPath -Path $temporaryDirectory -ScratchPrefix $scratchPrefix
+Assert-PrototypeScratchPath -Path $temporaryDirectory -ScratchPrefix $scratchPrefix @isolation
 $legacyModule = $null
-if ($LargeTree -or -not $TimingsOnly) {
+if (-not $TimingsOnly) {
     $modernDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($request.ModulePath))
     $frameworkDirectory = [IO.Path]::GetFileName($modernDirectory)
     if ($frameworkDirectory -eq 'net8.0') { $legacyFrameworkDirectory = 'net472' }
@@ -24,22 +27,32 @@ if ($LargeTree -or -not $TimingsOnly) {
     else { throw 'ModulePath must identify the net8.0 or *_net8.0 framework output directory.' }
     $legacyDirectory = Join-Path ([IO.Path]::GetDirectoryName($modernDirectory)) $legacyFrameworkDirectory
     $legacyModule = Join-Path $legacyDirectory ([IO.Path]::GetFileName($request.ModulePath))
-    Assert-PrototypeScratchPath -Path $legacyModule -ScratchPrefix $scratchPrefix
+    Assert-PrototypeScratchPath -Path $legacyModule -ScratchPrefix $scratchPrefix @isolation
 }
 if (Test-Path -LiteralPath $request.OutputRoot) { throw 'Choose a new task-owned comparison output directory.' }
+if ($isElevated) {
+    Assert-PrototypeModulePayload -ModulePath $request.ModulePath -ScratchPrefix $scratchPrefix
+    if ($legacyModule) { Assert-PrototypeModulePayload -ModulePath $legacyModule -ScratchPrefix $scratchPrefix }
+}
 $null = New-Item -ItemType Directory -Path $request.OutputRoot
-$env:TEMP = $temporaryDirectory
-$env:TMP = $env:TEMP
-Start-Transcript -LiteralPath (Join-Path $request.OutputRoot 'driver.log') | Out-Null
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
+$transcriptStarted = $false
 try {
+    $env:TEMP = $temporaryDirectory
+    $env:TMP = $temporaryDirectory
+    Start-Transcript -LiteralPath (Join-Path $request.OutputRoot 'driver.log') | Out-Null
+    $transcriptStarted = $true
     if ($LargeTree) {
         $volumeRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($request.FixtureRoot))
         if ($volumeRoot -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($scratch)) -or $volumeRoot -eq [IO.Path]::GetPathRoot($env:SystemRoot)) { throw 'Whole-drive comparison must use the configured scratch volume, distinct from the system volume.' }
         $timingError = $null
         try { & (Join-Path $PSScriptRoot 'Invoke-LargeTreeComparison.ps1') -ModulePath $request.ModulePath -FixtureRoot $request.FixtureRoot -CompatibilityRoot $request.CompatibilityRoot -VolumeRoot $volumeRoot -OutputRoot (Join-Path $request.OutputRoot 'timings') -MaximumMftBytes $maximumMftBytes }
         catch { $timingError = $_ }
-        & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $maximumMftBytes
-        if ($LASTEXITCODE) { throw 'Legacy direct MFT compatibility diagnostic failed.' }
+        if (-not $TimingsOnly) {
+            & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $legacyModule -FixtureRoot $request.CompatibilityRoot -OutputPath (Join-Path $request.OutputRoot 'compatibility-net472.json') -MaximumMftBytes $maximumMftBytes
+            if ($LASTEXITCODE) { throw 'Legacy direct MFT compatibility diagnostic failed.' }
+        }
         if ($timingError) { throw $timingError }
         'Completed' | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
         return
@@ -61,4 +74,7 @@ try {
     $_.Exception.ToString() | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'failure.txt')
     'Failed' | Set-Content -LiteralPath (Join-Path $request.OutputRoot 'status.txt')
     throw
-} finally { Stop-Transcript | Out-Null }
+} finally {
+    try { if ($transcriptStarted) { Stop-Transcript | Out-Null } }
+    finally { $env:TEMP = $previousTemp; $env:TMP = $previousTmp }
+}

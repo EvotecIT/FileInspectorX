@@ -19,7 +19,9 @@ $artifacts = Join-Path $taskRoot 'artifacts'
 dotnet build ./Prototypes/FileSystem/FileInspectorX.FileSystem.Prototype.csproj --artifacts-path $artifacts
 ```
 
-Run `Invoke-PrototypeTests.ps1` in a fresh PowerShell 7 host against the `debug_net8.0` module manifest and in Windows PowerShell 5.1 against `debug_net472`. Supply `-ModulePath` and optional `-OutputPath` for Pester XML. The 46 tests use Pester 5.7.1 and exercise the supported normal-enumeration subset, routing, raw and logical record decoding, runlist bounds, synthetic 4KiB-sector geometry, scratch containment and handled-error accounting without elevation.
+Run `Invoke-PrototypeTests.ps1` in a fresh PowerShell 7 host against the `debug_net8.0` module manifest and in Windows PowerShell 5.1 against `debug_net472`. Supply `-ModulePath` and optional `-OutputPath` for Pester XML. The 54 tests use Pester 5.7.1 and exercise the supported normal-enumeration subset, routing, raw and logical record decoding, runlist bounds, synthetic 4KiB-sector geometry, scratch containment and handled-error accounting without elevation.
+
+The elevated comparison driver requires the request, staged module, fixtures, output parents and every ancestor to be owned by SYSTEM or Administrators, with no write or replacement permissions for other identities, including inheritable entries. It rejects ordinary user-writable scratch staging before reading the request. Both framework payloads are restricted to the known prototype manifest, DLL and optional PDB/dependency JSON; every payload file is checked, and additional module imports or scripts in the manifest are rejected. It checks existing ACLs and never changes them; provision an isolated administrator-controlled scratch volume separately before using that driver. A lexical path check alone cannot protect an elevated operation from ancestor replacement.
 
 ## Query the evaluation module
 
@@ -57,6 +59,8 @@ $comparison = @{
 
 `-Plan` skips capture, baselines and output creation. `-SkipAcquisition` omits timed acquisition cases; it does not eliminate the snapshot needed by cached query cases. The runner validates synthetic normal/repeated-normal/MFT baseline fingerprints before starting timings and preserves failed samples. Whole-drive counts, errors and live changes are reported without an equivalence claim. C# folder totals count hardlink paths separately; inspect the supplied error sink for partial folder coverage.
 
-`Tests/Measure-MftCompatibility.ps1` compares paths and metadata with Get-ChildItem and exercises capture/query guards in either PowerShell host. The older `Invoke-LargeTreeComparison.ps1` retains the earlier per-entry metadata-consumer experiment; its durations have different timer boundaries and should not be mixed with the bulk-stage matrix.
+`Tests/Measure-MftCompatibility.ps1` compares paths and metadata with Get-ChildItem and exercises capture/query guards in either PowerShell host. Its deterministic capture-cancellation check uses a pre-cancelled token; it does not claim to interrupt a kernel call. The older `Invoke-LargeTreeComparison.ps1` retains the earlier per-entry metadata-consumer experiment; its durations have different timer boundaries and should not be mixed with the bulk-stage matrix. PowerForge owns operation allocation sampling; the legacy wrappers require PSPublishModule 3.0.155 or later. .NET Framework reports that counter as unavailable, and capture allocation metadata explicitly names that limitation.
 
 Capture cost, allocation and retained heap are separate from retained-index query timings. Preserve compact results and remove superseded builds and large fixtures under the shared storage policy. An inventory is never authority to delete its discovered paths.
+
+Run each comparison wrapper in a fresh PowerShell process so its module and runtime identities are isolated from earlier comparisons.

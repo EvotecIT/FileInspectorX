@@ -8,6 +8,9 @@ param(
     [switch]$Plan
 )
 $ErrorActionPreference='Stop'
+if ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($FixtureRoot)) -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($VolumeRoot))) {
+    throw 'FixtureRoot must be on the snapshot volume.'
+}
 Import-Module PSPublishModule -MinimumVersion 3.0.168
 if (-not $Plan) {
     if (Test-Path -LiteralPath $OutputRoot) {throw 'Choose a fresh result directory; preserve prior evidence.'}

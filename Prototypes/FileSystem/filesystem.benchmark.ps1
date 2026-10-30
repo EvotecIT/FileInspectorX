@@ -6,16 +6,16 @@ $maximumMftBytes = [long](Get-BenchmarkInput MaximumMftBytes 536870912)
 Import-Module $modulePath -ErrorAction Stop
 $snapshot = $null
 $captureMs = 0
-$captureAllocated = 0
+$captureAllocated = $(if ($PSVersionTable.PSEdition -eq 'Core') { 0 } else { 'Unavailable on .NET Framework' })
 $retainedDelta = 0
 if ($runMft -and -not $planning) {
     $retainedBefore = [GC]::GetTotalMemory($true)
-    $allocatedBefore = [GC]::GetTotalAllocatedBytes($true)
+    $allocatedBefore = $(if ($PSVersionTable.PSEdition -eq 'Core') { [GC]::GetTotalAllocatedBytes($true) } else { 'Unavailable on .NET Framework' })
     $captureWatch = [Diagnostics.Stopwatch]::StartNew()
     $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($fixtureRoot, [Threading.CancellationToken]::None, $maximumMftBytes, 6000000, 4294967296, [TimeSpan]::FromMinutes(10)).GetAwaiter().GetResult()
     $captureWatch.Stop()
     $captureMs = $captureWatch.Elapsed.TotalMilliseconds
-    $captureAllocated = [GC]::GetTotalAllocatedBytes($true) - $allocatedBefore
+    $captureAllocated = $(if ($PSVersionTable.PSEdition -eq 'Core') { [GC]::GetTotalAllocatedBytes($true) - $allocatedBefore } else { 'Unavailable on .NET Framework' })
     $retainedDelta = [GC]::GetTotalMemory($true) - $retainedBefore
 }
 $roots = @($fixtureRoot, (Join-Path $fixtureRoot 'level-0'))
@@ -57,7 +57,6 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
         Add-BenchmarkEngine $engine {
             Add-BenchmarkOperation Enumerate {
                 param($case, $run)
-                $allocated = [GC]::GetTotalAllocatedBytes($false)
                 $watch = [Diagnostics.Stopwatch]::StartNew()
                 $run.FirstResultMs = $null
                 $arguments = @{ LiteralPath = $case.Root; Recurse = $true; Force = $true; ErrorAction = 'Stop' }
@@ -71,7 +70,6 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
                     'MftSnapshot' { @(Get-FileSystemItem @arguments -Backend Mft -Snapshot $snapshot | ForEach-Object $consume) }
                     'MftSnapshotNativeObjects' { @(Get-FileSystemItem @arguments -Backend Mft -Snapshot $snapshot -AsFileSystemInfo | ForEach-Object $consume) }
                 }
-                $run.AllocatedBytes = [GC]::GetTotalAllocatedBytes($false) - $allocated
             }
         }
     }
@@ -82,7 +80,6 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
         } | Sort-Object) -join "`n"
         Assert-BenchmarkValue -Actual $fingerprint -Expected $expected[$case.Root] -Message 'Path, size, attributes and last-write metadata must agree.'
     }
-    Add-BenchmarkMetric ProcessAllocatedBytes { param($case, $run) $run.AllocatedBytes }
     Add-BenchmarkMetric FirstResultMs { param($case, $run) $run.FirstResultMs }
     Add-BenchmarkMetric Items { param($case, $run) @($run.Items).Count }
     Add-BenchmarkComparison -Dimension Engine -Baseline GetChildItem -Metric MedianMs -TieTolerance 0.05

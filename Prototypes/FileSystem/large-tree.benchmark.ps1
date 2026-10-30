@@ -7,19 +7,26 @@ $compatibilityRoot = Get-BenchmarkInput CompatibilityRoot -Required
 $planning = Get-BenchmarkInput Planning -Bool -Default $false
 $runMft = Get-BenchmarkInput RunMft -Bool -Default $true
 $maximumMftBytes = [long](Get-BenchmarkInput MaximumMftBytes 536870912)
+if ($runMft) {
+    foreach ($queryRoot in @($fixtureRoot, $compatibilityRoot)) {
+        if ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($queryRoot)) -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($volumeRoot))) {
+            throw 'FixtureRoot and CompatibilityRoot must be on the snapshot volume.'
+        }
+    }
+}
 Import-Module $modulePath -ErrorAction Stop
 $process = [Diagnostics.Process]::GetCurrentProcess()
 $snapshot = [pscustomobject]@{RecordCount=0;LinkCount=0;ExtensionRecordCount=0;IncompleteRecordCount=0;EstimatedIndexBytes=0;NativeBytesRead=0;MftBytes=0;MetadataSource='NotCaptured'}
-$captureMs = 0; $captureCpuMs = 0; $captureAllocation = 0; $retainedHeapDelta = 0
+$captureMs = 0; $captureCpuMs = 0; $captureAllocation = $(if ($PSVersionTable.PSEdition -eq 'Core') { 0 } else { 'Unavailable on .NET Framework' }); $retainedHeapDelta = 0
 if ($runMft -and -not $planning) {
 $beforeHeap = [GC]::GetTotalMemory($true)
-$beforeAllocation = [GC]::GetTotalAllocatedBytes($true)
+$beforeAllocation = $(if ($PSVersionTable.PSEdition -eq 'Core') { [GC]::GetTotalAllocatedBytes($true) } else { 'Unavailable on .NET Framework' })
 $beforeCpu = $process.TotalProcessorTime.TotalMilliseconds
 $watch = [Diagnostics.Stopwatch]::StartNew()
 $snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($volumeRoot, [Threading.CancellationToken]::None, $maximumMftBytes, 6000000, 4294967296, [TimeSpan]::FromMinutes(10)).GetAwaiter().GetResult()
 $captureMs = $watch.Elapsed.TotalMilliseconds
 $captureCpuMs = $process.TotalProcessorTime.TotalMilliseconds - $beforeCpu
-$captureAllocation = [GC]::GetTotalAllocatedBytes($true) - $beforeAllocation
+$captureAllocation = $(if ($PSVersionTable.PSEdition -eq 'Core') { [GC]::GetTotalAllocatedBytes($true) - $beforeAllocation } else { 'Unavailable on .NET Framework' })
 $retainedHeapDelta = [GC]::GetTotalMemory($true) - $beforeHeap
 & (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $modulePath -FixtureRoot $compatibilityRoot -Snapshot $snapshot -MaximumMftBytes $maximumMftBytes -OutputPath (Join-Path (Split-Path $evidencePath -Parent) 'compatibility-net8.json') | Out-Null
 }
@@ -96,14 +103,12 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
                         }
                     }
                 }
-                $before = [GC]::GetTotalAllocatedBytes($false)
                 $cpu = $process.TotalProcessorTime.TotalMilliseconds
                 switch ($case.Engine) {
                     'GetChildItem' { Get-ChildItem -LiteralPath $case.Root -Recurse -Force -ErrorAction Continue 2>&1 | ForEach-Object $consume }
                     'Walk' { Get-FileSystemItem -LiteralPath $case.Root -Backend Walk -Recurse -Force -ErrorAction Continue 2>&1 | ForEach-Object $consume }
                     'MftSnapshot' { Get-FileSystemItem -LiteralPath $case.Root -Backend Mft -Snapshot $snapshot -Recurse -Force -ErrorAction Continue 2>&1 | ForEach-Object $consume }
                 }
-                $run.AllocatedBytes = [GC]::GetTotalAllocatedBytes($false) - $before
                 $run.CpuMs = $process.TotalProcessorTime.TotalMilliseconds - $cpu
             }
         }
@@ -132,7 +137,6 @@ New-BenchmarkSuite 'fileinspectorx-direct-mft-large-tree' {
         $metricField = $field
         Add-BenchmarkMetric $field ({ param($case, $run) $run.Summary.$metricField }.GetNewClosure())
     }
-    Add-BenchmarkMetric ProcessAllocatedBytes { param($case, $run) $run.AllocatedBytes }
     Add-BenchmarkMetric CpuMs { param($case, $run) $run.CpuMs }
     Add-BenchmarkMetric FirstResultMs { param($case, $run) $run.FirstResultMs }
     # Whole-volume visibility and concurrent-change differences preclude automatic throughput ratios.

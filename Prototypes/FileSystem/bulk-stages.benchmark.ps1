@@ -5,6 +5,9 @@ $evidencePath = Get-BenchmarkInput EvidencePath -Required
 $includeVolume = Get-BenchmarkInput IncludeVolume -Bool -Default $true
 $planning = Get-BenchmarkInput Planning -Bool -Default $false
 $includeAcquisition = Get-BenchmarkInput IncludeAcquisition -Bool -Default $true
+if ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($fixtureRoot)) -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($volumeRoot))) {
+    throw 'FixtureRoot must be on the snapshot volume.'
+}
 Import-Module $modulePath -ErrorAction Stop
 $roots = @([pscustomobject]@{Name='Tree500k';Root=$fixtureRoot;Whole=$false},[pscustomobject]@{Name='Subtree50k';Root=(Join-Path $fixtureRoot 'level-0');Whole=$false})
 if ($includeVolume) { $roots += [pscustomobject]@{Name='WholeDrive';Root=$volumeRoot;Whole=$true} }
@@ -72,7 +75,6 @@ New-BenchmarkSuite -Name 'FileInspectorX-BulkStages' {
                 $options.OnError=$run.Errors.Handler
                 $process=[Diagnostics.Process]::GetCurrentProcess()
                 $cpu=$process.TotalProcessorTime.TotalMilliseconds
-                $allocated=[GC]::GetTotalAllocatedBytes($false)
                 if ($case.Stage -eq 'Acquisition' -and $case.Engine -ne 'Normal') {
                     $mode=if($case.Engine -eq 'RecordApi'){'RecordApi'}else{'Bulk'}
                     $run.Snapshot=[FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($case.Root,[Threading.CancellationToken]::None,8589934592,6000000,4294967296,[TimeSpan]::FromMinutes(10),$mode).GetAwaiter().GetResult()
@@ -88,7 +90,6 @@ New-BenchmarkSuite -Name 'FileInspectorX-BulkStages' {
                     $run.Result=[FileInspectorX.Prototypes.FileSystem.InventoryScan]::MeasureAsync($options,$(if($case.Engine -eq 'CachedMft'){$snapshot}else{$null})).GetAwaiter().GetResult()
                 }
                 $run.CpuMs=$process.TotalProcessorTime.TotalMilliseconds-$cpu
-                $run.AllocatedBytes=[GC]::GetTotalAllocatedBytes($false)-$allocated
             }
         }
     }
@@ -115,5 +116,4 @@ New-BenchmarkSuite -Name 'FileInspectorX-BulkStages' {
         # Live whole-drive counts are evidence, never automatically equivalent or ranked.
     }
     Add-BenchmarkMetric CpuMs {param($case,$run) $run.CpuMs}
-    Add-BenchmarkMetric ProcessAllocatedBytes {param($case,$run) $run.AllocatedBytes}
 }

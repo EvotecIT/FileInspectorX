@@ -1,5 +1,9 @@
 param([Parameter(Mandatory)] [string] $ModulePath)
 
+BeforeDiscovery {
+    $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 Describe 'Comparison planning' {
     It 'plans MFT lanes without reading a fixture or creating output' {
         $fixtureRoot = Join-Path $TestDrive 'absent-fixture'
@@ -20,11 +24,97 @@ Describe 'Comparison planning' {
             Should -Throw '*fresh result directory*'
         [IO.File]::ReadAllText($evidence) | Should -BeExactly 'previous-run'
     }
+    It 'rejects cross-volume compatibility before creating output or acquiring a snapshot' {
+        $outputRoot = Join-Path $TestDrive 'cross-volume-output'
+        $wrapper = Join-Path $PSScriptRoot '../Invoke-LargeTreeComparison.ps1'
+        { & $wrapper -ModulePath $ModulePath -FixtureRoot 'C:\fixture' -CompatibilityRoot 'D:\compatibility' -VolumeRoot 'C:\' -OutputRoot $outputRoot } |
+            Should -Throw '*snapshot volume*'
+        Test-Path -LiteralPath $outputRoot | Should -BeFalse
+    }
+    It 'rejects a cross-volume fixture before either snapshot runner creates output' -TestCases @(
+        @{ Runner = 'Invoke-LargeTreeComparison.ps1'; Arguments = @{ CompatibilityRoot = 'C:\compatibility' } },
+        @{ Runner = 'Invoke-BulkStageComparison.ps1'; Arguments = @{} }
+    ) {
+        param($Runner, $Arguments)
+        $outputRoot = Join-Path $TestDrive ($Runner + '-cross-volume')
+        { & (Join-Path $PSScriptRoot "../$Runner") -ModulePath $ModulePath -FixtureRoot 'D:\fixture' -VolumeRoot 'C:\' -OutputRoot $outputRoot @Arguments } |
+            Should -Throw '*snapshot volume*'
+        Test-Path -LiteralPath $outputRoot | Should -BeFalse
+    }
+    It 'plans normal-only control cases across volumes without requiring a snapshot' {
+        $outputRoot = Join-Path $TestDrive 'normal-cross-volume'
+        $cases = @(& (Join-Path $PSScriptRoot '../Invoke-LargeTreeComparison.ps1') -ModulePath $ModulePath -FixtureRoot 'D:\fixture' -CompatibilityRoot 'D:\compatibility' -VolumeRoot 'C:\' -OutputRoot $outputRoot -NormalOnly -SkipVolume -Plan)
+        $cases.Count | Should -Be 4
+        Test-Path -LiteralPath $outputRoot | Should -BeFalse
+    }
 }
 
 Describe 'Elevated comparison scratch boundary without elevation' {
     BeforeAll {
         . (Join-Path $PSScriptRoot '../Assert-PrototypeScratchPath.ps1')
+        . (Join-Path $PSScriptRoot '../Assert-PrototypeModulePayload.ps1')
+    }
+    It 'rejects an untrusted DLL beside a protected module manifest' {
+        $scratch = Join-Path $TestDrive 'staged-payload'
+        $null = New-Item -ItemType Directory -Path $scratch
+        $module = Join-Path $scratch 'FileInspectorX.FileSystem.Prototype.psd1'
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../FileInspectorX.FileSystem.Prototype.psd1') -Destination $module
+        $script:payloadDll = Join-Path $scratch 'FileInspectorX.FileSystem.Prototype.dll'
+        [IO.File]::WriteAllText($script:payloadDll, 'not executed; permission validation fixture')
+        $prefix = [IO.Path]::GetFullPath($scratch).TrimEnd('\') + '\'
+        $script:protectedPayloadAcl = [Security.AccessControl.FileSecurity]::new()
+        $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        $script:protectedPayloadAcl.SetOwner($administrators)
+        $script:protectedPayloadAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($administrators, 'FullControl', 'Allow'))
+        $script:payloadAcl = $script:protectedPayloadAcl
+        Mock Get-Acl { if ($LiteralPath -ceq $script:payloadDll) { $script:payloadAcl } else { $script:protectedPayloadAcl } }
+        { Assert-PrototypeModulePayload -ModulePath $module -ScratchPrefix $prefix } | Should -Not -Throw
+        $script:payloadAcl = [Security.AccessControl.FileSecurity]::new()
+        $script:payloadAcl.SetOwner($administrators)
+        $script:payloadAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'), 'WriteData', 'Allow'))
+        { Assert-PrototypeModulePayload -ModulePath $module -ScratchPrefix $prefix } | Should -Throw '*writable only*'
+        $script:payloadAcl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'))
+        { Assert-PrototypeModulePayload -ModulePath $module -ScratchPrefix $prefix } | Should -Throw '*owned staging*'
+    }
+    It 'requires trusted ownership and write permissions on every elevated staging ancestor' {
+        $scratch = Join-Path $TestDrive 'secured-staging'
+        $null = New-Item -ItemType Directory -Path $scratch
+        $prefix = [IO.Path]::GetFullPath($scratch).TrimEnd('\') + '\'
+        $script:stagingAcl = [Security.AccessControl.DirectorySecurity]::new()
+        $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        $script:stagingAcl.SetOwner($administrators)
+        $script:stagingAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($administrators, 'FullControl', 'Allow'))
+        Mock Get-Acl { $script:stagingAcl }
+        { Assert-PrototypeScratchPath -Path (Join-Path $scratch 'future-output') -ScratchPrefix $prefix -RequireElevatedIsolation } | Should -Not -Throw
+        $users = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
+        $script:stagingAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users, 'DeleteSubdirectoriesAndFiles', 'Allow'))
+        { Assert-PrototypeScratchPath -Path (Join-Path $scratch 'future-output') -ScratchPrefix $prefix -RequireElevatedIsolation } | Should -Throw '*writable only*'
+        $script:stagingAcl.RemoveAccessRuleAll([Security.AccessControl.FileSystemAccessRule]::new($users, 'DeleteSubdirectoriesAndFiles', 'Allow'))
+        $script:stagingAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users, 'Write', 'ContainerInherit', 'InheritOnly', 'Allow'))
+        { Assert-PrototypeScratchPath -Path (Join-Path $scratch 'future-output') -ScratchPrefix $prefix -RequireElevatedIsolation } | Should -Throw '*writable only*'
+        $script:stagingAcl.SetOwner($users)
+        { Assert-PrototypeScratchPath -Path (Join-Path $scratch 'future-output') -ScratchPrefix $prefix -RequireElevatedIsolation } | Should -Throw '*owned staging*'
+    }
+    It 'restores temporary directories when the comparison fails' -Skip:$isElevated {
+        Import-Module PSPublishModule -MinimumVersion 3.0.155
+        $scratch = Join-Path $TestDrive 'failure-environment'
+        $null = New-Item -ItemType Directory -Path $scratch
+        $request = Join-Path $scratch 'request.json'
+        @{
+            ModulePath = Join-Path $scratch 'net8.0/Prototype.psd1'; FixtureRoot = Join-Path $scratch 'fixture'
+            CompatibilityRoot = Join-Path $scratch 'compatibility'; OutputRoot = Join-Path $scratch 'output'
+        } | ConvertTo-Json | Set-Content -LiteralPath $request
+        $previousScratch = $env:EVOTEC_SCRATCH_ROOT
+        $previousTemp = $env:TEMP; $previousTmp = $env:TMP
+        try {
+            $env:EVOTEC_SCRATCH_ROOT = $scratch
+            Mock Start-Transcript { }
+            Mock Stop-Transcript { }
+            Mock Invoke-BenchmarkSuite { throw 'Synthetic comparison failure' }
+            { & (Join-Path $PSScriptRoot '../Invoke-ElevatedPrototypeComparison.ps1') -RequestFile $request -TimingsOnly } | Should -Throw '*Synthetic comparison failure*'
+            $env:TEMP | Should -BeExactly $previousTemp
+            $env:TMP | Should -BeExactly $previousTmp
+        } finally { $env:EVOTEC_SCRATCH_ROOT = $previousScratch }
     }
     It 'rejects case-variant siblings and parent traversal while accepting an exact child' {
         $scratch = Join-Path $TestDrive 'ScratchBoundary'
@@ -45,7 +135,7 @@ Describe 'Elevated comparison scratch boundary without elevation' {
             Test-Path -LiteralPath $outsideRequest | Should -BeFalse
         } finally { $env:EVOTEC_SCRATCH_ROOT = $previousScratch }
     }
-    It 'rejects a derived <DerivedPath> junction before creating comparison output' -TestCases @(
+    It 'rejects a derived <DerivedPath> junction before creating comparison output' -Skip:$isElevated -TestCases @(
         @{ DerivedPath = 'Legacy' },
         @{ DerivedPath = 'Temporary' }
     ) {
@@ -86,7 +176,6 @@ BeforeAll {
     [IO.File]::WriteAllBytes((Join-Path $root 'empty'), [byte[]]@())
     [IO.File]::SetAttributes((Join-Path $root 'hidden'), [IO.FileAttributes]::Directory -bor [IO.FileAttributes]::Hidden)
     [IO.File]::SetLastWriteTimeUtc((Join-Path $root 'a.txt'), [datetime]'2024-01-02T03:04:05Z')
-    $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     function Assert-Parity($arguments) {
         $actual = @(Get-FileSystemItem -LiteralPath $root -Backend Walk @arguments -ErrorAction Stop)
         $expected = @(Get-ChildItem -LiteralPath $root @arguments -ErrorAction Stop)
@@ -190,6 +279,7 @@ Describe 'Routing and cancellation' {
         foreach ($total in $totals) {
             $expected=@(Get-ChildItem -LiteralPath $total.Path -Recurse -Force -File)
             $total.Files | Should -Be $expected.Count
+            $total.Directories | Should -Be @(Get-ChildItem -LiteralPath $total.Path -Recurse -Force -Directory).Count
             $total.LogicalBytes | Should -Be (($expected | Measure-Object Length -Sum).Sum)
         }
         { [FileInspectorX.Prototypes.FileSystem.FolderTotals]::MeasureAsync($options,$null,1).GetAwaiter().GetResult() } | Should -Throw

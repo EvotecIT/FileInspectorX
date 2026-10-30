@@ -7,7 +7,7 @@ param(
     [switch] $Plan
 )
 $ErrorActionPreference = 'Stop'
-Import-Module PSPublishModule -MinimumVersion 3.0.153 -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.155 -ErrorAction Stop
 $process = [Diagnostics.Process]::GetCurrentProcess()
 $oldAffinity = $process.ProcessorAffinity
 try {
