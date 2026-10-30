@@ -23,10 +23,10 @@ $report = foreach ($case in $cases) {
     $arguments = $case.Arguments
     $native = @(Get-ChildItem -LiteralPath $FixtureRoot @arguments)
     $actual = @(Get-FileSystemItem -LiteralPath $FixtureRoot @arguments -Backend Mft -Snapshot $snapshot)
-    $index = @{}
+    $index = [Collections.Hashtable]::new([StringComparer]::Ordinal)
     foreach ($item in $native) { $index[$item.FullName] = $item }
     $differences = @(
-        Compare-Object @($native.FullName | Sort-Object) @($actual.FullName | Sort-Object) | ForEach-Object {
+        Compare-Object @($native.FullName | Sort-Object) @($actual.FullName | Sort-Object) -CaseSensitive | ForEach-Object {
             [pscustomobject]@{ Path = $_.InputObject; Field = 'Path'; Expected = $(if ($_.SideIndicator -eq '<=') { 'present' } else { 'absent' }); Actual = $(if ($_.SideIndicator -eq '=>') { 'present' } else { 'absent' }) }
         }
         foreach ($entry in $actual) {

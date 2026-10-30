@@ -51,7 +51,7 @@ New-BenchmarkSuite 'fileinspectorx-filesystem-prototype' {
     Add-BenchmarkSkipRule {
         param($case)
         if (-not $runMft -and $case.Engine -like 'Mft*') { 'Raw-volume comparison not enabled; elevation required.' }
-        if ($runMft -and $case.Engine -eq 'AutoFallback') { 'Actual permission fallback is measured separately in the non-elevated matrix.' }
+        if ($runMft -and $case.Engine -eq 'AutoFallback') { 'Auto uses ordinary enumeration because snapshot visibility and freshness are not compatible with automatic routing.' }
     }
     foreach ($engine in @('GetChildItem', 'Walk', 'WalkNativeObjects', 'AutoFallback', 'MftFresh', 'MftSnapshot', 'MftSnapshotNativeObjects')) {
         Add-BenchmarkEngine $engine {

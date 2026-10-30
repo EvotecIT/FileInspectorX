@@ -32,12 +32,20 @@ public sealed class GetFileSystemItemCommand : AsyncPSCmdlet
     {
         // Resolve provider paths and capture bound-parameter state on the pipeline thread.
         bool recurse = Recurse || MyInvocation.BoundParameters.ContainsKey(nameof(Depth));
-        var roots = LiteralPath.Select(path =>
+        var roots = new List<string>();
+        foreach (var path in LiteralPath)
         {
-            var resolved = SessionState.Path.GetUnresolvedProviderPathFromPSPath(path, out var provider, out _);
-            if (provider.Name != "FileSystem") throw new PSArgumentException("Prototype supports the FileSystem provider only.");
-            return resolved;
-        }).ToArray();
+            try
+            {
+                var resolved = SessionState.Path.GetUnresolvedProviderPathFromPSPath(path, out var provider, out _);
+                if (provider.Name != "FileSystem") throw new PSArgumentException("Prototype supports the FileSystem provider only.");
+                roots.Add(resolved);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                WriteError(new ErrorRecord(exception, "FileSystemPrototypePathResolutionFailed", ErrorCategory.InvalidArgument, path));
+            }
+        }
         foreach (var root in roots)
         {
             var options = new QueryOptions

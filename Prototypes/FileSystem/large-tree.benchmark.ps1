@@ -6,6 +6,7 @@ $evidencePath = Get-BenchmarkInput EvidencePath -Required
 $compatibilityRoot = Get-BenchmarkInput CompatibilityRoot -Required
 $planning = Get-BenchmarkInput Planning -Bool -Default $false
 $runMft = Get-BenchmarkInput RunMft -Bool -Default $true
+$maximumMftBytes = [long](Get-BenchmarkInput MaximumMftBytes 536870912)
 Import-Module $modulePath -ErrorAction Stop
 $process = [Diagnostics.Process]::GetCurrentProcess()
 $snapshot = [pscustomobject]@{RecordCount=0;LinkCount=0;ExtensionRecordCount=0;IncompleteRecordCount=0;EstimatedIndexBytes=0;NativeBytesRead=0;MftBytes=0;MetadataSource='NotCaptured'}
@@ -15,12 +16,12 @@ $beforeHeap = [GC]::GetTotalMemory($true)
 $beforeAllocation = [GC]::GetTotalAllocatedBytes($true)
 $beforeCpu = $process.TotalProcessorTime.TotalMilliseconds
 $watch = [Diagnostics.Stopwatch]::StartNew()
-$snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($volumeRoot, [Threading.CancellationToken]::None, 8589934592, 6000000, 4294967296, [TimeSpan]::FromMinutes(10)).GetAwaiter().GetResult()
+$snapshot = [FileInspectorX.Prototypes.FileSystem.MftSnapshot]::CaptureAsync($volumeRoot, [Threading.CancellationToken]::None, $maximumMftBytes, 6000000, 4294967296, [TimeSpan]::FromMinutes(10)).GetAwaiter().GetResult()
 $captureMs = $watch.Elapsed.TotalMilliseconds
 $captureCpuMs = $process.TotalProcessorTime.TotalMilliseconds - $beforeCpu
 $captureAllocation = [GC]::GetTotalAllocatedBytes($true) - $beforeAllocation
 $retainedHeapDelta = [GC]::GetTotalMemory($true) - $beforeHeap
-& (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $modulePath -FixtureRoot $compatibilityRoot -Snapshot $snapshot -MaximumMftBytes 8589934592 -OutputPath (Join-Path (Split-Path $evidencePath -Parent) 'compatibility-net8.json') | Out-Null
+& (Join-Path $PSScriptRoot 'Tests/Measure-MftCompatibility.ps1') -ModulePath $modulePath -FixtureRoot $compatibilityRoot -Snapshot $snapshot -MaximumMftBytes $maximumMftBytes -OutputPath (Join-Path (Split-Path $evidencePath -Parent) 'compatibility-net8.json') | Out-Null
 }
 
 # One shared consumer reads the same metadata from each engine inside the timed operation.

@@ -10,6 +10,67 @@ Describe 'Comparison planning' {
         Test-Path -LiteralPath $fixtureRoot | Should -BeFalse
         Test-Path -LiteralPath $outputRoot | Should -BeFalse
     }
+    It 'preserves existing large-tree evidence instead of appending another run' {
+        $outputRoot = Join-Path $TestDrive 'existing-comparison'
+        $null = New-Item -ItemType Directory -Path $outputRoot
+        $evidence = Join-Path $outputRoot 'inventory-checkpoints.jsonl'
+        [IO.File]::WriteAllText($evidence, 'previous-run')
+        $wrapper = Join-Path $PSScriptRoot '../Invoke-LargeTreeComparison.ps1'
+        { & $wrapper -ModulePath $ModulePath -FixtureRoot 'absent-fixture' -CompatibilityRoot 'absent-compatibility' -VolumeRoot 'absent-volume' -OutputRoot $outputRoot -NormalOnly -SkipVolume } |
+            Should -Throw '*fresh result directory*'
+        [IO.File]::ReadAllText($evidence) | Should -BeExactly 'previous-run'
+    }
+}
+
+Describe 'Elevated comparison scratch boundary without elevation' {
+    BeforeAll {
+        . (Join-Path $PSScriptRoot '../Assert-PrototypeScratchPath.ps1')
+    }
+    It 'rejects case-variant siblings and parent traversal while accepting an exact child' {
+        $scratch = Join-Path $TestDrive 'ScratchBoundary'
+        $null = New-Item -ItemType Directory -Path $scratch
+        $prefix = [IO.Path]::GetFullPath($scratch).TrimEnd('\') + '\'
+        { Assert-PrototypeScratchPath -Path (Join-Path $scratch 'future-output') -ScratchPrefix $prefix } | Should -Not -Throw
+        { Assert-PrototypeScratchPath -Path (Join-Path $TestDrive 'scratchboundary/future-output') -ScratchPrefix $prefix } | Should -Throw '*exact path spelling*'
+        { Assert-PrototypeScratchPath -Path (Join-Path $scratch '../outside-output') -ScratchPrefix $prefix } | Should -Throw '*scratch root*'
+    }
+    It 'rejects an outside request before trying to read it or create output' {
+        $scratch = Join-Path $TestDrive 'RequestBoundary'
+        $null = New-Item -ItemType Directory -Path $scratch
+        $previousScratch = $env:EVOTEC_SCRATCH_ROOT
+        try {
+            $env:EVOTEC_SCRATCH_ROOT = $scratch
+            $outsideRequest = Join-Path $TestDrive 'absent-outside-request.json'
+            { & (Join-Path $PSScriptRoot '../Invoke-ElevatedPrototypeComparison.ps1') -RequestFile $outsideRequest } | Should -Throw '*scratch root*'
+            Test-Path -LiteralPath $outsideRequest | Should -BeFalse
+        } finally { $env:EVOTEC_SCRATCH_ROOT = $previousScratch }
+    }
+    It 'rejects a derived <DerivedPath> junction before creating comparison output' -TestCases @(
+        @{ DerivedPath = 'Legacy' },
+        @{ DerivedPath = 'Temporary' }
+    ) {
+        param($DerivedPath)
+        $scratch = Join-Path $TestDrive ($DerivedPath + '-derived-boundary')
+        $outside = Join-Path $TestDrive ($DerivedPath + '-outside')
+        $null = New-Item -ItemType Directory -Path $scratch, $outside
+        $junction = if ($DerivedPath -eq 'Legacy') { Join-Path $scratch 'debug_net472' } else { Join-Path $scratch 'temp' }
+        $null = New-Item -ItemType Junction -Path $junction -Value $outside
+        $output = Join-Path $scratch 'comparison-output'
+        $requestFile = Join-Path $scratch 'request.json'
+        @{
+            ModulePath = Join-Path $scratch 'debug_net8.0/Prototype.psd1'
+            FixtureRoot = Join-Path $scratch 'fixture'
+            CompatibilityRoot = Join-Path $scratch 'compatibility'
+            OutputRoot = $output
+        } | ConvertTo-Json | Set-Content -LiteralPath $requestFile
+        $previousScratch = $env:EVOTEC_SCRATCH_ROOT
+        try {
+            $env:EVOTEC_SCRATCH_ROOT = $scratch
+            { & (Join-Path $PSScriptRoot '../Invoke-ElevatedPrototypeComparison.ps1') -RequestFile $requestFile } | Should -Throw '*Reparse paths*'
+            Test-Path -LiteralPath $output | Should -BeFalse
+            @(Get-ChildItem -LiteralPath $outside -Force).Count | Should -Be 0
+        } finally { $env:EVOTEC_SCRATCH_ROOT = $previousScratch }
+    }
 }
 
 BeforeAll {
@@ -62,6 +123,17 @@ Describe 'Normal enumeration filesystem subset' {
     It 'processes multiple literal roots independently' {
         $paths = @($root, (Join-Path $root 'sub'))
         @(Get-FileSystemItem -LiteralPath $paths).Count | Should -Be @(Get-ChildItem -LiteralPath $paths).Count
+    }
+    It 'keeps valid roots after a path-resolution error for <InvalidPath>' -TestCases @(
+        @{ InvalidPath = 'Env:\' },
+        @{ InvalidPath = 'FileInspectorXMissingDrive:\' }
+    ) {
+        param($InvalidPath)
+        $pathErrors = @()
+        $actual = @(Get-FileSystemItem -LiteralPath @($InvalidPath, $root) -Backend Walk -ErrorAction SilentlyContinue -ErrorVariable pathErrors)
+        @($actual.FullName | Sort-Object) -join "`n" | Should -BeExactly ((@(Get-ChildItem -LiteralPath $root).FullName | Sort-Object) -join "`n")
+        $pathErrors.Count | Should -Be 1
+        $pathErrors[0].FullyQualifiedErrorId | Should -Match 'FileSystemPrototypePathResolutionFailed'
     }
     It 'reports missing roots as errors' {
         { Get-FileSystemItem -LiteralPath (Join-Path $root 'missing') -ErrorAction Stop } | Should -Throw

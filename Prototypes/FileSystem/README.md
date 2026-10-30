@@ -19,7 +19,7 @@ $artifacts = Join-Path $taskRoot 'artifacts'
 dotnet build ./Prototypes/FileSystem/FileInspectorX.FileSystem.Prototype.csproj --artifacts-path $artifacts
 ```
 
-Run `Invoke-PrototypeTests.ps1` in a fresh PowerShell 7 host against the `debug_net8.0` module manifest and in Windows PowerShell 5.1 against `debug_net472`. Supply `-ModulePath` and optional `-OutputPath` for Pester XML. The 37 tests use Pester 5.7.1 and exercise the supported normal-enumeration subset, routing, raw and logical record decoding, runlist bounds, synthetic 4KiB-sector geometry and handled-error accounting without elevation.
+Run `Invoke-PrototypeTests.ps1` in a fresh PowerShell 7 host against the `debug_net8.0` module manifest and in Windows PowerShell 5.1 against `debug_net472`. Supply `-ModulePath` and optional `-OutputPath` for Pester XML. The 46 tests use Pester 5.7.1 and exercise the supported normal-enumeration subset, routing, raw and logical record decoding, runlist bounds, synthetic 4KiB-sector geometry, scratch containment and handled-error accounting without elevation.
 
 ## Query the evaluation module
 
@@ -32,6 +32,8 @@ Get-FileSystemItem -LiteralPath $directory -Recurse -Backend Mft
 ```
 
 The default MFT-length guard is 512 MiB. Larger volumes require explicit `-MaximumMftBytes`; separate index limits are `-MaximumIndexRecords`, `-MaximumIndexBytes` and `-MaximumCaptureSeconds`. Conservative accounting is not an exact heap cap. Check available RAM and scope before raising allowances.
+
+The elevated comparison driver validates its request file before reading it and requires every input and output beneath the configured scratch root with its exact path spelling. Case variants and reparse paths are rejected. Each comparison uses a fresh result directory to preserve earlier evidence.
 
 A retained `MftSnapshot` can be passed through `-Snapshot`. Queries reuse captured names and metadata without refreshing every path. New paths and metadata changes require recapture; this is not an atomic point-in-time view. Native object conversion can trigger additional live metadata I/O. `-Filter` other than `*` uses normal enumeration in `Auto` and is rejected by forced MFT.
 
