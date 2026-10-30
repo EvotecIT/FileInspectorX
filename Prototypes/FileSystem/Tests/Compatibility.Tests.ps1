@@ -116,6 +116,25 @@ Describe 'Elevated comparison scratch boundary without elevation' {
             $env:TMP | Should -BeExactly $previousTmp
         } finally { $env:EVOTEC_SCRATCH_ROOT = $previousScratch }
     }
+    It 'rejects output nested in the <Framework> payload before creating it' -Skip:$isElevated -TestCases @(
+        @{ Framework = 'net8.0' }, @{ Framework = 'net472' }
+    ) {
+        param($Framework)
+        $scratch = Join-Path $TestDrive ($Framework + '-nested-output')
+        $null = New-Item -ItemType Directory -Path $scratch
+        $requestFile = Join-Path $scratch 'request.json'
+        $output = Join-Path $scratch "$Framework/output"
+        @{
+            ModulePath = Join-Path $scratch 'net8.0/FileInspectorX.FileSystem.Prototype.psd1'
+            FixtureRoot = Join-Path $scratch 'fixture'; CompatibilityRoot = Join-Path $scratch 'compatibility'; OutputRoot = $output
+        } | ConvertTo-Json | Set-Content -LiteralPath $requestFile
+        $previousScratch = $env:EVOTEC_SCRATCH_ROOT
+        try {
+            $env:EVOTEC_SCRATCH_ROOT = $scratch
+            { & (Join-Path $PSScriptRoot '../Invoke-ElevatedPrototypeComparison.ps1') -RequestFile $requestFile } | Should -Throw '*module payload directory*'
+            Test-Path -LiteralPath $output | Should -BeFalse
+        } finally { $env:EVOTEC_SCRATCH_ROOT = $previousScratch }
+    }
     It 'rejects case-variant siblings and parent traversal while accepting an exact child' {
         $scratch = Join-Path $TestDrive 'ScratchBoundary'
         $null = New-Item -ItemType Directory -Path $scratch

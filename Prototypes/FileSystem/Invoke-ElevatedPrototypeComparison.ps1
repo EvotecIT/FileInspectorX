@@ -29,6 +29,12 @@ if (-not $TimingsOnly) {
     $legacyModule = Join-Path $legacyDirectory ([IO.Path]::GetFileName($request.ModulePath))
     Assert-PrototypeScratchPath -Path $legacyModule -ScratchPrefix $scratchPrefix @isolation
 }
+foreach ($modulePath in @($request.ModulePath, $legacyModule) | Where-Object { $_ }) {
+    $modulePrefix = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($modulePath)).TrimEnd('\') + '\'
+    if ([IO.Path]::GetFullPath($request.OutputRoot).StartsWith($modulePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'OutputRoot must not be inside a module payload directory.'
+    }
+}
 if (Test-Path -LiteralPath $request.OutputRoot) { throw 'Choose a new task-owned comparison output directory.' }
 if ($isElevated) {
     Assert-PrototypeModulePayload -ModulePath $request.ModulePath -ScratchPrefix $scratchPrefix
