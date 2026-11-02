@@ -104,7 +104,9 @@ public sealed class NativeIntegrationTests
         Assert.Equal("first child", report.Content.Entries[0].Report!.Content.Text);
         Assert.Equal("second child", report.Content.Entries[1].Report!.Content.Text);
         Assert.Equal(32768, observed.Root!.Work.DecompressionWorkBytes);
-        Assert.Equal(23, observed.Root.Work.SelectedBytes); Assert.Equal(cab.Length + 23, observed.Root.Work.ReadBytes);
+        Assert.Equal(23, observed.Root.Work.SelectedBytes);
+        // Archive detection reads the eight-byte header before taking the immutable snapshot.
+        Assert.Equal(8 + cab.Length + 23, observed.Root.Work.ReadBytes);
         Assert.All(report.Content.Entries, entry => Assert.Equal(0, entry.CompressedBytes));
         Assert.All(report.Content.Entries, entry => Assert.Equal(ReportArchiveInventorySource.ContentReader, entry.InventorySource));
     }
