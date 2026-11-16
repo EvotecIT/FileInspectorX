@@ -51,7 +51,7 @@ public sealed partial class OfficeImoContentReader
                 output.Map(document.ReadDocument(output.Name, reader, new ReaderExcelOptions
                 {
                     HeadersInFirstRow = true, ChunkRows = 200,
-                    ReadOptions = new ExcelReadOptions
+                    ReadOptions = new ExcelReaderOptions
                     {
                         MaxInputBytes = Input(output), MaxSharedStringItems = NativeCount(output),
                         MaxSharedStringItemCharacters = IntLimit(Expanded(output) / 2), MaxSharedStringCharacters = Expanded(output) / 2,
@@ -65,7 +65,7 @@ public sealed partial class OfficeImoContentReader
             }
             case "powerpoint":
             {
-                using var document = PowerPointPresentation.Load(source, new PowerPointLoadOptions
+                using var document = PowerPointDocument.Load(source, new PowerPointLoadOptions
                 {
                     AccessMode = DocumentAccessMode.ReadOnly, PersistenceMode = DocumentPersistenceMode.Explicit,
                     MaxInputBytes = Input(output), AllowLegacyProjection = false, CaptureSourcePackageSecurity = true,
@@ -98,21 +98,25 @@ public sealed partial class OfficeImoContentReader
             }
             case "rtf":
             {
-                var nativeOptions = new RtfReadOptions
+                var nativeOptions = new RtfLoadOptions
                 {
-                    DeferBinaryPayloads = true, MaxDepth = _options.MaxXmlDepth, MaxInputBytes = Input(output),
-                    MaxInputCharacters = IntLimit(Input(output)), MaxTokenCount = NativeCount(output), MaxGroupCount = NativeCount(output),
-                    MaxTextCharacters = Expanded(output) / 2, MaxBinaryBytesPerPayload = IntLimit(Expanded(output)),
-                    MaxTotalBinaryBytes = Expanded(output), MaxImageCount = NativeCount(output),
-                    MaxImageBytesPerImage = IntLimit(Expanded(output)), MaxTotalImageBytes = Expanded(output),
-                    MaxObjectCount = NativeCount(output), MaxObjectBytesPerObject = IntLimit(Expanded(output)),
-                    MaxTotalObjectBytes = Expanded(output), MaxSemanticBlockCount = NativeCount(output),
+                    DeferBinaryPayloads = true,
+                    Limits = new RtfReadLimits
+                    {
+                        MaxDepth = _options.MaxXmlDepth, MaxInputBytes = Input(output),
+                        MaxInputCharacters = IntLimit(Input(output)), MaxTokens = NativeCount(output), MaxGroups = NativeCount(output),
+                        MaxTextCharacters = Expanded(output) / 2, MaxBinaryPayloadBytes = IntLimit(Expanded(output)),
+                        MaxTotalBinaryBytes = Expanded(output), MaxImages = NativeCount(output),
+                        MaxImageBytes = IntLimit(Expanded(output)), MaxTotalImageBytes = Expanded(output),
+                        MaxObjects = NativeCount(output), MaxObjectBytes = IntLimit(Expanded(output)),
+                        MaxTotalObjectBytes = Expanded(output), MaxSemanticBlocks = NativeCount(output)
+                    },
                     ReadEmbeddedObjects = false, ReadFileReferences = false, HyperlinkPolicy = RtfHyperlinkReadPolicy.WebAndMailOnly
                 };
                 RtfReadResult document = RtfDocument.LoadResult(source, nativeOptions, cancellationToken: token);
                 output.Map(document.ReadDocument(output.Name, reader, new ReaderRtfOptions
                 {
-                    RtfReadOptions = nativeOptions, IncludeDiagnostics = true, IncludeImagePlaceholders = false,
+                    RtfLoadOptions = nativeOptions, IncludeDiagnostics = true, IncludeImagePlaceholders = false,
                     IncludePageLocations = false, IncludeHeadersAndFooters = true, IncludeNotes = _options.IncludeNotes
                 }, token), token);
                 ReadPayloads(output, options => document.InspectEmbeddedPayloads(options, token), source, token);

@@ -27,27 +27,27 @@ internal static partial class NativeFixtures
     internal static byte[] Excel()
     {
         using ExcelDocument document = ExcelDocument.Create();
-        var sheet = document.AddWorksheet("Evidence");
-        sheet.CellValue(1, 1, "Header"); sheet.CellValue(2, 1, Text); sheet.CellFormula(3, 1, "1+1");
+        var sheet = document.AddSheet("Evidence");
+        sheet.Cell(1, 1).SetValue("Header"); sheet.Cell(2, 1).SetValue(Text); sheet.Cell(3, 1).SetFormula("1+1");
         return document.ToBytes();
     }
     internal static byte[] ExcelStrings(int count)
     {
         using ExcelDocument document = ExcelDocument.Create();
-        var sheet = document.AddWorksheet("Evidence");
-        for (int index = 1; index <= count; index++) sheet.CellValue(index, 1, "Unique string " + index);
+        var sheet = document.AddSheet("Evidence");
+        for (int index = 1; index <= count; index++) sheet.Cell(index, 1).SetValue("Unique string " + index);
         return document.ToBytes();
     }
     internal static byte[] PowerPoint()
     {
-        using PowerPointPresentation document = PowerPointPresentation.Create();
-        document.AddSlide().AddTextBox(Text, 100000, 100000, 6000000, 500000);
+        using PowerPointDocument document = PowerPointDocument.Create();
+        document.AddSlide().AddTextBox(Text, global::OfficeIMO.OfficeLength.Emus(100000), global::OfficeIMO.OfficeLength.Emus(100000), global::OfficeIMO.OfficeLength.Emus(6000000), global::OfficeIMO.OfficeLength.Emus(500000));
         return document.ToBytes();
     }
     internal static byte[] Odf(bool image = false)
     {
         OdtDocument document = OdtDocument.Create();
-        document.Metadata.Title = "Authored source title";
+        document.Properties.Title = "Authored source title";
         var paragraph = document.AddParagraph(Text);
         if (image) paragraph.AddImage(Pixel, "pixel.png", OdfLength.Centimeters(1), OdfLength.Centimeters(1));
         return document.ToBytes();

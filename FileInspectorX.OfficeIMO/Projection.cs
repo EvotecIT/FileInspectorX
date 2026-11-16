@@ -43,7 +43,7 @@ internal sealed partial class Projection
         settings["adapterVersion"] = Version(typeof(OfficeImoContentReader));
         settings["nativeVersion"] = Version(family switch
         {
-            "word" => typeof(WordDocument), "excel" => typeof(ExcelDocument), "powerpoint" => typeof(PowerPointPresentation),
+            "word" => typeof(WordDocument), "excel" => typeof(ExcelDocument), "powerpoint" => typeof(PowerPointDocument),
             "opendocument" => typeof(OdfDocument), "rtf" => typeof(RtfDocument), "pdf" => typeof(PdfDocument),
             "archive" => typeof(global::OfficeIMO.Archives.ArchiveInspector), _ => typeof(global::OfficeIMO.Drawing.OfficeImageMetadata)
         });
@@ -51,7 +51,7 @@ internal sealed partial class Projection
         {
             "word" => Version(typeof(global::OfficeIMO.Reader.Word.WordDocumentReaderExtensions)),
             "excel" => Version(typeof(global::OfficeIMO.Reader.Excel.ExcelDocumentReaderExtensions)),
-            "powerpoint" => Version(typeof(global::OfficeIMO.Reader.PowerPoint.PowerPointPresentationReaderExtensions)),
+            "powerpoint" => Version(typeof(global::OfficeIMO.Reader.PowerPoint.PowerPointDocumentReaderExtensions)),
             "opendocument" => Version(typeof(global::OfficeIMO.Reader.OpenDocument.OdfDocumentReaderExtensions)),
             "rtf" => Version(typeof(global::OfficeIMO.Reader.Rtf.RtfReadResultReaderExtensions)),
             "pdf" => Version(typeof(global::OfficeIMO.Reader.Pdf.PdfDocumentReaderExtensions)), _ => "none"

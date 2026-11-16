@@ -61,7 +61,7 @@ public sealed partial class OfficeImoContentReader
         }
     };
 
-    private PdfReadOptions PdfRead(Projection output) => new()
+    private PdfLoadOptions PdfRead(Projection output) => new()
     {
         Profile = PdfReadProfile.Fast, IncludeImages = false, IncludeFormWidgets = false,
         Pipeline = new PdfUnderstandingPipelineOptions
