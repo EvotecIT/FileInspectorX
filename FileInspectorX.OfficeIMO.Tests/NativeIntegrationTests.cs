@@ -185,7 +185,7 @@ public sealed class NativeIntegrationTests
     {
         InspectionReport report = Read(NativeFixtures.Pdf(incorrectLength: true), "repair.pdf");
         Assert.Contains(NativeFixtures.Text, report.Content.Text);
-        Assert.Contains(report.Content.Diagnostics, diagnostic => diagnostic.Code == "pdf-repair-IncorrectStreamLength" && diagnostic.Recovery == ReportRecoveryKind.Repaired);
+        Assert.Contains(report.Content.Diagnostics, diagnostic => diagnostic.Code == "pdf-repair-incorrect-stream-length" && diagnostic.Recovery == ReportRecoveryKind.Repaired);
     }
 
     [Fact]

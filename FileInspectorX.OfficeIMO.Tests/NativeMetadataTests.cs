@@ -87,9 +87,9 @@ public sealed class NativeMetadataTests
 
     private static (byte[] Bytes, string ParentId, string ReplyId, string HiddenId) ReviewPresentation()
     {
-        using PowerPointPresentation presentation = PowerPointPresentation.Create();
+        using PowerPointDocument presentation = PowerPointDocument.Create();
         var slide = presentation.AddSlide();
-        var hidden = slide.AddTextBox(NativeFixtures.Text, 100000, 100000, 6000000, 500000); hidden.Hidden = true;
+        var hidden = slide.AddTextBox(NativeFixtures.Text, global::OfficeIMO.OfficeLength.Emus(100000), global::OfficeIMO.OfficeLength.Emus(100000), global::OfficeIMO.OfficeLength.Emus(6000000), global::OfficeIMO.OfficeLength.Emus(500000)); hidden.Hidden = true;
         var author = new PowerPointCommentAuthor("Synthetic Reviewer");
         var parent = presentation.AddModernComment(slide, author, "Parent review", created: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
         var reply = parent.AddReply(author, "Reply review", created: new DateTime(2026, 1, 1, 0, 1, 0, DateTimeKind.Utc));
