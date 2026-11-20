@@ -51,6 +51,11 @@
         <PackageReference Include="System.Formats.Asn1" Version="10.0.15" />
     </ItemGroup>
 
+    <ItemGroup Condition=" '$(TargetFramework)' == 'net472' ">
+        <PackageReference Update="System.Security.Cryptography.Pkcs" Version="11.0.0" />
+        <PackageReference Update="System.Formats.Asn1" Version="11.0.0" />
+    </ItemGroup>
+
     <ItemGroup>
         <None Include="..\\README.MD" Pack="true" PackagePath="/" Link="README.MD" />
     </ItemGroup>
