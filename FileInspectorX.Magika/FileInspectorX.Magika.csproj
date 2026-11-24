@@ -19,7 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FileInspectorX\FileInspectorX.csproj" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.32.0" />
-    <PackageReference Include="System.Text.Json" Version="10.0.15" />
+    <PackageReference Include="System.Text.Json" Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>
